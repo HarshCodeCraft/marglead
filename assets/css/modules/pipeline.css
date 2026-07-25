@@ -1,0 +1,148 @@
+/* ==========================================================================
+   Kanban Board Lead Status Pipeline Styles (16 columns scrollable)
+   ========================================================================== */
+
+/* Horizontal Pipeline scroll wrapper */
+.pipeline-wrapper {
+    display: flex;
+    gap: 1.25rem;
+    overflow-x: auto;
+    padding-bottom: 1.5rem;
+    height: calc(100vh - 190px);
+    width: 100%;
+}
+
+/* Custom Scrollbar for horizontal pipeline container */
+.pipeline-wrapper::-webkit-scrollbar {
+    height: 10px;
+}
+.pipeline-wrapper::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border-radius: var(--border-radius-full);
+}
+
+/* Kanban Columns representing 16 Pipeline Stages */
+.pipeline-column {
+    flex: 0 0 285px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--border-radius-md);
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.pipeline-column.drag-over {
+    border-color: var(--primary);
+    background-color: rgba(var(--primary-h), var(--primary-s), var(--primary-l), 0.02);
+}
+
+.column-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--font-heading);
+    font-weight: 700;
+}
+
+.column-title {
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.column-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--border-radius-full);
+    background-color: var(--column-color, var(--primary));
+}
+
+.column-counter {
+    background-color: var(--border-color);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: var(--border-radius-full);
+}
+
+/* Scrollable Kanban cards list */
+.cards-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.cards-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+/* Kanban Cards represent individual Lead Info */
+.kanban-card {
+    background-color: var(--bg-app);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 0.85rem;
+    cursor: grab;
+    user-select: none;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.kanban-card:active {
+    cursor: grabbing;
+}
+
+.kanban-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+    border-color: var(--text-muted);
+}
+
+.kanban-card.dragging {
+    opacity: 0.4;
+    border: 1px dashed var(--primary);
+    transform: scale(0.98);
+}
+
+.card-lead-id {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.card-lead-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+    color: var(--text-main);
+}
+
+.card-lead-company {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 0.65rem;
+}
+
+.card-lead-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid var(--border-color);
+    padding-top: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.card-lead-budget {
+    font-size: 0.825rem;
+    font-weight: 700;
+    color: var(--success);
+}

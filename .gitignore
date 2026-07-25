@@ -1,0 +1,26 @@
+# Marg ERP CRM Git Ignore Configuration
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs & Temp files
+*.log
+tmp/
+temp/
+uploads/tmp/*
+!uploads/tmp/.gitkeep
+
+# Local environment overrides
+.env.local
+.env.development.local

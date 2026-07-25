@@ -1,0 +1,348 @@
+================================================================================
+          MARG ERP CRM & CLIENT MANAGEMENT SYSTEM - TECHNICAL DOCUMENTATION
+================================================================================
+Document Version: 1.0.0
+System Name: Marg ERP CRM & Lead Management System
+Target Environment: XAMPP / Apache / PHP 8.x / MySQL 8.x / MariaDB
+Project Path: c:/xampp/htdocs/marglead
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. SYSTEM OVERVIEW & ARCHITECTURE STACK
+2. DATA SECURITY & HARDENING ENGINE
+3. DATABASE SCHEMA & TABLE STRUCTURES
+4. DATA FETCHING & ADVANCED FILTERING METHODOLOGY
+5. BULK SPREADSHEET UPLOAD METHOD (NATIVE XLSX & CSV PARSER)
+6. EMAIL & COMMUNICATIONS ENGINE (PHP MAILER & WHATSAPP)
+7. PDF GENERATION & DOCUMENT EXPORT METHODOLOGY
+8. LIVE BACKGROUND DATA AUTO-SYNC SYSTEM
+9. MODULE WORKSPACE DOCUMENTATION & FEATURES
+10. CODE EXAMPLES & IMPLEMENTATION REFERENCE
+
+================================================================================
+1. SYSTEM OVERVIEW & ARCHITECTURE STACK
+================================================================================
+The Marg ERP CRM is built on a clean, high-performance, modular PHP architecture
+designed to manage end-to-end customer lifecycles, active CRM accounts, old client
+directories (28 headers), support tickets, sales pipelines, installations, user
+trainings,Quotations, and financial invoices.
+
+Core Technologies Used:
+------------------------
+- Core Backend: PHP 8.x (Native Modular MVC Architecture)
+- Database: MySQL 8.x / MariaDB via PHP Data Objects (PDO)
+- Frontend Logic: JavaScript (ES6+ Native Async/Fetch API)
+- Styling & UI Design: Vanilla CSS3 utilizing CSS Custom Properties (CSS Variables)
+  supporting sleek Dark Mode (#0b0f19 / #121826) and Glassmorphism effects.
+- Icons: Lucide Icon Library (v0.263)
+- Fonts: Google Fonts ('Outfit', 'Inter', Monospace)
+- File Parsers: PHP ZipArchive & SimpleXML (Native XLSX parsing without Composer)
+
+Architecture Pattern:
+---------------------
+- Single Entry Router: index.php routes module views via ?page=...
+- Includes:
+  - includes/config.php : Global system settings, timezone, sessions & security headers.
+  - includes/db.php     : PDO Database connection setup.
+  - includes/header.php : Sidebar navigation, header bars, user roles, top notifications.
+  - includes/footer.php : Global modal containers, script inclusions, Lucide initializer.
+  - includes/mailer.php : SMTP Email sending engine & logs.
+
+================================================================================
+2. DATA SECURITY & HARDENING ENGINE
+================================================================================
+The system enforces multi-layered enterprise security against web vulnerabilities
+such as SQL Injection, Cross-Site Scripting (XSS), Clickjacking, and Session Hijacking.
+
+A. SQL Injection Prevention (100% PDO Prepared Statements)
+----------------------------------------------------------
+Every database operation (SELECT, INSERT, UPDATE, DELETE) uses PDO prepared statements
+with bound parameter placeholders (?) or named parameters (:param). Raw SQL query
+string concatenation of user input ($_GET, $_POST, $_COOKIE) is strictly prohibited.
+
+Example PDO Prepared Query:
+  $stmt = $pdo->prepare("
+      SELECT * FROM client_directory 
+      WHERE (party_name LIKE ? OR customer_id LIKE ? OR mobile LIKE ?)
+        AND LOWER(party_status) = ?
+      ORDER BY id DESC LIMIT ? OFFSET ?
+  ");
+  $stmt->bindValue(1, '%'.$search.'%', PDO::PARAM_STR);
+  $stmt->bindValue(2, '%'.$search.'%', PDO::PARAM_STR);
+  $stmt->bindValue(3, '%'.$search.'%', PDO::PARAM_STR);
+  $stmt->bindValue(4, strtolower($status), PDO::PARAM_STR);
+  $stmt->bindValue(5, $limit, PDO::PARAM_INT);
+  $stmt->bindValue(6, $offset, PDO::PARAM_INT);
+  $stmt->execute();
+
+B. Cross-Site Scripting (XSS) Sanitization
+------------------------------------------
+All dynamic text variables rendered into HTML content, input attributes, tables, or
+modal fields are sanitized using htmlspecialchars($val, ENT_QUOTES, 'UTF-8').
+
+Example XSS Output Sanitization:
+  <strong class="text-main"><?php echo htmlspecialchars($r['party_name']); ?></strong>
+  <input type="text" value="<?php echo htmlspecialchars($search_query, ENT_QUOTES, 'UTF-8'); ?>">
+
+C. URL & Input Parameter Filtering
+----------------------------------
+- Router Whitelisting: index.php matches ?page= against an approved array of modules.
+  Arbitrary path parameters or directory traversal attempts (?page=../../etc/passwd)
+  are caught and redirected safely to the dashboard.
+- Type Casting: Integer parameters (page numbers $p, page limits $limit, record IDs)
+  are explicitly cast using intval() or max().
+
+D. HTTP Security Headers
+------------------------
+Enforced globally in includes/config.php before output buffering:
+  - X-Frame-Options: SAMEORIGIN (Prevents Clickjacking iframe attacks)
+  - X-Content-Type-Options: nosniff (Blocks MIME-type spoofing)
+  - X-XSS-Protection: 1; mode=block (Activates browser XSS filtering)
+  - Referrer-Policy: strict-origin-when-cross-origin (Protects sensitive headers)
+
+E. Role-Based Access Control (RBAC) & Session Hardening
+-------------------------------------------------------
+- Unauthenticated requests redirect automatically to auth/login.php.
+- User status (Active, Inactive, Suspended) is checked against the database on
+  every page load; deactivated users are instantly logged out.
+- Restricted administrative operations (Client Directory Bulk Upload, System Settings,
+  Role Permissions) enforce access checks using hasAccess() or $is_admin checks.
+
+================================================================================
+3. DATABASE SCHEMA & TABLE STRUCTURES
+================================================================================
+Database Name: marg_crm
+Port: 3307 (XAMPP MySQL)
+
+Key Tables Overview:
+--------------------
+1. client_directory (Stores Old Client Database with 28 Excel Sheet Headers):
+   - Fields: id, sno, sw_type, customer_id, subpartner_code, subpartner_name, party_name,
+     company_using, address, mobile, email, user_type, software_type, no_of_users,
+     contact_person, due_on, act_on, days, party_status, city, transferred_party,
+     online_zip_code, state, home_user, software_trade, version, total_amount,
+     software_hit_date, wallet_id, created_at, updated_at.
+   - Indexes: idx_customer_id, idx_party_name, idx_mobile, idx_party_status, idx_city_state.
+
+2. support_tickets (Customer Support Helpdesk Records):
+   - Fields: id (TCK-XXXX), customer_name, subject, priority, status, assigned_to,
+     lead_id, phone, email, product, renewal_date, address, problem, due_date,
+     callback_number, custom_fields, date_created.
+
+3. leads (Active Sales & CRM Client Accounts):
+   - Fields: id (LD-XXXX), name, contact_person, company, email, phone, city, state,
+     address, gst, source, priority, tags, status, assigned_to, budget, products,
+     enq_for, remarks, created_at, updated_at.
+
+4. users (System Operators & Technicians):
+   - Fields: id, name, email, password, role, status, permissions, action_permissions,
+     profile_photo, created_at.
+
+5. timeline (Activity Logs & Operations Audit Trail):
+   - Fields: id, lead_id, actor, action_taken, log_time.
+
+================================================================================
+4. DATA FETCHING & ADVANCED FILTERING METHODOLOGY
+================================================================================
+Data fetching modules (modules/clients.php, modules/support.php, modules/leads/list.php)
+utilize a dynamic multi-parameter query builder.
+
+Filtering Workflow:
+-------------------
+1. Read Sanitized Parameters from GET request:
+   $search_query   = trim($_GET['search'] ?? '');
+   $status_filter = trim($_GET['status'] ?? '');
+   $trade_filter  = trim($_GET['trade'] ?? '');
+   $limit         = $_GET['limit'] ?? 25;
+
+2. Build Dynamic WHERE Conditions & Parameter Bindings Array:
+   $dir_where = [];
+   $dir_params = [];
+
+   if (!empty($search_query)) {
+       $dir_where[] = "(party_name LIKE ? OR customer_id LIKE ? OR mobile LIKE ? OR email LIKE ? OR address LIKE ? OR city LIKE ? OR state LIKE ? OR contact_person LIKE ?)";
+       $st = '%' . $search_query . '%';
+       for ($i = 0; $i < 8; $i++) $dir_params[] = $st;
+   }
+
+   if (!empty($status_filter)) {
+       $dir_where[] = "LOWER(party_status) = ?";
+       $dir_params[] = strtolower($status_filter);
+   }
+
+3. Execute Record Counter & Offset Calculation for Pagination:
+   $countStmt = $pdo->prepare("SELECT COUNT(*) FROM client_directory {$where_sql}");
+   $countStmt->execute($dir_params);
+   $matching_count = $countStmt->fetchColumn();
+
+4. Fetch Records safely using PDO Statement:
+   $fetchSql = "SELECT * FROM client_directory {$where_sql} ORDER BY id DESC LIMIT ? OFFSET ?";
+   $stmt = $pdo->prepare($fetchSql);
+   // Bind parameter values with integer offset & limit types
+
+================================================================================
+5. BULK SPREADSHEET UPLOAD METHOD (NATIVE XLSX & CSV PARSER)
+================================================================================
+Location: modules/clients.php -> parseClientXLSX()
+
+Overview:
+---------
+Allows users to bulk upload Excel (.xlsx) and CSV files containing up to 10,000+ client
+rows directly into the client_directory database without requiring external Composer
+libraries (such as PhpSpreadsheet).
+
+Native XLSX Parser Implementation Details:
+------------------------------------------
+1. Standard Excel .xlsx files are ZIP archives containing XML documents.
+2. PHP's ZipArchive extractsxl/sharedStrings.xml to build a text lookup index.
+3. It parses xl/worksheets/sheet1.xml using SimpleXML to read row coordinates (e.g. A1, B2).
+4. Coordinates are converted to 0-indexed column positions. Shared string indexes (c t="s")
+   are mapped back to their original text values.
+
+Header Auto-Mapping & Flexibility:
+----------------------------------
+The importer normalizes header strings by stripping spaces, special characters, and case:
+  $cleanH = strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', $headerName)));
+
+Key mappings accept flexible header names:
+  - Customer ID: 'CUSTOMER ID', 'customer_id', 'customerid', 'cust_id'
+  - Party Name: 'Party Name', 'party_name', 'party'
+  - Mobile: Handles Excel scientific notation (e.g. 9.34E+09 -> 9340000000)
+
+Duplicate Customer ID Handling:
+-------------------------------
+- Option A ("update"): Overwrites existing database fields if Customer ID matches.
+- Option B ("skip"): Ignores duplicate rows and retains existing records.
+
+================================================================================
+6. EMAIL & COMMUNICATIONS ENGINE (PHP MAILER & WHATSAPP)
+================================================================================
+Location: includes/mailer.php
+
+Email Dispatch Engine:
+----------------------
+- Utilizes PHP mail() or custom SMTP configuration.
+- Automatically logs sent emails to sent_emails database table with recipient, subject,
+  body content, and dispatch status (sent / failed).
+
+WhatsApp Communication Simulation:
+----------------------------------
+- Modules support WhatsApp API link generation:
+  https://api.whatsapp.com/send?phone=919340000000&text=EncodedMessage
+- Dispatches automated reminders for renewals, quotations, and support updates.
+
+================================================================================
+7. PDF GENERATION & DOCUMENT EXPORT METHODOLOGY
+================================================================================
+CSV Document Exporters:
+----------------------
+- Located in index.php?action=export_csv and modules/clients.php?action=export_client_directory.
+- Writes UTF-8 Byte Order Mark (\xEF\xBB\xBF) to the output stream so Microsoft Excel
+  correctly recognizes non-ASCII characters without encoding corruption.
+- Streams CSV headers via header('Content-Type: text/csv; charset=utf-8').
+
+Print & Invoice Layouts:
+------------------------
+- Implemented using responsive CSS print media queries (@media print).
+- Navigation sidebars, control toolbars, and search filters hide automatically during print,
+  rendering a clean, printable document for billing and support records.
+
+================================================================================
+8. LIVE BACKGROUND DATA AUTO-SYNC SYSTEM
+================================================================================
+Location: assets/js/main.js
+
+Overview:
+---------
+Ensures that the displayed table records and KPI summary cards update automatically
+in the background without requiring manual browser page reloads (F5).
+
+How It Works:
+-------------
+1. Polling Loop: Runs every 1.5 seconds (1500ms) calling autoSyncPageData().
+2. Silent Fetch: Executes an asynchronous fetch(window.location.href) with header
+   X-Requested-With: XMLHttpRequest.
+3. DOM Parsing & Targeted Replacement:
+   - Uses DOMParser to extract .table-responsive (data tables) and .grid-4 (KPI cards).
+   - Replaces innerHTML ONLY if the content has changed.
+   - Re-initializes Lucide icons and column visibility preferences.
+
+Form Protection Guard (isUserFillingForm()):
+--------------------------------------------
+Guarantees 0% disruption to users/admins while filling out forms:
+- Checks if any modal window is open (.modal-overlay.open).
+- Checks if any input element (<input>, <textarea>, <select>) is currently focused or active.
+- Checks if the user is actively typing.
+- If ANY condition is true, background updates are PAUSED immediately, preventing form
+  inputs from ever being cleared, reset, or interrupted.
+
+================================================================================
+9. MODULE WORKSPACE DOCUMENTATION & FEATURES
+================================================================================
+
+A. Client Management Workspace (page=clients)
+---------------------------------------------
+- Tab 1: Client Directory Database (Old Clients stored in client_directory table).
+- Tab 2: Active CRM Client Accounts (leads table).
+- Column Visibility Customizer: Toggle visibility of all 28 client directory headers
+  and save preferences in localStorage.
+- Actions Column:
+  - Folder Icon (📁): Opens Client Licence & AMC Workspace Window (matching exact
+    2-card side-by-side screenshot layout with MARG ERP / Marg Books toggles, search bar,
+    licence info, AMC update calculator with live +18% GST calculation, and reasons checklist).
+  - Edit Icon (✏️): Opens Edit Client Record Modal to save profile updates directly to MySQL.
+
+B. Support Tickets Operations (page=support)
+--------------------------------------------
+- Create New Ticket Modal:
+  - Client Name input: Searchable autocomplete input box. Typing Customer ID (e.g. 177912),
+    Party Name (e.g. A TO Z), Mobile, or Email searches client_directory database.
+  - Dropdown behavior: Hidden when input is empty or clicked without typing; displays live
+    matching suggestions when user types.
+  - Auto-Fill: Selecting a client automatically fills Client id, Mobile no., Email ID,
+    Ticket for (Product)*, Renewal date, and Address from database.
+  - Client Details Link: Displays a green "Client Details" link in card header to view full
+    license, trade, status, and AMC information.
+
+C. Sales Pipeline & Kanban (page=pipeline)
+------------------------------------------
+- Interactive Drag-and-Drop stage transitions across lead statuses (New, Qualified, Proposal, Won, Lost).
+
+================================================================================
+10. CODE EXAMPLES & IMPLEMENTATION REFERENCE
+================================================================================
+
+A. Custom Non-Blocking Toast Notification (Overriding Browser Alert):
+---------------------------------------------------------------------
+window.alert = function(msg) {
+    if (!msg) return;
+    let container = document.getElementById('crm-global-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'crm-global-toast-container';
+        container.style.cssText = 'position:fixed; bottom:24px; right:24px; z-index:99999; display:flex; flex-direction:column; gap:8px; max-width:420px; pointer-events:none;';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.style.cssText = 'background:var(--bg-card,#1e293b); color:var(--text-main,#f8fafc); border:1px solid var(--primary,#3b82f6); padding:12px 18px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.5); font-size:0.85rem; font-weight:600; opacity:0; transform:translateY(10px); transition:all 0.3s ease; pointer-events:auto;';
+    toast.innerHTML = '<span>' + String(msg).replace(/\n/g, '<br>') + '</span>';
+    container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0)'; }, 10);
+    setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(10px)'; setTimeout(() => toast.remove(), 300); }, 3500);
+};
+
+B. Live Background Sync Guard Function:
+---------------------------------------
+function isUserFillingForm() {
+    const openModals = document.querySelectorAll('.modal-overlay.open, .modal.open');
+    if (openModals.length > 0) return true;
+    const active = document.activeElement;
+    if (active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return true;
+    if (isTypingInForm) return true;
+    return false;
+}
+
+================================================================================
+END OF SYSTEM TECHNICAL DOCUMENTATION
+================================================================================

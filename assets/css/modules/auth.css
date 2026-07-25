@@ -1,0 +1,227 @@
+/* ==========================================================================
+   Authentication Screens (Login, Reset, OTP, Change Password)
+   ========================================================================= */
+
+.auth-body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1e38 50%, #090d16 100%);
+    padding: 1.5rem;
+    font-family: var(--font-body);
+}
+
+.auth-wrapper {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    width: 100%;
+    max-width: 1050px;
+    min-height: 620px;
+    background: rgba(18, 24, 38, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--border-radius-lg);
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+}
+
+/* Auth Left Promo Panel */
+.auth-panel-left {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.8) 0%, rgba(139, 92, 246, 0.8) 100%), 
+                url('https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=1000') center/cover no-repeat;
+    padding: 3rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    color: #ffffff;
+    position: relative;
+    overflow: hidden;
+}
+
+.auth-panel-left::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.25);
+    z-index: 1;
+}
+
+.auth-panel-left * {
+    position: relative;
+    z-index: 2;
+}
+
+.auth-brand {
+    font-family: var(--font-heading);
+    font-size: 1.5rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.auth-promo-content h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    line-height: 1.15;
+    color: #ffffff;
+    margin-bottom: 1.5rem;
+}
+
+.auth-promo-content p {
+    font-size: 1rem;
+    line-height: 1.6;
+    opacity: 0.9;
+}
+
+.auth-promo-features {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.promo-feature-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+}
+
+/* Auth Right Content Panel */
+.auth-panel-right {
+    padding: 3.5rem 3rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    background-color: var(--bg-card);
+}
+
+.auth-header {
+    margin-bottom: 2rem;
+}
+
+.auth-header h2 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.auth-header p {
+    color: var(--text-muted);
+}
+
+/* Forms input visual wrapper */
+.input-icon-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input-icon-wrapper i,
+.input-icon-wrapper svg {
+    position: absolute;
+    left: 1rem;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+.input-icon-wrapper .form-control {
+    padding-left: 2.75rem;
+}
+
+.password-toggle-btn {
+    position: absolute;
+    right: 1rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    outline: none;
+    display: flex;
+    align-items: center;
+}
+
+.password-toggle-btn:hover {
+    color: var(--text-main);
+}
+
+/* Password Strength Bar */
+.strength-meter {
+    height: 4px;
+    width: 100%;
+    background-color: var(--border-color);
+    border-radius: var(--border-radius-full);
+    margin-top: 0.5rem;
+    overflow: hidden;
+    display: flex;
+    gap: 4px;
+}
+
+.strength-bar {
+    height: 100%;
+    flex: 1;
+    background-color: transparent;
+    transition: background-color var(--transition-fast);
+}
+
+.strength-meter.weak .strength-bar:nth-child(1) { background-color: var(--danger); }
+.strength-meter.medium .strength-bar:nth-child(1),
+.strength-meter.medium .strength-bar:nth-child(2) { background-color: var(--warning); }
+.strength-meter.strong .strength-bar { background-color: var(--success); }
+
+/* OTP grid code fields */
+.otp-container {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin: 1.5rem 0;
+}
+
+.otp-input {
+    width: 50px;
+    height: 55px;
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-align: center;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-app);
+    color: var(--text-main);
+    border-radius: var(--border-radius-sm);
+    transition: border-color var(--transition-fast);
+}
+
+.otp-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px hsla(var(--primary-h), var(--primary-s), var(--primary-l), 0.15);
+}
+
+/* Countdown Timer */
+.timer-container {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin: 1rem 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Responsive auth layouts */
+@media (max-width: 900px) {
+    .auth-wrapper {
+        grid-template-columns: 1fr;
+        max-width: 500px;
+        min-height: auto;
+    }
+    .auth-panel-left {
+        display: none;
+    }
+    .auth-panel-right {
+        padding: 3rem 2rem;
+    }
+}
