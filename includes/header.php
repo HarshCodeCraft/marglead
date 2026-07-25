@@ -37,9 +37,14 @@ if ($db_connected && $pdo && isset($_SESSION['user_id'])) {
     <title><?php echo $pageTitle; ?> - <?php echo APP_NAME; ?></title>
     <link rel="shortcut icon" href="assets/image.png" type="image/png">
     
-    <!-- Meta tags for basic SEO -->
+    <!-- Meta tags for Mobile Web App & PWA -->
     <meta name="description" content="Marg ERP CRM & Lead Management System - Professional lead tracking, pipeline visualization, quotations, and customer support.">
     <meta name="robots" content="noindex, nofollow">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0b0f19">
+    <link rel="manifest" href="manifest.json">
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
