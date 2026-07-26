@@ -1,0 +1,654 @@
+================================================================================
+MARG ERP CRM & LEAD MANAGEMENT SYSTEM - COMPLETE SPECIFICATION FOR BOLT.AI
+================================================================================
+Document Title: Complete Project Specification, End-to-End Workflows & APK Integration Guide
+Target Generator: Bolt.ai / Mobile App Builders / Mobile Developers
+Target Application: Marg ERP CRM Mobile Application (.APK)
+Backend System: Marg ERP CRM & Lead Management System (PHP 8.x + MySQL / MariaDB)
+Document Version: 2.2.0
+Generated Date: 2026-07-26
+
+================================================================================
+CRITICAL DELIVERABLE INSTRUCTION FOR BOLT.AI: BUILD ANDROID (.APK) FILE
+================================================================================
+IMPORTANT: You MUST generate, compile, and provide a downloadable Android (.APK) 
+binary build for this project so the user can install and run it directly on their 
+Android smartphone (Redmi 13C 5G).
+
+Required Steps for Bolt.ai:
+1. Initialize project using Capacitor / React Native / PWA Mobile Wrapper.
+2. Configure Android platform target (`@capacitor/android` or Android Studio build).
+3. Connect all API calls to the local server URL: http://10.53.67.60/marglead/api/
+4. Run the Android build command (`npx cap build android` / export APK binary).
+5. Output the final downloadable **.APK file link** for the user!
+
+================================================================================
+LOCAL NETWORK CONNECTION CONFIGURATION FOR BOLT.AI
+================================================================================
+Local Server Environment: XAMPP / Apache / PHP 8.x / MySQL 8.x (Port 3307)
+Wi-Fi Network / Hotspot: Redmi 13C 5G
+Server Local IPv4 Address: 10.53.67.60
+Local API Base URL: http://10.53.67.60/marglead/api/
+
+Live API Endpoints Created on local server:
+1. Auth Login:          POST http://10.53.67.60/marglead/api/auth.php
+2. Dashboard Stats:     GET  http://10.53.67.60/marglead/api/dashboard.php
+3. Leads List/Create:   GET/POST http://10.53.67.60/marglead/api/leads.php
+4. Support Tickets:     GET/POST http://10.53.67.60/marglead/api/tickets.php
+5. Followups Planner:   GET/POST http://10.53.67.60/marglead/api/followups.php
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. PROJECT OVERVIEW & BUSINESS PURPOSE
+2. COMPLETE FEATURE INVENTORY & MODULE SUMMARY
+3. END-TO-END BUSINESS PROCESS WORKFLOWS
+   3.1 PROCESS 1: LEAD GENERATION TO DEAL CLOSED (SALES & ONBOARDING)
+   3.2 PROCESS 2: TICKET OPEN TO TICKET CLOSED (CUSTOMER SUPPORT HELPDESK)
+   3.3 PROCESS 3: PRODUCT DEMONSTRATIONS & DEPLOYMENT WORKFLOW
+   3.4 PROCESS 4: QUOTATION & INVOICE PAYMENT COLLECTION WORKFLOW
+   3.5 PROCESS 5: SOFTWARE INSTALLATION & USER TRAINING WORKFLOW
+   3.6 PROCESS 6: AMC RENEWAL & CLIENT DIRECTORY MANAGEMENT
+4. MOBILE APP ARCHITECTURE & MYSQL DATABASE CONNECTIVITY GUIDE
+   4.1 CRITICAL TECHNICAL WARNING: WHY DIRECT MYSQL TO APK IS NOT PERMITTED
+   4.2 RECOMMENDED ARCHITECTURE: SECURE REST API INTERFACE (HTTPS JSON)
+   4.3 ALTERNATIVE ARCHITECTURE: PWA / WEBVIEW HYBRID APK
+5. COMPLETE REST API SPECIFICATION FOR BOLT.AI
+6. COMPLETE DATABASE SCHEMA REFERENCE (MYSQL / MARIADB)
+7. UI / UX DESIGN & NAVIGATION REQUIREMENTS FOR APK
+
+================================================================================
+1. PROJECT OVERVIEW & BUSINESS PURPOSE
+================================================================================
+Marg ERP CRM is a specialized Enterprise Lead Management, Customer Support, and 
+Sales Pipeline System designed for Marg ERP software distributors, dealers, and IT 
+service providers. 
+
+The application streamlines the entire client lifecycle—from initial lead capture 
+via marketing channels to product demonstration, quotation submission, payment 
+reconciliation, software installation, customer staff training, ongoing support ticket 
+resolution, and annual software license renewals (AMC).
+
+Key System Objectives:
+- Track sales opportunities across a 7-stage visual Kanban pipeline.
+- Manage sales agent follow-ups with automated SMS & Email reminders.
+- Provide a responsive customer support helpdesk for technical issues.
+- Maintain an active directory of legacy & running client accounts (28 data attributes).
+- Track hardware/software installations and multi-hour staff training sessions.
+- Monitor license expiry dates and automate renewal fee collections.
+
+================================================================================
+2. COMPLETE FEATURE INVENTORY & MODULE SUMMARY
+================================================================================
+The web application consists of 13 core operational modules:
+
+1. DASHBOARD & ANALYTICS:
+   - High-level KPIs: Total Active Leads, Pipeline Value (₹), Pending Follow-ups, 
+     Open Support Tickets, Monthly Revenue Collected, Conversion Rates.
+   - Interactive charts & urgent task indicators for logged-in users.
+
+2. LEADS MANAGEMENT (`modules/leads/`):
+   - Lead Registration: ID format (LD-XXXX), Contact Name, Company, Phone, Email, 
+     City, State, Address, GSTIN, Lead Source, Priority (Hot, Warm, Cold), Tags.
+   - Filtering & Search: Fast search across name, company, phone, city, and status.
+   - Activity Timeline: Immutable audit log tracking every comment, status change, 
+     and assignment.
+   - Spreadsheet Import/Export: Bulk import from CSV/XLSX and one-click CSV export.
+
+3. SALES PIPELINE (`modules/pipeline.php`):
+   - 7 Kanban Stages: New -> Contacted -> Demo Scheduled/Done -> Quotation Sent -> 
+     Payment Pending -> Installation Pending -> Won / Active Client.
+   - Drag-and-drop / stage update interface for sales progress.
+
+4. FOLLOW-UP PLANNER (`modules/followups.php`):
+   - Scheduled tasks: Call, Demo, Email, Site Visit.
+   - Status tracking: Pending, Completed, Missed.
+   - Automated notification triggers (SMS/Email) via background scheduler.
+
+5. PRODUCT DEMOS (`modules/demo.php`):
+   - Schedule online (Google Meet/Zoom) or on-site software demos (DM-XXXX).
+   - Assign demo engineers, record 1-5 star ratings, and capture detailed feedback.
+
+6. QUOTATIONS ENGINE (`modules/quotation/`):
+   - Generate official pricing proposals (QT-XXXX) with auto-calculated GST breakdown 
+     (CGST + SGST or IGST).
+   - Downloadable PDF generation and instant WhatsApp/Email dispatch.
+
+7. INVOICING & PAYMENTS (`modules/payments.php`):
+   - Tax Invoices (INV-XXXX) with total amount, paid amount, and outstanding balance.
+   - Payment status tracking: Paid, Partial, Pending.
+
+8. INSTALLATIONS MANAGEMENT (`modules/installation.php`):
+   - Deployment task management (INS-XXXX) assigned to field engineers.
+   - 5-Point Checklist tracking (Hardware setup, Database config, Marg software install, 
+     Printer map, Multi-user LAN config).
+
+9. USER TRAINING (`modules/training.php`):
+   - Track training sessions (TRN-XXXX) for client staff.
+   - Track logged training hours vs required hours (e.g. 6 hrs) and issue completion 
+     certificates.
+
+10. SUPPORT TICKET HELPDESK (`modules/support.php`):
+    - Issue tracking system (TCK-XXXX) for client technical bugs, invoice printing 
+      problems, and data recovery.
+    - Priorities: Critical, High, Medium, Low.
+    - Statuses: Open, In Progress, Resolved, Closed.
+    - Assigned technician and custom field support.
+
+11. CLIENT DIRECTORY (`modules/clients.php`):
+    - Master directory for active and legacy clients storing 28 detailed fields 
+      (Customer ID, Subpartner, Trade, Version, Software Hit Date, Wallet ID, etc.).
+    - Native XLSX parser handling 10,000+ client rows without third-party dependencies.
+
+12. LICENSE RENEWALS (`modules/renewals.php`):
+    - Software AMC and license expiry tracker (RNW-XXXX).
+    - Status categories: Active (>30 days), Grace Period (1-30 days), Expired (0 days).
+
+13. SYSTEM USER & RBAC MANAGEMENT (`modules/admin/`):
+    - User Roles: Super Admin, Admin, Team Leader, Sales Executive, Installation Engineer, 
+      Support Technician.
+    - Granular module access and action permissions.
+
+================================================================================
+3. END-TO-END BUSINESS PROCESS WORKFLOWS
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 PROCESS 1: LEAD GENERATION TO DEAL CLOSED (SALES & ONBOARDING)
+--------------------------------------------------------------------------------
+Goal: Convert an raw inquiry into a paying, fully installed, trained Marg ERP client.
+
+Step 1: Lead Capture & Registration
+- Source: Web form, Google Ads, Exhibition, Cold Call, or Bulk Excel Import.
+- Record Created: Entry inserted into `leads` table with ID `LD-XXXX` and status `new`.
+- Auto-Assignment: System or Manager assigns lead to a Sales Executive (e.g., Amit Sen).
+- Audit: Timeline entry logged ("Lead auto-assigned to Amit Sen").
+
+Step 2: Initial Discovery & Follow-up
+- Sales Executive logs in, views pending follow-up on Dashboard.
+- Executive calls prospect to understand business requirements (Pharmacy, Retail, FMCG).
+- Executive logs call result in `followups` table and adds timeline remark.
+- Lead status updated from `new` to `contacted`.
+
+Step 3: Product Demonstration
+- Executive schedules demo (`demos` table, ID `DM-XXXX`).
+- Engineer conducts live demo (Online or On-site).
+- Engineer records client rating (1-5) and feedback ("Requires batch billing").
+- Lead status updated to `interested` / `demo_completed`.
+
+Step 4: Quotation & Proposal Submission
+- Executive creates formal quote (`quotations` table, ID `QT-XXXX`).
+- System calculates Taxable Amount + 18% GST = Grand Total.
+- Quotation PDF sent to prospect via Email/WhatsApp link.
+- Lead status updated to `quotation_sent`.
+
+Step 5: Deal Closure & Payment Collection
+- Prospect approves proposal. Executive creates Invoice (`invoices` table, ID `INV-XXXX`).
+- Client pays advance/full payment. Receipt recorded in system.
+- Lead status updated to `payment_pending` or `payment_received`.
+
+Step 6: Installation & Deployment
+- System automatically generates Installation Order (`installations` table, ID `INS-XXXX`).
+- Assigned Field Engineer visits client site, verifies hardware, sets up Marg DB, 
+  completes 5-point checklist.
+- Installation status marked `completed`. Lead status updated to `install_pending` -> `installed`.
+
+Step 7: Staff Training & Certification
+- System generates Training Record (`trainings` table, ID `TRN-501`).
+- Trainer conducts 6 hours of user training on billing, inventory, and GST returns.
+- Logged hours updated to 6/6. Status marked `certified`.
+- Lead status updated to `won` (Active Client).
+
+Step 8: Master Directory Transition & Renewal Tracking
+- Lead profile is archived into `client_directory` master records.
+- License Renewal entry created (`renewals` table) with expiry date 1 year from activation.
+
+--------------------------------------------------------------------------------
+3.2 PROCESS 2: TICKET OPEN TO TICKET CLOSED (CUSTOMER SUPPORT HELPDESK)
+--------------------------------------------------------------------------------
+Goal: Efficiently resolve technical customer queries and system errors.
+
+Step 1: Ticket Creation
+- Client calls support or submits issue online.
+- Support Executive opens `modules/support.php` and clicks "New Ticket".
+- Fields filled: Customer Name, Phone, Email, Product, Priority (Critical/High/Medium/Low), 
+  Problem Description, Due Date.
+- Ticket created in `support_tickets` table with ID `TCK-XXXX` and status `open`.
+
+Step 2: SLA & Engineer Assignment
+- System notifies assigned Support Technician (e.g., Rahul P.).
+- Technician accepts ticket. Status changes to `in_progress`.
+
+Step 3: Technical Troubleshooting
+- Technician establishes remote session (AnyDesk / TeamViewer) or visits site.
+- Troubleshoots database connection, printer setup, or license key configuration.
+- Adds work notes and progress updates to ticket custom fields / logs.
+
+Step 4: Resolution & Verification
+- Issue is tested and verified with customer.
+- Technician updates ticket status to `resolved` and inputs Resolution Summary.
+
+Step 5: Quality Check & Closure
+- Support Manager or automated trigger verifies customer satisfaction.
+- Ticket status updated to `closed`. Customer receives SMS confirmation.
+
+--------------------------------------------------------------------------------
+3.3 PROCESS 3: PRODUCT DEMONSTRATIONS & DEPLOYMENT WORKFLOW
+--------------------------------------------------------------------------------
+1. Entry created in `demos` linked to `lead_id`.
+2. Engineer assigned (`engineer` column).
+3. Notification sent to engineer with client address/contact.
+4. Demo executed -> Feedback & rating logged -> Lead priority auto-adjusted (Hot if Rating >= 4).
+
+--------------------------------------------------------------------------------
+3.4 PROCESS 4: QUOTATION & INVOICE PAYMENT COLLECTION WORKFLOW
+--------------------------------------------------------------------------------
+1. Quotation generated with itemized pricing + GST.
+2. Link generated for client view.
+3. Upon approval, convert Quotation to Invoice with 1 click.
+4. Outstanding balance tracked in real-time (`balance_amount = total_amount - paid_amount`).
+5. Overdue payment alerts sent to Sales Executive after due date.
+
+--------------------------------------------------------------------------------
+3.5 PROCESS 5: SOFTWARE INSTALLATION & USER TRAINING WORKFLOW
+--------------------------------------------------------------------------------
+1. Installation task created (`installations` table).
+2. Checklist items: 
+   - [x] Operating System & Hardware Check
+   - [x] Marg ERP Software Installation
+   - [x] Database Configuration & Path Setup
+   - [x] Thermal/Laser Printer Driver Setup
+   - [x] LAN Multi-user Data Sharing Config
+3. Training scheduled (`trainings` table) for 6 cumulative hours.
+4. Certificate generated once `logged_hours` == `total_hours`.
+
+--------------------------------------------------------------------------------
+3.6 PROCESS 6: AMC RENEWAL & CLIENT DIRECTORY MANAGEMENT
+--------------------------------------------------------------------------------
+1. Client Directory maintains running software details, version, and license trade.
+2. Background cron (`cron_scheduler.php`) scans `renewals` table daily.
+3. If `expiry_date` is within 30 days, status set to `grace` and renewal SMS/Email fired.
+4. When renewal fee paid, `expiry_date` extended by 365 days and status reset to `active`.
+
+================================================================================
+4. MOBILE APP ARCHITECTURE & MYSQL DATABASE CONNECTIVITY GUIDE
+================================================================================
+
+--------------------------------------------------------------------------------
+4.1 CRITICAL TECHNICAL WARNING: WHY DIRECT MYSQL TO APK IS NOT PERMITTED
+--------------------------------------------------------------------------------
+When building an Android `.APK` using Bolt.ai, React Native, Flutter, or Java/Kotlin, 
+YOU MUST NEVER ATTEMPT DIRECT MYSQL CONNECTION (e.g., connecting directly to port 
+3306 or 3307 from the mobile phone code).
+
+Reasons why direct MySQL connection from APK fails in real-world deployment:
+1. EXTREME SECURITY HAZARD:
+   Direct MySQL connection requires embedding database credentials (`DB_USER`, `DB_PASS`, 
+   `DB_HOST`) inside the mobile app binary. Anyone can decompile an `.APK` file in 30 
+   seconds using free tools (like JADX or apktool) to extract raw database credentials, 
+   giving attackers full read/write/delete access to your MySQL server!
+2. NETWORK BLOCKING & FIREWALLS:
+   Mobile devices operate on cellular networks (4G/5G/WiFi) with changing IP addresses. 
+   Database servers explicitly block public MySQL port access (3306/3307) for security.
+3. CONNECTION TIMEOUTS & POOL EXHAUSTION:
+   Mobile networks disconnect frequently. Direct TCP MySQL sockets break on app sleep, 
+   causing app crashes and exhausting MySQL's max connection limits within minutes.
+
+--------------------------------------------------------------------------------
+4.2 RECOMMENDED ARCHITECTURE: SECURE REST API INTERFACE (HTTPS JSON)
+--------------------------------------------------------------------------------
+The industry-standard, secure architecture for connecting an APK to a MySQL database 
+is a 3-Tier Architecture using a PHP REST API middleware:
+
+  +-----------------------+              +-----------------------+              +-----------------------+
+  |    MOBILE APP (APK)   |  HTTPS JSON  |   PHP WEB BACKEND     |  PDO Socket  |    MYSQL DATABASE     |
+  | (React Native/Flutter)| <----------> | (c:/xampp/htdocs/...) | <----------> |      (marg_crm)       |
+  |  Built by Bolt.ai     |   REST API   | Security & Validation |  Port 3307   | Local / Server DB     |
+  +-----------------------+              +-----------------------+              +-----------------------+
+
+How It Works:
+1. The Mobile App (APK) makes HTTPS requests (`GET`, `POST`, `PUT`) to API endpoints on 
+   your server (e.g., `https://your-domain.com/api/leads.php`).
+2. The PHP API checks user authentication via a Secure Token (JWT or API Token header).
+3. The PHP script sanitizes input, executes PDO prepared statements against MySQL safely, 
+   and returns clean JSON data back to the mobile app.
+4. The Mobile App parses JSON and renders beautiful native UI cards, tables, and lists.
+
+--------------------------------------------------------------------------------
+4.3 ALTERNATIVE ARCHITECTURE: PWA / WEBVIEW HYBRID APK
+--------------------------------------------------------------------------------
+If you want instant deployment without rebuilding API logic:
+1. Host the Marg ERP CRM web app on a public SSL web server (`https://crm.yourcompany.com`).
+2. Use Bolt.ai or Android Studio to generate a Trusted Web Activity (TWA) or Android 
+   WebView wrapper APK.
+3. The APK acts as a native app shell displaying the responsive web system with full 
+   mobile hardware capabilities (Camera for document scanning, Push Notifications, 
+   and Call dialer integration).
+
+================================================================================
+5. COMPLETE REST API SPECIFICATION FOR BOLT.AI
+================================================================================
+Provide this specification to Bolt.ai to automatically generate all API endpoints and 
+mobile screens:
+
+1. AUTHENTICATION ENDPOINT
+   - URL: `POST /api/auth/login.php`
+   - Request Body (JSON):
+     {
+       "email": "amit.sen@marglead.com",
+       "password": "yourpassword"
+     }
+   - Response (JSON):
+     {
+       "success": true,
+       "token": "eyJhbGciOiJIUzI1NiIsIn...",
+       "user": {
+         "id": 2,
+         "name": "Amit Sen",
+         "role": "Sales Executive",
+         "email": "amit.sen@marglead.com"
+       }
+     }
+
+2. DASHBOARD SUMMARY ENDPOINT
+   - URL: `GET /api/dashboard/stats.php`
+   - Header: `Authorization: Bearer <token>`
+   - Response (JSON):
+     {
+       "total_leads": 142,
+       "pipeline_value": 3450000.00,
+       "pending_followups": 12,
+       "open_tickets": 5,
+       "installed_this_month": 18
+     }
+
+3. LEADS LIST ENDPOINT
+   - URL: `GET /api/leads/list.php?search=Apex&status=new&page=1`
+   - Response (JSON):
+     {
+       "success": true,
+       "count": 1,
+       "data": [
+         {
+           "id": "LD-9021",
+           "name": "Amit Sharma",
+           "company": "Apex Pharma Solutions",
+           "phone": "+91 98765 43210",
+           "city": "New Delhi",
+           "priority": "hot",
+           "status": "new",
+           "assigned_to": "Amit S.",
+           "budget": 450000.00
+         }
+       ]
+     }
+
+4. CREATE NEW LEAD ENDPOINT
+   - URL: `POST /api/leads/create.php`
+   - Request Body (JSON):
+     {
+       "name": "Rajesh Malhotra",
+       "company": "Malhotra Healthcare",
+       "phone": "+91 98111 22233",
+       "email": "rajesh@malhotrahealth.com",
+       "city": "Gurugram",
+       "source": "Website",
+       "priority": "hot",
+       "budget": 300000.00,
+       "remarks": "Interested in pharmacy software setup"
+     }
+
+5. SUPPORT TICKETS ENDPOINT
+   - URL: `GET /api/support/tickets.php?status=open`
+   - Response (JSON):
+     {
+       "success": true,
+       "tickets": [
+         {
+           "id": "TCK-8902",
+           "customer_name": "Dr. Satish Verma Clinic",
+           "subject": "Printer configuration issues",
+           "priority": "high",
+           "status": "open",
+           "assigned_to": "Rahul P."
+         }
+       ]
+     }
+
+6. CREATE SUPPORT TICKET ENDPOINT
+   - URL: `POST /api/support/create_ticket.php`
+   - Request Body (JSON):
+     {
+       "customer_name": "Dr. Satish Verma Clinic",
+       "subject": "Barcode scanner disconnected",
+       "priority": "critical",
+       "phone": "+91 99988 77766",
+       "problem": "Scanner not transmitting serial data to Marg ERP billing screen.",
+       "assigned_to": "Rahul P."
+     }
+
+7. UPDATE TICKET STATUS ENDPOINT
+   - URL: `PUT /api/support/update_ticket.php`
+   - Request Body (JSON):
+     {
+       "ticket_id": "TCK-8902",
+       "status": "resolved",
+       "remarks": "Reconfigured USB COM port driver. Verified printing."
+     }
+
+================================================================================
+6. COMPLETE DATABASE SCHEMA REFERENCE (MYSQL / MARIADB)
+================================================================================
+Target Database Name: `marg_crm`
+
+1. TABLE: `users`
+   - `id` INT AUTO_INCREMENT PRIMARY KEY
+   - `name` VARCHAR(100) NOT NULL
+   - `email` VARCHAR(100) UNIQUE NOT NULL
+   - `password` VARCHAR(255) NOT NULL
+   - `role` VARCHAR(50) NOT NULL
+   - `status` VARCHAR(20) DEFAULT 'Active'
+   - `permissions` TEXT NULL
+   - `profile_photo` VARCHAR(255) NULL
+   - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+2. TABLE: `leads`
+   - `id` VARCHAR(20) PRIMARY KEY (e.g. 'LD-9021')
+   - `name` VARCHAR(100) NOT NULL
+   - `contact_person` VARCHAR(100) NULL
+   - `company` VARCHAR(100) NOT NULL
+   - `email` VARCHAR(100) NULL
+   - `phone` VARCHAR(20) NOT NULL
+   - `secondary_phone` VARCHAR(20) NULL
+   - `city` VARCHAR(50) NULL
+   - `state` VARCHAR(50) NULL
+   - `address` TEXT NULL
+   - `gst` VARCHAR(15) NULL
+   - `source` VARCHAR(50) DEFAULT 'Website'
+   - `priority` VARCHAR(20) DEFAULT 'warm' (hot, warm, cold)
+   - `tags` VARCHAR(255) NULL
+   - `status` VARCHAR(50) DEFAULT 'new' (new, contacted, demo_done, quotation_sent, payment_pending, install_pending, won)
+   - `assigned_to` VARCHAR(100) NULL
+   - `budget` DECIMAL(12,2) DEFAULT 0.00
+   - `products` VARCHAR(100) NULL
+   - `enq_for` VARCHAR(255) NULL
+   - `remarks` TEXT NULL
+   - `installation_status` VARCHAR(255) NULL
+   - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   - `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+3. TABLE: `support_tickets`
+   - `id` VARCHAR(20) PRIMARY KEY (e.g. 'TCK-8902')
+   - `customer_name` VARCHAR(100) NOT NULL
+   - `subject` VARCHAR(255) NOT NULL
+   - `priority` VARCHAR(20) NOT NULL (critical, high, medium, low)
+   - `status` VARCHAR(20) DEFAULT 'open' (open, in_progress, resolved, closed)
+   - `assigned_to` VARCHAR(100) NOT NULL
+   - `lead_id` VARCHAR(50) NULL
+   - `phone` VARCHAR(50) NULL
+   - `email` VARCHAR(100) NULL
+   - `product` VARCHAR(255) NULL
+   - `renewal_date` DATE NULL
+   - `address` TEXT NULL
+   - `problem` TEXT NULL
+   - `due_date` DATE NULL
+   - `callback_number` VARCHAR(50) NULL
+   - `custom_fields` TEXT NULL
+   - `date_created` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+4. TABLE: `followups`
+   - `id` INT AUTO_INCREMENT PRIMARY KEY
+   - `lead_id` VARCHAR(20) NOT NULL (FK -> leads.id)
+   - `action_type` VARCHAR(50) NOT NULL (call, demo, email, visit)
+   - `scheduled_at` DATETIME NOT NULL
+   - `remarks` TEXT NULL
+   - `status` VARCHAR(20) DEFAULT 'pending' (pending, completed, missed)
+   - `assigned_to` VARCHAR(100) NOT NULL
+   - `send_email` TINYINT DEFAULT 0
+   - `send_sms` TINYINT DEFAULT 0
+   - `email_sent` TINYINT DEFAULT 0
+   - `sms_sent` TINYINT DEFAULT 0
+   - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+5. TABLE: `demos`
+   - `id` VARCHAR(20) PRIMARY KEY (e.g. 'DM-402')
+   - `lead_id` VARCHAR(20) NOT NULL (FK -> leads.id)
+   - `scheduled_at` DATETIME NOT NULL
+   - `mode` VARCHAR(50) DEFAULT 'Online'
+   - `engineer` VARCHAR(100) NOT NULL
+   - `status` VARCHAR(20) DEFAULT 'scheduled' (scheduled, completed, cancelled)
+   - `rating` INT NULL
+   - `feedback` TEXT NULL
+   - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+6. TABLE: `quotations`
+   - `id` VARCHAR(20) PRIMARY KEY (e.g. 'QT-9011')
+   - `lead_id` VARCHAR(20) NOT NULL (FK -> leads.id)
+   - `issue_date` DATE NOT NULL
+   - `valid_until` DATE NOT NULL
+   - `taxable_amount` DECIMAL(12,2) NOT NULL
+   - `gst_amount` DECIMAL(12,2) NOT NULL
+   - `grand_total` DECIMAL(12,2) NOT NULL
+   - `status` VARCHAR(20) DEFAULT 'pending'
+   - `created_by` VARCHAR(100) NOT NULL
+   - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+7. TABLE: `invoices`
+   - `id` VARCHAR(20) PRIMARY KEY (e.g. 'INV-4509')
+   - `lead_id` VARCHAR(20) NOT NULL (FK -> leads.id)
+   - `customer_name` VARCHAR(100) NOT NULL
+   - `date_issued` DATE NOT NULL
+   - `due_date` DATE NOT NULL
+   - `total_amount` DECIMAL(12,2) NOT NULL
+   - `paid_amount` DECIMAL(12,2) DEFAULT 0.00
+   - `balance_amount` DECIMAL(12,2) NOT NULL
+   - `status` VARCHAR(20) DEFAULT 'pending' (paid, partial, pending)
+   - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+8. TABLE: `installations`
+   - `id` VARCHAR(20) PRIMARY KEY (e.g. 'INS-201')
+   - `lead_id` VARCHAR(20) NOT NULL (FK -> leads.id)
+   - `customer_name` VARCHAR(100) NOT NULL
+   - `city` VARCHAR(50) NOT NULL
+   - `engineer` VARCHAR(100) NOT NULL
+   - `scheduled_date` DATETIME NOT NULL
+   - `checklist_done` INT DEFAULT 0
+   - `checklist_total` INT DEFAULT 5
+   - `status` VARCHAR(20) DEFAULT 'assigned' (assigned, in_progress, completed)
+   - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+9. TABLE: `trainings`
+   - `id` VARCHAR(20) PRIMARY KEY (e.g. 'TRN-501')
+   - `lead_id` VARCHAR(20) NOT NULL (FK -> leads.id)
+   - `customer_name` VARCHAR(100) NOT NULL
+   - `trainer` VARCHAR(100) NOT NULL
+   - `schedule_date` DATETIME NOT NULL
+   - `logged_hours` INT DEFAULT 0
+   - `total_hours` INT DEFAULT 6
+   - `status` VARCHAR(20) DEFAULT 'scheduled' (scheduled, active, certified)
+   - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+10. TABLE: `client_directory`
+    - `id` INT AUTO_INCREMENT PRIMARY KEY
+    - `sno` INT NULL
+    - `sw_type` VARCHAR(50) DEFAULT 'Marg'
+    - `customer_id` VARCHAR(50) NOT NULL
+    - `subpartner_code` VARCHAR(50) NULL
+    - `subpartner_name` VARCHAR(150) NULL
+    - `party_name` VARCHAR(255) NOT NULL
+    - `company_using` VARCHAR(150) NULL
+    - `address` TEXT NULL
+    - `mobile` VARCHAR(50) NULL
+    - `email` VARCHAR(150) NULL
+    - `user_type` VARCHAR(50) NULL
+    - `software_type` VARCHAR(100) NULL
+    - `no_of_users` INT DEFAULT 1
+    - `contact_person` VARCHAR(150) NULL
+    - `due_on` DATE NULL
+    - `act_on` DATE NULL
+    - `days` INT DEFAULT 0
+    - `party_status` VARCHAR(50) DEFAULT 'Running'
+    - `city` VARCHAR(100) NULL
+    - `transferred_party` VARCHAR(20) DEFAULT 'No'
+    - `online_zip_code` VARCHAR(20) NULL
+    - `state` VARCHAR(100) NULL
+    - `home_user` VARCHAR(20) DEFAULT 'No'
+    - `software_trade` VARCHAR(150) NULL
+    - `version` VARCHAR(50) NULL
+    - `total_amount` DECIMAL(12,2) DEFAULT 0.00
+    - `software_hit_date` DATE NULL
+    - `wallet_id` VARCHAR(100) NULL
+    - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    - `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+11. TABLE: `renewals`
+    - `id` VARCHAR(20) PRIMARY KEY (e.g. 'RNW-902')
+    - `lead_id` VARCHAR(20) NOT NULL (FK -> leads.id)
+    - `customer_name` VARCHAR(100) NOT NULL
+    - `product_name` VARCHAR(100) NOT NULL
+    - `expiry_date` DATE NOT NULL
+    - `days_remaining` INT NOT NULL
+    - `renewal_fee` DECIMAL(12,2) NOT NULL
+    - `status` VARCHAR(20) DEFAULT 'active' (active, grace, expired)
+    - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+12. TABLE: `timeline`
+    - `id` INT AUTO_INCREMENT PRIMARY KEY
+    - `lead_id` VARCHAR(20) NOT NULL (FK -> leads.id)
+    - `log_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    - `actor` VARCHAR(100) NOT NULL
+    - `action_taken` TEXT NOT NULL
+
+13. TABLE: `notifications`
+    - `id` INT AUTO_INCREMENT PRIMARY KEY
+    - `user_id` INT NULL
+    - `role` VARCHAR(50) NULL
+    - `title` VARCHAR(255) NOT NULL
+    - `message` TEXT NOT NULL
+    - `type` VARCHAR(20) DEFAULT 'info'
+    - `unread` TINYINT DEFAULT 1
+    - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+================================================================================
+7. UI / UX DESIGN & NAVIGATION REQUIREMENTS FOR APK
+================================================================================
+When generating the Mobile App (.APK) UI in Bolt.ai, ensure the design complies 
+with the following modern aesthetics:
+
+- Theme & Palette: Sleek Dark Mode (#0b0f19 background, #121826 surface cards, 
+  #4f46e5 primary indigo accents, #10b981 emerald green success, #ef4444 red alert).
+- Navigation Structure:
+  - Bottom Navigation Bar: [Dashboard] | [Leads] | [Pipeline] | [Tickets] | [Menu]
+  - Drawer / Menu Options: Follow-ups, Quotations, Invoices, Installations, Trainings, 
+    Client Directory, Renewals, Settings.
+- Quick Actions on Mobile:
+  - Direct Phone Call button (`tel:` scheme) next to every client phone number.
+  - Direct WhatsApp Chat trigger (`https://wa.me/...`).
+  - Native Push Notifications for pending follow-ups and critical tickets.
+- Offline Capability:
+  - Cache recent leads and support tickets locally using SQLite / AsyncStorage so sales 
+    agents and technicians can view customer information even without active internet.
+
+================================================================================
+END OF SPECIFICATION FILE
+================================================================================
