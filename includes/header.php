@@ -66,6 +66,8 @@ if ($db_connected && $pdo && isset($_SESSION['user_id'])) {
         <link rel="stylesheet" href="assets/css/modules/pipeline.css">
     <?php elseif ($page === 'followups'): ?>
         <link rel="stylesheet" href="assets/css/modules/calendar.css">
+    <?php elseif (in_array($page, ['bot_flows', 'bot_flow_builder'])): ?>
+        <link rel="stylesheet" href="assets/css/modules/bot_flows.css">
     <?php elseif (in_array($page, ['login', 'forgot_password', 'otp_reset', 'change_password'])): ?>
         <link rel="stylesheet" href="assets/css/modules/auth.css">
     <?php endif; ?>
@@ -108,7 +110,10 @@ if ($db_connected && $pdo && isset($_SESSION['user_id'])) {
                     <div class="role-switcher-container flex align-center gap-2" style="background-color: var(--border-card); padding: 0.25rem 0.75rem; border-radius: var(--border-radius-full); border: 1px solid var(--border-color);">
                         <i data-lucide="shield-check" class="text-muted" style="width: 16px; height: 16px; color: var(--primary);"></i>
                         <select id="global-role-switcher" class="text-xs font-semibold pointer" style="border: none; background: transparent; padding-right: 0.5rem; text-transform: uppercase; color: var(--text-main);">
-                            <?php foreach ($ROLES as $roleName => $desc): ?>
+                            <?php 
+                            $header_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') ? $EMPLOYEE_ROLES : $ROLES;
+                            foreach ($header_roles as $roleName => $desc): 
+                            ?>
                                 <option value="<?php echo $roleName; ?>" <?php echo ($_SESSION['user_role'] === $roleName) ? 'selected' : ''; ?>>
                                     <?php echo $roleName; ?>
                                 </option>
@@ -124,55 +129,105 @@ if ($db_connected && $pdo && isset($_SESSION['user_id'])) {
                     
                     <!-- Notifications Dropdown -->
                     <div class="profile-menu-container">
-                        <button class="header-action-btn dropdown-trigger" data-dropdown="notifications-dropdown" aria-label="View notifications" onclick="playNotificationSound()">
+                        <button class="header-action-btn dropdown-trigger" data-dropdown="notifications-dropdown" aria-label="View notifications" id="notif-bell-btn">
                             <i data-lucide="bell" style="width: 20px; height: 20px;"></i>
                             <?php 
-                            $unreadCount = count(array_filter($NOTIFICATIONS, function($n) { return $n['unread']; }));
+                            $unreadCount = count(array_filter($NOTIFICATIONS, function($n) { return !empty($n['unread']); }));
                             if ($unreadCount > 0): 
                             ?>
-                                <span class="btn-badge"></span>
+                                <span class="btn-badge" id="notif-red-badge"></span>
                             <?php endif; ?>
                         </button>
                         
-                        <div id="notifications-dropdown" class="dropdown-menu" style="width: 320px; right: 0;">
-                            <div class="dropdown-header flex justify-between align-center" style="padding: 1rem; border-bottom: 1px solid var(--border-color);">
-                                <h4 class="font-semibold text-sm m-0">Notifications</h4>
-                                <a href="index.php?action=mark_notifs_read" class="text-xs text-muted pointer hover-primary" style="text-decoration: none;">Mark all read</a>
+                        <div id="notifications-dropdown" class="dropdown-menu" style="width: 340px; right: 0;">
+                            <div class="dropdown-header flex justify-between align-center" style="padding: 0.85rem 1rem; border-bottom: 1px solid var(--border-color);">
+                                <div class="flex align-center gap-2">
+                                    <h4 class="font-semibold text-sm m-0">Notifications</h4>
+                                    <?php if ($unreadCount > 0): ?>
+                                        <span class="badge text-xs" style="font-size: 9px; padding: 2px 6px; --badge-bg: var(--primary-light); --badge-color: var(--primary); font-weight: 700;"><?php echo $unreadCount; ?> New</span>
+                                    <?php endif; ?>
+                                </div>
+                                <a href="javascript:void(0);" onclick="markAllNotificationsRead(event)" class="text-xs text-muted pointer hover-primary" style="text-decoration: none; font-weight: 600;">Mark all read</a>
                             </div>
-                            <div class="notifications-list" style="max-height: 280px; overflow-y: auto;">
-                                <?php foreach ($NOTIFICATIONS as $notif): ?>
-                                    <div class="notif-item flex gap-4 pointer" style="padding: 1rem; border-bottom: 1px solid var(--border-color); background-color: <?php echo $notif['unread'] ? 'rgba(var(--primary-h), var(--primary-s), var(--primary-l), 0.02)' : 'transparent'; ?>;">
-                                        <div class="notif-icon flex align-center justify-center" style="width: 36px; height: 36px; border-radius: var(--border-radius-full); background-color: <?php 
-                                            if ($notif['type'] === 'danger') echo 'var(--danger-light)';
-                                            elseif ($notif['type'] === 'success') echo 'var(--success-light)';
-                                            elseif ($notif['type'] === 'warning') echo 'var(--warning-light)';
-                                            else echo 'var(--primary-light)';
-                                        ?>; color: <?php
-                                            if ($notif['type'] === 'danger') echo 'var(--danger)';
-                                            elseif ($notif['type'] === 'success') echo 'var(--success)';
-                                            elseif ($notif['type'] === 'warning') echo 'var(--warning)';
-                                            else echo 'var(--primary)';
-                                        ?>;">
-                                            <i data-lucide="<?php 
-                                                if ($notif['type'] === 'danger') echo 'alert-circle';
-                                                elseif ($notif['type'] === 'success') echo 'check-circle';
-                                                elseif ($notif['type'] === 'warning') echo 'clock';
-                                                else echo 'bell';
-                                            ?>" style="width: 16px; height: 16px;"></i>
+                            
+                            <div class="notifications-list" id="notifications-list-container" style="max-height: 320px; overflow-y: auto;">
+                                <?php if (empty($NOTIFICATIONS) || $unreadCount === 0): ?>
+                                    <div id="notifs-empty-state" class="text-center py-6 px-4">
+                                        <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--border-card); color: var(--text-muted); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.5rem;">
+                                            <i data-lucide="check-circle-2" style="width: 20px; height: 20px; color: var(--success);"></i>
                                         </div>
-                                        <div class="notif-info flex-1">
-                                            <div class="notif-title text-sm font-semibold"><?php echo $notif['title']; ?></div>
-                                            <div class="notif-desc text-xs text-muted" style="margin-top: 0.15rem;"><?php echo $notif['message']; ?></div>
-                                            <div class="notif-time text-xs text-muted" style="margin-top: 0.4rem;"><?php echo $notif['time']; ?></div>
-                                        </div>
+                                        <h5 class="m-0 text-sm font-semibold" style="color: var(--text-main);">You're all caught up!</h5>
+                                        <p class="text-xs text-muted mt-1 m-0">No unread notifications right now.</p>
                                     </div>
-                                <?php endforeach; ?>
+                                <?php else: ?>
+                                    <?php foreach ($NOTIFICATIONS as $notif): 
+                                        $target_url = !empty($notif['link']) ? $notif['link'] : 'index.php?action=read_notification&id=' . $notif['id'];
+                                    ?>
+                                        <a href="index.php?action=read_notification&id=<?php echo $notif['id']; ?>" class="notif-item flex gap-3 pointer" style="padding: 0.85rem 1rem; border-bottom: 1px solid var(--border-color); color: inherit; text-decoration: none; transition: background 0.15s ease; background-color: rgba(99, 102, 241, 0.03);">
+                                            <div class="notif-icon flex align-center justify-center flex-shrink-0" style="width: 34px; height: 34px; border-radius: var(--border-radius-full); background-color: <?php 
+                                                if ($notif['type'] === 'danger') echo 'var(--danger-light)';
+                                                elseif ($notif['type'] === 'success') echo 'var(--success-light)';
+                                                elseif ($notif['type'] === 'warning') echo 'var(--warning-light)';
+                                                else echo 'var(--primary-light)';
+                                            ?>; color: <?php
+                                                if ($notif['type'] === 'danger') echo 'var(--danger)';
+                                                elseif ($notif['type'] === 'success') echo 'var(--success)';
+                                                elseif ($notif['type'] === 'warning') echo 'var(--warning)';
+                                                else echo 'var(--primary)';
+                                            ?>;">
+                                                <i data-lucide="<?php 
+                                                    if ($notif['type'] === 'danger') echo 'alert-circle';
+                                                    elseif ($notif['type'] === 'success') echo 'check-circle';
+                                                    elseif ($notif['type'] === 'warning') echo 'clock';
+                                                    else echo 'bell';
+                                                ?>" style="width: 16px; height: 16px;"></i>
+                                            </div>
+                                            <div class="notif-info flex-1 overflow-hidden">
+                                                <div class="flex align-center justify-between gap-1">
+                                                    <span class="notif-title text-xs font-bold text-main" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;"><?php echo $notif['title']; ?></span>
+                                                    <span class="notif-time text-xs text-muted" style="font-size: 10px; flex-shrink: 0;"><?php echo $notif['time']; ?></span>
+                                                </div>
+                                                <div class="notif-desc text-xs text-muted mt-1" style="font-size: 11px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;"><?php echo $notif['message']; ?></div>
+                                            </div>
+                                            <div class="flex align-center text-muted" style="opacity: 0.5;">
+                                                <i data-lucide="chevron-right" style="width: 14px; height: 14px;"></i>
+                                            </div>
+                                        </a>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                             </div>
-                            <div class="dropdown-footer text-center" style="padding: 0.75rem; border-top: 1px solid var(--border-color);">
-                                <a href="#" class="text-xs font-semibold text-primary">View all alerts</a>
+                            <div class="dropdown-footer text-center" style="padding: 0.6rem; border-top: 1px solid var(--border-color); background: var(--bg-app);">
+                                <a href="index.php?page=leads" class="text-xs font-semibold text-primary" style="text-decoration: none;">View Workspace Dashboard</a>
                             </div>
                         </div>
                     </div>
+
+                    <script>
+                        function markAllNotificationsRead(e) {
+                            if (e) e.preventDefault();
+                            
+                            const badge = document.getElementById('notif-red-badge');
+                            if (badge) badge.style.display = 'none';
+
+                            const listContainer = document.getElementById('notifications-list-container');
+                            if (listContainer) {
+                                listContainer.innerHTML = `
+                                    <div id="notifs-empty-state" class="text-center py-6 px-4">
+                                        <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--border-card); color: var(--text-muted); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.5rem;">
+                                            <i data-lucide="check-circle-2" style="width: 20px; height: 20px; color: var(--success);"></i>
+                                        </div>
+                                        <h5 class="m-0 text-sm font-semibold" style="color: var(--text-main);">You're all caught up!</h5>
+                                        <p class="text-xs text-muted mt-1 m-0">All notifications marked as read.</p>
+                                    </div>
+                                `;
+                                if (typeof lucide !== 'undefined') lucide.createIcons();
+                            }
+
+                            fetch('index.php?action=mark_notifs_read', {
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                            }).catch(err => console.error(err));
+                        }
+                    </script>
                     
                     <!-- Profile Dropdown Menu -->
                     <div class="profile-menu-container">

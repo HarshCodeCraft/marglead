@@ -10,6 +10,26 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Super Admin Impersonation Action Receiver
+if (isset($_GET['action']) && $_GET['action'] === 'impersonate_client') {
+    $target_db = trim($_GET['db'] ?? '');
+    $target_company = trim($_GET['company'] ?? '');
+    $user_role = $_SESSION['user_role'] ?? '';
+    if (!empty($target_db) && ($user_role === 'Super Admin' || $user_role === 'Admin')) {
+        $_SESSION['impersonate_tenant_db'] = $target_db;
+        $_SESSION['impersonate_company_name'] = $target_company;
+    }
+    header("Location: index.php?page=dashboard");
+    exit;
+}
+
+if (isset($_GET['action']) && $_GET['action'] === 'stop_impersonation') {
+    unset($_SESSION['impersonate_tenant_db']);
+    unset($_SESSION['impersonate_company_name']);
+    header("Location: index.php?page=crm_clients");
+    exit;
+}
+
 // Export Leads CSV File Receiver
 if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     if ($db_connected && $pdo) {
@@ -85,8 +105,9 @@ if (isset($_POST['action']) && $_POST['action'] === 'batch_update') {
             $in_clause = implode(',', array_fill(0, count($ids), '?'));
             
             if ($batch_action === 'assign') {
-                $stmt = $pdo->prepare("UPDATE leads SET assigned_to = ? WHERE id IN ($in_clause)");
-                $params = array_merge([$val], $ids);
+                $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
+                $stmt = $pdo->prepare("UPDATE leads SET assigned_to = ?, assigned_by = ? WHERE id IN ($in_clause)");
+                $params = array_merge([$val, $assigned_by], $ids);
                 $stmt->execute($params);
                 $msg = "Successfully assigned " . count($ids) . " lead(s) to " . htmlspecialchars($val) . ".";
             } elseif ($batch_action === 'status') {
@@ -148,6 +169,79 @@ if (isset($_GET['action']) && $_GET['action'] === 'global_search') {
     }
 }
 
+// Phone Duplication Check AJAX receiver
+if (isset($_GET['action']) && $_GET['action'] === 'check_phone') {
+    header('Content-Type: application/json');
+    $phone = trim($_GET['phone'] ?? '');
+    $exclude_id = trim($_GET['exclude_id'] ?? '');
+
+    if ($db_connected && $pdo && !empty($phone)) {
+        try {
+            $clean_phone = preg_replace('/[^0-9]/', '', $phone);
+            
+            $sql = "SELECT id, name, company, phone, status, assigned_to, created_at FROM leads WHERE (REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '(', '') LIKE ? OR phone = ?)";
+            $params = ['%' . $clean_phone . '%', $phone];
+
+            if (!empty($exclude_id)) {
+                $sql .= " AND id != ?";
+                $params[] = $exclude_id;
+            }
+
+            $sql .= " ORDER BY id DESC LIMIT 1";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($existing) {
+                echo json_encode([
+                    'exists' => true,
+                    'lead' => $existing
+                ]);
+            } else {
+                echo json_encode(['exists' => false]);
+            }
+            exit;
+        } catch (PDOException $e) {
+            echo json_encode(['exists' => false, 'error' => $e->getMessage()]);
+            exit;
+        }
+    } else {
+        echo json_encode(['exists' => false]);
+        exit;
+    }
+}
+
+// Mark Followup Complete AJAX receiver
+if (isset($_REQUEST['action']) && $_REQUEST['action'] === 'complete_followup') {
+    header('Content-Type: application/json');
+    $fup_id = (int)($_REQUEST['id'] ?? 0);
+    if ($db_connected && $pdo && $fup_id > 0) {
+        try {
+            $stmt = $pdo->prepare("UPDATE followups SET status = 'completed' WHERE id = ?");
+            $stmt->execute([$fup_id]);
+            
+            // Add activity timeline record
+            $getLead = $pdo->prepare("SELECT lead_id FROM followups WHERE id = ?");
+            $getLead->execute([$fup_id]);
+            $leadId = $getLead->fetchColumn();
+            if ($leadId) {
+                $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Follow-up marked as COMPLETED')");
+                $log->execute([$leadId, $_SESSION['user_name'] ?? 'System User']);
+            }
+
+            echo json_encode(['success' => true, 'message' => 'Follow-up marked as completed!']);
+            exit;
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            exit;
+        }
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Invalid parameters or DB offline.']);
+        exit;
+    }
+}
+
 // Quick Follow-up Data Fetch AJAX receiver
 if (isset($_GET['action']) && $_GET['action'] === 'get_lead_json') {
     header('Content-Type: application/json');
@@ -175,6 +269,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_lead_json') {
                         'priority' => $l['priority'] ?? 'warm',
                         'status' => $l['status'] ?? 'new',
                         'assigned' => $l['assigned_to'] ?? '',
+                        'assigned_by' => !empty($l['assigned_by']) ? $l['assigned_by'] : (!empty($_SESSION['user_name']) ? $_SESSION['user_name'] : ''),
                         'address' => $l['address'] ?? '',
                         'tags' => $l['tags'] ?? '',
                         'enq_for' => $l['enq_for'] ?? '',
@@ -247,13 +342,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             if (!empty($action_type) || !empty($scheduled_at) || !empty($fup_notes)) {
                 // Check if a pending follow-up already exists for this lead
-                $chkFup = $pdo->prepare("SELECT id FROM followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1");
+                $chkFup = $pdo->prepare("SELECT id, action_type, scheduled_at, remarks FROM followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1");
                 $chkFup->execute([$lead_id]);
-                $existFup = $chkFup->fetchColumn();
+                $existFup = $chkFup->fetch(PDO::FETCH_ASSOC);
                 
                 if ($existFup) {
-                    $updFup = $pdo->prepare("UPDATE followups SET action_type = ?, scheduled_at = ?, remarks = ?, assigned_to = ?, send_email = ?, send_sms = ? WHERE id = ?");
-                    $updFup->execute([$action_type, $scheduled_at, $fup_notes ?: 'Follow-up reminder updated', $fup_assigned_to, $send_email, $send_sms, $existFup]);
+                    $old_time = date('Y-m-d H:i', strtotime($existFup['scheduled_at']));
+                    $new_time = date('Y-m-d H:i', strtotime($scheduled_at));
+                    $old_action = $existFup['action_type'] ?? '';
+
+                    if ($old_time !== $new_time || $action_type !== $old_action) {
+                        // Mark previous follow-up as 'rescheduled' keeping its original action_type intact
+                        $clean_remarks = preg_replace('/\s*\[Rescheduled to.*?\]/i', '', $existFup['remarks'] ?? '');
+                        $archived_notes = trim($clean_remarks) . ($old_time !== $new_time ? " [Rescheduled to $new_time]" : "");
+
+                        $updOld = $pdo->prepare("UPDATE followups SET status = 'rescheduled', remarks = ? WHERE id = ?");
+                        $updOld->execute([$archived_notes, $existFup['id']]);
+
+                        // Insert new follow-up record with the new action_type and new scheduled_at
+                        $insFup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, status, assigned_to, send_email, send_sms) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)");
+                        $insFup->execute([$lead_id, $action_type, $scheduled_at, $fup_notes ?: 'Follow-up reminder set', $fup_assigned_to, $send_email, $send_sms]);
+                    } else {
+                        // Update current follow-up details if date and action_type are unchanged
+                        $updFup = $pdo->prepare("UPDATE followups SET action_type = ?, remarks = ?, assigned_to = ?, send_email = ?, send_sms = ? WHERE id = ?");
+                        $updFup->execute([$action_type, $fup_notes ?: 'Follow-up reminder updated', $fup_assigned_to, $send_email, $send_sms, $existFup['id']]);
+                    }
                 } else {
                     $insFup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, status, assigned_to, send_email, send_sms) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)");
                     $insFup->execute([$lead_id, $action_type, $scheduled_at, $fup_notes ?: 'Follow-up reminder set', $fup_assigned_to, $send_email, $send_sms]);
@@ -527,6 +640,9 @@ switch ($page) {
     case 'clients':
         $module_path = __DIR__ . '/modules/clients.php';
         break;
+    case 'crm_clients':
+        $module_path = __DIR__ . '/modules/admin/crm_clients.php';
+        break;
     case 'admin_users':
         $module_path = __DIR__ . '/modules/admin/users.php';
         break;
@@ -536,8 +652,26 @@ switch ($page) {
     case 'admin_reports':
         $module_path = __DIR__ . '/modules/admin/reports.php';
         break;
+    case 'bot_flows':
+        $module_path = __DIR__ . '/modules/bot_flows.php';
+        break;
+    case 'bot_flow_builder':
+        $module_path = __DIR__ . '/modules/bot_flow_builder.php';
+        break;
+    case 'team_inbox':
+        $module_path = __DIR__ . '/modules/team_inbox.php';
+        break;
     case 'settings':
         $module_path = __DIR__ . '/modules/admin/settings.php';
+        break;
+    case 'privacy_policy':
+        $module_path = __DIR__ . '/modules/privacy_policy.php';
+        break;
+    case 'terms_conditions':
+        $module_path = __DIR__ . '/modules/terms_conditions.php';
+        break;
+    case 'refund_policy':
+        $module_path = __DIR__ . '/modules/refund_policy.php';
         break;
     default:
         $module_path = __DIR__ . '/modules/dashboard.php';

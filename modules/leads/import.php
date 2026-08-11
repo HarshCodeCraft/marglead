@@ -337,8 +337,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
         try {
             $pdo->beginTransaction();
             
-            $ins = $pdo->prepare("INSERT INTO leads (id, name, company, email, phone, address, source, tags, assigned_to, enq_for, contact_person, remarks, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 'warm')");
-            $upd = $pdo->prepare("UPDATE leads SET name = ?, company = ?, email = ?, address = ?, source = ?, tags = ?, assigned_to = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
+            $ins = $pdo->prepare("INSERT INTO leads (id, name, company, email, phone, address, source, tags, assigned_to, assigned_by, enq_for, contact_person, remarks, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 'warm')");
+            $upd = $pdo->prepare("UPDATE leads SET name = ?, company = ?, email = ?, address = ?, source = ?, tags = ?, assigned_to = ?, assigned_by = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
             $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead file registered via bulk spreadsheet import')");
             $generated_ids = [];
             foreach ($leads_to_import as $lead) {
@@ -363,6 +363,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                 }
                 
                 if (!empty($lead['duplicate_id'])) {
+                    $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
                     // Update matching profile
                     $upd->execute([
                         $lead['name'],
@@ -372,6 +373,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                         $lead['source'] ?: 'Imported',
                         $lead['tags'] ?: null,
                         $finalAssignee,
+                        $assigned_by,
                         $lead['enq_for'] ?: null,
                         $lead['contact_person'] ?: null,
                         $lead['remarks'] ?: null,
@@ -392,6 +394,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                     } while ($already_generated || $exists);
                     $generated_ids[$newId] = true;
 
+                    $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
                     $ins->execute([
                         $newId,
                         $lead['name'],
@@ -402,6 +405,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                         $lead['source'] ?: 'Imported',
                         $lead['tags'] ?: null,
                         $finalAssignee,
+                        $assigned_by,
                         $lead['enq_for'] ?: null,
                         $lead['contact_person'] ?: null,
                         $lead['remarks'] ?: null

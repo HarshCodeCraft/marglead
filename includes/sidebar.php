@@ -139,6 +139,74 @@ $role = $_SESSION['user_role'];
                         </a>
                     </li>
                 <?php endif; ?>
+                <?php if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Regional Manager' || $role === 'Sales Executive' || $role === 'Support Executive'): ?>
+                    <li class="sidebar-item <?php echo isActivePage('team_inbox'); ?>">
+                        <a href="index.php?page=team_inbox">
+                            <i data-lucide="message-square" style="width: 18px; height: 18px;"></i>
+                            <span>Team Inbox & Live Chat</span>
+                            <span class="badge" style="margin-left: auto; background: #10b981; color: white; font-size: 0.65rem;">LIVE</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Regional Manager'): ?>
+                    <?php 
+                    $is_bot_active = isActivePage('bot_flows') || isActivePage('bot_flow_builder');
+                    $current_tab = strtolower($_GET['tab'] ?? 'flows');
+                    ?>
+                    <li class="sidebar-item sidebar-dropdown <?php echo $is_bot_active ? 'active open' : ''; ?>">
+                        <a href="index.php?page=bot_flows" class="sidebar-link-parent" onclick="toggleSidebarDropdown(event, this)">
+                            <div class="dropdown-title-group">
+                                <i data-lucide="bot" style="width: 18px; height: 18px;"></i>
+                                <span>WhatsApp Bots & Flows</span>
+                            </div>
+                            <i data-lucide="chevron-down" class="menu-chevron" style="width: 14px; height: 14px;"></i>
+                        </a>
+                        <ul class="sidebar-submenu">
+                            <li class="sidebar-subitem <?php echo ($is_bot_active && $current_tab === 'bots') ? 'active' : ''; ?>">
+                                <a href="index.php?page=bot_flows&tab=bots">
+                                    <i data-lucide="bot" style="width: 14px; height: 14px;"></i>
+                                    <span>Bots</span>
+                                </a>
+                            </li>
+                            <li class="sidebar-subitem <?php echo ($is_bot_active && ($current_tab === 'flows' || empty($_GET['tab']))) ? 'active' : ''; ?>">
+                                <a href="index.php?page=bot_flows&tab=flows">
+                                    <i data-lucide="git-fork" style="width: 14px; height: 14px;"></i>
+                                    <span>Flows</span>
+                                </a>
+                            </li>
+                            <li class="sidebar-subitem <?php echo ($is_bot_active && $current_tab === 'events') ? 'active' : ''; ?>">
+                                <a href="index.php?page=bot_flows&tab=events">
+                                    <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
+                                    <span>Events</span>
+                                </a>
+                            </li>
+                            <li class="sidebar-subitem <?php echo ($is_bot_active && ($current_tab === 'triggers' || $current_tab === 'inggers')) ? 'active' : ''; ?>">
+                                <a href="index.php?page=bot_flows&tab=triggers">
+                                    <i data-lucide="zap" style="width: 14px; height: 14px;"></i>
+                                    <span>Inggers</span>
+                                </a>
+                            </li>
+                            <li class="sidebar-subitem <?php echo ($is_bot_active && $current_tab === 're-engagement') ? 'active' : ''; ?>">
+                                <a href="index.php?page=bot_flows&tab=re-engagement">
+                                    <i data-lucide="repeat" style="width: 14px; height: 14px;"></i>
+                                    <span>Re-Engagement</span>
+                                </a>
+                            </li>
+                            <li class="sidebar-subitem <?php echo ($is_bot_active && $current_tab === 'reports') ? 'active' : ''; ?>">
+                                <a href="index.php?page=bot_flows&tab=reports">
+                                    <i data-lucide="bar-chart-2" style="width: 14px; height: 14px;"></i>
+                                    <span>Reports</span>
+                                </a>
+                            </li>
+                            <li class="sidebar-subitem">
+                                <a href="admin/dashboard.php">
+                                    <i data-lucide="ticket" style="width: 14px; height: 14px;"></i>
+                                    <span>WhatsApp Tickets</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
+                <?php endif; ?>
             </ul>
         <?php endif; ?>
 
@@ -146,6 +214,14 @@ $role = $_SESSION['user_role'];
         <?php if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Regional Manager' || $role === 'Team Leader'): ?>
             <div class="menu-group-title">Management</div>
             <ul>
+                <?php if ($role === 'Super Admin' && (empty($_SESSION['tenant_db']) || $_SESSION['tenant_db'] === 'marg_crm') && empty($_SESSION['impersonate_tenant_db'])): ?>
+                    <li class="sidebar-item <?php echo isActivePage('crm_clients'); ?>">
+                        <!-- <a href="index.php?page=crm_clients">
+                            <i data-lucide="building" style="width: 18px; height: 18px; color: var(--primary);"></i>
+                            <span>CRM Clients</span>
+                        </a> -->
+                    </li>
+                <?php endif; ?>
                 <li class="sidebar-item <?php echo isActivePage('admin_users'); ?>">
                     <a href="index.php?page=admin_users">
                         <i data-lucide="users-round" style="width: 18px; height: 18px;"></i>
@@ -167,7 +243,7 @@ $role = $_SESSION['user_role'];
             </ul>
         <?php endif; ?>
 
-        <!-- Settings Group -->
+        <!-- Settings & System Group -->
         <?php if ($role === 'Super Admin' || $role === 'Admin'): ?>
             <div class="menu-group-title">System</div>
             <ul>
@@ -179,6 +255,29 @@ $role = $_SESSION['user_role'];
                 </li>
             </ul>
         <?php endif; ?>
+
+        <!-- Legal & Compliance Group -->
+        <div class="menu-group-title">Legal & Compliance</div>
+        <ul>
+            <li class="sidebar-item <?php echo isActivePage('privacy_policy'); ?>">
+                <a href="index.php?page=privacy_policy">
+                    <i data-lucide="shield-check" style="width: 18px; height: 18px;"></i>
+                    <span>Privacy Policy</span>
+                </a>
+            </li>
+            <li class="sidebar-item <?php echo isActivePage('terms_conditions'); ?>">
+                <a href="index.php?page=terms_conditions">
+                    <i data-lucide="file-text" style="width: 18px; height: 18px;"></i>
+                    <span>Terms & Conditions</span>
+                </a>
+            </li>
+            <li class="sidebar-item <?php echo isActivePage('refund_policy'); ?>">
+                <a href="index.php?page=refund_policy">
+                    <i data-lucide="refresh-cw" style="width: 18px; height: 18px;"></i>
+                    <span>Refund Policy</span>
+                </a>
+            </li>
+        </ul>
 
     </div>
 

@@ -201,6 +201,107 @@ if ($db_connected && $pdo) {
     }
 }
 
+// Dates setup for Today, Tomorrow, Next Day summary metric cards
+$today_str = date('Y-m-d');
+$tomorrow_str = date('Y-m-d', strtotime('+1 day'));
+$nextday_str = date('Y-m-d', strtotime('+2 days'));
+
+// Fetch live metrics dynamically
+$liveMetrics = getLiveMetricCounts($pdo, $is_admin, $user_name);
+$expired_counts = $liveMetrics['expired'];
+$demo_counts = $liveMetrics['demo'];
+$callback_counts = $liveMetrics['callback'];
+
+// Preserve original list for metric calculations
+$all_demos = $demos;
+
+// Active URL filter params handling
+$active_filter = $_GET['filter'] ?? '';
+$active_day = $_GET['day'] ?? '';
+$active_status = $_GET['status'] ?? '';
+$filter_label = '';
+
+if (!empty($active_filter) && !empty($active_day)) {
+    $target_date = $today_str;
+    $day_name = 'Today';
+    if ($active_day === 'tomorrow') {
+        $target_date = $tomorrow_str;
+        $day_name = 'Tomorrow';
+    } elseif ($active_day === 'next_day') {
+        $target_date = $nextday_str;
+        $day_name = 'Next Day';
+    } elseif ($active_day === 'all' || $active_day === 'total') {
+        $day_name = 'All Total';
+    }
+
+    $filter_title = '';
+    if ($active_filter === 'demo_scheduled') {
+        $filter_title = 'Demo Scheduled';
+    } elseif ($active_filter === 'expired') {
+        $filter_title = 'Upcoming Expired Lead';
+    } elseif ($active_filter === 'callback') {
+        $filter_title = 'Call Back';
+    }
+
+    $filter_label = $filter_title . " ($day_name)";
+
+    $filtered_demos = [];
+    foreach ($all_demos as $dm) {
+        $dm_timestamp = strtotime($dm['scheduled_at']);
+        $dm_date = date('Y-m-d', $dm_timestamp);
+        if ($active_filter === 'demo_scheduled') {
+            if ($active_day === 'all' || $active_day === 'total') {
+                if (($dm['status'] ?? '') === 'scheduled') $filtered_demos[] = $dm;
+            } elseif (($dm['status'] ?? '') === 'scheduled' && $dm_timestamp >= time() && $dm_date === $target_date) {
+                $filtered_demos[] = $dm;
+            }
+        } elseif ($active_filter === 'expired') {
+            if ($active_day === 'all' || $active_day === 'total') {
+                if (($dm['status'] ?? '') === 'cancelled' || $dm_timestamp < time()) $filtered_demos[] = $dm;
+            } elseif ((($dm['status'] ?? '') === 'cancelled' || $dm_timestamp < time()) && $dm_date === $target_date) {
+                $filtered_demos[] = $dm;
+            }
+        } elseif ($active_filter === 'callback') {
+            if ($active_day === 'all' || $active_day === 'total') {
+                $filtered_demos[] = $dm;
+            } elseif ($dm_date === $target_date) {
+                $filtered_demos[] = $dm;
+            }
+        }
+    }
+    $demos = $filtered_demos;
+} elseif (!empty($active_status)) {
+    $filter_label = ucfirst(str_replace('_', ' ', $active_status)) . ' Demos';
+    $filtered_demos = [];
+    foreach ($all_demos as $dm) {
+        if (($dm['status'] ?? '') === $active_status) {
+            if ($active_status === 'scheduled') {
+                if (strtotime($dm['scheduled_at']) >= time()) {
+                    $filtered_demos[] = $dm;
+                }
+            } else {
+                $filtered_demos[] = $dm;
+            }
+        }
+    }
+    $demos = $filtered_demos;
+}
+
+// Helper functions for card button URLs & active styling
+function getFilterUrl($filter_name, $day_name, $current_filter, $current_day) {
+    if ($current_filter === $filter_name && $current_day === $day_name) {
+        return 'index.php?page=demo'; // Toggle off
+    }
+    return 'index.php?page=demo&filter=' . urlencode($filter_name) . '&day=' . urlencode($day_name);
+}
+
+function getFilterStyle($filter_name, $day_name, $current_filter, $current_day) {
+    if ($current_filter === $filter_name && $current_day === $day_name) {
+        return 'outline: 2px solid var(--primary); outline-offset: 2px; background: rgba(0, 77, 64, 0.08); border-radius: 8px; transform: scale(1.04);';
+    }
+    return '';
+}
+
 // Fetch leads list for "Schedule New Demo" dropdown
 $leads = [];
 if ($db_connected && $pdo) {
@@ -239,6 +340,136 @@ if (empty($engineers)) {
             <span>Schedule New Demo</span>
         </button>
     </div>
+
+    <!-- Live Metric Cards: Upcoming Expired Lead, Demo Scheduled, Call Back (Clickable Filters) -->
+    <div class="grid mb-6 live-metric-cards-container" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+        <!-- Card 1: Upcoming Expired Lead -->
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: var(--border-radius-md); box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem;">
+                <h4 style="font-family: var(--font-heading); font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin: 0;">Upcoming Expired Lead</h4>
+                <a href="<?php echo getFilterUrl('expired', 'all', $active_filter, $active_day); ?>"
+                   style="background: rgba(229, 57, 53, 0.12); color: #e53935; font-weight: 700; font-size: 0.75rem; padding: 0.2rem 0.65rem; border-radius: 12px; text-decoration: none; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'all', $active_filter, $active_day); ?>"
+                   title="Click to view all Upcoming Expired Leads">
+                    Total: <span id="cnt-demo-expired-total"><?php echo $expired_counts['total']; ?></span>
+                </a>
+            </div>
+            <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
+                <a href="<?php echo getFilterUrl('expired', 'today', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'today', $active_filter, $active_day); ?>"
+                   title="Click to filter Upcoming Expired Lead for Today">
+                    <span id="cnt-demo-expired-today" style="background-color: #e53935; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $expired_counts['today']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Today</span>
+                </a>
+                <a href="<?php echo getFilterUrl('expired', 'tomorrow', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'tomorrow', $active_filter, $active_day); ?>"
+                   title="Click to filter Upcoming Expired Lead for Tomorrow">
+                    <span id="cnt-demo-expired-tomorrow" style="background-color: #f57c00; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $expired_counts['tomorrow']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Tomorrow</span>
+                </a>
+                <a href="<?php echo getFilterUrl('expired', 'next_day', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'next_day', $active_filter, $active_day); ?>"
+                   title="Click to filter Upcoming Expired Lead for Next Day">
+                    <span id="cnt-demo-expired-nextday" style="background-color: #ffb300; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $expired_counts['next_day']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Next Day</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Card 2: Demo Scheduled -->
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: var(--border-radius-md); box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem;">
+                <h4 style="font-family: var(--font-heading); font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin: 0;">Demo Scheduled</h4>
+                <a href="<?php echo getFilterUrl('demo_scheduled', 'all', $active_filter, $active_day); ?>"
+                   style="background: rgba(245, 124, 0, 0.12); color: #f57c00; font-weight: 700; font-size: 0.75rem; padding: 0.2rem 0.65rem; border-radius: 12px; text-decoration: none; transition: all 0.2s ease; <?php echo getFilterStyle('demo_scheduled', 'all', $active_filter, $active_day); ?>"
+                   title="Click to view all Scheduled Demos">
+                    Total: <span id="cnt-demo-dm-total"><?php echo $demo_counts['total']; ?></span>
+                </a>
+            </div>
+            <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
+                <a href="<?php echo getFilterUrl('demo_scheduled', 'today', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('demo_scheduled', 'today', $active_filter, $active_day); ?>"
+                   title="Click to filter Demo Scheduled for Today">
+                    <span id="cnt-demo-dm-today" style="background-color: #e53935; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $demo_counts['today']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Today</span>
+                </a>
+                <a href="<?php echo getFilterUrl('demo_scheduled', 'tomorrow', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('demo_scheduled', 'tomorrow', $active_filter, $active_day); ?>"
+                   title="Click to filter Demo Scheduled for Tomorrow">
+                    <span id="cnt-demo-dm-tomorrow" style="background-color: #f57c00; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $demo_counts['tomorrow']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Tomorrow</span>
+                </a>
+                <a href="<?php echo getFilterUrl('demo_scheduled', 'next_day', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('demo_scheduled', 'next_day', $active_filter, $active_day); ?>"
+                   title="Click to filter Demo Scheduled for Next Day">
+                    <span id="cnt-demo-dm-nextday" style="background-color: #ffb300; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $demo_counts['next_day']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Next Day</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Card 3: Call Back -->
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: var(--border-radius-md); box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem;">
+                <h4 style="font-family: var(--font-heading); font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin: 0;">Call Back</h4>
+                <a href="<?php echo getFilterUrl('callback', 'all', $active_filter, $active_day); ?>"
+                   style="background: rgba(0, 150, 136, 0.12); color: #009688; font-weight: 700; font-size: 0.75rem; padding: 0.2rem 0.65rem; border-radius: 12px; text-decoration: none; transition: all 0.2s ease; <?php echo getFilterStyle('callback', 'all', $active_filter, $active_day); ?>"
+                   title="Click to view all Call Back follow-ups">
+                    Total: <span id="cnt-demo-cb-total"><?php echo $callback_counts['total']; ?></span>
+                </a>
+            </div>
+            <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
+                <a href="<?php echo getFilterUrl('callback', 'today', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('callback', 'today', $active_filter, $active_day); ?>"
+                   title="Click to filter Call Back for Today">
+                    <span id="cnt-demo-cb-today" style="background-color: #e53935; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $callback_counts['today']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Today</span>
+                </a>
+                <a href="<?php echo getFilterUrl('callback', 'tomorrow', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('callback', 'tomorrow', $active_filter, $active_day); ?>"
+                   title="Click to filter Call Back for Tomorrow">
+                    <span id="cnt-demo-cb-tomorrow" style="background-color: #f57c00; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $callback_counts['tomorrow']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Tomorrow</span>
+                </a>
+                <a href="<?php echo getFilterUrl('callback', 'next_day', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('callback', 'next_day', $active_filter, $active_day); ?>"
+                   title="Click to filter Call Back for Next Day">
+                    <span id="cnt-demo-cb-nextday" style="background-color: #ffb300; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $callback_counts['next_day']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Next Day</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <?php if (!empty($filter_label)): ?>
+        <div class="mb-4 p-3 flex justify-between align-center" style="background: rgba(0, 77, 64, 0.08); border: 1.5px dashed var(--primary); border-radius: var(--border-radius-sm); color: var(--primary);">
+            <span class="text-sm font-semibold flex align-center gap-2">
+                <i data-lucide="filter" style="width: 16px; height: 16px;"></i>
+                <span>Showing list filtered by: <strong><?php echo htmlspecialchars($filter_label); ?></strong> (<?php echo count($demos); ?> matching record<?php echo count($demos) === 1 ? '' : 's'; ?>)</span>
+            </span>
+            <a href="index.php?page=demo" class="btn btn-secondary text-xs flex align-center gap-1" style="padding: 0.35rem 0.85rem; background: var(--bg-card);">
+                <i data-lucide="x" style="width: 12px; height: 12px;"></i>
+                <span>Clear Filter</span>
+            </a>
+        </div>
+    <?php endif; ?>
 
     <?php if (!empty($message)): ?>
         <div class="badge mb-4" style="--badge-bg: var(--<?php echo $message_type; ?>-light); --badge-color: var(--<?php echo $message_type; ?>); padding: 0.75rem 1rem; width: 100%; display: flex; font-size: 0.85rem;">
@@ -702,6 +933,9 @@ if (empty($engineers)) {
                         } else if (fup.status === 'pending') {
                             badgeColor = 'var(--warning)';
                             badgeBg = 'var(--warning-light)';
+                        } else if (fup.status === 'rescheduled') {
+                            badgeColor = 'var(--info)';
+                            badgeBg = 'var(--info-light)';
                         } else if (fup.status === 'missed' || fup.status === 'cancelled') {
                             badgeColor = 'var(--danger)';
                             badgeBg = 'var(--danger-light)';

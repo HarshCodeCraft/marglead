@@ -31,10 +31,19 @@ if ($method === 'GET') {
             'timeline' => $timeline
         ]);
     } else {
-        // List leads with optional search and status filter
+        $auth = getAuthUserContext();
         $search = trim($_GET['search'] ?? '');
         $status = trim($_GET['status'] ?? '');
         $priority = trim($_GET['priority'] ?? '');
+        $req_assigned = trim($_GET['assigned_to'] ?? '');
+
+        // SECURITY ENFORCEMENT: Non-admin users are strictly restricted to their own assigned data
+        $assigned_to = '';
+        if (!$auth['isAdmin'] && !empty($auth['name'])) {
+            $assigned_to = $auth['name'];
+        } elseif (!empty($req_assigned) && strtolower($req_assigned) !== 'all') {
+            $assigned_to = $req_assigned;
+        }
         
         $where = [];
         $params = [];
@@ -53,6 +62,11 @@ if ($method === 'GET') {
         if (!empty($priority)) {
             $where[] = "priority = ?";
             $params[] = $priority;
+        }
+
+        if (!empty($assigned_to)) {
+            $where[] = "assigned_to LIKE ?";
+            $params[] = '%' . $assigned_to . '%';
         }
         
         $whereClause = !empty($where) ? "WHERE " . implode(" AND ", $where) : "";

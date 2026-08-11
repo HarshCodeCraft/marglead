@@ -34,33 +34,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Cell click handler to schedule a follow-up
+    // Cell click handler disabled per request
+    /*
     dayCells.forEach(cell => {
-        cell.addEventListener('click', () => {
-            const dayNum = cell.querySelector('.day-num').textContent.trim();
-            // Format standard ISO date string
-            const monthText = calendarMonthTitle ? calendarMonthTitle.textContent.split(' ')[0] : 'July';
-            const yearText = calendarMonthTitle ? calendarMonthTitle.textContent.split(' ')[1] : '2026';
-            
-            const monthMap = {
-                'January': '01', 'February': '02', 'March': '03', 'April': '04', 'May': '05', 'June': '06',
-                'July': '07', 'August': '08', 'September': '09', 'October': '10', 'November': '11', 'December': '12'
-            };
-            const padDay = dayNum.padStart(2, '0');
-            const formatStr = `${yearText}-${monthMap[monthText]}-${padDay}T10:00`;
-            
-            // Set value inside datetime input in the modal
-            const dtInput = document.querySelector('#schedule-followup-modal input[type="datetime-local"]');
-            if (dtInput) {
-                dtInput.value = formatStr;
+        cell.addEventListener('click', (e) => {
+            if (e.target.closest('.calendar-event') || e.target.closest('.agenda-item-clickable')) {
+                return;
             }
-            
-            // Open modal
-            if (typeof window.openModal === 'function') {
-                window.openModal('schedule-followup-modal');
-            }
+            // Date cell popup disabled
         });
     });
+    */
 
     // Toggle Calendar Events view filters
     const filterButtons = document.querySelectorAll('.calendar-filter-btn');

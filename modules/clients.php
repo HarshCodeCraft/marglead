@@ -464,6 +464,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Client Account & Login Credentials Handler
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_client_account') {
+    $client_id = intval($_POST['client_id'] ?? 0);
+    $customer_id = trim($_POST['customer_id'] ?? '');
+    $party_name = trim($_POST['party_name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $software_type = trim($_POST['software_type'] ?? 'Marg ERP Silver');
+    $no_of_users = intval($_POST['no_of_users'] ?? 1);
+    $due_on = trim($_POST['due_on'] ?? '');
+    $total_amount = floatval($_POST['total_amount'] ?? 0.00);
+    $party_status = trim($_POST['party_status'] ?? 'Running');
+    $new_password = trim($_POST['password'] ?? '');
+    $selected_modules = isset($_POST['modules']) && is_array($_POST['modules']) ? $_POST['modules'] : ['dashboard', 'quotation', 'payments', 'support', 'renewals', 'bot_flows'];
+
+    if ($pdo && !empty($email)) {
+        try {
+            // 1. Update client_directory
+            if ($client_id > 0) {
+                $upd = $pdo->prepare("UPDATE client_directory SET 
+                    customer_id = ?, party_name = ?, email = ?, software_type = ?, 
+                    no_of_users = ?, due_on = ?, total_amount = ?, party_status = ? 
+                    WHERE id = ?");
+                $upd->execute([$customer_id, $party_name, $email, $software_type, $no_of_users, $due_on ?: null, $total_amount, $party_status, $client_id]);
+            } else {
+                $ins = $pdo->prepare("INSERT INTO client_directory 
+                    (customer_id, party_name, email, user_type, software_type, no_of_users, due_on, total_amount, party_status) 
+                    VALUES (?, ?, ?, 'Registered Client', ?, ?, ?, ?, ?)");
+                $ins->execute([$customer_id ?: ('CL-' . rand(10000, 99999)), $party_name, $email, $software_type, $no_of_users, $due_on ?: null, $total_amount, $party_status]);
+            }
+
+            // 2. Sync users table (Role = Client, credentials, and feature access permissions)
+            $chkUser = $pdo->prepare("SELECT id FROM users WHERE email = ? LIMIT 1");
+            $chkUser->execute([$email]);
+            $userExistsId = $chkUser->fetchColumn();
+
+            $user_status = ($party_status === 'Running' || $party_status === 'Active') ? 'Active' : ($party_status === 'Pending Approval' ? 'Pending Approval' : 'Declined');
+            $perms_json = json_encode(array_values(array_unique($selected_modules)));
+
+            if ($userExistsId) {
+                if (!empty($new_password)) {
+                    $hash = password_hash($new_password, PASSWORD_DEFAULT);
+                    $uUpd = $pdo->prepare("UPDATE users SET name = ?, password = ?, role = 'Client', status = ?, permissions = ? WHERE id = ?");
+                    $uUpd->execute([$party_name, $hash, $user_status, $perms_json, $userExistsId]);
+                } else {
+                    $uUpd = $pdo->prepare("UPDATE users SET name = ?, role = 'Client', status = ?, permissions = ? WHERE id = ?");
+                    $uUpd->execute([$party_name, $user_status, $perms_json, $userExistsId]);
+                }
+            } else {
+                $pass = !empty($new_password) ? $new_password : 'client123';
+                $hash = password_hash($pass, PASSWORD_DEFAULT);
+                $uIns = $pdo->prepare("INSERT INTO users (name, email, password, role, status, permissions) VALUES (?, ?, ?, 'Client', ?, ?)");
+                $uIns->execute([$party_name, $email, $hash, $user_status, $perms_json]);
+            }
+
+            $import_result = [
+                'success' => true,
+                'message' => "Client Account, Login Credentials & Access Privileges updated successfully for <strong>" . htmlspecialchars($party_name) . "</strong>!"
+            ];
+        } catch (Exception $e) {
+            $import_result = ['success' => false, 'message' => "Error updating Client Account: " . $e->getMessage()];
+        }
+    }
+}
+
 // --------------------------------------------------------------------------
 // 3. Tab & View State Setup
 // --------------------------------------------------------------------------
@@ -788,6 +852,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                             <option value="">All Statuses</option>
                             <option value="Running" <?php echo (strcasecmp($status_filter, 'Running') === 0) ? 'selected' : ''; ?>>Running</option>
                             <option value="Expired" <?php echo (strcasecmp($status_filter, 'Expired') === 0) ? 'selected' : ''; ?>>Expired</option>
+                            <option value="Deactive" <?php echo (strcasecmp($status_filter, 'Deactive') === 0) ? 'selected' : ''; ?>>Deactive</option>
                             <option value="Suspended" <?php echo (strcasecmp($status_filter, 'Suspended') === 0) ? 'selected' : ''; ?>>Suspended</option>
                         </select>
                     </div>
@@ -890,6 +955,16 @@ function getClientsPageUrl($tab, $p, $limit) {
                             </tr>
                         <?php else: ?>
                             <?php foreach ($dir_records as $r): 
+                                if ($pdo && !empty($r['email'])) {
+                                    $uStmt = $pdo->prepare("SELECT id as user_id, status as user_status, permissions FROM users WHERE email = ? LIMIT 1");
+                                    $uStmt->execute([$r['email']]);
+                                    $uRow = $uStmt->fetch(PDO::FETCH_ASSOC);
+                                    if ($uRow) {
+                                        $r['user_id'] = $uRow['user_id'];
+                                        $r['user_status'] = $uRow['user_status'];
+                                        $r['permissions'] = $uRow['permissions'];
+                                    }
+                                }
                                 $rJson = htmlspecialchars(json_encode($r), ENT_QUOTES, 'UTF-8');
                             ?>
                                 <tr>
@@ -898,7 +973,12 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td class="col-dir-customer-id"><span class="font-bold text-primary font-mono"><?php echo htmlspecialchars($r['customer_id']); ?></span></td>
                                     <td class="col-dir-subpartner-code text-muted"><?php echo htmlspecialchars($r['subpartner_code'] ?? '-'); ?></td>
                                     <td class="col-dir-subpartner-name text-muted"><?php echo htmlspecialchars($r['subpartner_name'] ?? '-'); ?></td>
-                                    <td class="col-dir-party-name"><strong style="color: var(--text-main);"><?php echo htmlspecialchars($r['party_name']); ?></strong></td>
+                                    <td class="col-dir-party-name">
+                                        <strong style="color: var(--text-main);"><?php echo htmlspecialchars($r['party_name']); ?></strong>
+                                        <?php if (!empty($r['user_id'])): ?>
+                                            <span class="badge" style="--badge-bg: rgba(16,185,129,0.1); --badge-color: #10b981; font-size: 10px; margin-left: 4px;">Login Account</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td class="col-dir-company-using"><?php echo htmlspecialchars($r['company_using'] ?? '-'); ?></td>
                                     <td class="col-dir-address text-xs text-muted" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo htmlspecialchars($r['address'] ?? ''); ?>">
                                         <?php echo htmlspecialchars($r['address'] ?? '-'); ?>
@@ -915,8 +995,9 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td class="col-dir-party-status">
                                         <?php 
                                             $st = strtolower($r['party_status'] ?? '');
-                                            if ($st === 'running') echo '<span class="badge badge-success text-xs">Running</span>';
+                                            if ($st === 'running' || $st === 'active') echo '<span class="badge badge-success text-xs">Running</span>';
                                             elseif ($st === 'expired') echo '<span class="badge badge-danger text-xs">Expired</span>';
+                                            elseif ($st === 'deactive' || $st === 'deactivated' || $st === 'inactive') echo '<span class="badge badge-danger text-xs">Deactive</span>';
                                             else echo '<span class="badge text-xs" style="--badge-bg: var(--warning-light); --badge-color: var(--warning);">' . htmlspecialchars($r['party_status']) . '</span>';
                                         ?>
                                     </td>
@@ -931,9 +1012,13 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td class="col-dir-software-hitdate font-mono text-xs text-muted"><?php echo htmlspecialchars($r['software_hit_date'] ?? '-'); ?></td>
                                     <td class="col-dir-wallet-id font-mono text-xs text-muted"><?php echo htmlspecialchars($r['wallet_id'] ?? '-'); ?></td>
                                     
-                                    <!-- Actions Column: Folder & Edit Icons -->
+                                    <!-- Actions Column: Credentials Modal, Folder & Edit Icons -->
                                     <td class="col-dir-actions" style="text-align: right; padding-right: 1.25rem;">
                                         <div class="flex align-center justify-end gap-1">
+                                            <!-- Login & Access Credentials Modal Button -->
+                                            <button type="button" class="btn btn-primary text-xs" style="padding: 0.25rem 0.5rem; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="Manage Client Credentials, Software Plan & Module Access Permissions" onclick='openClientAccountModal(<?php echo $rJson; ?>)'>
+                                                <i data-lucide="key" style="width: 13px; height: 13px;"></i> Login & Access
+                                            </button>
                                             <!-- Folder Icon (Licence & AMC Window) -->
                                             <button type="button" class="btn-icon text-primary" title="View Licence & AMC Information Window" onclick='openLicenceAmcWindow(<?php echo $rJson; ?>)'>
                                                 <i data-lucide="folder" style="width: 15px; height: 15px;"></i>
@@ -1794,6 +1879,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                         <select id="edit_party_status" name="party_status" class="form-control text-xs">
                             <option value="Running">Running</option>
                             <option value="Expired">Expired</option>
+                            <option value="Deactive">Deactive</option>
                             <option value="Suspended">Suspended</option>
                         </select>
                     </div>
@@ -1994,5 +2080,178 @@ function openEditClientRecordModal(client) {
     window.openModal('edit-client-record-modal');
 }
 
+// --------------------------------------------------------------------------
+// Window 3: Open Client Account, Login & Access Modal (Key Icon 🔑)
+// --------------------------------------------------------------------------
+function openClientAccountModal(clientData) {
+    document.getElementById('ca_client_id').value = clientData.id || '';
+    document.getElementById('ca_customer_id').value = clientData.customer_id || '';
+    document.getElementById('ca_party_name').value = clientData.party_name || clientData.name || '';
+    document.getElementById('ca_email').value = clientData.email || '';
+    document.getElementById('ca_password').value = '';
+    document.getElementById('ca_party_status').value = clientData.party_status || clientData.user_status || 'Running';
+    document.getElementById('ca_software_type').value = clientData.software_type || 'Marg ERP Silver';
+    document.getElementById('ca_no_of_users').value = clientData.no_of_users || 1;
+    document.getElementById('ca_due_on').value = clientData.due_on || '';
+    document.getElementById('ca_total_amount').value = clientData.total_amount || '4661.00';
+
+    var perms = ['dashboard', 'quotation', 'payments', 'support', 'renewals', 'bot_flows'];
+    if (clientData.permissions) {
+        if (typeof clientData.permissions === 'string') {
+            try { perms = JSON.parse(clientData.permissions); } catch(e) {}
+        } else if (Array.isArray(clientData.permissions)) {
+            perms = clientData.permissions;
+        }
+    }
+    
+    document.querySelectorAll('#clientAccountModal input[name="modules[]"]').forEach(function(cb) {
+        cb.checked = perms.includes(cb.value);
+    });
+
+    document.getElementById('clientAccountModal').style.display = 'flex';
+}
+
+function closeClientAccountModal() {
+    document.getElementById('clientAccountModal').style.display = 'none';
+}
+
+function generateTempPassword() {
+    var chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@!';
+    var pass = '';
+    for (var i = 0; i < 10; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    document.getElementById('ca_password').value = pass;
+}
+
 document.addEventListener('DOMContentLoaded', loadDirColumnPreferences);
 </script>
+
+<!-- Client Credentials, Subscription Plan & Feature Access Modal -->
+<div id="clientAccountModal" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(4px); z-index: 99999; align-items: center; justify-content: center;">
+    <div style="background: var(--bg-card, #ffffff); border-radius: 14px; width: 100%; max-width: 680px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.3); border: 1px solid var(--border-color);">
+        
+        <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: var(--border-card);">
+            <div>
+                <h3 style="margin: 0; font-family: var(--font-heading); font-size: 1.2rem; color: var(--text-main);" id="ca_modal_title">Client Account Details, Credentials & Controls</h3>
+                <span class="text-xs text-muted">Manage login credentials, software plan, and module permissions.</span>
+            </div>
+            <button type="button" onclick="closeClientAccountModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+        </div>
+
+        <form action="index.php?page=clients" method="POST" style="padding: 1.5rem;">
+            <input type="hidden" name="action" value="save_client_account">
+            <input type="hidden" name="client_id" id="ca_client_id" value="">
+
+            <!-- 1. LOGIN CREDENTIALS SECTION -->
+            <div style="background: rgba(59,130,246,0.04); border: 1px solid rgba(59,130,246,0.15); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem;">
+                <h4 style="margin: 0 0 1rem 0; font-size: 0.825rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary); display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="shield-check" style="width: 16px; height: 16px;"></i> 1. Client Login Credentials & Account Status
+                </h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <label class="form-label text-xs font-semibold">Party / Client Name</label>
+                        <input type="text" name="party_name" id="ca_party_name" class="form-control text-xs" required>
+                    </div>
+                    <div>
+                        <label class="form-label text-xs font-semibold">Login Email / Username</label>
+                        <input type="email" name="email" id="ca_email" class="form-control text-xs" required>
+                    </div>
+                    <div>
+                        <label class="form-label text-xs font-semibold">Set / Reset Password</label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" name="password" id="ca_password" class="form-control text-xs" placeholder="Leave blank to keep unchanged">
+                            <button type="button" onclick="generateTempPassword()" class="btn btn-secondary text-xs" style="white-space: nowrap;">Generate</button>
+                        </div>
+                        <span class="text-xs text-muted" style="font-size: 0.7rem;">Default initial password: <code>client123</code></span>
+                    </div>
+                    <div>
+                        <label class="form-label text-xs font-semibold">Account Status (Admin Approved)</label>
+                        <select name="party_status" id="ca_party_status" class="form-control text-xs font-semibold" required>
+                            <option value="Running">Active (Approved)</option>
+                            <option value="Pending Approval">Pending Admin Approval</option>
+                            <option value="Deactive">Deactive</option>
+                            <option value="Suspended">Suspended / Declined</option>
+                            <option value="Expired">Expired</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. SUBSCRIPTION PLAN & LICENSE SECTION -->
+            <div style="background: rgba(16,185,129,0.04); border: 1px solid rgba(16,185,129,0.15); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem;">
+                <h4 style="margin: 0 0 1rem 0; font-size: 0.825rem; text-transform: uppercase; letter-spacing: 0.05em; color: #10b981; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="package" style="width: 16px; height: 16px;"></i> 2. Purchased Software Plan & Subscription License
+                </h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <label class="form-label text-xs font-semibold">Customer ID</label>
+                        <input type="text" name="customer_id" id="ca_customer_id" class="form-control text-xs font-mono">
+                    </div>
+                    <div>
+                        <label class="form-label text-xs font-semibold">Purchased Software / Plan</label>
+                        <select name="software_type" id="ca_software_type" class="form-control text-xs font-semibold">
+                            <option value="Marg ERP Silver">Marg ERP Silver</option>
+                            <option value="Marg ERP Gold">Marg ERP Gold</option>
+                            <option value="Marg ERP Diamond">Marg ERP Diamond</option>
+                            <option value="WhatsApp Bot Plan">WhatsApp Bot & Flow Plan</option>
+                            <option value="Full CRM Enterprise">Full CRM Enterprise</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label text-xs font-semibold">User License Count</label>
+                        <input type="number" name="no_of_users" id="ca_no_of_users" class="form-control text-xs" min="1" value="1">
+                    </div>
+                    <div>
+                        <label class="form-label text-xs font-semibold">Plan Due / Expiry Date</label>
+                        <input type="date" name="due_on" id="ca_due_on" class="form-control text-xs">
+                    </div>
+                    <div style="grid-column: span 2;">
+                        <label class="form-label text-xs font-semibold">Total Amount (₹)</label>
+                        <input type="number" step="0.01" name="total_amount" id="ca_total_amount" class="form-control text-xs" value="4661.00">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. FEATURE ACCESS PERMISSIONS ("WHAT THEY ACCESS") -->
+            <div style="background: rgba(139,92,246,0.04); border: 1px solid rgba(139,92,246,0.15); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 1rem 0; font-size: 0.825rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8b5cf6; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="lock" style="width: 16px; height: 16px;"></i> 3. Client Accessible Modules ("What They Access")
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer;">
+                        <input type="checkbox" name="modules[]" value="dashboard" id="mod_dashboard" checked>
+                        <span>Dashboard</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer;">
+                        <input type="checkbox" name="modules[]" value="quotation" id="mod_quotation" checked>
+                        <span>Quotations</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer;">
+                        <input type="checkbox" name="modules[]" value="payments" id="mod_payments" checked>
+                        <span>Payments & Invoices</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer;">
+                        <input type="checkbox" name="modules[]" value="support" id="mod_support" checked>
+                        <span>Support Tickets</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer;">
+                        <input type="checkbox" name="modules[]" value="renewals" id="mod_renewals" checked>
+                        <span>Renewals Manager</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer;">
+                        <input type="checkbox" name="modules[]" value="bot_flows" id="mod_bot_flows" checked>
+                        <span>WhatsApp Bots & Flows</span>
+                    </label>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" class="btn btn-secondary text-xs" onclick="closeClientAccountModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary text-xs" style="font-weight: 600; padding: 0.6rem 1.25rem;">
+                    <i data-lucide="check-circle" style="width: 16px; height: 16px;"></i> Save Credentials & Privileges
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

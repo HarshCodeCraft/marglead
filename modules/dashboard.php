@@ -63,8 +63,8 @@ if ($db_connected && $pdo) {
 
             $hotLeads = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(priority) = 'hot'")->fetchColumn();
 
-            $pendingDemos = $pdo->query("SELECT COUNT(*) FROM demos WHERE status = 'scheduled'")->fetchColumn();
-            $todaysDemos = $pdo->query("SELECT COUNT(*) FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled'")->fetchColumn();
+            $pendingDemos = $pdo->query("SELECT (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' AND scheduled_at >= NOW()) + (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND scheduled_at >= NOW())")->fetchColumn();
+            $todaysDemos = $pdo->query("SELECT (SELECT COUNT(*) FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled' AND scheduled_at >= NOW()) + (SELECT COUNT(*) FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'pending' AND scheduled_at >= NOW())")->fetchColumn();
 
             $pendingQuotes = $pdo->query("SELECT COUNT(*) FROM quotations WHERE status = 'pending'")->fetchColumn();
             $pendingQuotesVal = $pdo->query("SELECT SUM(grand_total) FROM quotations WHERE status = 'pending'")->fetchColumn();
@@ -116,12 +116,12 @@ if ($db_connected && $pdo) {
             $stmt->execute([$user_name]);
             $hotLeads = $stmt->fetchColumn();
 
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM demos WHERE (engineer = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'scheduled'");
-            $stmt->execute([$user_name, $user_name]);
+            $stmt = $pdo->prepare("SELECT (SELECT COUNT(*) FROM demos WHERE (engineer = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'scheduled' AND scheduled_at >= NOW()) + (SELECT COUNT(*) FROM followups WHERE (assigned_to = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'pending' AND scheduled_at >= NOW())");
+            $stmt->execute([$user_name, $user_name, $user_name, $user_name]);
             $pendingDemos = $stmt->fetchColumn();
 
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM demos WHERE (engineer = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled'");
-            $stmt->execute([$user_name, $user_name]);
+            $stmt = $pdo->prepare("SELECT (SELECT COUNT(*) FROM demos WHERE (engineer = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled' AND scheduled_at >= NOW()) + (SELECT COUNT(*) FROM followups WHERE (assigned_to = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND DATE(scheduled_at) = CURRENT_DATE() AND status = 'pending' AND scheduled_at >= NOW())");
+            $stmt->execute([$user_name, $user_name, $user_name, $user_name]);
             $todaysDemos = $stmt->fetchColumn();
 
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM quotations WHERE (created_by = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'pending'");
@@ -439,7 +439,7 @@ window.dashboardChartData = {
             <p class="text-muted text-sm">Hello, <?php echo isset($_SESSION['user_name']) ? htmlspecialchars($_SESSION['user_name']) : 'Harsh Vardhan'; ?> (<?php echo htmlspecialchars($user_role); ?>). <?php echo $is_admin ? "Here is what is happening across all system leads today." : "Here is what is happening across your assigned leads today."; ?></p>
         </div>
         <div class="flex gap-2">
-            <button class="btn btn-secondary text-sm" onclick="window.location.reload();">
+            <button class="btn btn-secondary text-sm" onclick="if(typeof refreshDataWithoutReload==='function') refreshDataWithoutReload(true); else window.location.reload();">
                 <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
                 <span>Refresh Data</span>
             </button>

@@ -294,6 +294,48 @@ if (!empty($lead['installation_status'])) {
                 </div>
             </div>
 
+            <!-- Scan to Call Mobile QR Code Card -->
+            <?php
+            $clean_phone = preg_replace('/[^0-9+]/', '', $lead['phone'] ?? '');
+            if (!empty($clean_phone) && !str_starts_with($clean_phone, '+')) {
+                if (strlen($clean_phone) === 10) {
+                    $clean_phone = '+91' . $clean_phone;
+                }
+            }
+            // Use direct clean international phone number (+91XXXXXXXXXX) to prevent Google Camera / dialer from reading "tel:" as T9 keypad numbers "853"
+            $tel_payload = $clean_phone;
+            $qr_api_url = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=4&data=' . urlencode($tel_payload);
+            $qr_fallback_url = 'https://chart.googleapis.com/chart?cht=qr&chs=180x180&chl=' . urlencode($tel_payload);
+            ?>
+            <div class="card p-4 flex flex-col align-center text-center" style="border: 1px dashed var(--primary); background-color: rgba(59, 130, 246, 0.04); position: relative; border-radius: var(--border-radius-md);">
+                <div class="flex align-center justify-between w-full mb-3">
+                    <h4 class="text-xs font-bold" style="text-transform: uppercase; letter-spacing: 0.05em; margin: 0; color: var(--primary);">Scan to Call</h4>
+                    <span class="badge" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-size: 0.65rem; font-weight: 700;">Mobile Dial</span>
+                </div>
+
+                <div style="background: #ffffff; padding: 8px; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); display: inline-block; cursor: pointer; transition: transform 0.2s ease;" 
+                     onclick="openCallQrModal('<?php echo htmlspecialchars(addslashes($lead['name'])); ?>', '<?php echo htmlspecialchars(addslashes($lead['phone'])); ?>', '<?php echo urlencode($tel_payload); ?>')"
+                     title="Scan with phone camera or click to enlarge">
+                    <img src="<?php echo $qr_api_url; ?>" 
+                         onerror="this.onerror=null; this.src='<?php echo $qr_fallback_url; ?>';"
+                         alt="Scan to Call QR Code for <?php echo htmlspecialchars($lead['name']); ?>" 
+                         style="width: 145px; height: 145px; border-radius: 6px; display: block;">
+                </div>
+
+                <div class="mt-2 flex flex-col align-center gap-1">
+                    <span class="text-xs font-bold" style="color: var(--text-main); font-size: 0.85rem;"><?php echo htmlspecialchars($lead['phone']); ?></span>
+                    <span class="text-xs text-muted" style="font-size: 0.725rem; line-height: 1.3;">Scan with smartphone camera to load number directly into phone dial pad</span>
+                </div>
+
+                <button type="button" 
+                        onclick="openCallQrModal('<?php echo htmlspecialchars(addslashes($lead['name'])); ?>', '<?php echo htmlspecialchars(addslashes($lead['phone'])); ?>', '<?php echo urlencode($tel_payload); ?>')"
+                        class="btn btn-secondary text-xs w-full mt-3 flex align-center justify-center gap-2" 
+                        style="padding: 0.45rem;">
+                    <i data-lucide="qr-code" style="width: 14px; height: 14px; color: var(--primary);"></i>
+                    <span>Enlarge Call QR</span>
+                </button>
+            </div>
+
             <!-- Lead Criteria parameters Card -->
             <div class="card p-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card);">
                 <h4 class="text-xs text-muted font-bold mb-4" style="text-transform: uppercase; letter-spacing: 0.05em;">Lead Criteria</h4>
@@ -323,15 +365,26 @@ if (!empty($lead['installation_status'])) {
             <!-- Ownership parameters Card -->
             <div class="card p-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card);">
                 <h4 class="text-xs text-muted font-bold mb-3" style="text-transform: uppercase; letter-spacing: 0.05em;">Assigned Team</h4>
-                <div class="flex align-center gap-3">
+                <div class="flex align-center gap-3 mb-3">
                     <div style="width: 38px; height: 38px; border-radius: var(--border-radius-full); background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center;">
                         <?php echo strtoupper(substr($lead['assigned_to'] ?? 'U', 0, 1)); ?>
                     </div>
                     <div class="flex flex-col">
-                        <span class="text-sm font-semibold"><?php echo htmlspecialchars($lead['assigned_to'] ?? 'Unassigned'); ?></span>
-                        <span class="text-xs text-muted">Account Representative</span>
+                        <span class="text-xs text-muted">Assigned To:</span>
+                        <span class="text-sm font-semibold"><?php echo htmlspecialchars(!empty($lead['assigned_to']) ? $lead['assigned_to'] : 'Unassigned'); ?></span>
                     </div>
                 </div>
+                <?php if (!empty($lead['assigned_by'])): ?>
+                    <div class="flex align-center gap-3 pt-2" style="border-top: 1px dashed var(--border-color);">
+                        <div style="width: 32px; height: 32px; border-radius: var(--border-radius-full); background: var(--bg-hover); color: var(--text-muted); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">
+                            <?php echo strtoupper(substr($lead['assigned_by'], 0, 1)); ?>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-xs text-muted">Assigned By (Auto):</span>
+                            <span class="text-xs font-semibold" style="color: var(--primary);"><?php echo htmlspecialchars($lead['assigned_by']); ?></span>
+                        </div>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -919,7 +972,7 @@ if (!empty($lead['installation_status'])) {
             <input type="hidden" name="assigned_to" value="<?php echo htmlspecialchars($lead['assigned_to'] ?? ''); ?>">
             <div class="form-group m-0">
                 <label class="form-label text-xs">Date & Time</label>
-                <input type="datetime-local" name="scheduled_at" class="form-control" required value="2026-07-22T15:00">
+                <input type="datetime-local" name="scheduled_at" class="form-control" required value="<?php echo date('Y-m-d\TH:i'); ?>">
             </div>
             <div class="form-group m-0">
                 <label class="form-label text-xs">Action Type</label>
@@ -1166,5 +1219,52 @@ function applyTemplateFields() {
                
     subjectInput.value = subject;
     bodyInput.value = body;
+}
+</script>
+
+<!-- Modal: Enlarged Scan-to-Call QR Code -->
+<div id="call-qr-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 380px; text-align: center;">
+        <div class="modal-header">
+            <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.1rem;" id="qr-modal-title">Scan to Call Client</h3>
+            <button class="btn-icon" onclick="window.closeModal('call-qr-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+        </div>
+        <div class="modal-body flex flex-col align-center p-6 gap-4">
+            <div style="background: #ffffff; padding: 16px; border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 10px 25px rgba(0,0,0,0.1);">
+                <img id="qr-modal-img" src="" alt="Enlarged QR Code" style="width: 220px; height: 220px; border-radius: 8px; display: block;">
+            </div>
+            <div class="flex flex-col gap-1">
+                <span class="text-base font-bold" id="qr-modal-phone" style="color: var(--primary);"></span>
+                <span class="text-xs text-muted">Point your smartphone camera at this QR code to load the phone number directly into your mobile dial pad.</span>
+            </div>
+        </div>
+        <div class="modal-footer flex justify-between align-center p-4" style="background: var(--border-card);">
+            <a id="qr-modal-tel-link" href="#" class="btn btn-primary text-xs flex align-center justify-center gap-2" style="width: 100%;">
+                <i data-lucide="phone-call" style="width: 14px; height: 14px;"></i>
+                <span>Direct Call Now</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+function openCallQrModal(name, phone, telEncoded) {
+    const modal = document.getElementById('call-qr-modal');
+    if (!modal) return;
+    
+    document.getElementById('qr-modal-title').textContent = 'Call ' + name;
+    document.getElementById('qr-modal-phone').textContent = phone;
+    document.getElementById('qr-modal-tel-link').href = 'tel:' + phone;
+    
+    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=4&data=' + telEncoded;
+    const fallbackUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=260x260&chl=' + telEncoded;
+    const qrImg = document.getElementById('qr-modal-img');
+    qrImg.onerror = function() {
+        this.onerror = null;
+        this.src = fallbackUrl;
+    };
+    qrImg.src = qrUrl;
+    
+    window.openModal('call-qr-modal');
 }
 </script>

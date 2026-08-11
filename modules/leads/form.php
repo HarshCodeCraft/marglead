@@ -102,9 +102,14 @@ if (isset($_GET['action']) && $_GET['action'] === 'save_followup' && $_SERVER['R
                 }
             }
             
-            // Update Lead profile with modal inputs
-            $stmt = $pdo->prepare("UPDATE leads SET address = ?, tags = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
-            $stmt->execute([$address, $tags, $source, $enq_for, $contact_person, $remark, $lead_id]);
+            // Update Lead profile with modal inputs & assigned_by
+            $existingAssignedTo = $pdo->query("SELECT assigned_to, assigned_by FROM leads WHERE id = " . $pdo->quote($lead_id))->fetch(PDO::FETCH_ASSOC);
+            $newAssignedBy = $existingAssignedTo['assigned_by'] ?? '';
+            if (empty($newAssignedBy) || ($existingAssignedTo && $existingAssignedTo['assigned_to'] !== $assigned_to)) {
+                $newAssignedBy = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
+            }
+            $stmt = $pdo->prepare("UPDATE leads SET address = ?, tags = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, assigned_to = ?, assigned_by = ? WHERE id = ?");
+            $stmt->execute([$address, $tags, $source, $enq_for, $contact_person, $remark, $assigned_to, $newAssignedBy, $lead_id]);
 
             header("Location: index.php?page=leads");
             exit;
@@ -134,12 +139,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
     $contact_person = $_POST['contact_person'] ?? '';
     $remark = $_POST['remark'] ?? '';
 
-    if ($db_connected && $pdo) {
+    $clean_phone = preg_replace('/[^0-9]/', '', $phone);
+    if (empty($phone) || (strlen($clean_phone) !== 10 && strlen($clean_phone) !== 12)) {
+        $message = "<strong>Invalid Contact Phone!</strong> Phone number must be exactly 10 or 12 digits (numeric only).";
+        $message_type = "danger";
+    } elseif ($db_connected && $pdo) {
         try {
             if ($isEdit) {
                 // Update existing lead details
-                $stmt = $pdo->prepare("UPDATE leads SET name = ?, company = ?, email = ?, phone = ?, address = ?, source = ?, tags = ?, assigned_to = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
-                $stmt->execute([$name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $enq_for, $contact_person, $remark, $leadId]);
+                $existingAssignedTo = $pdo->query("SELECT assigned_to, assigned_by FROM leads WHERE id = " . $pdo->quote($leadId))->fetch(PDO::FETCH_ASSOC);
+                $newAssignedBy = $existingAssignedTo['assigned_by'] ?? '';
+                if (empty($newAssignedBy) || ($existingAssignedTo && $existingAssignedTo['assigned_to'] !== $assigned_to)) {
+                    $newAssignedBy = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
+                }
+                $stmt = $pdo->prepare("UPDATE leads SET name = ?, company = ?, email = ?, phone = ?, address = ?, source = ?, tags = ?, assigned_to = ?, assigned_by = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
+                $stmt->execute([$name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $newAssignedBy, $enq_for, $contact_person, $remark, $leadId]);
                 
                 // Add activity timeline record
                 $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead details modified by operator')");
@@ -161,54 +175,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                 header("Location: index.php?page=leads");
                 exit;
             } else {
-                // Register a new lead profile
-                $newId = 'LD-' . rand(1000, 9999);
-                
-                $stmt = $pdo->prepare("INSERT INTO leads (id, name, company, email, phone, address, source, tags, assigned_to, enq_for, contact_person, remarks, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')");
-                $stmt->execute([$newId, $name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $enq_for, $contact_person, $remark]);
-                
-                // Add activity log
-                $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead file registered')");
-                $log->execute([$newId, $_SESSION['user_name'] ?? 'System User']);
-                
-                // Insert notification for the assigned representative
-                $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, role, title, message, type) VALUES ((SELECT id FROM users WHERE name = ? LIMIT 1), NULL, 'New Lead Assigned', ?, 'info')");
-                $notifMsg = "Lead \"" . ($group_name ?: $name) . "\" has been assigned to you.";
-                $notifStmt->execute([$assigned_to, $notifMsg]);
-                
-                // Insert notification for the admin
-                $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, type) VALUES ('Admin', 'New Lead Registered', ?, 'success')");
-                $adminNotifMsg = "New lead \"" . ($group_name ?: $name) . "\" registered and assigned to " . $assigned_to;
-                $adminNotifStmt->execute([$adminNotifMsg]);
-                
-                // Seed a follow-up directly if configured
-                if (!empty($reminder_date)) {
-                    $scheduled_at = $reminder_date . ' ' . (!empty($reminder_time) ? $reminder_time : '12:00:00');
-                    $fup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, assigned_to, status) VALUES (?, 'Call', ?, ?, ?, 'pending')");
-                    $fup->execute([$newId, $scheduled_at, $remark, $assigned_to]);
+                // Check if phone number already exists before inserting new lead
+                $confirm_duplicate = isset($_POST['confirm_duplicate']) && $_POST['confirm_duplicate'] === '1';
+                $show_duplicate_modal = null;
+
+                if (!$confirm_duplicate && !empty($phone)) {
+                    $clean_phone = preg_replace('/[^0-9]/', '', $phone);
+                    $chkDupStmt = $pdo->prepare("SELECT id, name, company, phone, status, assigned_to FROM leads WHERE (REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '(', '') LIKE ? OR phone = ?) ORDER BY id DESC LIMIT 1");
+                    $chkDupStmt->execute(['%' . $clean_phone . '%', $phone]);
+                    $dupFound = $chkDupStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($dupFound) {
+                        $message = "<strong>Duplicate Contact Phone Detected!</strong> A lead (<strong>" . htmlspecialchars($dupFound['name']) . "</strong> - ID: <strong>" . htmlspecialchars($dupFound['id']) . "</strong>) already exists with phone <strong>" . htmlspecialchars($dupFound['phone']) . "</strong>.";
+                        $message_type = "warning";
+                        $show_duplicate_modal = $dupFound;
+                    }
                 }
-                
-                // Trigger Follow-up Modal configuration flow
-                $lead_created = true;
-                $new_lead_id = $newId;
-                $new_lead_name = $name;
-                $new_lead_phone = $phone;
+
+                if (empty($show_duplicate_modal)) {
+                    // Register a new lead profile
+                    $newId = 'LD-' . rand(1000, 9999);
+                    $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
+                    
+                    $stmt = $pdo->prepare("INSERT INTO leads (id, name, company, email, phone, address, source, tags, assigned_to, assigned_by, enq_for, contact_person, remarks, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')");
+                    $stmt->execute([$newId, $name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $assigned_by, $enq_for, $contact_person, $remark]);
+                    
+                    // Add activity log
+                    $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead file registered')");
+                    $log->execute([$newId, $_SESSION['user_name'] ?? 'System User']);
+                    
+                    // Insert notification for the assigned representative
+                    $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, role, title, message, link, type) VALUES ((SELECT id FROM users WHERE name = ? LIMIT 1), NULL, 'New Lead Assigned', ?, 'index.php?page=leads', 'info')");
+                    $notifMsg = "Lead \"" . ($group_name ?: $name) . "\" has been assigned to you.";
+                    $notifStmt->execute([$assigned_to, $notifMsg]);
+                    
+                    // Insert notification for the admin
+                    $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', 'New Lead Registered', ?, 'index.php?page=leads', 'success')");
+                    $adminNotifMsg = "New lead \"" . ($group_name ?: $name) . "\" registered and assigned to " . $assigned_to;
+                    $adminNotifStmt->execute([$adminNotifMsg]);
+                    
+                    // Seed a follow-up directly if configured
+                    if (!empty($reminder_date)) {
+                        $scheduled_at = $reminder_date . ' ' . (!empty($reminder_time) ? $reminder_time : '12:00:00');
+                        $fup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, assigned_to, status) VALUES (?, 'Call', ?, ?, ?, 'pending')");
+                        $fup->execute([$newId, $scheduled_at, $remark, $assigned_to]);
+                    }
+                    
+                    // Redirect directly to leads directory after lead creation
+                    header("Location: index.php?page=leads");
+                    exit;
+                }
             }
         } catch (PDOException $e) {
             $message = "Database execution failure: " . $e->getMessage();
             $message_type = "danger";
         }
     } else {
-        // Fallback for offline environments
-        if ($isEdit) {
-            header("Location: index.php?page=leads");
-            exit;
-        } else {
-            $lead_created = true;
-            $new_lead_id = 'LD-MOCK';
-            $new_lead_name = $name;
-            $new_lead_phone = $phone;
-        }
+        // Redirect to directory
+        header("Location: index.php?page=leads");
+        exit;
     }
 }
 ?>
@@ -328,6 +353,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
 
     <!-- Main Form Card -->
     <form action="index.php?page=lead_form<?php echo $isEdit ? '&action=edit&id=' . urlencode($leadId) : ''; ?>" method="POST" class="glass-form-card flex flex-col gap-6" id="create-lead-form">
+        <input type="hidden" name="confirm_duplicate" id="confirm-duplicate-input" value="0">
         
         <!-- Section 1: Customer Details -->
         <div>
@@ -340,9 +366,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Name <span style="color: var(--danger);">*</span></label>
                     <input type="text" name="name" class="form-control form-control-focus" placeholder="E.g. Dheerendra Vyas" required value="<?php echo htmlspecialchars($editLead['name'] ?? ''); ?>">
                 </div>
-                <div class="form-group m-0">
+                <div class="form-group m-0" style="position: relative;">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Contact Phone <span style="color: var(--danger);">*</span></label>
-                    <input type="tel" name="phone" class="form-control form-control-focus" placeholder="E.g. 919454883552" required value="<?php echo htmlspecialchars($editLead['phone'] ?? ''); ?>">
+                    <input type="tel" name="phone" id="lead-phone-input" class="form-control form-control-focus" placeholder="E.g. 9876543210 or 919876543210" required maxlength="12" pattern="[0-9]{10}|[0-9]{12}" title="Contact Phone must be exactly 10 or 12 digits" value="<?php echo htmlspecialchars($editLead['phone'] ?? ''); ?>">
+                    <div id="phone-dup-inline-alert" class="hidden mt-2 text-xs" style="display: none; flex-direction: column; gap: 0.5rem; color: var(--danger); background: var(--danger-light); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--danger); transition: all 0.2s ease;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                            <span style="display: flex; align-items: center; gap: 0.35rem; font-weight: 600; flex: 1; min-width: 200px;">
+                                <i data-lucide="alert-circle" style="width: 15px; height: 15px; flex-shrink: 0;"></i>
+                                <span id="dup-inline-summary-text">Contact number exists: <strong id="dup-inline-lead-info">BALA JI MEDICAL STORE (LD-3182)</strong></span>
+                            </span>
+                            <button type="button" id="btn-phone-view-details" style="background: none; border: none; padding: 0; color: inherit; text-decoration: underline; font-weight: 700; cursor: pointer; font-size: 0.75rem; flex-shrink: 0;">
+                                View Details
+                            </button>
+                        </div>
+                        <div id="dup-inline-actions" style="display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; border-top: 1px dashed rgba(220, 38, 38, 0.3); padding-top: 0.4rem; margin-top: 0.25rem;">
+                            <span style="font-weight: 600; color: var(--text-main); font-size: 0.75rem; margin-right: auto;">Continue with this number?</span>
+                            <button type="button" id="btn-inline-dup-no" class="btn text-xs" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; height: auto; border: 1px solid var(--danger); color: var(--danger); background: transparent; font-weight: 700; border-radius: 4px; cursor: pointer;">
+                                No
+                            </button>
+                            <button type="button" id="btn-inline-dup-yes" class="btn text-xs" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; height: auto; background-color: var(--danger); border: 1px solid var(--danger); color: #fff; font-weight: 700; border-radius: 4px; cursor: pointer;">
+                                Yes
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-group m-0" style="grid-column: span 2;">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Email Address</label>
@@ -370,6 +416,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                             </option>
                         <?php endforeach; ?>
                     </select>
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold" style="color: var(--text-muted);">Assigned By (Read-Only)</label>
+                    <input type="text" class="form-control" value="<?php echo htmlspecialchars($editLead['assigned_by'] ?? ''); ?>" placeholder="Auto-set on assignment" readonly disabled style="background-color: var(--bg-hover); opacity: 0.85; cursor: not-allowed; font-weight: 600;">
                 </div>
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Group / Company</label>
@@ -419,8 +469,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     <input type="time" name="reminder_time" class="form-control form-control-focus" value="<?php echo $reminder_time_val; ?>">
                 </div>
                 <div class="form-group m-0" style="grid-column: span 2;">
-                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Address / Pin Code</label>
-                    <input type="text" name="address" class="form-control form-control-focus" placeholder="E.g. 285204 - Phase 1" value="<?php echo htmlspecialchars($editLead['address'] ?? ''); ?>">
+                    <div class="flex align-center justify-between mb-1">
+                        <label class="form-label text-xs font-semibold m-0" style="color: var(--text-main);">Address / Pin Code</label>
+                        <span id="pincode-fetch-status" class="text-xs text-muted" style="font-size: 0.75rem; display: none;">
+                            <i data-lucide="map-pin" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; color: var(--primary);"></i>
+                            <span id="pincode-status-text">Fetching area...</span>
+                        </span>
+                    </div>
+                    <div style="position: relative;">
+                        <input type="text" name="address" id="lead-address-input" class="form-control form-control-focus" placeholder="E.g. 285204 or 285204 - Kalpi, Jalaun" value="<?php echo htmlspecialchars($editLead['address'] ?? ''); ?>">
+                    </div>
+                    
+                    <!-- Pincode Locality / Area Results Box -->
+                    <div id="pincode-area-container" class="mt-2" style="display: none; background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.25); padding: 0.65rem 0.85rem; border-radius: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; border-bottom: 1px dashed rgba(59, 130, 246, 0.25); padding-bottom: 0.35rem; margin-bottom: 0.35rem;">
+                            <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary); display: inline-flex; align-items: center; gap: 4px;">
+                                <i data-lucide="map-pin" style="width: 13px; height: 13px;"></i>
+                                <span id="pincode-num-title">PIN Code Details:</span>
+                            </span>
+                            <span id="pincode-district-state-text" style="font-size: 0.75rem; font-weight: 600; color: var(--text-main);"></span>
+                        </div>
+                        <div style="font-size: 0.725rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.35rem;">
+                            Select Area / Locality to auto-fill address:
+                        </div>
+                        <div id="pincode-locality-chips" class="flex flex-wrap gap-1"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -435,7 +508,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
             <div class="grid hidden mt-4" id="adv-fields-panel" style="grid-template-columns: 1fr 1fr; gap: 1.25rem; border-top: 1px dashed var(--border-color); padding-top: 1.25rem;">
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Source</label>
-                    <input type="text" name="source" class="form-control form-control-focus" placeholder="E.g. HO" value="<?php echo htmlspecialchars($editLead['source'] ?? ''); ?>">
+                    <?php 
+                    $cur_src = $editLead['source'] ?? 'Website';
+                    $src_options = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Imported'];
+                    if (!empty($cur_src) && !in_array($cur_src, $src_options)) {
+                        $src_options[] = $cur_src;
+                    }
+                    ?>
+                    <select name="source" class="form-control form-control-focus">
+                        <?php foreach ($src_options as $so): ?>
+                            <option value="<?php echo htmlspecialchars($so); ?>" <?php echo ($cur_src === $so) ? 'selected' : ''; ?>><?php echo htmlspecialchars($so); ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Enq_For (Product)</label>
@@ -450,10 +534,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="form-group m-0">
+                <!-- <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Contact Person</label>
                     <input type="text" name="contact_person" class="form-control form-control-focus" placeholder="E.g. Dheerendra Vyas" value="<?php echo htmlspecialchars($editLead['contact_person'] ?? ''); ?>">
-                </div>
+                </div> -->
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Remark</label>
                     <input type="text" name="remark" class="form-control form-control-focus" placeholder="E.g. Follow-up required" value="<?php echo htmlspecialchars($editLead['remarks'] ?? ''); ?>">
@@ -563,7 +647,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                 </div>
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold">Source</label>
-                    <input type="text" name="source" class="form-control" placeholder="E.g. HO" value="">
+                    <select name="source" class="form-control">
+                        <option value="Website">Website</option>
+                        <option value="Google Ads">Google Ads</option>
+                        <option value="Cold Calls">Cold Calls</option>
+                        <option value="Referrals">Referrals</option>
+                        <option value="Exhibitions">Exhibitions</option>
+                        <option value="HO">HO</option>
+                        <option value="Office">Office</option>
+                        <option value="Imported">Imported</option>
+                    </select>
                 </div>
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold">Contact Person</label>
@@ -610,6 +703,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Duplicate Phone Warning Mini Modal -->
+<div id="duplicate-phone-modal" class="modal-overlay hidden" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(4px);">
+    <div class="card p-5" style="width: 100%; max-width: 460px; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main); box-shadow: var(--shadow-lg); animation: scaleUp 0.25s ease-out;">
+        <div class="flex align-center gap-3 mb-3 pb-3" style="border-bottom: 1px solid var(--border-color);">
+            <div style="background-color: var(--warning-light); color: var(--warning); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <i data-lucide="alert-triangle" style="width: 22px; height: 22px;"></i>
+            </div>
+            <div>
+                <h4 class="font-bold text-sm m-0" style="color: var(--warning); font-family: var(--font-heading);">Duplicate Phone Number Detected!</h4>
+                <p class="text-xs text-muted m-0">A lead with this contact number already exists</p>
+            </div>
+        </div>
+
+        <div class="mb-3" style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); padding: 0.75rem;">
+            <table class="text-xs" style="width: 100%; border-collapse: collapse; line-height: 1.6;">
+                <tr>
+                    <td class="font-semibold text-muted" style="width: 38%;">Lead ID:</td>
+                    <td class="font-bold" id="dup-lead-id" style="color: var(--primary);">-</td>
+                </tr>
+                <tr>
+                    <td class="font-semibold text-muted">Customer Name:</td>
+                    <td class="font-bold text-main" id="dup-lead-name">-</td>
+                </tr>
+                <tr>
+                    <td class="font-semibold text-muted">Company / Group:</td>
+                    <td id="dup-lead-company">-</td>
+                </tr>
+                <tr>
+                    <td class="font-semibold text-muted">Contact Phone:</td>
+                    <td class="font-bold" id="dup-lead-phone">-</td>
+                </tr>
+                <tr>
+                    <td class="font-semibold text-muted">Assigned Exec:</td>
+                    <td id="dup-lead-assigned">-</td>
+                </tr>
+                <tr>
+                    <td class="font-semibold text-muted">Current Status:</td>
+                    <td id="dup-lead-status">-</td>
+                </tr>
+            </table>
+        </div>
+
+        <p class="text-xs text-muted mb-4" style="line-height: 1.4; margin: 0 0 1rem 0;">
+            Do you want to <strong>continue</strong> filling this form anyway, or <strong>clear inputs</strong> to re-enter details?
+        </p>
+
+        <div class="flex justify-end gap-2">
+            <button type="button" class="btn btn-secondary text-xs" id="btn-dup-clear" style="padding: 0.5rem 1rem;">
+                <i data-lucide="refresh-cw" style="width: 13px; height: 13px;"></i> No, Clear Inputs
+            </button>
+            <button type="button" class="btn btn-primary text-xs" id="btn-dup-continue" style="padding: 0.5rem 1.25rem;">
+                <i data-lucide="check" style="width: 13px; height: 13px;"></i> Yes, Continue
+            </button>
+        </div>
     </div>
 </div>
 
@@ -665,7 +815,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
         const modalForm = document.querySelector('#followup-UX-wizard-modal form');
         if (notReqCheckbox) {
             notReqCheckbox.addEventListener('change', () => {
-                const inputsToDisable = modalForm.querySelectorAll('select:not([name="group_name"]), input[type="date"], input[type="time"], input[type="text"]:not([name="address"]):not([name="source"]):not([name="contact_person"]), textarea');
+                const inputsToDisable = modalForm.querySelectorAll('select:not([name="group_name"]):not([name="source"]), input[type="date"], input[type="time"], input[type="text"]:not([name="address"]):not([name="source"]):not([name="contact_person"]), textarea');
                 inputsToDisable.forEach(input => {
                     if (notReqCheckbox.checked) {
                         input.setAttribute('disabled', 'true');
@@ -676,6 +826,455 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     }
                 });
             });
+        }
+
+        // Contact Phone Duplication Checker
+        const phoneInput = document.getElementById('lead-phone-input');
+        const dupModal = document.getElementById('duplicate-phone-modal');
+        const createForm = document.getElementById('create-lead-form');
+        const confirmInput = document.getElementById('confirm-duplicate-input');
+        const inlineAlert = document.getElementById('phone-dup-inline-alert');
+        const viewDetailsBtn = document.getElementById('btn-phone-view-details');
+        const isEditMode = <?php echo json_encode($isEdit); ?>;
+        const currentLeadId = <?php echo json_encode($leadId); ?>;
+
+        let duplicateLeadData = null;
+        let userConfirmedDuplicate = false;
+
+        const showModalWithData = (l) => {
+            if (!l) return;
+            duplicateLeadData = l;
+            if (document.getElementById('dup-lead-id')) document.getElementById('dup-lead-id').textContent = l.id || '-';
+            if (document.getElementById('dup-lead-name')) document.getElementById('dup-lead-name').textContent = l.name || '-';
+            if (document.getElementById('dup-lead-company')) document.getElementById('dup-lead-company').textContent = l.company || '-';
+            if (document.getElementById('dup-lead-phone')) document.getElementById('dup-lead-phone').textContent = l.phone || '-';
+            if (document.getElementById('dup-lead-assigned')) document.getElementById('dup-lead-assigned').textContent = l.assigned_to || 'Unassigned';
+            if (document.getElementById('dup-lead-status')) document.getElementById('dup-lead-status').textContent = (l.status || 'New').toUpperCase();
+
+            const targetModal = document.getElementById('duplicate-phone-modal');
+            if (targetModal) {
+                targetModal.classList.remove('hidden');
+                targetModal.style.setProperty('display', 'flex', 'important');
+            }
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        };
+
+        const hideModal = () => {
+            const targetModal = document.getElementById('duplicate-phone-modal');
+            if (targetModal) {
+                targetModal.classList.add('hidden');
+                targetModal.style.setProperty('display', 'none', 'important');
+            }
+        };
+
+        const escapeHtml = (str) => {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        };
+
+        const showInlineAlert = (l, isConfirmed = false) => {
+            duplicateLeadData = l;
+            const inlineAlertBox = document.getElementById('phone-dup-inline-alert');
+            const summaryText = document.getElementById('dup-inline-summary-text');
+            const phoneInputEl = document.getElementById('lead-phone-input');
+
+            if (summaryText && l) {
+                const displayName = l.name || l.company || 'Lead';
+                summaryText.innerHTML = `Contact number exists: <strong style="font-weight: 700;">${escapeHtml(displayName)} (${escapeHtml(l.id || '')})</strong>`;
+            }
+
+            if (inlineAlertBox) {
+                inlineAlertBox.style.setProperty('display', 'flex', 'important');
+                inlineAlertBox.classList.remove('hidden');
+
+                const actionsDiv = document.getElementById('dup-inline-actions');
+                const viewDetailsBtn = document.getElementById('btn-phone-view-details');
+
+                if (isConfirmed || userConfirmedDuplicate) {
+                    inlineAlertBox.style.borderColor = 'var(--success, #10b981)';
+                    inlineAlertBox.style.background = 'rgba(16, 185, 129, 0.12)';
+                    inlineAlertBox.style.color = '#047857';
+                    if (viewDetailsBtn) viewDetailsBtn.style.color = '#047857';
+
+                    if (actionsDiv) {
+                        actionsDiv.style.borderTopColor = 'rgba(16, 185, 129, 0.3)';
+                        actionsDiv.innerHTML = `
+                            <span style="font-weight: 600; color: #047857; font-size: 0.75rem; margin-right: auto; display: flex; align-items: center; gap: 0.35rem;">
+                                <i data-lucide="check-circle" style="width: 14px; height: 14px;"></i> Duplicate confirmed (Proceeding)
+                            </span>
+                            <button type="button" id="btn-inline-dup-change" class="btn text-xs" style="padding: 0.2rem 0.5rem; font-size: 0.7rem; height: auto; background: transparent; border: 1px solid #047857; color: #047857; border-radius: 4px; cursor: pointer; font-weight: 600;">
+                                Change
+                            </button>
+                        `;
+                    }
+                } else {
+                    inlineAlertBox.style.borderColor = 'var(--danger)';
+                    inlineAlertBox.style.background = 'var(--danger-light)';
+                    inlineAlertBox.style.color = 'var(--danger)';
+                    if (viewDetailsBtn) viewDetailsBtn.style.color = 'var(--danger)';
+
+                    if (actionsDiv) {
+                        actionsDiv.style.borderTopColor = 'rgba(220, 38, 38, 0.3)';
+                        actionsDiv.innerHTML = `
+                            <span style="font-weight: 600; color: var(--text-main); font-size: 0.75rem; margin-right: auto;">Continue with this number?</span>
+                            <button type="button" id="btn-inline-dup-no" class="btn text-xs" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; height: auto; border: 1px solid var(--danger); color: var(--danger); background: transparent; font-weight: 700; border-radius: 4px; cursor: pointer;">
+                                No
+                            </button>
+                            <button type="button" id="btn-inline-dup-yes" class="btn text-xs" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; height: auto; background-color: var(--danger); border: 1px solid var(--danger); color: #fff; font-weight: 700; border-radius: 4px; cursor: pointer;">
+                                Yes
+                            </button>
+                        `;
+                    }
+                }
+            }
+
+            if (phoneInputEl) {
+                phoneInputEl.style.borderColor = (isConfirmed || userConfirmedDuplicate) ? 'var(--success, #10b981)' : 'var(--danger)';
+            }
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        };
+
+        const hideInlineAlert = () => {
+            duplicateLeadData = null;
+            const inlineAlertBox = document.getElementById('phone-dup-inline-alert');
+            const phoneInputEl = document.getElementById('lead-phone-input');
+            if (inlineAlertBox) {
+                inlineAlertBox.style.setProperty('display', 'none', 'important');
+                inlineAlertBox.classList.add('hidden');
+            }
+            if (phoneInputEl) {
+                phoneInputEl.style.borderColor = '';
+            }
+        };
+
+        if (phoneInput) {
+            let lastCheckedPhone = '';
+
+            const checkPhoneDup = (callback) => {
+                const phoneVal = phoneInput.value.trim();
+                const cleanPhone = phoneVal.replace(/[^0-9]/g, '');
+
+                if (cleanPhone.length >= 7) {
+                    if (cleanPhone === lastCheckedPhone && duplicateLeadData) {
+                        showInlineAlert(duplicateLeadData, userConfirmedDuplicate);
+                        if (typeof callback === 'function') callback(true);
+                        return;
+                    }
+
+                    lastCheckedPhone = cleanPhone;
+                    userConfirmedDuplicate = false;
+                    if (confirmInput) confirmInput.value = '0';
+
+                    let url = 'index.php?action=check_phone&phone=' + encodeURIComponent(phoneVal);
+                    if (isEditMode && currentLeadId) {
+                        url += '&exclude_id=' + encodeURIComponent(currentLeadId);
+                    }
+
+                    fetch(url)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.exists && data.lead) {
+                                showInlineAlert(data.lead, false);
+                                if (typeof callback === 'function') callback(true);
+                            } else {
+                                hideInlineAlert();
+                                if (typeof callback === 'function') callback(false);
+                            }
+                        })
+                        .catch(err => {
+                            console.error(err);
+                            if (typeof callback === 'function') callback(false);
+                        });
+                } else {
+                    hideInlineAlert();
+                    if (typeof callback === 'function') callback(false);
+                }
+            };
+
+            const enforcePhoneDigits = function() {
+                this.value = this.value.replace(/[^0-9]/g, '').slice(0, 12);
+                const len = this.value.length;
+                if (len > 0 && len !== 10 && len !== 12) {
+                    this.setCustomValidity('Contact Phone must be exactly 10 or 12 digits.');
+                } else {
+                    this.setCustomValidity('');
+                }
+            };
+
+            phoneInput.addEventListener('input', function(e) {
+                enforcePhoneDigits.call(this);
+                checkPhoneDup(e);
+            });
+            phoneInput.addEventListener('blur', checkPhoneDup);
+            phoneInput.addEventListener('change', checkPhoneDup);
+
+            // Global Click Delegation for inline alert buttons and View Details
+            document.addEventListener('click', function(e) {
+                // View Details button
+                const viewBtn = e.target.closest('#btn-phone-view-details');
+                if (viewBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (duplicateLeadData) {
+                        showModalWithData(duplicateLeadData);
+                    } else {
+                        const phoneVal = phoneInput.value.trim();
+                        if (phoneVal) {
+                            fetch('index.php?action=check_phone&phone=' + encodeURIComponent(phoneVal))
+                                .then(res => res.json())
+                                .then(data => {
+                                    if (data.exists && data.lead) {
+                                        showModalWithData(data.lead);
+                                    }
+                                });
+                        }
+                    }
+                    return;
+                }
+
+                // Inline Yes button
+                const yesBtn = e.target.closest('#btn-inline-dup-yes');
+                if (yesBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    userConfirmedDuplicate = true;
+                    if (confirmInput) confirmInput.value = '1';
+                    if (duplicateLeadData) {
+                        showInlineAlert(duplicateLeadData, true);
+                    }
+                    return;
+                }
+
+                // Inline No button
+                const noBtn = e.target.closest('#btn-inline-dup-no');
+                if (noBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    userConfirmedDuplicate = false;
+                    if (confirmInput) confirmInput.value = '0';
+                    hideInlineAlert();
+                    lastCheckedPhone = '';
+                    if (phoneInput) {
+                        phoneInput.value = '';
+                        phoneInput.focus();
+                    }
+                    return;
+                }
+
+                // Inline Change button
+                const changeBtn = e.target.closest('#btn-inline-dup-change');
+                if (changeBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    userConfirmedDuplicate = false;
+                    if (confirmInput) confirmInput.value = '0';
+                    if (duplicateLeadData) {
+                        showInlineAlert(duplicateLeadData, false);
+                    }
+                    return;
+                }
+            });
+
+            // Intercept Form Submit Event to prevent bypassing
+            if (createForm) {
+                createForm.addEventListener('submit', function(e) {
+                    const phoneVal = phoneInput.value.trim();
+                    const cleanPhone = phoneVal.replace(/[^0-9]/g, '');
+
+                    if (cleanPhone.length !== 10 && cleanPhone.length !== 12) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        phoneInput.setCustomValidity('Contact Phone must be exactly 10 or 12 digits.');
+                        phoneInput.reportValidity();
+                        return false;
+                    } else {
+                        phoneInput.setCustomValidity('');
+                    }
+
+                    if (isEditMode) return true;
+                    if (userConfirmedDuplicate) return true;
+
+                    if (cleanPhone.length >= 7) {
+                        if (duplicateLeadData && !userConfirmedDuplicate) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            showModalWithData(duplicateLeadData);
+                            return false;
+                        }
+                    }
+                });
+            }
+
+            // Modal Button Action: Yes, Continue
+            document.getElementById('btn-dup-continue')?.addEventListener('click', (e) => {
+                e.preventDefault();
+                userConfirmedDuplicate = true;
+                if (confirmInput) confirmInput.value = '1';
+                if (duplicateLeadData) {
+                    showInlineAlert(duplicateLeadData, true);
+                }
+                hideModal();
+            });
+
+            // Modal Button Action: No, Clear Inputs
+            document.getElementById('btn-dup-clear')?.addEventListener('click', (e) => {
+                e.preventDefault();
+                userConfirmedDuplicate = false;
+                hideInlineAlert();
+                lastCheckedPhone = '';
+                if (confirmInput) confirmInput.value = '0';
+                hideModal();
+                if (phoneInput) {
+                    phoneInput.value = '';
+                    phoneInput.focus();
+                }
+            });
+        }
+
+        <?php if (!empty($show_duplicate_modal)): ?>
+        // Trigger inline alert and modal automatically if server-side PHP caught duplicate submit
+        showInlineAlert(<?php echo json_encode($show_duplicate_modal); ?>, false);
+        showModalWithData(<?php echo json_encode($show_duplicate_modal); ?>);
+        <?php endif; ?>
+
+        // PIN Code Area Fetching Logic
+        const addressInput = document.getElementById('lead-address-input');
+        const pincodeContainer = document.getElementById('pincode-area-container');
+        const pincodeStatus = document.getElementById('pincode-fetch-status');
+        const pincodeStatusText = document.getElementById('pincode-status-text');
+        const pincodeNumTitle = document.getElementById('pincode-num-title');
+        const pincodeDistrictStateText = document.getElementById('pincode-district-state-text');
+        const pincodeLocalityChips = document.getElementById('pincode-locality-chips');
+
+        let lastFetchedPincode = '';
+
+        const fetchAreaByPincode = async (pincode) => {
+            if (pincode === lastFetchedPincode) return;
+            lastFetchedPincode = pincode;
+
+            if (pincodeStatus) pincodeStatus.style.display = 'inline-block';
+            if (pincodeStatusText) pincodeStatusText.innerText = `Searching PIN ${pincode}...`;
+
+            try {
+                let postOffices = [];
+                let district = '';
+                let state = '';
+
+                // Try India Post API
+                try {
+                    let response = await fetch(`https://api.postalpincode.in/pincode/${pincode}`);
+                    let data = await response.json();
+
+                    if (Array.isArray(data) && data[0] && data[0].Status === 'Success' && Array.isArray(data[0].PostOffice)) {
+                        postOffices = data[0].PostOffice;
+                        district = postOffices[0].District || '';
+                        state = postOffices[0].State || '';
+                    }
+                } catch(e1) {}
+
+                // Fallback to Zippopotam API if India Post returns empty or fails
+                if (postOffices.length === 0) {
+                    try {
+                        let res2 = await fetch(`https://api.zippopotam.us/in/${pincode}`);
+                        if (res2.ok) {
+                            let data2 = await res2.json();
+                            if (data2 && data2.places) {
+                                postOffices = data2.places.map(p => ({
+                                    Name: p['place name'],
+                                    District: p['state abbreviation'] || '',
+                                    State: p['state'] || ''
+                                }));
+                                district = data2.places[0]['state'] || '';
+                                state = data2.country || 'India';
+                            }
+                        }
+                    } catch(e2) {}
+                }
+
+                if (postOffices.length > 0) {
+                    if (pincodeStatusText) pincodeStatusText.innerText = `Area Found for ${pincode}`;
+                    if (pincodeNumTitle) pincodeNumTitle.innerText = `PIN ${pincode} (${postOffices.length} Area${postOffices.length > 1 ? 's' : ''}):`;
+                    if (pincodeDistrictStateText) pincodeDistrictStateText.innerText = `${district}${district && state ? ', ' : ''}${state}`;
+
+                    if (pincodeLocalityChips) {
+                        pincodeLocalityChips.innerHTML = '';
+                        const uniqueAreas = [...new Set(postOffices.map(po => po.Name))];
+                        
+                        uniqueAreas.forEach(areaName => {
+                            const chip = document.createElement('button');
+                            chip.type = 'button';
+                            chip.className = 'btn text-xs';
+                            chip.style.cssText = 'padding: 0.25rem 0.6rem; font-size: 0.725rem; background: var(--bg-card); border: 1px solid var(--primary); color: var(--primary); font-weight: 600; border-radius: 4px; cursor: pointer; transition: all 0.15s ease;';
+                            chip.innerHTML = `<i data-lucide="map-pin" style="width: 11px; height: 11px; display: inline-block; vertical-align: middle;"></i> ${areaName}`;
+                            
+                            chip.addEventListener('mouseenter', () => {
+                                chip.style.background = 'var(--primary)';
+                                chip.style.color = '#ffffff';
+                            });
+                            chip.addEventListener('mouseleave', () => {
+                                chip.style.background = 'var(--bg-card)';
+                                chip.style.color = 'var(--primary)';
+                            });
+
+                            chip.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                if (addressInput) {
+                                    addressInput.value = `${pincode} - ${areaName}, ${district} (${state})`;
+                                    addressInput.focus();
+                                }
+                            });
+
+                            pincodeLocalityChips.appendChild(chip);
+                        });
+                    }
+
+                    if (pincodeContainer) pincodeContainer.style.display = 'block';
+
+                    // Auto-fill area name into address if current input is just the 6-digit PIN code
+                    if (addressInput) {
+                        const val = addressInput.value.trim();
+                        if (val === pincode) {
+                            const primaryArea = postOffices[0].Name;
+                            addressInput.value = `${pincode} - ${primaryArea}, ${district} (${state})`;
+                        }
+                    }
+
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } else {
+                    if (pincodeStatusText) pincodeStatusText.innerText = `No area found for PIN ${pincode}`;
+                    if (pincodeContainer) pincodeContainer.style.display = 'none';
+                }
+            } catch (err) {
+                if (pincodeStatusText) pincodeStatusText.innerText = `PIN Code search error`;
+                if (pincodeContainer) pincodeContainer.style.display = 'none';
+            }
+        };
+
+        if (addressInput) {
+            const handlePincodeCheck = () => {
+                const text = addressInput.value;
+                const match = text.match(/\b(\d{6})\b/);
+                if (match && match[1]) {
+                    fetchAreaByPincode(match[1]);
+                } else {
+                    if (pincodeContainer) pincodeContainer.style.display = 'none';
+                    if (pincodeStatus) pincodeStatus.style.display = 'none';
+                    lastFetchedPincode = '';
+                }
+            };
+
+            addressInput.addEventListener('input', handlePincodeCheck);
+            addressInput.addEventListener('change', handlePincodeCheck);
+
+            if (addressInput.value) {
+                handlePincodeCheck();
+            }
         }
     });
 </script>

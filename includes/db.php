@@ -19,8 +19,34 @@ $options = [
 ];
 
 try {
-    $pdo = new PDO($dsn, $db_user, $db_pass, $options);
+    try {
+        $pdo_master = new PDO($dsn, $db_user, $db_pass, $options);
+    } catch (\PDOException $e) {
+        $fallback_port = ($db_port === '3307') ? '3306' : '3307';
+        $dsn_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$db_name;charset=$db_charset";
+        $pdo_master = new PDO($dsn_fallback, $db_user, $db_pass, $options);
+        $db_port = $fallback_port;
+    }
+    $pdo = $pdo_master;
     $db_connected = true;
+
+    // Multi-tenant Dynamic Database Router
+    $active_tenant_db = null;
+    if (isset($_SESSION['impersonate_tenant_db']) && !empty($_SESSION['impersonate_tenant_db'])) {
+        $active_tenant_db = $_SESSION['impersonate_tenant_db'];
+    } elseif (isset($_SESSION['tenant_db']) && !empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') {
+        $active_tenant_db = $_SESSION['tenant_db'];
+    }
+
+    if (!empty($active_tenant_db) && $active_tenant_db !== $db_name) {
+        try {
+            $tenant_dsn = "mysql:host=$db_host;port=$db_port;dbname=$active_tenant_db;charset=$db_charset";
+            $pdo = new PDO($tenant_dsn, $db_user, $db_pass, $options);
+        } catch (\PDOException $te) {
+            // Fallback to master DB if tenant DB connection fails
+            $pdo = $pdo_master;
+        }
+    }
     
     // Schema auto-upgrade to support new Lead fields
     $columnsQuery = $pdo->query("SHOW COLUMNS FROM leads");
@@ -33,6 +59,9 @@ try {
     }
     if (!in_array('contact_person', $columns)) {
         $pdo->exec("ALTER TABLE leads ADD COLUMN contact_person VARCHAR(100) NULL AFTER name");
+    }
+    if (!in_array('assigned_by', $columns)) {
+        $pdo->exec("ALTER TABLE leads ADD COLUMN assigned_by VARCHAR(100) NULL AFTER assigned_to");
     }
     
     // Modify city/state to be nullable for bulk spreadsheet imports
@@ -113,7 +142,7 @@ try {
         }
     }
 
-    // Schema auto-upgrade to support dynamic notifications
+    // Schema auto-upgrade to support dynamic notifications with links
     $notifCheck = $pdo->query("SHOW TABLES LIKE 'notifications'");
     if ($notifCheck->rowCount() === 0) {
         $pdo->exec("CREATE TABLE notifications (
@@ -122,10 +151,16 @@ try {
             role VARCHAR(50) NULL,
             title VARCHAR(255) NOT NULL,
             message TEXT NOT NULL,
+            link VARCHAR(255) NULL,
             type VARCHAR(20) DEFAULT 'info',
             unread TINYINT DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } else {
+        $notifCols = $pdo->query("SHOW COLUMNS FROM notifications")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('link', $notifCols)) {
+            $pdo->exec("ALTER TABLE notifications ADD COLUMN link VARCHAR(255) NULL");
+        }
     }
     // Schema auto-upgrade to ensure demos table exists
     $demosCheck = $pdo->query("SHOW TABLES LIKE 'demos'");
@@ -190,6 +225,30 @@ try {
         $pdo->exec("INSERT INTO bank_accounts (account_name, bank_name, account_number, ifsc_code, branch, account_type, upi_id, is_primary, status) VALUES 
         ('Marg Soft Solutions Pvt Ltd', 'HDFC Bank Ltd.', '50200045091234', 'HDFC0000123', 'Okhla Phase 3, New Delhi', 'Current Account', 'margsoft@okicici', 1, 'Active'),
         ('Marg Soft Solutions Pvt Ltd', 'ICICI Bank Ltd.', '000705012398', 'ICIC0000007', 'Connaught Place, New Delhi', 'Current Account', 'margsoftpay@icici', 0, 'Active')");
+    }
+
+    // Schema auto-upgrade to ensure training_sessions table exists
+    $trainCheck = $pdo->query("SHOW TABLES LIKE 'training_sessions'");
+    if ($trainCheck->rowCount() === 0) {
+        $pdo->exec("CREATE TABLE training_sessions (
+            id VARCHAR(20) PRIMARY KEY,
+            lead_id VARCHAR(50) NULL,
+            customer VARCHAR(255) NOT NULL,
+            trainer VARCHAR(100) NOT NULL,
+            scheduled_at DATETIME NOT NULL,
+            mode VARCHAR(50) DEFAULT 'Online (Google Meet)',
+            hours_completed INT DEFAULT 0,
+            total_hours INT DEFAULT 6,
+            status VARCHAR(20) DEFAULT 'scheduled',
+            phone VARCHAR(50) NULL,
+            email VARCHAR(100) NULL,
+            product VARCHAR(255) NULL,
+            renewal_date DATE NULL,
+            address TEXT NULL,
+            topics TEXT NULL,
+            remarks TEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
 } catch (\PDOException $e) {
     $pdo = null;

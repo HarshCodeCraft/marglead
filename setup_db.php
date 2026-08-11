@@ -91,21 +91,29 @@
         <div class="step-log">
             <?php
             $db_host = 'localhost';
-            $db_port = '3307';
             $db_user = 'root';
             $db_pass = '';
             
-            // 1. Connection test
-            try {
-                $conn = new PDO("mysql:host=$db_host;port=$db_port", $db_user, $db_pass);
-                $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                echo '<div class="log-entry"><span>Connecting to MySQL server...</span><span class="status-ok">SUCCESS</span></div>';
-            } catch (PDOException $e) {
+            // 1. Connection test (try 3307 then 3306 fallback)
+            $conn = null;
+            $last_error = '';
+            foreach (['3307', '3306'] as $port) {
+                try {
+                    $conn = new PDO("mysql:host=$db_host;port=$port", $db_user, $db_pass);
+                    $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                    break;
+                } catch (PDOException $e) {
+                    $last_error = $e->getMessage();
+                }
+            }
+
+            if (!$conn) {
                 echo '<div class="log-entry"><span>Connecting to MySQL server...</span><span class="status-err">FAILED</span></div>';
-                echo '<div style="color: var(--danger); margin-top: 0.5rem;">Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                echo '<div style="color: var(--danger); margin-top: 0.5rem;">Error: ' . htmlspecialchars($last_error) . '</div>';
                 echo '</div><a href="setup_db.php" class="btn">Retry Connection</a></div></body></html>';
                 exit;
             }
+            echo '<div class="log-entry"><span>Connecting to MySQL server...</span><span class="status-ok">SUCCESS</span></div>';
 
             // 2. Read schema SQL
             $schema_file = __DIR__ . '/schema.sql';
@@ -122,6 +130,14 @@
                 
                 $conn->exec($sql);
                 
+                // Migration check: ensure otp_code and otp_expires_at exist on users table
+                try {
+                    $conn->exec("ALTER TABLE marg_crm.users ADD COLUMN otp_code VARCHAR(10) NULL");
+                } catch (Exception $ex) {}
+                try {
+                    $conn->exec("ALTER TABLE marg_crm.users ADD COLUMN otp_expires_at DATETIME NULL");
+                } catch (Exception $ex) {}
+
                 // Overwrite passwords with local PHP engine bcrypt hashes to ensure match
                 $hash = password_hash('password123', PASSWORD_DEFAULT);
                 $updatePass = $conn->prepare("UPDATE marg_crm.users SET password = ?");

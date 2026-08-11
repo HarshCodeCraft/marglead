@@ -75,7 +75,7 @@ class Mailer {
                             <div style='margin-bottom: 20px;'>
                                 <a href='https://margsoft.com' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Website</a> • 
                                 <a href='mailto:support@margsoft.com' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Support Center</a> • 
-                                <a href='#' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Privacy Policy</a>
+                                <a href='privacy.php' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Privacy Policy</a>
                             </div>
                             <p style='font-size: 10px; color: #94a3b8; margin: 0;'>This is an automated operational transmission from Marg Soft Solution. If you did not request this communication, please ignore.</p>
                         </td>
@@ -213,6 +213,33 @@ class Mailer {
         
         $userCompiled = self::wrapHTMLTemplate($userTitle, $userHeader, $userSubtitle, $userBody, "Visit Support Center", "https://margsoft.com");
         return self::send($email, $userSubject, $userCompiled);
+    }
+
+    /**
+     * Send email verification OTP code to new user
+     */
+    public static function sendEmailVerificationOTP($email, $name, $otp) {
+        $subject = "Your Verification Code: " . $otp . " - Marg Soft Solution";
+        $title = "Email Verification OTP";
+        $header_title = "Verify Your Email Address";
+        $subtitle = "Hi " . htmlspecialchars($name) . ", enter this 6-digit code to complete registration.";
+        
+        $body = "<p>Hello <strong>" . htmlspecialchars($name) . "</strong>,</p>";
+        $body .= "<p>Thank you for signing up for <strong>Marg Soft Solution CRM</strong>. Please use the following One-Time Password (OTP) code to verify your email address and activate your account request:</p>";
+        
+        $body .= "<div style='text-align: center; margin: 25px 0;'>
+            <div style='font-size: 34px; font-weight: 800; letter-spacing: 10px; color: #2563eb; background-color: #f1f5f9; padding: 18px 30px; border-radius: 12px; border: 2px dashed #3b82f6; display: inline-block; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); font-family: monospace;'>
+                " . htmlspecialchars($otp) . "
+            </div>
+        </div>";
+        
+        $body .= "<p style='color: #64748b; font-size: 13px; text-align: center;'>This verification code is valid for <strong>10 minutes</strong>. If you did not initiate this request, please ignore this email.</p>";
+        
+        $cta_text = "Verify Email Address";
+        $cta_url = "http://localhost/marglead/auth/verify-otp.php?email=" . urlencode($email);
+        
+        $compiledBody = self::wrapHTMLTemplate($title, $header_title, $subtitle, $body, $cta_text, $cta_url);
+        return self::send($email, $subject, $compiledBody);
     }
 
     /**

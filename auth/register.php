@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/mailer.php';
 
@@ -14,27 +15,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($db_connected && $pdo) {
         try {
             // Check if email already registered
-            $check = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+            $check = $pdo->prepare("SELECT id, status FROM users WHERE email = ?");
             $check->execute([$email]);
-            if ($check->fetch()) {
-                $message = "Email address is already registered.";
+            $existingUser = $check->fetch();
+
+            if ($existingUser && $existingUser['status'] !== 'Unverified') {
+                $message = "Email address is already registered. Please sign in.";
                 $message_type = "danger";
             } else {
-                // Insert as Pending Approval
+                // Generate 6-digit OTP code & 10-minute expiry
+                $otp = sprintf("%06d", mt_rand(100000, 999999));
+                $otp_expires_at = date('Y-m-d H:i:s', strtotime('+10 minutes'));
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, ?, 'Pending Approval')");
-                $stmt->execute([$name, $email, $hash, $role]);
+
+                if ($existingUser && $existingUser['status'] === 'Unverified') {
+                    // Update existing unverified profile
+                    $stmt = $pdo->prepare("UPDATE users SET name = ?, password = ?, role = ?, otp_code = ?, otp_expires_at = ? WHERE id = ?");
+                    $stmt->execute([$name, $hash, $role, $otp, $otp_expires_at, $existingUser['id']]);
+                } else {
+                    // Insert as Unverified
+                    $stmt = $pdo->prepare("INSERT INTO users (name, email, password, role, status, otp_code, otp_expires_at) VALUES (?, ?, ?, ?, 'Unverified', ?, ?)");
+                    $stmt->execute([$name, $email, $hash, $role, $otp, $otp_expires_at]);
+                }
                 
-                // Trigger mailer notifications
-                Mailer::sendUserRegistrationNotification($email, $name);
+                // Trigger OTP mailer
+                Mailer::sendEmailVerificationOTP($email, $name, $otp);
                 
-                // Trigger dashboard notification for Admin
-                $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, type) VALUES ('Admin', 'New User Registration', ?, 'warning')");
-                $adminNotifMsg = "New operator \"" . $name . "\" (" . $role . ") registered and is pending approval.";
-                $adminNotifStmt->execute([$adminNotifMsg]);
-                
-                $message = "Registration successful! Your account status is: Pending Admin Approval. Notifications sent.";
-                $message_type = "success";
+                // Redirect to OTP Verification page
+                header("Location: verify-otp.php?email=" . urlencode($email) . "&msg=sent");
+                exit;
             }
         } catch (PDOException $e) {
             $message = "Database execution failure: " . $e->getMessage();
@@ -42,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } else {
         // Fallback for offline prototype
-        $message = "Database connection offline. Account simulated as [Pending Approval].";
+        $message = "Database connection offline. Account simulated as [Pending Verification].";
         $message_type = "warning";
     }
 }
@@ -233,6 +242,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>
                 
+                <div class="mt-2">
+                    <label class="flex align-center gap-2 pointer text-xs text-muted" style="color: #94a3b8; font-size: 0.78rem;">
+                        <input type="checkbox" required style="accent-color: #3b82f6;">
+                        <span>I agree to the <a href="../terms.php" target="_blank" style="color: #3b82f6; text-decoration: underline;">Terms & Conditions</a> and <a href="../privacy.php" target="_blank" style="color: #3b82f6; text-decoration: underline;">Privacy Policy</a></span>
+                    </label>
+                </div>
+
                 <button type="submit" class="btn btn-primary w-full mt-4" style="padding: 0.8rem;">
                     <span>Create Account</span>
                     <i data-lucide="user-plus" style="width: 18px; height: 18px;"></i>
@@ -241,6 +257,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <div class="text-center mt-6 text-xs text-muted">
                 Already have an account? <a href="login.php" class="text-primary font-semibold">Sign In</a>
+            </div>
+
+            <div class="text-center mt-4 text-xs text-muted flex justify-center gap-3" style="color: #64748b; font-size: 0.75rem;">
+                <a href="../privacy.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Privacy Policy</a> • 
+                <a href="../terms.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Terms & Conditions</a> • 
+                <a href="../refund.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Refund Policy</a>
             </div>
         </div>
     </div>

@@ -56,6 +56,17 @@ function initMainApp() {
         });
     }
 
+    window.toggleSidebarDropdown = function(e, element) {
+        if (e.target.closest('.menu-chevron')) {
+            e.preventDefault();
+            e.stopPropagation();
+            const parentLi = element.closest('.sidebar-dropdown');
+            if (parentLi) {
+                parentLi.classList.toggle('open');
+            }
+        }
+    };
+
     // Toggle Dropdowns (Profile menu, Notifications, etc.)
     const dropdownTriggers = document.querySelectorAll('.dropdown-trigger');
     dropdownTriggers.forEach(trigger => {
@@ -270,13 +281,19 @@ function isUserFillingForm() {
 }
 
 function autoSyncPageData() {
-    // Strictly skip updating if user is filling out a form or modal is open
-    if (isUserFillingForm()) {
-        return;
+    refreshDataWithoutReload(false);
+}
+
+/**
+ * Universal Zero-Refresh Real-Time Database Auto-Sync Engine
+ * Fetches latest database updates and updates DOM components dynamically without page reloads.
+ */
+function refreshDataWithoutReload(force = false) {
+    if (!force && isUserFillingForm()) {
+        return Promise.resolve(false);
     }
 
-    // Fetch latest page state silently from database
-    fetch(window.location.href, {
+    return fetch(window.location.href, {
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' }
     })
     .then(response => {
@@ -284,50 +301,210 @@ function autoSyncPageData() {
         return response.text();
     })
     .then(html => {
-        if (!html) return;
+        if (!html) return false;
         
-        // Double check user state before applying DOM changes
-        if (isUserFillingForm()) return;
+        if (!force && isUserFillingForm()) return false;
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        // 1. Update Table Containers silently
-        const currentTables = document.querySelectorAll('.table-responsive');
-        const newTables = doc.querySelectorAll('.table-responsive');
+        let updatedAny = false;
 
-        currentTables.forEach((table, idx) => {
-            if (newTables[idx]) {
-                if (table.innerHTML !== newTables[idx].innerHTML) {
-                    table.innerHTML = newTables[idx].innerHTML;
+        // Extract and execute inline script tags (e.g., window.dashboardChartData)
+        const scripts = doc.querySelectorAll('script');
+        scripts.forEach(script => {
+            if (script.textContent && script.textContent.includes('dashboardChartData')) {
+                try {
+                    eval(script.textContent);
+                } catch (e) {}
+            }
+        });
+
+        // Container Selectors for Universal Auto-Sync across all pages
+        const containerSelectors = [
+            '.dashboard-container',
+            '.kpi-grid',
+            '.charts-grid',
+            '.kpi-card',
+            '.live-metric-cards-container',
+            '.table-responsive',
+            'tbody',
+            '.grid-4',
+            '.grid-3',
+            '.grid-2',
+            '.history-timeline',
+            '.timeline',
+            '.activity-feed',
+            '.chat-messages',
+            '.chat-list',
+            '.notif-badge',
+            '#unread-count',
+            '.detail-card',
+            '.lead-info',
+            '.card-body-scroll',
+            '#kpi-cards-wrapper',
+            '#followups-list-container',
+            '#leads-table-container'
+        ];
+
+        containerSelectors.forEach(selector => {
+            const currentEls = document.querySelectorAll(selector);
+            const newEls = doc.querySelectorAll(selector);
+
+            currentEls.forEach((el, idx) => {
+                if (newEls[idx] && el.innerHTML !== newEls[idx].innerHTML) {
+                    el.innerHTML = newEls[idx].innerHTML;
+                    updatedAny = true;
+                }
+            });
+        });
+
+        // Sync individual count badges / metric spans matching id="cnt-*"
+        const cntSpans = document.querySelectorAll('[id^="cnt-"]');
+        cntSpans.forEach(span => {
+            const newSpan = doc.querySelector('#' + CSS.escape(span.id));
+            if (newSpan && span.innerHTML !== newSpan.innerHTML) {
+                span.innerHTML = newSpan.innerHTML;
+                updatedAny = true;
+            }
+        });
+
+        // Check elements with data-auto-sync attribute or ID
+        const autoSyncEls = document.querySelectorAll('[data-auto-sync]');
+        autoSyncEls.forEach(el => {
+            const syncId = el.getAttribute('data-auto-sync') || el.id;
+            if (syncId) {
+                const newEl = doc.querySelector(`[data-auto-sync="${syncId}"], #${syncId}`);
+                if (newEl && el.innerHTML !== newEl.innerHTML) {
+                    el.innerHTML = newEl.innerHTML;
+                    updatedAny = true;
                 }
             }
         });
 
-        // 2. Update KPI Metric Cards silently
-        const currentKpi = document.querySelectorAll('.grid-4');
-        const newKpi = doc.querySelectorAll('.grid-4');
-
-        currentKpi.forEach((kpi, idx) => {
-            if (newKpi[idx]) {
-                if (kpi.innerHTML !== newKpi[idx].innerHTML) {
-                    kpi.innerHTML = newKpi[idx].innerHTML;
-                }
+        if (updatedAny) {
+            // Re-initialize Lucide Icons, Column Preferences & Charts
+            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
             }
-        });
+            if (typeof loadDirColumnPreferences === 'function') {
+                loadDirColumnPreferences();
+            }
+            if (typeof window.initCRMCharts === 'function') {
+                window.initCRMCharts();
+            }
+        }
 
-        // 3. Re-initialize Lucide Icons & Page Preferences
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons();
-        }
-        if (typeof loadDirColumnPreferences === 'function') {
-            loadDirColumnPreferences();
-        }
+        return updatedAny;
     })
     .catch(err => {
         // Silent catch for network drops
+        return false;
     });
 }
 
-// Ultra-Fast Auto-sync latest database records every 1.5 seconds (1500ms)
-setInterval(autoSyncPageData, 1500);
+window.refreshDataWithoutReload = refreshDataWithoutReload;
+
+// Ultra-Fast Auto-sync latest database records every 1 second (1000ms)
+setInterval(autoSyncPageData, 1000);
+
+/**
+ * Easy Date-Time Picker Shortcut Enhancements
+ */
+window.applyQuickDT = function(btn, dateAction, timeStr) {
+    const container = btn.closest('.quick-dt-presets-container');
+    if (!container) return;
+    const input = container.previousElementSibling || container.parentElement.querySelector('input[type="datetime-local"], input[type="date"]');
+    if (!input) return;
+
+    const now = new Date();
+    let targetDate = new Date();
+
+    // Preserve existing date/time if valid
+    if (input.value) {
+        let parsed = new Date(input.value);
+        if (!isNaN(parsed.getTime())) {
+            targetDate = parsed;
+        }
+    }
+
+    if (dateAction === 'today') {
+        targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetDate.getHours() || 10, targetDate.getMinutes() || 0);
+    } else if (dateAction === 'tomorrow') {
+        targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, targetDate.getHours() || 10, targetDate.getMinutes() || 0);
+    } else if (dateAction === '+2days') {
+        targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, targetDate.getHours() || 10, targetDate.getMinutes() || 0);
+    } else if (dateAction === '+1hour') {
+        targetDate = new Date(now.getTime() + 60 * 60 * 1000);
+    } else if (dateAction === '+2hours') {
+        targetDate = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    }
+
+    if (timeStr) {
+        let parts = timeStr.split(':');
+        targetDate.setHours(parseInt(parts[0], 10));
+        targetDate.setMinutes(parseInt(parts[1], 10));
+    }
+
+    const year = targetDate.getFullYear();
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const hours = String(targetDate.getHours()).padStart(2, '0');
+    const mins = String(targetDate.getMinutes()).padStart(2, '0');
+
+    if (input.type === 'date') {
+        input.value = `${year}-${month}-${day}`;
+    } else {
+        input.value = `${year}-${month}-${day}T${hours}:${mins}`;
+    }
+
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+    // Brief animation feedback on clicked chip
+    btn.style.transform = 'scale(0.92)';
+    setTimeout(() => { btn.style.transform = ''; }, 150);
+};
+
+window.initEasyDateTimePickers = function() {
+    const dtInputs = document.querySelectorAll('input[type="datetime-local"], input[type="date"]');
+    dtInputs.forEach(input => {
+        if (input.dataset.quickDtInit === 'true') return;
+        input.dataset.quickDtInit = 'true';
+
+        const isDateOnly = (input.type === 'date');
+        const container = document.createElement('div');
+        container.className = 'quick-dt-presets-container';
+
+        if (isDateOnly) {
+            container.innerHTML = `
+                <span class="quick-dt-label">Quick:</span>
+                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'today')">📅 Today</button>
+                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'tomorrow')">🌅 Tomorrow</button>
+                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, '+2days')">⏩ +2 Days</button>
+            `;
+        } else {
+            container.innerHTML = `
+                <span class="quick-dt-label">Quick:</span>
+                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'today')">📅 Today</button>
+                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'tomorrow')">🌅 Tomorrow</button>
+                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, '+2days')">⏩ +2 Days</button>
+                <button type="button" class="quick-dt-chip quick-dt-chip-time" onclick="applyQuickDT(this, null, '10:00')">🕘 10 AM</button>
+                <button type="button" class="quick-dt-chip quick-dt-chip-time" onclick="applyQuickDT(this, null, '12:00')">🕛 12 PM</button>
+                <button type="button" class="quick-dt-chip quick-dt-chip-time" onclick="applyQuickDT(this, null, '15:00')">🕒 3 PM</button>
+                <button type="button" class="quick-dt-chip quick-dt-chip-time" onclick="applyQuickDT(this, null, '17:00')">🕔 5 PM</button>
+                <button type="button" class="quick-dt-chip quick-dt-chip-plus" onclick="applyQuickDT(this, '+1hour')">⏳ +1 Hr</button>
+            `;
+        }
+
+        if (input.nextSibling) {
+            input.parentNode.insertBefore(container, input.nextSibling);
+        } else {
+            input.parentNode.appendChild(container);
+        }
+    });
+};
+
+// Automatically initialize date-time helper chips
+document.addEventListener('DOMContentLoaded', initEasyDateTimePickers);
+setInterval(initEasyDateTimePickers, 500);

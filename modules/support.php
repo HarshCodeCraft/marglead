@@ -16,7 +16,81 @@ $canClose = hasAccess('support_close', $_SESSION['user_role']);
 // 1. Process support ticket updates/creations
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $act = $_POST['action'];
-    
+
+    if ($act === 'whatsapp_create_ticket') {
+        header('Content-Type: application/json');
+        $license_no = trim($_POST['license_no'] ?? '');
+        $subject = trim($_POST['subject'] ?? 'General Technical Support');
+        $problem = trim($_POST['problem'] ?? '');
+        $callback_number = trim($_POST['callback_number'] ?? '');
+
+        if (empty($license_no) || empty($problem) || empty($callback_number)) {
+            echo json_encode(['status' => 'error', 'message' => 'Please fill in License Number, Problem, and Call Back Number.']);
+            exit;
+        }
+
+        try {
+            $ticketId = 'TCK-' . rand(1000, 9999);
+            $customer_name = 'WhatsApp Client (' . $license_no . ')';
+            $custStmt = $pdo->prepare("SELECT party_name FROM client_directory WHERE party_name LIKE ? OR mobile LIKE ? LIMIT 1");
+            $custStmt->execute(['%' . $license_no . '%', '%' . $callback_number . '%']);
+            if ($foundName = $custStmt->fetchColumn()) {
+                $customer_name = $foundName;
+            } else {
+                $leadStmt = $pdo->prepare("SELECT name FROM leads WHERE name LIKE ? OR phone LIKE ? LIMIT 1");
+                $leadStmt->execute(['%' . $license_no . '%', '%' . $callback_number . '%']);
+                if ($leadName = $leadStmt->fetchColumn()) {
+                    $customer_name = $leadName;
+                }
+            }
+
+            $assigned_to = 'Harsh Vardhan';
+            $userStmt = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND (role LIKE '%Support%' OR role LIKE '%Engineer%') ORDER BY RAND() LIMIT 1");
+            if ($userStmt && $uName = $userStmt->fetchColumn()) {
+                $assigned_to = $uName;
+            }
+
+            $stmt = $pdo->prepare("INSERT INTO support_tickets 
+                (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, address, problem, due_date, callback_number) 
+                VALUES (?, ?, ?, 'high', 'open', ?, ?, ?, 'whatsapp@marglead.com', 'Marg ERP 9+', 'WhatsApp Automated Flow', ?, ?, ?)");
+            
+            $stmt->execute([
+                $ticketId,
+                $customer_name,
+                $subject,
+                $assigned_to,
+                $license_no,
+                $callback_number,
+                $problem,
+                date('Y-m-d', strtotime('+2 days')),
+                $callback_number
+            ]);
+
+            // Notifications
+            $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, role, title, message, link, type) VALUES ((SELECT id FROM users WHERE name = ? LIMIT 1), NULL, 'New Ticket Assigned', ?, 'index.php?page=support', 'warning')");
+            $notifStmt->execute([$assigned_to, "WhatsApp Ticket {$ticketId} ({$license_no}) assigned to you."]);
+
+            $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', 'New Support Ticket Raised', ?, 'index.php?page=support', 'danger')");
+            $adminNotifStmt->execute(["New WhatsApp Ticket {$ticketId} raised for {$customer_name}"]);
+
+            echo json_encode([
+                'status' => 'success',
+                'ticket_id' => $ticketId,
+                'customer_name' => $customer_name,
+                'assigned_to' => $assigned_to,
+                'license_no' => $license_no,
+                'subject' => $subject,
+                'problem' => $problem,
+                'callback_number' => $callback_number,
+                'date_created' => date('Y-m-d H:i:s'),
+                'message' => "Dear Customer, 👋\n\nThank you for contacting us. Your ticket has been successfully created. 🎟️\n\nOur support team will review your issue and get back to you shortly.\n\nWe appreciate your patience and support. 😊\n\nRegards,\nSupport Team"
+            ]);
+        } catch (PDOException $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
     if ($act === 'create_ticket') {
         if (!$canCreate) {
             $_SESSION['flash_error'] = "Access Denied: You do not have permissions to generate support tickets.";
@@ -63,12 +137,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 
                 // Insert notification for the assigned technician
-                $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, role, title, message, type) VALUES ((SELECT id FROM users WHERE name = ? LIMIT 1), NULL, 'New Ticket Assigned', ?, 'warning')");
+                $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, role, title, message, link, type) VALUES ((SELECT id FROM users WHERE name = ? LIMIT 1), NULL, 'New Ticket Assigned', ?, 'index.php?page=support', 'warning')");
                 $notifMsg = "Ticket " . $ticketId . " has been assigned to you: " . $subject;
                 $notifStmt->execute([$assigned_to, $notifMsg]);
                 
                 // Insert notification for the admin
-                $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, type) VALUES ('Admin', 'New Support Ticket Raised', ?, 'danger')");
+                $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', 'New Support Ticket Raised', ?, 'index.php?page=support', 'danger')");
                 $adminNotifMsg = "New support ticket " . $ticketId . " raised and assigned to " . $assigned_to;
                 $adminNotifStmt->execute([$adminNotifMsg]);
                 
@@ -246,7 +320,11 @@ foreach ($db_leads as $l) {
     ];
 }
 
-// 3. Resolve Search & Filter Parameters for Support Tickets
+// 3. Resolve User Role & Search/Filter Parameters for Support Tickets
+$user_role = $_SESSION['user_role'] ?? 'Sales Executive';
+$user_name = $_SESSION['user_name'] ?? '';
+$is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
+
 $search_query = trim($_GET['search'] ?? '');
 $status_filter = trim($_GET['status'] ?? '');
 $product_filter = trim($_GET['product'] ?? '');
@@ -255,6 +333,15 @@ $priority_filter = trim($_GET['priority'] ?? '');
 
 $where_conditions = [];
 $query_params = [];
+
+// Non-admin employees only see tickets assigned to them
+if (!$is_admin) {
+    $where_conditions[] = "assigned_to = ?";
+    $query_params[] = $user_name;
+} elseif (!empty($operator_filter)) {
+    $where_conditions[] = "assigned_to = ?";
+    $query_params[] = $operator_filter;
+}
 
 if (!empty($search_query)) {
     $where_conditions[] = "(id LIKE ? OR customer_name LIKE ? OR lead_id LIKE ? OR phone LIKE ? OR email LIKE ? OR subject LIKE ? OR problem LIKE ? OR address LIKE ?)";
@@ -273,11 +360,6 @@ if (!empty($product_filter)) {
     $where_conditions[] = "(LOWER(product) = ? OR LOWER(product) LIKE ?)";
     $query_params[] = strtolower($product_filter);
     $query_params[] = '%' . strtolower($product_filter) . '%';
-}
-
-if (!empty($operator_filter)) {
-    $where_conditions[] = "assigned_to = ?";
-    $query_params[] = $operator_filter;
 }
 
 if (!empty($priority_filter)) {
@@ -349,6 +431,10 @@ foreach ($tickets as $t) {
         </div>
 
         <div class="flex gap-2 flex-wrap">
+            <button class="btn text-sm flex align-center gap-2" style="background: #25D366; color: #fff; border: none; font-weight: 700; box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);" onclick="window.openModal('whatsapp-simulator-modal'); startWhatsAppFlow();">
+                <i data-lucide="message-square" style="width: 16px; height: 16px;"></i>
+                <span>WhatsApp Bot Simulator</span>
+            </button>
             <?php if ($canCreate): ?>
                 <button class="btn btn-primary text-sm flex align-center gap-2" onclick="window.openModal('create-ticket-modal');">
                     <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
@@ -1072,20 +1158,495 @@ function openEditTicketModal(ticket) {
         if (hiddenStatus) hiddenStatus.value = ticket.status;
     }
     
-    document.getElementById('edit-ticket-subject').value = ticket.subject;
-    document.getElementById('edit-ticket-problem').value = ticket.problem || "";
-    
-    const assignedSelect = document.getElementById('edit-ticket-assigned');
-    if (assignedSelect) {
-        assignedSelect.value = ticket.assigned_to;
-    } else {
-        const hiddenAssigned = document.getElementById('edit-ticket-assigned-hidden');
-        if (hiddenAssigned) hiddenAssigned.value = ticket.assigned_to;
-    }
-    
     document.getElementById('edit-ticket-due-date').value = ticket.due_date || "";
     document.getElementById('edit-ticket-callback').value = ticket.callback_number || "";
     
     window.openModal('edit-ticket-modal');
 }
+</script>
+
+<!-- CSS Styles for WhatsApp Bot Simulator & Flow Form -->
+<style>
+    .wa-container {
+        width: 100%;
+        max-width: 440px;
+        background: #0b141a;
+        color: #e9edef;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        position: relative;
+    }
+    .wa-header {
+        background: #111b21;
+        padding: 10px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #222d34;
+    }
+    .wa-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: #6b21a8;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 16px;
+    }
+    .wa-chat-body {
+        height: 440px;
+        overflow-y: auto;
+        padding: 14px;
+        background: #0b141a url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-83c6-dcdb39b60970.png');
+        background-blend-mode: overlay;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .wa-msg {
+        max-width: 85%;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        line-height: 1.45;
+        position: relative;
+        word-wrap: break-word;
+        white-space: pre-line;
+    }
+    .wa-msg-in {
+        background: #202c33;
+        color: #e9edef;
+        align-self: flex-start;
+        border-top-left-radius: 2px;
+    }
+    .wa-msg-out {
+        background: #005c4b;
+        color: #e9edef;
+        align-self: flex-end;
+        border-top-right-radius: 2px;
+    }
+    .wa-time {
+        font-size: 10px;
+        color: #8696a0;
+        float: right;
+        margin-top: 4px;
+        margin-left: 8px;
+    }
+    .wa-card {
+        background: #111b21;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #222d34;
+        margin-bottom: 4px;
+    }
+    .wa-card-img {
+        width: 100%;
+        height: 130px;
+        object-fit: cover;
+        background: #1f2c34;
+    }
+    .wa-card-body {
+        padding: 10px;
+        font-size: 12.5px;
+    }
+    .wa-card-title {
+        font-weight: 700;
+        font-size: 13.5px;
+        margin-bottom: 4px;
+        color: #e9edef;
+    }
+    .wa-card-desc {
+        color: #8696a0;
+        font-size: 11.5px;
+        line-height: 1.35;
+    }
+    .wa-btn-group {
+        display: flex;
+        border-top: 1px solid #222d34;
+        margin-top: 6px;
+    }
+    .wa-btn-action {
+        flex: 1;
+        padding: 10px;
+        text-align: center;
+        background: #233138;
+        color: #00a884;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        border: none;
+        transition: background 0.15s;
+    }
+    .wa-btn-action:hover {
+        background: #182229;
+    }
+    .wa-btn-action + .wa-btn-action {
+        border-left: 1px solid #222d34;
+    }
+    /* Flow Overlay Modal */
+    .wa-flow-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #111b21;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        color: #e9edef;
+    }
+    .wa-flow-header {
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #222d34;
+    }
+    .wa-flow-body {
+        padding: 16px;
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+    .wa-form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .wa-form-label {
+        font-size: 11px;
+        color: #8696a0;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+    }
+    .wa-form-control {
+        background: #202c33;
+        border: 1px solid #2a3942;
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: #e9edef;
+        font-size: 13px;
+        outline: none;
+        transition: border 0.15s;
+    }
+    .wa-form-control:focus {
+        border-color: #00a884;
+    }
+    .wa-submit-btn {
+        background: #00a884;
+        color: #111b21;
+        border: none;
+        border-radius: 20px;
+        padding: 12px;
+        font-weight: 700;
+        font-size: 14px;
+        cursor: pointer;
+        margin-top: 10px;
+        transition: opacity 0.15s;
+    }
+    .wa-submit-btn:hover {
+        opacity: 0.9;
+    }
+</style>
+
+<!-- Modal: WhatsApp Bot Simulator & WhatsApp Flow Form -->
+<div id="whatsapp-simulator-modal" class="modal-overlay" style="background: rgba(0,0,0,0.85); backdrop-filter: blur(4px);">
+    <div class="wa-container" style="max-width: 440px; margin: 0 auto; border: 1px solid #222d34;">
+        <!-- Header -->
+        <div class="wa-header">
+            <div class="flex align-center gap-3">
+                <div class="wa-avatar">M</div>
+                <div class="flex flex-col">
+                    <span class="font-bold text-sm" style="color: #e9edef; line-height: 1.2;">Marg Help soft solution</span>
+                    <span style="font-size: 11px; color: #00a884;">online</span>
+                </div>
+            </div>
+            <div class="flex align-center gap-3" style="color: #aebac1;">
+                <i data-lucide="video" style="width: 18px; height: 18px; cursor: pointer;"></i>
+                <i data-lucide="phone" style="width: 18px; height: 18px; cursor: pointer;"></i>
+                <button class="btn-icon" style="color: #aebac1; padding: 0;" onclick="window.closeModal('whatsapp-simulator-modal');"><i data-lucide="x" style="width: 18px; height: 18px;"></i></button>
+            </div>
+        </div>
+
+        <!-- Chat Container -->
+        <div class="wa-chat-body" id="wa-chat-container">
+            <!-- Messages populated via JS -->
+        </div>
+
+        <!-- Chat Input Bar -->
+        <div style="background: #111b21; padding: 8px 12px; display: flex; align-items: center; gap: 8px; border-top: 1px solid #222d34;">
+            <i data-lucide="smile" style="width: 22px; height: 22px; color: #8696a0; cursor: pointer;"></i>
+            <i data-lucide="paperclip" style="width: 22px; height: 22px; color: #8696a0; cursor: pointer;"></i>
+            <input type="text" id="wa-input-msg" placeholder="Type a message..." style="flex: 1; background: #2a3942; border: none; border-radius: 8px; padding: 8px 12px; color: #e9edef; font-size: 13px; outline: none;" onkeydown="if(event.key==='Enter') sendUserWAMessage();">
+            <div style="width: 32px; height: 32px; border-radius: 50%; background: #00a884; color: #111b21; display: flex; align-items: center; justify-content: center; cursor: pointer;" onclick="sendUserWAMessage();">
+                <i data-lucide="send" style="width: 15px; height: 15px;"></i>
+            </div>
+        </div>
+
+        <!-- WhatsApp Flow Overlay Form Modal (Matching Screenshot 2) -->
+        <div id="wa-flow-overlay" class="wa-flow-overlay hidden">
+            <div class="wa-flow-header">
+                <div class="flex align-center gap-2">
+                    <span class="font-bold text-sm" style="color: #e9edef;">Welcome to Marg Soft</span>
+                </div>
+                <div class="flex align-center gap-3">
+                    <i data-lucide="more-vertical" style="width: 18px; height: 18px; color: #8696a0;"></i>
+                    <i data-lucide="x" style="width: 18px; height: 18px; color: #8696a0; cursor: pointer;" onclick="closeWAFlowOverlay();"></i>
+                </div>
+            </div>
+            
+            <div class="wa-flow-body">
+                <div class="font-bold text-sm" style="color: #e9edef; font-size: 14px;">Please Provide Your Info and Problem Here..</div>
+                
+                <form id="wa-flow-form" onsubmit="submitWAFlowForm(event);" style="display: flex; flex-direction: column; gap: 14px;">
+                    <div class="wa-form-group">
+                        <label class="wa-form-label">License Number</label>
+                        <input type="text" id="wa-license-no" required placeholder="Client Id (E.g. LIC-8821 or 177912)" class="wa-form-control" value="LIC-8821">
+                        <span style="font-size: 10px; color: #8696a0;">Client Id</span>
+                    </div>
+
+                    <div class="wa-form-group">
+                        <label class="wa-form-label">Subject</label>
+                        <select id="wa-subject" class="wa-form-control">
+                            <option value="Billing & Printing Paper Feed Issue">Billing & Printing Paper Feed Issue</option>
+                            <option value="GST API Return Mismatch Error Code 400">GST API Return Mismatch Error Code 400</option>
+                            <option value="License Key Renewal & Registration">License Key Renewal & Registration</option>
+                            <option value="Database Backup & Restore Request">Database Backup & Restore Request</option>
+                            <option value="Multi-user Server Connection Error">Multi-user Server Connection Error</option>
+                        </select>
+                    </div>
+
+                    <div class="wa-form-group">
+                        <label class="wa-form-label">Problem</label>
+                        <textarea id="wa-problem" required rows="4" maxlength="600" placeholder="Describe the issue in detail..." class="wa-form-control" oninput="updateWACharCount(this)">Receipt printer paper feed jams on printing daily invoices, and GST API throws mismatch code 400.</textarea>
+                        <div class="flex justify-between align-center" style="font-size: 10px; color: #8696a0;">
+                            <span>Problem</span>
+                            <span id="wa-char-counter">96 / 600</span>
+                        </div>
+                    </div>
+
+                    <div class="wa-form-group">
+                        <label class="wa-form-label">Call Back Number</label>
+                        <input type="text" id="wa-callback-no" required placeholder="Call Back Number (E.g. 7275243844)" class="wa-form-control" value="7275243844">
+                        <span style="font-size: 10px; color: #8696a0;">Call Back Number</span>
+                    </div>
+
+                    <button type="submit" id="wa-submit-btn" class="wa-submit-btn" style="background: #233138; color: #8696a0;">Submit</button>
+                    
+                    <div class="text-center text-xs mt-2" style="color: #8696a0; font-size: 11px;">
+                        Managed by Marg soft solution. <a href="#" style="color: #00a884; text-decoration: none;">Learn more</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let waStep = 0;
+
+    function startWhatsAppFlow() {
+        waStep = 1;
+        const container = document.getElementById('wa-chat-container');
+        if (!container) return;
+        
+        container.innerHTML = `
+            <div class="wa-msg wa-msg-out">
+                <span>hi</span>
+                <span class="wa-time">11:45 pm ✓✓</span>
+            </div>
+
+            <div class="wa-msg wa-msg-in" style="max-width: 90%;">
+                <div class="wa-card">
+                    <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=600&auto=format&fit=crop" class="wa-card-img" alt="Marg ERP 9+">
+                    <div class="wa-card-body">
+                        <div class="wa-card-title">Welcome To Marg Soft Solution</div>
+                        <div class="wa-card-desc">Indian business management and accounting software designed for small and medium businesses. It helps companies manage daily operations such as billing, accounting, inventory, GST compliance, sales, purchases, and reporting from a single platform.</div>
+                    </div>
+                    <div class="wa-btn-group">
+                        <button type="button" class="wa-btn-action" onclick="handleWABtnClick('Sales')">Sales</button>
+                        <button type="button" class="wa-btn-action" onclick="handleWABtnClick('Support')">Support</button>
+                    </div>
+                </div>
+                <span class="wa-time">11:45 pm</span>
+            </div>
+        `;
+        container.scrollTop = container.scrollHeight;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    function sendUserWAMessage() {
+        const input = document.getElementById('wa-input-msg');
+        if (!input || !input.value.trim()) return;
+        const text = input.value.trim();
+        input.value = '';
+
+        appendWAMessage(text, 'out');
+        
+        if (text.toLowerCase() === 'hi' || text.toLowerCase() === 'hello') {
+            startWhatsAppFlow();
+        } else {
+            setTimeout(() => {
+                appendWAMessage("Thanks for reaching out! Click 'Support' to raise a ticket directly.", 'in');
+            }, 600);
+        }
+    }
+
+    function handleWABtnClick(choice) {
+        appendWAMessage(choice, 'out');
+
+        if (choice === 'Support') {
+            setTimeout(() => {
+                const container = document.getElementById('wa-chat-container');
+                const msgHtml = `
+                    <div class="wa-msg wa-msg-in" style="max-width: 90%;">
+                        <div class="wa-card">
+                            <div class="wa-card-body">
+                                <div class="wa-card-title">Provide info and problem here</div>
+                            </div>
+                            <div class="wa-btn-group">
+                                <button type="button" class="wa-btn-action" style="color: #00a884; width: 100%; text-align: center; font-weight: 700;" onclick="openWAFlowOverlay()">Create ticket</button>
+                            </div>
+                        </div>
+                        <span class="wa-time">11:45 pm</span>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', msgHtml);
+                container.scrollTop = container.scrollHeight;
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }, 500);
+        } else if (choice === 'Sales') {
+            setTimeout(() => {
+                appendWAMessage("For Sales inquiries, please call our Sales Hotline at +91 91234 56789 or email sales@margsoft.com.", 'in');
+            }, 500);
+        }
+    }
+
+    function appendWAMessage(text, type) {
+        const container = document.getElementById('wa-chat-container');
+        if (!container) return;
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toLowerCase();
+        const html = `
+            <div class="wa-msg wa-msg-${type}">
+                <span>${escapeHtml(text)}</span>
+                <span class="wa-time">${timeStr} ${type === 'out' ? '✓✓' : ''}</span>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', html);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function openWAFlowOverlay() {
+        const overlay = document.getElementById('wa-flow-overlay');
+        if (overlay) {
+            overlay.classList.remove('hidden');
+            validateWAFlowForm();
+        }
+    }
+
+    function closeWAFlowOverlay() {
+        const overlay = document.getElementById('wa-flow-overlay');
+        if (overlay) overlay.classList.add('hidden');
+    }
+
+    function updateWACharCount(textarea) {
+        const counter = document.getElementById('wa-char-counter');
+        if (counter && textarea) {
+            counter.textContent = `${textarea.value.length} / 600`;
+        }
+        validateWAFlowForm();
+    }
+
+    function validateWAFlowForm() {
+        const lic = document.getElementById('wa-license-no').value.trim();
+        const prob = document.getElementById('wa-problem').value.trim();
+        const phone = document.getElementById('wa-callback-no').value.trim();
+        const submitBtn = document.getElementById('wa-submit-btn');
+
+        if (submitBtn) {
+            if (lic && prob && phone) {
+                submitBtn.style.background = '#00a884';
+                submitBtn.style.color = '#111b21';
+                submitBtn.disabled = false;
+            } else {
+                submitBtn.style.background = '#233138';
+                submitBtn.style.color = '#8696a0';
+                submitBtn.disabled = true;
+            }
+        }
+    }
+
+    document.querySelectorAll('#wa-license-no, #wa-problem, #wa-callback-no').forEach(el => {
+        if (el) el.addEventListener('input', validateWAFlowForm);
+    });
+
+    function submitWAFlowForm(e) {
+        e.preventDefault();
+        const license_no = document.getElementById('wa-license-no').value.trim();
+        const subject = document.getElementById('wa-subject').value.trim();
+        const problem = document.getElementById('wa-problem').value.trim();
+        const callback_number = document.getElementById('wa-callback-no').value.trim();
+
+        if (!license_no || !problem || !callback_number) return;
+
+        closeWAFlowOverlay();
+        
+        // Show Response Sent outgoing bubble
+        appendWAMessage("Create ticket\nResponse sent", 'out');
+
+        // Show Unread Divider
+        const container = document.getElementById('wa-chat-container');
+        const dividerHtml = `<div class="text-center my-2" style="font-size: 11px; color: #8696a0; background: #182229; padding: 3px 12px; border-radius: 10px; width: max-content; margin: 8px auto;">1 unread message</div>`;
+        container.insertAdjacentHTML('beforeend', dividerHtml);
+
+        // Dispatch AJAX to save ticket in DB
+        const formData = new FormData();
+        formData.append('action', 'whatsapp_create_ticket');
+        formData.append('license_no', license_no);
+        formData.append('subject', subject);
+        formData.append('problem', problem);
+        formData.append('callback_number', callback_number);
+
+        fetch('index.php?page=support', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const confMsg = `Dear Customer, 👋\n\nThank you for contacting us. Your ticket has been successfully created. 🎟️\n\nOur support team will review your issue and get back to you shortly.\n\nWe appreciate your patience and support. 😊\n\nRegards,\nSupport Team`;
+                
+                setTimeout(() => {
+                    appendWAMessage(confMsg, 'in');
+                }, 500);
+
+                // Auto-refresh support page table after 2.5 seconds to show live created ticket
+                setTimeout(() => {
+                    if (typeof refreshDataWithoutReload === 'function') {
+                        refreshDataWithoutReload(true);
+                    } else {
+                        window.location.reload();
+                    }
+                }, 1000);
+            } else {
+                appendWAMessage("Error creating ticket: " + (data.message || 'Server error'), 'in');
+            }
+        })
+        .catch(err => {
+            appendWAMessage("Error creating ticket. Please check connection.", 'in');
+        });
+    }
+
+    function escapeHtml(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
 </script>

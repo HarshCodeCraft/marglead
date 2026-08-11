@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
     status VARCHAR(20) DEFAULT 'Active',
     permissions TEXT NULL,
     profile_photo VARCHAR(255) NULL,
+    otp_code VARCHAR(10) NULL,
+    otp_expires_at DATETIME NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -35,6 +37,7 @@ CREATE TABLE IF NOT EXISTS leads (
     tags VARCHAR(255) NULL,
     status VARCHAR(50) DEFAULT 'new', -- matches pipeline stages
     assigned_to VARCHAR(100) NULL, -- refers to user name or id
+    assigned_by VARCHAR(100) NULL, -- tracks user name who assigned the lead
     budget DECIMAL(12, 2) DEFAULT 0.00,
     products VARCHAR(100) NULL,
     enq_for VARCHAR(255) NULL,
@@ -228,9 +231,23 @@ CREATE TABLE IF NOT EXISTS notifications (
     role VARCHAR(50) NULL,
     title VARCHAR(255) NOT NULL,
     message TEXT NOT NULL,
+    link VARCHAR(255) NULL,
     type VARCHAR(20) DEFAULT 'info',
     unread TINYINT DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 14. Bot Flows Table
+CREATE TABLE IF NOT EXISTS bot_flows (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    flow_id VARCHAR(50) NOT NULL UNIQUE,
+    name VARCHAR(150) NOT NULL,
+    category VARCHAR(50) DEFAULT 'SIGN IN',
+    status VARCHAR(20) DEFAULT 'PUBLISHED',
+    screens_json LONGTEXT NULL,
+    raw_nodes_json LONGTEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
@@ -238,15 +255,16 @@ CREATE TABLE IF NOT EXISTS notifications (
 -- Initial Seeder Inserts
 -- ==========================================================================
 
+
 -- 1. Insert System Users (Passwords are set to password123 hashed)
-INSERT INTO users (name, email, password, role, status) VALUES
+INSERT IGNORE INTO users (name, email, password, role, status) VALUES
 ('Harsh Vardhan', 'admin@marglead.com', '123456', 'Admin', 'Active'),
 ('Amit Sen', 'amit.sen@marglead.com', '123456', 'Sales Executive', 'Active'),
 ('Vikas Patel', 'vikas@marglead.com', '123456', 'Installation Engineer', 'Active'),
 ('Sonal Mehta', 'sonal@marglead.com', '123456', 'Team Leader', 'Active');
 
 -- 2. Insert Lead opportunities
-INSERT INTO leads (id, name, contact_person, company, email, phone, city, state, address, gst, source, priority, tags, status, assigned_to, budget, products, enq_for, remarks) VALUES
+INSERT IGNORE INTO leads (id, name, contact_person, company, email, phone, city, state, address, gst, source, priority, tags, status, assigned_to, budget, products, enq_for, remarks) VALUES
 ('LD-9021', 'Amit Sharma', 'Amit Sharma', 'Apex Pharma Solutions', 'amit.sharma@apexpharma.com', '+91 98765 43210', 'New Delhi', 'Delhi', 'Phase 2, Okhla Industrial Area', '07AAAAA1111A1Z1', 'Website', 'hot', 'Hot', 'new', 'Amit S.', 450000.00, 'Marg ERP Pro', 'Marg ERP Pro', 'Highly interested in automated billing and barcode features.'),
 ('LD-7890', 'Dr. Satish Verma', 'Dr. Satish Verma', 'Dr. Verma Diagnostic Clinic', 'drverma@diagnostic.in', '+91 99988 77766', 'Mumbai', 'Maharashtra', 'Clinic sector 4', NULL, 'Cold Calls', 'warm', 'Normal', 'contacted', 'Neha R.', 180000.00, 'Marg ERP Basic', 'Marg ERP Basic', 'Requires diagnostics configurations.'),
 ('LD-6512', 'Rajesh Gupta', 'Rajesh Gupta', 'Metro Chemicals & Co.', 'rgupta@metrochem.org', '+91 91234 56789', 'Ahmedabad', 'Gujarat', 'Industrial Area Zone 1', '24AAAAA2222B1Z3', 'Google Ads', 'hot', 'Hot', 'quotation_sent', 'Vikram K.', 800000.00, 'Marg ERP Gold', 'Marg ERP Gold', 'Approved price quotes sent.'),
@@ -255,53 +273,53 @@ INSERT INTO leads (id, name, contact_person, company, email, phone, city, state,
 ('LD-3219', 'Arun Joshi', 'Arun Joshi', 'Joshi Medical Hall', 'arun@joshimedical.co.in', '+91 93210 98765', 'Pune', 'Maharashtra', 'Main square, Deccan', NULL, 'Website', 'warm', 'Negotiation', 'install_pending', 'Amit S.', 300000.00, 'Marg ERP Pro', 'Marg ERP Pro', 'Hardware is ready for deployment.');
 
 -- 3. Insert Timeline Logs
-INSERT INTO timeline (lead_id, actor, action_taken) VALUES
+INSERT IGNORE INTO timeline (lead_id, actor, action_taken) VALUES
 ('LD-9021', 'Amit Sen', 'Scheduled client demo for tomorrow 03:00 PM. Sent confirmation details on WhatsApp.'),
 ('LD-9021', 'System Bot', 'Sent SMS follow up automated alert to client.'),
 ('LD-9021', 'Admin Manager', 'Lead auto-assigned to sales executive Amit Sen.');
 
 -- 4. Insert Followup items
-INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, status, assigned_to) VALUES
+INSERT IGNORE INTO followups (lead_id, action_type, scheduled_at, remarks, status, assigned_to) VALUES
 ('LD-9021', 'Product Demo', '2026-07-22 15:00:00', 'Execute Marg ERP Pro features run-through on client system.', 'pending', 'Amit S.'),
 ('LD-9021', 'Discovery Call', '2026-07-19 11:00:00', 'Gather requirements, confirm GST status and user counts.', 'completed', 'Amit S.');
 
 -- 5. Insert Demos
-INSERT INTO demos (id, lead_id, scheduled_at, mode, engineer, status, rating, feedback) VALUES
+INSERT IGNORE INTO demos (id, lead_id, scheduled_at, mode, engineer, status, rating, feedback) VALUES
 ('DM-402', 'LD-9021', '2026-07-22 15:00:00', 'Online (Google Meet)', 'Amit Sen', 'scheduled', NULL, NULL),
 ('DM-398', 'LD-7890', '2026-07-19 11:00:00', 'On-Site', 'Neha R.', 'completed', 4, 'High interest in pharmacy billing module. Requesting quote.'),
 ('DM-391', 'LD-5431', '2026-07-18 16:30:00', 'Online', 'Vikram K.', 'cancelled', NULL, 'Client requested reschedule due to internal audit.');
 
 -- 6. Insert Quotation
-INSERT INTO quotations (id, lead_id, issue_date, valid_until, taxable_amount, gst_amount, grand_total, status, created_by) VALUES
+INSERT IGNORE INTO quotations (id, lead_id, issue_date, valid_until, taxable_amount, gst_amount, grand_total, status, created_by) VALUES
 ('QT-9011', 'LD-9021', '2026-07-20', '2026-08-20', 375000.00, 67500.00, 442500.00, 'pending', 'Amit Sen'),
 ('QT-8902', 'LD-7890', '2026-07-19', '2026-08-19', 152542.37, 27457.63, 180000.00, 'approved', 'Neha R.'),
 ('QT-8891', 'LD-6512', '2026-07-15', '2026-08-15', 677966.10, 122033.90, 800000.00, 'approved', 'Vikram K.');
 
 -- 7. Insert Invoices
-INSERT INTO invoices (id, lead_id, customer_name, date_issued, due_date, total_amount, paid_amount, balance_amount, status) VALUES
+INSERT IGNORE INTO invoices (id, lead_id, customer_name, date_issued, due_date, total_amount, paid_amount, balance_amount, status) VALUES
 ('INV-4509', 'LD-9021', 'Apex Pharma Solutions', '2026-07-20', '2026-07-28', 450000.00, 0.00, 450000.00, 'pending'),
 ('INV-4482', 'LD-7890', 'Dr. Verma Diagnostic Clinic', '2026-07-19', '2026-07-27', 180000.00, 180000.00, 0.00, 'paid'),
 ('INV-4391', 'LD-6512', 'Metro Chemicals & Co.', '2026-07-15', '2026-07-25', 800000.00, 400000.00, 400000.00, 'partial');
 
 -- 8. Insert Installations
-INSERT INTO installations (id, lead_id, customer_name, city, engineer, scheduled_date, checklist_done, status) VALUES
+INSERT IGNORE INTO installations (id, lead_id, customer_name, city, engineer, scheduled_date, checklist_done, status) VALUES
 ('INS-201', 'LD-9021', 'Apex Pharma Solutions', 'New Delhi', 'Vikas Patel', '2026-07-24 10:00:00', 0, 'assigned'),
 ('INS-199', 'LD-7890', 'Dr. Verma Diagnostic Clinic', 'Mumbai', 'Praveen Kumar', '2026-07-20 14:00:00', 5, 'completed'),
 ('INS-194', 'LD-6512', 'Metro Chemicals & Co.', 'Ahmedabad', 'Anil Kumar', '2026-07-22 11:30:00', 3, 'in_progress');
 
 -- 9. Insert Trainings
-INSERT INTO trainings (id, lead_id, customer_name, trainer, schedule_date, logged_hours, status) VALUES
+INSERT IGNORE INTO trainings (id, lead_id, customer_name, trainer, schedule_date, logged_hours, status) VALUES
 ('TRN-501', 'LD-9021', 'Apex Pharma Solutions', 'Prakash Raj', '2026-07-25 11:00:00', 0, 'scheduled'),
 ('TRN-492', 'LD-7890', 'Dr. Verma Diagnostic Clinic', 'Sonal Mehta', '2026-07-21 16:00:00', 6, 'certified'),
 ('TRN-487', 'LD-6512', 'Metro Chemicals & Co.', 'Prakash Raj', '2026-07-22 09:30:00', 3, 'active');
 
 -- 10. Insert Support Tickets
-INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to) VALUES
+INSERT IGNORE INTO support_tickets (id, customer_name, subject, priority, status, assigned_to) VALUES
 ('TCK-8902', 'Dr. Satish Verma Clinic', 'Printer configuration issues with receipt bills', 'high', 'open', 'Rahul P.'),
 ('TCK-8789', 'Metro Chemicals & Co.', 'GST return filing API mismatch error code 400', 'critical', 'in_progress', 'Amit S.');
 
 -- 11. Insert Sample Data into Client Directory (Old Clients)
-INSERT INTO client_directory (
+INSERT IGNORE INTO client_directory (
     sno, sw_type, customer_id, subpartner_code, subpartner_name, party_name, company_using, 
     address, mobile, email, user_type, software_type, no_of_users, contact_person, 
     due_on, act_on, days, party_status, city, transferred_party, online_zip_code, 
@@ -338,11 +356,41 @@ INSERT INTO client_directory (
 );
 
 -- 12. Insert Renewals
-INSERT INTO renewals (id, lead_id, customer_name, product_name, expiry_date, days_remaining, renewal_fee, status) VALUES
+INSERT IGNORE INTO renewals (id, lead_id, customer_name, product_name, expiry_date, days_remaining, renewal_fee, status) VALUES
 ('RNW-902', 'LD-9021', 'Apex Pharma Solutions', 'Marg ERP Pro License', '2026-08-15', 25, 45000.00, 'active'),
 ('RNW-889', 'LD-7890', 'Dr. Verma Diagnostic Clinic', 'Marg ERP Basic Suite', '2026-07-10', -11, 18000.00, 'expired'),
 ('RNW-851', 'LD-6512', 'Metro Chemicals & Co.', 'Marg ERP Gold Enterprise', '2026-07-28', 7, 80000.00, 'grace');
 
 -- 13. Insert Notifications
-INSERT INTO notifications (id, user_id, role, title, message, type, unread, created_at) VALUES
+INSERT IGNORE INTO notifications (id, user_id, role, title, message, type, unread, created_at) VALUES
 (NULL, NULL, NULL, 'Test', 'Test', 'info', 1, CURRENT_TIMESTAMP);
+
+-- 14. Insert Bot Flows (Matching Screenshot)
+INSERT IGNORE INTO bot_flows (id, flow_id, name, category, status, screens_json) VALUES
+(1, '2356038494923110', 'Ticket', 'SIGN IN', 'PUBLISHED', '[{"id":"screen_1","name":"Welcome to Marg Soft","title":"Welcome to Marg Soft","body":"Please Provide Your Info and Problem Here..","components":[{"id":"c1","type":"Short Answer","label":"License Number","helper":"Client Id","required":true},{"id":"c2","type":"Dropdown","label":"Bill Format Issue","helper":"","options":["Bill Format Issue","GST Error","Printer Setup"],"required":false},{"id":"c3","type":"Text Area","label":"Problem","helper":"Describe issue","required":true},{"id":"c4","type":"Short Answer","label":"Call Back Number","helper":"Call Back Number","required":true}],"footer_label":"Submit","footer_action":"Complete"}]'),
+(2, '36230192503294106', 'Service', 'SIGN IN', 'PUBLISHED', '[{"id":"screen_1","name":"Service Enquiry","title":"Marg Service Center","body":"How can we assist your business today?","components":[{"id":"c1","type":"Short Answer","label":"Customer ID","helper":"Enter Marg ID","required":true},{"id":"c2","type":"Short Answer","label":"Service Required","helper":"AMC, Training, Barcode","required":true}],"footer_label":"Submit Request","footer_action":"Complete"}]'),
+(3, '1303139711243346', 'Bot', 'SIGN IN', 'PUBLISHED', '[{"id":"screen_1","name":"Automated Bot Welcome","title":"Marg AI Assistant","body":"Select a topic to get immediate assistance.","components":[{"id":"c1","type":"Short Answer","label":"Query Summary","helper":"Type your query","required":true}],"footer_label":"Send","footer_action":"Complete"}]');
+
+-- 15. Multi-Tenant SaaS SaaS Clients Table
+CREATE TABLE IF NOT EXISTS tenant_companies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_name VARCHAR(255) NOT NULL,
+    company_code VARCHAR(100) NOT NULL UNIQUE,
+    owner_name VARCHAR(255) NOT NULL,
+    owner_email VARCHAR(255) NOT NULL UNIQUE,
+    phone VARCHAR(50) DEFAULT NULL,
+    db_name VARCHAR(100) NOT NULL,
+    plan ENUM('Basic', 'Silver', 'Gold', 'Enterprise') DEFAULT 'Silver',
+    status ENUM('Active', 'Suspended', 'Trial', 'Expired') DEFAULT 'Active',
+    expiry_date DATE DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX (company_code),
+    INDEX (status)
+);
+
+-- Seed Default Master Tenant (Marg Soft Solutions Owner CRM)
+INSERT INTO tenant_companies (id, company_name, company_code, owner_name, owner_email, phone, db_name, plan, status, expiry_date) VALUES
+(1, 'Marg Soft Solutions (Primary)', 'master', 'DEEPAK AWASTHI', 'admin@marglead.com', '+91 98765 43210', 'marg_crm', 'Enterprise', 'Active', '2030-12-31')
+ON DUPLICATE KEY UPDATE company_name = VALUES(company_name);
+
+

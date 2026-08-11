@@ -20,13 +20,46 @@ $user_role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_name = $_SESSION['user_name'] ?? '';
 $is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
 
+// Dates setup for Today, Tomorrow, Next Day summary metric cards
+$today_str = date('Y-m-d');
+$tomorrow_str = date('Y-m-d', strtotime('+1 day'));
+$nextday_str = date('Y-m-d', strtotime('+2 days'));
+
+// Fetch live metrics dynamically
+$liveMetrics = getLiveMetricCounts($pdo, $is_admin, $user_name);
+$expired_counts = $liveMetrics['expired'];
+$demo_counts = $liveMetrics['demo'];
+$callback_counts = $liveMetrics['callback'];
+
+// Active Filter URL Helpers
+$active_filter = $_GET['card_filter'] ?? $_GET['filter_card'] ?? $_GET['filter'] ?? '';
+$active_day = $_GET['day'] ?? '';
+
+if (!function_exists('getFilterUrl')) {
+    function getFilterUrl($filter_name, $day_name, $current_filter, $current_day) {
+        if ($current_filter === $filter_name && $current_day === $day_name) {
+            return 'index.php?page=leads'; // Toggle off
+        }
+        return 'index.php?page=leads&card_filter=' . urlencode($filter_name) . '&day=' . urlencode($day_name);
+    }
+}
+
+if (!function_exists('getFilterStyle')) {
+    function getFilterStyle($filter_name, $day_name, $current_filter, $current_day) {
+        if ($current_filter === $filter_name && $current_day === $day_name) {
+            return 'outline: 2px solid var(--primary); outline-offset: 2px; background: rgba(0, 77, 64, 0.08); border-radius: 8px; transform: scale(1.04);';
+        }
+        return '';
+    }
+}
+
 if ($db_connected && $pdo) {
     try {
         $where_conditions = [];
         $query_params = [];
 
-        if (!$is_admin) {
-            $where_conditions[] = "assigned_to = ?";
+        if (!$is_admin && !empty($user_name)) {
+            $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
             $query_params[] = $user_name;
         }
 
@@ -48,6 +81,48 @@ if ($db_connected && $pdo) {
             } else {
                 $where_conditions[] = "LOWER(status) = ?";
                 $query_params[] = $st;
+            }
+        }
+
+        // Apply Metric Card Filter if clicked
+        if (!empty($active_filter) && !empty($active_day)) {
+            if ($active_filter === 'expired') {
+                if ($active_day === 'all' || $active_day === 'total') {
+                    $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%' OR status = 'missed' OR scheduled_at <= NOW())) OR id IN (SELECT lead_id FROM renewals) OR LOWER(status) IN ('expired', 'trial_expired'))";
+                } elseif ($active_day === 'today') {
+                    $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) <= ? AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%' OR status = 'missed' OR scheduled_at <= NOW())) OR id IN (SELECT lead_id FROM renewals WHERE DATE(expiry_date) <= ?))";
+                    $query_params[] = $today_str;
+                    $query_params[] = $today_str;
+                } else {
+                    $target_date = ($active_day === 'tomorrow') ? $tomorrow_str : $nextday_str;
+                    $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ? AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')) OR id IN (SELECT lead_id FROM renewals WHERE DATE(expiry_date) = ?))";
+                    $query_params[] = $target_date;
+                    $query_params[] = $target_date;
+                }
+            } elseif ($active_filter === 'demo_scheduled') {
+                if ($active_day === 'all' || $active_day === 'total') {
+                    $where_conditions[] = "(LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled') OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%')))";
+                } elseif ($active_day === 'today') {
+                    $where_conditions[] = "(LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) <= ?) OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) <= ?))";
+                    $query_params[] = $today_str;
+                    $query_params[] = $today_str;
+                } else {
+                    $target_date = ($active_day === 'tomorrow') ? $tomorrow_str : $nextday_str;
+                    $where_conditions[] = "(LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) = ?) OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) = ?))";
+                    $query_params[] = $target_date;
+                    $query_params[] = $target_date;
+                }
+            } elseif ($active_filter === 'callback') {
+                if ($active_day === 'all' || $active_day === 'total') {
+                    $where_conditions[] = "id IN (SELECT lead_id FROM followups WHERE status = 'pending')";
+                } elseif ($active_day === 'today') {
+                    $where_conditions[] = "id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) <= ?)";
+                    $query_params[] = $today_str;
+                } else {
+                    $target_date = ($active_day === 'tomorrow') ? $tomorrow_str : $nextday_str;
+                    $where_conditions[] = "id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = ?)";
+                    $query_params[] = $target_date;
+                }
             }
         }
 
@@ -96,6 +171,7 @@ if ($db_connected && $pdo) {
                 'priority' => $l['priority'],
                 'status' => $l['status'],
                 'assigned' => $l['assigned_to'] ?? 'Unassigned',
+                'assigned_by' => $l['assigned_by'] ?? 'Admin',
                 'budget' => '₹' . number_format($l['budget'], 0),
                 'last_contact' => date('Y-m-d h:i A', strtotime($l['updated_at'])),
                 'address' => $l['address'] ?? '',
@@ -163,6 +239,163 @@ if (empty($leads)) {
         </div>
     </div>
 
+    <!-- Live Metric Cards: Upcoming Expired Lead, Demo Scheduled, Call Back (Clickable Filters) -->
+    <div class="grid mb-6 live-metric-cards-container" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+        <!-- Card 1: Upcoming Expired Lead -->
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: var(--border-radius-md); box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem;">
+                <h4 style="font-family: var(--font-heading); font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin: 0;">Upcoming Expired Lead</h4>
+                <a href="<?php echo getFilterUrl('expired', 'all', $active_filter, $active_day); ?>"
+                   style="background: rgba(229, 57, 53, 0.12); color: #e53935; font-weight: 700; font-size: 0.75rem; padding: 0.2rem 0.65rem; border-radius: 12px; text-decoration: none; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'all', $active_filter, $active_day); ?>"
+                   title="Click to view all Upcoming Expired Leads">
+                    Total: <span id="cnt-expired-total"><?php echo $expired_counts['total']; ?></span>
+                </a>
+            </div>
+            <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
+                <a href="<?php echo getFilterUrl('expired', 'today', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'today', $active_filter, $active_day); ?>"
+                   title="Click to filter Upcoming Expired Lead for Today">
+                    <span id="cnt-expired-today" style="background-color: #e53935; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $expired_counts['today']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Today</span>
+                </a>
+                <a href="<?php echo getFilterUrl('expired', 'tomorrow', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'tomorrow', $active_filter, $active_day); ?>"
+                   title="Click to filter Upcoming Expired Lead for Tomorrow">
+                    <span id="cnt-expired-tomorrow" style="background-color: #f57c00; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $expired_counts['tomorrow']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Tomorrow</span>
+                </a>
+                <a href="<?php echo getFilterUrl('expired', 'next_day', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'next_day', $active_filter, $active_day); ?>"
+                   title="Click to filter Upcoming Expired Lead for Next Day">
+                    <span id="cnt-expired-nextday" style="background-color: #ffb300; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $expired_counts['next_day']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Next Day</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Card 2: Demo Scheduled -->
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: var(--border-radius-md); box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem;">
+                <h4 style="font-family: var(--font-heading); font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin: 0;">Demo Scheduled</h4>
+                <a href="<?php echo getFilterUrl('demo_scheduled', 'all', $active_filter, $active_day); ?>"
+                   style="background: rgba(245, 124, 0, 0.12); color: #f57c00; font-weight: 700; font-size: 0.75rem; padding: 0.2rem 0.65rem; border-radius: 12px; text-decoration: none; transition: all 0.2s ease; <?php echo getFilterStyle('demo_scheduled', 'all', $active_filter, $active_day); ?>"
+                   title="Click to view all Scheduled Demos">
+                    Total: <span id="cnt-demo-total"><?php echo $demo_counts['total']; ?></span>
+                </a>
+            </div>
+            <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
+                <a href="<?php echo getFilterUrl('demo_scheduled', 'today', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('demo_scheduled', 'today', $active_filter, $active_day); ?>"
+                   title="Click to filter Demo Scheduled for Today">
+                    <span id="cnt-demo-today" style="background-color: #e53935; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $demo_counts['today']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Today</span>
+                </a>
+                <a href="<?php echo getFilterUrl('demo_scheduled', 'tomorrow', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('demo_scheduled', 'tomorrow', $active_filter, $active_day); ?>"
+                   title="Click to filter Demo Scheduled for Tomorrow">
+                    <span id="cnt-demo-tomorrow" style="background-color: #f57c00; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $demo_counts['tomorrow']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Tomorrow</span>
+                </a>
+                <a href="<?php echo getFilterUrl('demo_scheduled', 'next_day', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('demo_scheduled', 'next_day', $active_filter, $active_day); ?>"
+                   title="Click to filter Demo Scheduled for Next Day">
+                    <span id="cnt-demo-nextday" style="background-color: #ffb300; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $demo_counts['next_day']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Next Day</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Card 3: Call Back -->
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: var(--border-radius-md); box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem;">
+                <h4 style="font-family: var(--font-heading); font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin: 0;">Call Back</h4>
+                <a href="<?php echo getFilterUrl('callback', 'all', $active_filter, $active_day); ?>"
+                   style="background: rgba(0, 150, 136, 0.12); color: #009688; font-weight: 700; font-size: 0.75rem; padding: 0.2rem 0.65rem; border-radius: 12px; text-decoration: none; transition: all 0.2s ease; <?php echo getFilterStyle('callback', 'all', $active_filter, $active_day); ?>"
+                   title="Click to view all Call Back follow-ups">
+                    Total: <span id="cnt-callback-total"><?php echo $callback_counts['total']; ?></span>
+                </a>
+            </div>
+            <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
+                <a href="<?php echo getFilterUrl('callback', 'today', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('callback', 'today', $active_filter, $active_day); ?>"
+                   title="Click to filter Call Back for Today">
+                    <span id="cnt-callback-today" style="background-color: #e53935; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $callback_counts['today']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Today</span>
+                </a>
+                <a href="<?php echo getFilterUrl('callback', 'tomorrow', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('callback', 'tomorrow', $active_filter, $active_day); ?>"
+                   title="Click to filter Call Back for Tomorrow">
+                    <span id="cnt-callback-tomorrow" style="background-color: #f57c00; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $callback_counts['tomorrow']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Tomorrow</span>
+                </a>
+                <a href="<?php echo getFilterUrl('callback', 'next_day', $active_filter, $active_day); ?>"
+                   style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('callback', 'next_day', $active_filter, $active_day); ?>"
+                   title="Click to filter Call Back for Next Day">
+                    <span id="cnt-callback-nextday" style="background-color: #ffb300; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
+                        <?php echo $callback_counts['next_day']; ?>
+                    </span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Next Day</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Auto-fetch Script for Metrics -->
+    <script>
+    (function autoFetchLiveMetrics() {
+        function fetchMetrics() {
+            fetch('api/metrics.php')
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.success && data.metrics) {
+                        const m = data.metrics;
+                        if (m.expired) {
+                            if (document.getElementById('cnt-expired-total')) document.getElementById('cnt-expired-total').textContent = m.expired.total;
+                            if (document.getElementById('cnt-expired-today')) document.getElementById('cnt-expired-today').textContent = m.expired.today;
+                            if (document.getElementById('cnt-expired-tomorrow')) document.getElementById('cnt-expired-tomorrow').textContent = m.expired.tomorrow;
+                            if (document.getElementById('cnt-expired-nextday')) document.getElementById('cnt-expired-nextday').textContent = m.expired.next_day;
+                        }
+                        if (m.demo) {
+                            if (document.getElementById('cnt-demo-total')) document.getElementById('cnt-demo-total').textContent = m.demo.total;
+                            if (document.getElementById('cnt-demo-today')) document.getElementById('cnt-demo-today').textContent = m.demo.today;
+                            if (document.getElementById('cnt-demo-tomorrow')) document.getElementById('cnt-demo-tomorrow').textContent = m.demo.tomorrow;
+                            if (document.getElementById('cnt-demo-nextday')) document.getElementById('cnt-demo-nextday').textContent = m.demo.next_day;
+                        }
+                        if (m.callback) {
+                            if (document.getElementById('cnt-callback-total')) document.getElementById('cnt-callback-total').textContent = m.callback.total;
+                            if (document.getElementById('cnt-callback-today')) document.getElementById('cnt-callback-today').textContent = m.callback.today;
+                            if (document.getElementById('cnt-callback-tomorrow')) document.getElementById('cnt-callback-tomorrow').textContent = m.callback.tomorrow;
+                            if (document.getElementById('cnt-callback-nextday')) document.getElementById('cnt-callback-nextday').textContent = m.callback.next_day;
+                        }
+                    }
+                })
+                .catch(err => console.debug('Metrics auto-fetch skipped:', err));
+        }
+
+        // Fetch on initial page load
+        document.addEventListener('DOMContentLoaded', fetchMetrics);
+        // Refresh every 30 seconds
+        setInterval(fetchMetrics, 30000);
+        window.refreshLiveMetrics = fetchMetrics;
+    })();
+    </script>
+
     <!-- Table Action Controls Bar -->
     <div class="card p-4 mb-6 flex flex-wrap align-center justify-between gap-4" style="border: 1px solid var(--border-color);">
         <!-- Left: Search and filters toggler -->
@@ -178,9 +411,20 @@ if (empty($leads)) {
         </div>
 
         <!-- Right: Batch updates selection -->
-        <div class="flex align-center gap-2">
+        <style>
+            .employee-hover-tooltip-container:hover .employee-hover-card {
+                display: block !important;
+            }
+            .employee-hover-card.hidden-tooltip {
+                display: none;
+            }
+            .employee-item-row:hover {
+                background-color: rgba(99, 102, 241, 0.12) !important;
+            }
+        </style>
+        <div class="flex align-center gap-2 flex-wrap" style="position: relative;">
             <span class="text-xs text-muted font-semibold">Batch Actions:</span>
-            <select class="form-control text-xs" style="width: auto; padding: 0.4rem 0.8rem; height: 34px;" id="batch-action-select">
+            <select class="form-control text-xs" style="width: auto; padding: 0.4rem 0.8rem; height: 34px;" id="batch-action-select" onchange="handleBatchActionChange()">
                 <option value="">-- Choose Action --</option>
                 <option value="assign">Assign to Employee</option>
                 <option value="status">Change Status Stage</option>
@@ -188,6 +432,61 @@ if (empty($leads)) {
                 <option value="drop">Drop Selected Leads (No Delete)</option>
                 <option value="restore">Re-activate / Restore Dropped Leads</option>
             </select>
+
+            <!-- Dynamic Sub-Select: Employee Assignment -->
+            <div id="batch-employee-wrapper" class="hidden flex align-center gap-2">
+                <select class="form-control text-xs" style="width: auto; padding: 0.4rem 0.8rem; height: 34px;" id="batch-employee-select">
+                    <option value="">-- Select Employee --</option>
+                    <?php foreach ($operators as $op): ?>
+                        <option value="<?php echo htmlspecialchars($op); ?>"><?php echo htmlspecialchars($op); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <!-- Hover Employee List Badge -->
+                <div class="employee-hover-tooltip-container" style="position: relative; display: inline-block;">
+                    <span class="badge text-xs" style="background: rgba(99, 102, 241, 0.1); color: var(--primary); border: 1px solid var(--primary); cursor: pointer; padding: 0.35rem 0.6rem;" title="Hover to view all available employees">
+                        <i data-lucide="users" style="width: 13px; height: 13px; vertical-align: middle; margin-right: 3px;"></i>
+                        <?php echo count($operators); ?> Active Staff
+                    </span>
+                    <div class="employee-hover-card hidden-tooltip" style="position: absolute; right: 0; top: 110%; z-index: 999; background: var(--bg-card, #ffffff); border: 1px solid var(--border-color, #cbd5e1); box-shadow: 0 10px 25px rgba(0,0,0,0.2); border-radius: 8px; padding: 0.75rem; width: 230px; font-size: 0.75rem; color: var(--text-color, #1e293b);">
+                        <div class="font-bold mb-2 pb-1 text-primary" style="border-bottom: 1px solid var(--border-color, #e2e8f0); display: flex; align-items: center; justify-content: space-between;">
+                            <span>Active Employees List</span>
+                            <span class="badge text-xs" style="font-size: 9px; padding: 2px 6px;"><?php echo count($operators); ?> Total</span>
+                        </div>
+                        <div style="max-height: 190px; overflow-y: auto;">
+                            <?php foreach ($operators as $op): ?>
+                                <div class="employee-item-row py-1 px-2 flex align-center gap-2 rounded mb-1" style="cursor: pointer; transition: background 0.15s ease;" onclick="document.getElementById('batch-employee-select').value='<?php echo addslashes($op); ?>';">
+                                    <div style="width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">
+                                        <?php echo substr($op, 0, 1); ?>
+                                    </div>
+                                    <span style="font-weight: 600; font-size: 11px;"><?php echo htmlspecialchars($op); ?></span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dynamic Sub-Select: Status Stage -->
+            <select class="form-control text-xs hidden" style="width: auto; padding: 0.4rem 0.8rem; height: 34px;" id="batch-status-select">
+                <option value="">-- Select Status Stage --</option>
+                <option value="new">New Lead</option>
+                <option value="contacted">Contacted</option>
+                <option value="interested">Interested</option>
+                <option value="demo_scheduled">Demo Scheduled</option>
+                <option value="quotation_sent">Quotation Sent</option>
+                <option value="negotiation">Negotiation</option>
+                <option value="won">Won / Closed</option>
+                <option value="lost">Lost</option>
+            </select>
+
+            <!-- Dynamic Sub-Select: Priority Level -->
+            <select class="form-control text-xs hidden" style="width: auto; padding: 0.4rem 0.8rem; height: 34px;" id="batch-priority-select">
+                <option value="">-- Select Priority --</option>
+                <option value="hot">Hot</option>
+                <option value="warm">Warm</option>
+                <option value="cold">Cold</option>
+            </select>
+
             <button class="btn btn-primary text-xs" style="padding: 0.55rem 1rem;" onclick="executeBatchAction()">Apply</button>
         </div>
     </div>
@@ -210,6 +509,7 @@ if (empty($leads)) {
                     <option value="Referrals">Referrals</option>
                     <option value="Exhibitions">Exhibitions</option>
                     <option value="HO">HO</option>
+                    <option value="Office">Office</option>
                     <option value="Imported">Imported</option>
                 </select>
             </div>
@@ -262,7 +562,7 @@ if (empty($leads)) {
                         </th>
                         <th class="col-lead-id">Lead ID</th>
                         <th class="col-assigned">Assigned to</th>
-                        <th class="col-contact-person">Contact Person</th>
+                        <th class="col-contact-person">Person Name</th>
                         <th class="col-name">Client Details</th>
                         <th class="col-group">Group</th>
                         <th class="col-status">Status</th>
@@ -290,23 +590,37 @@ if (empty($leads)) {
                                     <div style="width: 22px; height: 22px; border-radius: var(--border-radius-full); background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">
                                         <?php echo substr(!empty($lead['assigned']) ? $lead['assigned'] : 'U', 0, 1); ?>
                                     </div>
-                                    <span class="text-xs font-semibold"><?php echo htmlspecialchars(!empty($lead['assigned']) ? $lead['assigned'] : 'Unassigned'); ?></span>
+                                    <div class="flex flex-col">
+                                        <span class="text-xs font-semibold"><?php echo htmlspecialchars(!empty($lead['assigned']) ? $lead['assigned'] : 'Unassigned'); ?></span>
+                                        <?php if (!empty($lead['assigned_by'])): ?>
+                                            <span class="text-muted" style="font-size: 0.68rem; font-weight: 500;" title="Assigned By Operator">by <?php echo htmlspecialchars($lead['assigned_by']); ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
                             </td>
                             <td class="col-contact-person text-xs font-semibold" style="vertical-align: middle;">
-                                <?php echo htmlspecialchars(!empty($lead['contact_person']) ? $lead['contact_person'] : 'NA'); ?>
+                                <?php echo htmlspecialchars(!empty($lead['name']) ? $lead['name'] : 'NA'); ?>
                             </td>
                             <td class="col-name">
                                 <div class="flex flex-col">
-                                    <span class="font-semibold text-sm"><?php echo htmlspecialchars($lead['name']); ?></span>
-                                    <div class="flex align-center gap-3 text-xs text-muted mt-1">
+                                    <!-- <span class="font-semibold text-sm"><?php echo htmlspecialchars($lead['name']); ?></span> -->
+                                        <?php
+                                        $l_clean_phone = preg_replace('/[^0-9+]/', '', $lead['phone'] ?? '');
+                                        if (!empty($l_clean_phone) && !str_starts_with($l_clean_phone, '+') && strlen($l_clean_phone) === 10) {
+                                            $l_clean_phone = '+91' . $l_clean_phone;
+                                        }
+                                        $l_tel_payload = $l_clean_phone;
+                                        ?>
                                         <a href="tel:<?php echo $lead['phone']; ?>" class="flex align-center gap-1 text-muted hover-primary">
                                             <i data-lucide="phone" style="width: 12px; height: 12px;"></i> <?php echo htmlspecialchars($lead['phone']); ?>
                                         </a>
-                                        <a href="https://wa.me/<?php echo str_replace(' ', '', $lead['phone']); ?>" class="flex align-center gap-1 text-muted hover-primary" style="color: #25d366;">
-                                            <i data-lucide="message-square" style="width: 12px; height: 12px;"></i> WhatsApp
-                                        </a>
-                                    </div>
+                                        <button type="button" 
+                                                onclick="openCallQrModal('<?php echo htmlspecialchars(addslashes($lead['name'])); ?>', '<?php echo htmlspecialchars(addslashes($lead['phone'])); ?>', '<?php echo urlencode($l_tel_payload); ?>')"
+                                                style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border: none; padding: 2px 6px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; font-size: 0.7rem; font-weight: 600;" 
+                                                title="Scan QR to call on smartphone dial pad">
+                                            <i data-lucide="qr-code" style="width: 12px; height: 12px;"></i>
+                                            <span>QR</span>
+                                        </button>
                                 </div>
                             </td>
                             <td class="col-group" style="vertical-align: middle;">
@@ -467,9 +781,13 @@ if (empty($leads)) {
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px; color: var(--text-muted);">Assigned By (Read-Only)</label>
+                            <input type="text" id="qf-assigned-by" class="form-control text-sm" readonly disabled style="width: 100%; height: 36px; padding: 0.5rem; background: var(--bg-hover); opacity: 0.85; cursor: not-allowed; font-weight: 600;" placeholder="Not assigned yet">
+                        </div>
                     </div>
                     
-                    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <!-- <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                                 <label class="form-label text-xs font-semibold" style="margin: 0;">Tags</label>
@@ -487,7 +805,7 @@ if (empty($leads)) {
                                 <input type="time" name="reminder_time" id="qf-reminder-time" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
                             </div>
                         </div>
-                    </div>
+                    </div> -->
                     
                     <div class="form-group mb-4">
                         <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Address</label>
@@ -506,6 +824,7 @@ if (empty($leads)) {
                                 <option value="Referrals">Referrals</option>
                                 <option value="Exhibitions">Exhibitions</option>
                                 <option value="HO">HO</option>
+                                <option value="Office">Office</option>
                                 <option value="Imported">Imported</option>
                             </select>
                         </div>
@@ -554,10 +873,14 @@ if (empty($leads)) {
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Action Type</label>
                             <select name="action_type" id="qf-action-type" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                                <option value="Call">Call / Phone Call</option>
                                 <option value="Trail Installed">Trail Installed</option>
                                 <option value="Data Input Follow Up">Data Input Follow Up</option>
                                 <option value="Payment Followup">Payment Followup</option>
                                 <option value="Rest Amt Followup">Rest Amt Followup</option>
+                                <option value="Product Demo">Product Demo</option>
+                                <option value="On-Site Visit">On-Site Visit</option>
+                                <option value="Renewal / Expiry">Renewal / Expiry</option>
                             </select>
                         </div>
                     </div>
@@ -667,7 +990,7 @@ if (empty($leads)) {
                     <input type="checkbox" class="col-toggle-cb" data-target="col-assigned" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
                 </label>
                 <label class="col-item-card">
-                    <span class="text-xs font-semibold">Contact Person</span>
+                    <span class="text-xs font-semibold">Person Name</span>
                     <input type="checkbox" class="col-toggle-cb" data-target="col-contact-person" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
                 </label>
                 <label class="col-item-card">
@@ -747,33 +1070,52 @@ if (empty($leads)) {
             if (res.success) {
                 const lead = res.lead;
                 
-                // Set lead properties in form
-                document.getElementById('qf-lead-id').value = lead.id;
-                document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name}</strong> ( ${lead.phone} )`;
-                document.getElementById('qf-company').value = lead.company;
-                if (document.getElementById('qf-status')) {
-                    document.getElementById('qf-status').value = lead.status || 'new';
-                }
-                document.getElementById('qf-assigned-to').value = lead.assigned;
-                document.getElementById('qf-tags').value = lead.tags;
-                document.getElementById('qf-address').value = lead.address;
-                document.getElementById('qf-source').value = lead.source || 'Website';
-                document.getElementById('qf-enq-for').value = lead.enq_for;
-                document.getElementById('qf-contact-person').value = lead.contact_person;
-                document.getElementById('qf-remarks').value = lead.remarks;
+                // Set lead properties in form with safety checks
+                if (document.getElementById('qf-lead-id')) document.getElementById('qf-lead-id').value = lead.id || '';
+                if (document.getElementById('qf-modal-title')) document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name || ''}</strong> ( ${lead.phone || ''} )`;
+                if (document.getElementById('qf-company')) document.getElementById('qf-company').value = lead.company || '';
+                if (document.getElementById('qf-status')) document.getElementById('qf-status').value = lead.status || 'new';
+                if (document.getElementById('qf-assigned-to')) document.getElementById('qf-assigned-to').value = lead.assigned || '';
+                if (document.getElementById('qf-assigned-by')) document.getElementById('qf-assigned-by').value = lead.assigned_by || 'Not assigned yet';
+                if (document.getElementById('qf-tags')) document.getElementById('qf-tags').value = lead.tags || '';
+                if (document.getElementById('qf-address')) document.getElementById('qf-address').value = lead.address || '';
+                if (document.getElementById('qf-source')) document.getElementById('qf-source').value = lead.source || 'Website';
+                if (document.getElementById('qf-enq-for')) document.getElementById('qf-enq-for').value = lead.enq_for || '';
+                if (document.getElementById('qf-contact-person')) document.getElementById('qf-contact-person').value = lead.contact_person || '';
+                if (document.getElementById('qf-remarks')) document.getElementById('qf-remarks').value = lead.remarks || '';
                 
-                // Set default date/time for datetime-local picker (e.g. today 15:00)
-                const now = new Date();
-                now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-                const defaultDateTime = now.toISOString().slice(0, 16);
-                if (document.getElementById('qf-scheduled-at')) {
-                    document.getElementById('qf-scheduled-at').value = defaultDateTime;
+                // Check if lead already has a pending or existing follow-up in database
+                let pendingFup = null;
+                if (res.followup_history && res.followup_history.length > 0) {
+                    pendingFup = res.followup_history.find(f => f.status === 'pending') || res.followup_history[0];
                 }
-                if (document.getElementById('qf-action-type')) {
-                    document.getElementById('qf-action-type').value = 'Trail Installed';
-                }
-                if (document.getElementById('qf-fup-notes')) {
-                    document.getElementById('qf-fup-notes').value = '';
+
+                if (pendingFup && pendingFup.scheduled_at) {
+                    // Pre-fill existing scheduled follow-up date/time from database
+                    const fupDateStr = pendingFup.scheduled_at.replace(' ', 'T').slice(0, 16);
+                    if (document.getElementById('qf-scheduled-at')) {
+                        document.getElementById('qf-scheduled-at').value = fupDateStr;
+                    }
+                    if (document.getElementById('qf-action-type')) {
+                        document.getElementById('qf-action-type').value = pendingFup.action_type || 'Trail Installed';
+                    }
+                    if (document.getElementById('qf-fup-notes')) {
+                        document.getElementById('qf-fup-notes').value = pendingFup.remarks || '';
+                    }
+                } else {
+                    // Fallback to current date/time if no follow-up exists yet
+                    const now = new Date();
+                    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                    const defaultDateTime = now.toISOString().slice(0, 16);
+                    if (document.getElementById('qf-scheduled-at')) {
+                        document.getElementById('qf-scheduled-at').value = defaultDateTime;
+                    }
+                    if (document.getElementById('qf-action-type')) {
+                        document.getElementById('qf-action-type').value = 'Trail Installed';
+                    }
+                    if (document.getElementById('qf-fup-notes')) {
+                        document.getElementById('qf-fup-notes').value = '';
+                    }
                 }
                 
                 // Render Follow-up History Timeline
@@ -792,6 +1134,9 @@ if (empty($leads)) {
                         } else if (fup.status === 'pending') {
                             badgeColor = 'var(--warning)';
                             badgeBg = 'var(--warning-light)';
+                        } else if (fup.status === 'rescheduled') {
+                            badgeColor = 'var(--info)';
+                            badgeBg = 'var(--info-light)';
                         } else if (fup.status === 'missed' || fup.status === 'cancelled') {
                             badgeColor = 'var(--danger)';
                             badgeBg = 'var(--danger-light)';
@@ -855,8 +1200,11 @@ if (empty($leads)) {
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
-                        alert(data.message);
-                        window.location.reload();
+                        if (typeof refreshDataWithoutReload === 'function') {
+                            refreshDataWithoutReload(true);
+                        } else {
+                            window.location.reload();
+                        }
                     } else {
                         alert('Failed to re-activate lead: ' + data.message);
                     }
@@ -932,9 +1280,12 @@ if (empty($leads)) {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    alert(data.message);
                     closeQuickFollowupModal();
-                    window.location.reload(); // reload directory to show changes
+                    if (typeof refreshDataWithoutReload === 'function') {
+                        refreshDataWithoutReload(true);
+                    } else {
+                        window.location.reload();
+                    }
                 } else {
                     alert('Failed to save details: ' + data.message);
                 }
@@ -955,6 +1306,25 @@ if (empty($leads)) {
         }
     }
 
+    function handleBatchActionChange() {
+        const action = document.getElementById('batch-action-select').value;
+        const empWrapper = document.getElementById('batch-employee-wrapper');
+        const statusSelect = document.getElementById('batch-status-select');
+        const prioritySelect = document.getElementById('batch-priority-select');
+
+        if (empWrapper) empWrapper.classList.add('hidden');
+        if (statusSelect) statusSelect.classList.add('hidden');
+        if (prioritySelect) prioritySelect.classList.add('hidden');
+
+        if (action === 'assign' && empWrapper) {
+            empWrapper.classList.remove('hidden');
+        } else if ((action === 'status' || action === 'restore') && statusSelect) {
+            statusSelect.classList.remove('hidden');
+        } else if (action === 'priority' && prioritySelect) {
+            prioritySelect.classList.remove('hidden');
+        }
+    }
+
     function executeBatchAction() {
         const action = document.getElementById('batch-action-select').value;
         const selected = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
@@ -971,21 +1341,30 @@ if (empty($leads)) {
 
         let targetValue = '';
         if (action === 'assign') {
-            targetValue = prompt('Enter Employee name to assign selected ' + selected.length + ' lead(s):', 'VANDANA YADAV');
-            if (!targetValue) return;
-        } else if (action === 'status') {
-            targetValue = prompt('Enter target status stage (new, contacted, interested, demo_scheduled, quotation_sent, negotiation, won, lost, dropped):', 'contacted');
-            if (!targetValue) return;
+            const empSelect = document.getElementById('batch-employee-select');
+            targetValue = empSelect ? empSelect.value : '';
+            if (!targetValue) {
+                alert('Please select an employee from the dropdown list to assign the selected ' + selected.length + ' lead(s).');
+                return;
+            }
+        } else if (action === 'status' || action === 'restore') {
+            const statusSelect = document.getElementById('batch-status-select');
+            targetValue = statusSelect ? statusSelect.value : '';
+            if (!targetValue) {
+                alert('Please select a target status stage for the selected lead(s).');
+                return;
+            }
         } else if (action === 'priority') {
-            targetValue = prompt('Enter target priority level (hot, warm, cold):', 'hot');
-            if (!targetValue) return;
+            const prioritySelect = document.getElementById('batch-priority-select');
+            targetValue = prioritySelect ? prioritySelect.value : '';
+            if (!targetValue) {
+                alert('Please select a priority level for the selected lead(s).');
+                return;
+            }
         } else if (action === 'drop') {
             if (!confirm('Are you sure you want to mark ' + selected.length + ' lead(s) as DROPPED?\n\nNote: Leads are NEVER deleted from the database. Dropped leads can be fetched in reports anytime.')) {
                 return;
             }
-        } else if (action === 'restore') {
-            targetValue = prompt('Enter target status stage to restore lead(s) into (new, contacted, interested, demo_scheduled):', 'new');
-            if (!targetValue) return;
         }
 
         const formData = new FormData();
@@ -1001,8 +1380,11 @@ if (empty($leads)) {
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                alert(data.message);
-                window.location.reload();
+                if (typeof refreshDataWithoutReload === 'function') {
+                    refreshDataWithoutReload(true);
+                } else {
+                    window.location.reload();
+                }
             } else {
                 alert('Batch Action Failed: ' + data.message);
             }
@@ -1086,4 +1468,51 @@ if (empty($leads)) {
 
     // Load saved user column visibility preferences on initialization
     loadColumnPreferences();
+</script>
+
+<!-- Modal: Enlarged Scan-to-Call QR Code -->
+<div id="call-qr-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 380px; text-align: center;">
+        <div class="modal-header">
+            <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.1rem;" id="qr-modal-title">Scan to Call Client</h3>
+            <button class="btn-icon" onclick="window.closeModal('call-qr-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+        </div>
+        <div class="modal-body flex flex-col align-center p-6 gap-4">
+            <div style="background: #ffffff; padding: 16px; border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 10px 25px rgba(0,0,0,0.1);">
+                <img id="qr-modal-img" src="" alt="Enlarged QR Code" style="width: 220px; height: 220px; border-radius: 8px; display: block;">
+            </div>
+            <div class="flex flex-col gap-1">
+                <span class="text-base font-bold" id="qr-modal-phone" style="color: var(--primary);"></span>
+                <span class="text-xs text-muted">Point your smartphone camera at this QR code to load the phone number directly into your mobile dial pad.</span>
+            </div>
+        </div>
+        <div class="modal-footer flex justify-between align-center p-4" style="background: var(--border-card);">
+            <a id="qr-modal-tel-link" href="#" class="btn btn-primary text-xs flex align-center justify-center gap-2" style="width: 100%;">
+                <i data-lucide="phone-call" style="width: 14px; height: 14px;"></i>
+                <span>Direct Call Now</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+function openCallQrModal(name, phone, telEncoded) {
+    const modal = document.getElementById('call-qr-modal');
+    if (!modal) return;
+    
+    document.getElementById('qr-modal-title').textContent = 'Call ' + name;
+    document.getElementById('qr-modal-phone').textContent = phone;
+    document.getElementById('qr-modal-tel-link').href = 'tel:' + phone;
+    
+    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=4&data=' + telEncoded;
+    const fallbackUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=260x260&chl=' + telEncoded;
+    const qrImg = document.getElementById('qr-modal-img');
+    qrImg.onerror = function() {
+        this.onerror = null;
+        this.src = fallbackUrl;
+    };
+    qrImg.src = qrUrl;
+    
+    window.openModal('call-qr-modal');
+}
 </script>

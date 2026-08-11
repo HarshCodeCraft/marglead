@@ -101,6 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     if ($target_user_id > 0 && $db_connected && $pdo) {
         try {
+            // Auto-synchronize shared permission mappings
+            syncPermissionMappings($selected_modules, $selected_actions);
+
             $actions_json = json_encode($selected_actions);
             $modules_json = json_encode($selected_modules);
 
@@ -113,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $_SESSION['user_action_permissions'] = $selected_actions;
             }
 
-            $message = "Employee permissions matrix updated successfully.";
+            $message = "Employee permissions matrix updated and synchronized successfully across all modules.";
             $message_type = "success";
         } catch (PDOException $e) {
             $message = "Error updating permissions: " . $e->getMessage();
@@ -255,15 +258,12 @@ foreach ($users_list as $u) {
             <span class="text-xs text-muted font-semibold">Filter Role:</span>
             <select id="role-filter-select" class="form-control text-sm" onchange="filterUserCards()" style="padding: 0.35rem 0.75rem; width: 180px; height: 36px;">
                 <option value="">All Roles & Teams</option>
-                <option value="Super Admin">Super Admin</option>
-                <option value="Admin">Admin</option>
-                <option value="Regional Manager">Regional Manager</option>
-                <option value="Team Leader">Team Leader</option>
-                <option value="Sales Executive">Sales Executive</option>
-                <option value="Telecaller">Telecaller</option>
-                <option value="Support Executive">Support Executive</option>
-                <option value="Installation Engineer">Installation Engineer</option>
-                <option value="Accounts">Accounts</option>
+                <?php 
+                $filter_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') ? $EMPLOYEE_ROLES : $ROLES;
+                foreach ($filter_roles as $rName => $rDesc): 
+                ?>
+                    <option value="<?php echo $rName; ?>"><?php echo $rName; ?></option>
+                <?php endforeach; ?>
             </select>
         </div>
     </div>

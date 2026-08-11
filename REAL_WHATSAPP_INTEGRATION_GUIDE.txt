@@ -1,0 +1,143 @@
+================================================================================
+  REAL WHATSAPP BUSINESS CLOUD API & WHATSAPP FLOWS INTEGRATION GUIDE
+================================================================================
+Project: Marg Lead CRM (Customer Support Helpdesk)
+Target Webhook Endpoint: api/whatsapp_webhook.php
+Database Table: support_tickets & notifications
+
+--------------------------------------------------------------------------------
+1. OVERVIEW & WORKFLOW
+--------------------------------------------------------------------------------
+This integration connects real client mobile WhatsApp conversations directly to your CRM:
+  1. Client sends "Hi" to your official WhatsApp Business Number.
+  2. Server responds with Marg ERP 9+ banner card & interactive buttons [Sales] [Support].
+  3. Client selects [Support] and taps [Create ticket].
+  4. WhatsApp Flow overlay form opens on client's phone:
+       - License Number (Client Id)
+       - Subject
+       - Problem (Max 600 chars)
+       - Call Back Number
+  5. Upon form submission, payload is posted to `api/whatsapp_webhook.php`.
+  6. The system generates a Ticket ID (e.g. TCK-9241), saves the record into the `support_tickets` database table, auto-assigns an active technician, and creates staff notifications.
+  7. Client receives automated WhatsApp confirmation with Ticket ID and assigned technician details.
+  8. Admin & Employees see the ticket live on the CRM Support Panel (index.php?page=support).
+
+
+--------------------------------------------------------------------------------
+2. STEP-BY-STEP META DEVELOPER SETUP (FREE OFFICIAL CLOUD API)
+--------------------------------------------------------------------------------
+
+STEP 2.1: CREATE META DEVELOPER ACCOUNT & APP
+  1. Open https://developers.facebook.com and log in with your Facebook account.
+  2. Click "My Apps" -> Click "Create App".
+  3. Select "Business" as the app type -> Click Next.
+  4. Enter App Name (e.g., "Marg Lead CRM WhatsApp") and select your Business Account.
+  5. Click "Create App".
+
+STEP 2.2: ADD WHATSAPP PRODUCT
+  1. In the App Dashboard, scroll down to "WhatsApp" and click "Set up".
+  2. Select or create a Meta Business Account.
+  3. Meta will generate a "Temporary Access Token" and a "Phone Number ID".
+     - Copy the "Phone Number ID" (e.g. 109823746591234).
+
+STEP 2.3: CONFIGURE WEBHOOK IN META DASHBOARD
+  1. In the left menu under WhatsApp, click "Configuration".
+  2. Next to Webhook, click "Edit".
+  3. Fill in the Webhook details:
+       - Callback URL: https://yourdomain.com/marglead/api/whatsapp_webhook.php
+         (Note: If testing on local XAMPP, run `ngrok http 80` and use your ngrok HTTPS URL:
+          https://xxxx.ngrok-free.app/marglead/api/whatsapp_webhook.php)
+       - Verify Token: marglead_whatsapp_token_2026
+  4. Click "Verify and Save".
+  5. Under "Webhook Fields", click "Subscribe" for `messages`.
+
+
+--------------------------------------------------------------------------------
+3. CONFIGURING WHATSAPP FLOW (THE FORM OVERLAY)
+--------------------------------------------------------------------------------
+
+STEP 3.1: CREATE THE FLOW IN WHATSAPP MANAGER
+  1. Open Meta WhatsApp Manager: https://business.facebook.com/wa/manage/
+  2. Go to "Account tools" -> Select "Flows".
+  3. Click "Create Flow".
+  4. Name your flow: `marg_support_ticket_flow`.
+  5. Category: Select "Customer Support".
+
+STEP 3.2: BUILD THE FLOW SCREEN
+  Add the following 4 form components to your flow screen:
+    Component 1: Short Text Input
+      - ID: `license_no`
+      - Label: License Number (Client Id)
+      - Required: Yes
+    Component 2: Dropdown / Choice Picker
+      - ID: `subject`
+      - Label: Subject
+      - Options:
+          * Billing & Printing Paper Feed Issue
+          * GST API Return Mismatch Error Code 400
+          * License Key Renewal & Registration
+          * Database Backup & Restore Request
+          * Multi-user Server Connection Error
+    Component 3: Long Text Area
+      - ID: `problem`
+      - Label: Problem Description
+      - Max Length: 600
+      - Required: Yes
+    Component 4: Phone Input
+      - ID: `callback_no`
+      - Label: Call Back Number
+      - Required: Yes
+
+  6. Click "Save" and then click "Publish Flow".
+  7. Copy your published Flow ID.
+
+
+--------------------------------------------------------------------------------
+4. UPDATING PHP CREDENTIALS IN CODEBASE
+--------------------------------------------------------------------------------
+
+Open `api/whatsapp_webhook.php` in your code editor:
+Path: `c:\xampp\htdocs\marglead\api\whatsapp_webhook.php`
+
+Update lines 180-185 with your Meta credentials:
+
+```php
+function sendWhatsAppMessage($to, $message) {
+    $token = 'YOUR_PERMANENT_META_ACCESS_TOKEN'; // Generated under Business Settings -> System Users
+    $phone_number_id = 'YOUR_META_PHONE_NUMBER_ID'; // From Meta Developer Dashboard
+...
+```
+
+To get a Permanent Access Token:
+  1. Go to Meta Business Settings: https://business.facebook.com/settings/
+  2. Click "System Users" -> Add System User (Role: Admin).
+  3. Click "Generate Token" -> Select your App.
+  4. Grant permissions: `whatsapp_business_messaging`, `whatsapp_business_management`.
+  5. Copy the generated Permanent Token into `api/whatsapp_webhook.php`.
+
+
+--------------------------------------------------------------------------------
+5. TESTING & VERIFICATION CHECKLIST
+--------------------------------------------------------------------------------
+
+[ ] 1. Ensure `api/whatsapp_webhook.php` is accessible via HTTPS.
+[ ] 2. Send "Hi" from a real mobile WhatsApp to your WhatsApp Business number.
+[ ] 3. Verify that the interactive banner card & [Sales] [Support] buttons arrive.
+[ ] 4. Tap [Support] -> Tap [Create ticket].
+[ ] 5. Complete the WhatsApp Flow form and click Submit.
+[ ] 6. Confirm that WhatsApp receives the automated reply:
+       "Dear Customer 👋 Thank you for contacting us. Your ticket TCK-XXXX has been created."
+[ ] 7. Open your CRM Panel: http://localhost/marglead/index.php?page=support
+[ ] 8. Verify the ticket appears in the Support Tickets Desk table and notifications are triggered.
+
+
+--------------------------------------------------------------------------------
+6. ALTERNATIVE THIRD-PARTY PROVIDERS (TWILIO / INTERAKT / WATI / GUPSHUP)
+--------------------------------------------------------------------------------
+If using third-party WhatsApp Business BSPs (e.g. Twilio, Interakt, Wati):
+  1. Open your BSP Dashboard (e.g., Twilio Console or Interakt Settings).
+  2. Go to Webhook / Integration Settings.
+  3. Set Inbound Webhook URL to: https://yourdomain.com/marglead/api/whatsapp_webhook.php
+  4. Set HTTP Method to: POST.
+  5. Save changes. Incoming customer WhatsApp messages will automatically hit the API and generate tickets in your CRM database.
+================================================================================

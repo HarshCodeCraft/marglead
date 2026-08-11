@@ -2,7 +2,19 @@
  * Chart.js Initialization & Gradient setups for CRM Dashboard
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+window.crmChartInstances = window.crmChartInstances || {};
+
+function initCRMCharts() {
+    if (typeof Chart === 'undefined') return;
+
+    // Destroy existing chart instances before re-initializing
+    Object.keys(window.crmChartInstances).forEach(key => {
+        if (window.crmChartInstances[key] && typeof window.crmChartInstances[key].destroy === 'function') {
+            window.crmChartInstances[key].destroy();
+        }
+    });
+    window.crmChartInstances = {};
+
     // Resolve theme variables
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
@@ -10,7 +22,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Core Chart Colors
     const primaryColor = 'rgba(59, 130, 246, 1)';      // Sleek Blue
-    const primaryGradient = 'rgba(59, 130, 246, 0.15)';
     const accentColor = 'rgba(139, 92, 246, 1)';       // Violet
     const successColor = 'rgba(16, 185, 129, 1)';      // Emerald
     const warningColor = 'rgba(245, 158, 11, 1)';      // Amber
@@ -30,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
         grad.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
         grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
 
-        new Chart(ctxLeads, {
+        window.crmChartInstances['monthlyLeadsChart'] = new Chart(ctxLeads, {
             type: 'line',
             data: {
                 labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
@@ -65,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gradSales.addColorStop(0, 'rgba(139, 92, 246, 0.8)');
         gradSales.addColorStop(1, 'rgba(139, 92, 246, 0.2)');
 
-        new Chart(ctxSales, {
+        window.crmChartInstances['monthlySalesChart'] = new Chart(ctxSales, {
             type: 'bar',
             data: {
                 labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
@@ -92,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Lead Sources (Doughnut Chart)
     const ctxSources = document.getElementById('leadSourcesChart');
     if (ctxSources) {
-        new Chart(ctxSources, {
+        window.crmChartInstances['leadSourcesChart'] = new Chart(ctxSources, {
             type: 'doughnut',
             data: {
                 labels: chartData.sourcesLabels || ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions'],
@@ -124,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const perfWon = chartData.execPerformance ? chartData.execPerformance.map(e => e.won) : [32, 28, 25, 22, 19];
         const perfDemos = chartData.execPerformance ? chartData.execPerformance.map(e => e.demos) : [45, 38, 40, 32, 28];
 
-        new Chart(ctxPerf, {
+        window.crmChartInstances['employeePerformanceChart'] = new Chart(ctxPerf, {
             type: 'bar',
             data: {
                 labels: perfLabels,
@@ -156,7 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 5. Conversion Funnel (Horizontal Bar)
     const ctxFunnel = document.getElementById('conversionFunnelChart');
     if (ctxFunnel) {
-        new Chart(ctxFunnel, {
+        window.crmChartInstances['conversionFunnelChart'] = new Chart(ctxFunnel, {
             type: 'bar',
             data: {
                 labels: ['Leads', 'Contacted', 'Interested', 'Demo Completed', 'Quotation Sent', 'Closed Won'],
@@ -187,4 +198,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+}
+
+window.initCRMCharts = initCRMCharts;
+
+document.addEventListener('DOMContentLoaded', () => {
+    initCRMCharts();
 });
