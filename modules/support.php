@@ -169,15 +169,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $assigned_to = trim($_POST['assigned_to']);
         $due_date = empty($_POST['due_date']) ? null : $_POST['due_date'];
         $callback_number = trim($_POST['callback_number']);
+        $lead_id = trim($_POST['lead_id'] ?? '');
+        $customer_name = trim($_POST['customer_name'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $product = trim($_POST['product'] ?? '');
+        $renewal_date = empty($_POST['renewal_date']) ? null : $_POST['renewal_date'];
+        $address = trim($_POST['address'] ?? '');
         
         if ($db_connected && $pdo) {
             try {
                 // Fetch original ticket details for validation checks
-                $origStmt = $pdo->prepare("SELECT lead_id, assigned_to, status FROM support_tickets WHERE id = ?");
+                $origStmt = $pdo->prepare("SELECT lead_id, assigned_to, status, phone, callback_number FROM support_tickets WHERE id = ?");
                 $origStmt->execute([$ticketId]);
                 $orig = $origStmt->fetch();
                 
                 if ($orig) {
+                    // Security enforcement: Non-admin users cannot edit/update tickets assigned to another employee
+                    if (!$is_admin && !empty($orig['assigned_to']) && $orig['assigned_to'] !== 'Unassigned' && strtolower($orig['assigned_to']) !== strtolower($user_name)) {
+                        $_SESSION['flash_error'] = "Access Denied: You can only edit or update tickets assigned to you.";
+                        header("Location: index.php?page=support");
+                        exit;
+                    }
+
                     // Check Assign/Transfer permission
                     if ($orig['assigned_to'] !== $assigned_to && !$canAssign) {
                         $_SESSION['flash_error'] = "Access Denied: You do not have permissions to assign/transfer tickets.";
@@ -186,24 +200,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     }
                     
                     // Check Closure permission
-                    if ($orig['status'] !== $status && $status === 'resolved' && !$canClose) {
+                    if ($orig['status'] !== $status && ($status === 'resolved' || $status === 'closed') && !$canClose) {
                         $_SESSION['flash_error'] = "Access Denied: You do not have permissions to close support tickets.";
                         header("Location: index.php?page=support");
                         exit;
                     }
                     
-                    $stmt = $pdo->prepare("UPDATE support_tickets SET priority = ?, status = ?, subject = ?, problem = ?, assigned_to = ?, due_date = ?, callback_number = ? WHERE id = ?");
-                    $stmt->execute([$priority, $status, $subject, $problem, $assigned_to, $due_date, $callback_number, $ticketId]);
+                    $stmt = $pdo->prepare("UPDATE support_tickets SET priority = ?, status = ?, subject = ?, problem = ?, assigned_to = ?, due_date = ?, callback_number = ?, lead_id = ?, customer_name = ?, phone = ?, email = ?, product = ?, renewal_date = ?, address = ? WHERE id = ?");
+                    $stmt->execute([$priority, $status, $subject, $problem, $assigned_to, $due_date, $callback_number, $lead_id, $customer_name, $phone, $email, $product, $renewal_date, $address, $ticketId]);
+
+                    // Also sync update to raw `tickets` table if exists
+                    try {
+                        $stmtT = $pdo->prepare("UPDATE tickets SET license_number = ?, status = ?, customer_name = ?, mobile = ?, email = ? WHERE ticket_number = ?");
+                        $stmtT->execute([$lead_id, ucfirst($status), $customer_name, $phone, $email, $ticketId]);
+                    } catch (Throwable $eT) {}
                     
                     // Log status logs on timeline if lead_id exists in leads table
-                    if (!empty($orig['lead_id'])) {
+                    if (!empty($lead_id)) {
                         try {
                             $checkLead = $pdo->prepare("SELECT id FROM leads WHERE id = ?");
-                            $checkLead->execute([$orig['lead_id']]);
+                            $checkLead->execute([$lead_id]);
                             if ($checkLead->fetch()) {
                                 $logStmt = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, ?)");
                                 $actionMsg = "Updated support ticket: " . $ticketId . " (Status: " . ucfirst($status) . ", Assignee: " . $assigned_to . ")";
-                                $logStmt->execute([$orig['lead_id'], $_SESSION['user_name'] ?? 'System User', $actionMsg]);
+                                $logStmt->execute([$lead_id, $_SESSION['user_name'] ?? 'System User', $actionMsg]);
                             }
                         } catch (Exception $ex) {
                             // Ignore timeline FK error for client_directory records
@@ -223,11 +243,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $adminNotifStmt->execute([$adminNotifMsg]);
                     }
                     
-                    // If ticket is resolved, insert closure notifications
-                    if ($orig['status'] !== $status && $status === 'resolved') {
+                    // If ticket is resolved or closed, send automated WhatsApp resolution notification
+                    if ($orig['status'] !== $status && ($status === 'resolved' || $status === 'closed')) {
                         $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, type) VALUES ('Admin', 'Ticket Resolved/Closed', ?, 'success')");
                         $adminNotifMsg = "Ticket " . $ticketId . " has been marked as Resolved by " . ($_SESSION['user_name'] ?? 'System User');
                         $adminNotifStmt->execute([$adminNotifMsg]);
+
+                        // Send WhatsApp notification to customer
+                        try {
+                            require_once __DIR__ . '/../api/whatsapp-api.php';
+                            $whatsappObj = new WhatsAppAPI($pdo);
+                            $custPhone = !empty($callback_number) ? $callback_number : (!empty($orig['phone']) ? $orig['phone'] : ($orig['callback_number'] ?? null));
+                            if (!empty($custPhone)) {
+                                $resMsg = "✅ *Issue Resolved*\n\n" .
+                                          "Dear Customer, your support ticket *{$ticketId}* has been resolved.\n\n" .
+                                          "Thank you for contacting Marg Soft Solution! 🙏\n\n" .
+                                          "If you face any issues in the future, simply send *'Hi'* or *'Help'* on WhatsApp for instant support.";
+                                $whatsappObj->sendText($custPhone, $resMsg);
+                            }
+                        } catch (Throwable $eWa) {
+                            write_log('error', "Failed sending resolution WhatsApp message: " . $eWa->getMessage());
+                        }
                     }
                     
                     $_SESSION['flash_success'] = "Support ticket " . $ticketId . " updated successfully.";
@@ -371,6 +407,32 @@ $where_sql = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_cond
 
 $tickets = [];
 if ($db_connected && $pdo) {
+    // Auto-sync incoming WhatsApp Flow tickets from `tickets` table into `support_tickets`
+    try {
+        $stmtSync = $pdo->query("SELECT * FROM tickets");
+        if ($stmtSync) {
+            $rawFlowTickets = $stmtSync->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rawFlowTickets as $rt) {
+                $tId = $rt['ticket_number'] ?? ('TK-' . $rt['id']);
+                $cName = (!empty($rt['customer_name']) && $rt['customer_name'] !== 'Valued Customer') ? $rt['customer_name'] : ('Client (' . ($rt['mobile'] ?? 'WhatsApp') . ')');
+                $subj = (!empty($rt['category']) ? $rt['category'] : 'Support') . ($rt['firm_name'] !== 'N/A' && !empty($rt['firm_name']) ? ' - ' . $rt['firm_name'] : '');
+                $prio = !empty($rt['priority']) ? strtolower($rt['priority']) : 'medium';
+                $stat = !empty($rt['status']) ? strtolower($rt['status']) : 'open';
+                $phone = $rt['mobile'] ?? '';
+                $email = ($rt['email'] !== 'N/A') ? ($rt['email'] ?? '') : '';
+                $prob = $rt['description'] ?? '';
+                $dateCreated = $rt['created_at'] ?? date('Y-m-d H:i:s');
+
+                $stmtCheck = $pdo->prepare("SELECT id FROM support_tickets WHERE id = ?");
+                $stmtCheck->execute([$tId]);
+                if (!$stmtCheck->fetch()) {
+                    $stmtInsSync = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, phone, email, problem, callback_number, date_created) VALUES (?, ?, ?, ?, ?, 'Unassigned', ?, ?, ?, ?, ?)");
+                    $stmtInsSync->execute([$tId, $cName, $subj, $prio, $stat, $phone, $email, $prob, $phone, $dateCreated]);
+                }
+            }
+        }
+    } catch (Throwable $eSync) {}
+
     try {
         $stmt = $pdo->prepare("SELECT * FROM support_tickets {$where_sql} ORDER BY date_created DESC");
         $stmt->execute($query_params);
@@ -647,10 +709,15 @@ foreach ($tickets as $t) {
                                 <td class="font-mono text-xs text-muted"><?php echo htmlspecialchars($t['due_date'] ?? '-'); ?></td>
                                 <td style="text-align: right; padding-right: 1.25rem;">
                                     <div class="flex align-center justify-end gap-1">
-                                        <?php if ($canEdit): ?>
+                                        <?php 
+                                            $canUserEditThisTicket = $is_admin || empty($t['assigned_to']) || $t['assigned_to'] === 'Unassigned' || (strtolower($t['assigned_to']) === strtolower($user_name));
+                                        ?>
+                                        <?php if ($canEdit && $canUserEditThisTicket): ?>
                                             <button type="button" class="btn-icon" title="Edit / Transfer Ticket" onclick='openEditTicketModal(<?php echo $tJson; ?>)'>
                                                 <i data-lucide="edit-3" style="width: 15px; height: 15px;"></i>
                                             </button>
+                                        <?php else: ?>
+                                            <span class="text-xs text-muted" title="Locked: Assigned to another technician"><i data-lucide="lock" style="width: 14px; height: 14px; opacity: 0.5;"></i></span>
                                         <?php endif; ?>
                                     </div>
                                 </td>
@@ -839,41 +906,46 @@ foreach ($tickets as $t) {
             <input type="hidden" name="action" value="update_ticket">
             <input type="hidden" name="ticket_id" id="edit-ticket-id-hidden">
 
-            <!-- Client Info Cards Section (Readonly) -->
-            <div class="p-4" style="background-color: var(--bg-app); border-radius: var(--border-radius-md); border: 1px solid var(--border-color); opacity: 0.9;">
-                <h4 class="text-xs text-muted font-bold uppercase m-0 mb-3" style="letter-spacing: 0.05em;">Client Details (Read Only)</h4>
+            <!-- Client Info Cards Section (Editable) -->
+            <div class="p-4" style="background-color: var(--bg-app); border-radius: var(--border-radius-md); border: 1px solid var(--border-color);">
+                <div class="flex justify-between align-center mb-3">
+                    <h4 class="text-xs text-muted font-bold uppercase m-0" style="letter-spacing: 0.05em;">Client Details (Editable)</h4>
+                    <button type="button" class="btn text-xs" style="background: var(--primary); color: #fff; border: none; padding: 2px 8px; font-weight: 600;" onclick="autoFetchClientDetails()">
+                        🔍 Auto-Fetch Client Info
+                    </button>
+                </div>
                 
                 <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 0.85rem;">
                     <div class="form-group m-0">
                         <label class="form-label text-xs">Client Name</label>
-                        <input type="text" id="edit-ticket-client-name" class="form-control text-xs" readonly style="background-color: var(--bg-card);">
+                        <input type="text" name="customer_name" id="edit-ticket-client-name" class="form-control text-xs" style="background-color: var(--bg-card);">
                     </div>
                     <div class="form-group m-0">
-                        <label class="form-label text-xs">Client ID</label>
-                        <input type="text" id="edit-ticket-client-id" class="form-control text-xs font-mono" readonly style="background-color: var(--bg-card);">
+                        <label class="form-label text-xs font-bold text-primary">Client ID / License No.</label>
+                        <input type="text" name="lead_id" id="edit-ticket-client-id" class="form-control text-xs font-mono" style="background-color: var(--bg-card); border-color: var(--primary);" onblur="autoFetchClientDetails()">
                     </div>
                     
                     <div class="form-group m-0">
                         <label class="form-label text-xs">Mobile No.</label>
-                        <input type="text" id="edit-ticket-phone" class="form-control text-xs font-mono" readonly style="background-color: var(--bg-card);">
+                        <input type="text" name="phone" id="edit-ticket-phone" class="form-control text-xs font-mono" style="background-color: var(--bg-card);">
                     </div>
                     <div class="form-group m-0">
                         <label class="form-label text-xs">Email ID</label>
-                        <input type="email" id="edit-ticket-email" class="form-control text-xs font-mono" readonly style="background-color: var(--bg-card);">
+                        <input type="email" name="email" id="edit-ticket-email" class="form-control text-xs font-mono" style="background-color: var(--bg-card);">
                     </div>
                     
                     <div class="form-group m-0">
                         <label class="form-label text-xs">Product</label>
-                        <input type="text" id="edit-ticket-product" class="form-control text-xs" readonly style="background-color: var(--bg-card);">
+                        <input type="text" name="product" id="edit-ticket-product" class="form-control text-xs" style="background-color: var(--bg-card);">
                     </div>
                     <div class="form-group m-0">
                         <label class="form-label text-xs">Renewal Date</label>
-                        <input type="date" id="edit-ticket-renewal" class="form-control text-xs font-mono" readonly style="background-color: var(--bg-card);">
+                        <input type="date" name="renewal_date" id="edit-ticket-renewal" class="form-control text-xs font-mono" style="background-color: var(--bg-card);">
                     </div>
                     
                     <div class="form-group m-0" style="grid-column: span 2;">
                         <label class="form-label text-xs">Address</label>
-                        <textarea id="edit-ticket-address" class="form-control text-xs" rows="2" readonly style="background-color: var(--bg-card);"></textarea>
+                        <textarea name="address" id="edit-ticket-address" class="form-control text-xs" rows="2" style="background-color: var(--bg-card);"></textarea>
                     </div>
                 </div>
             </div>
@@ -1163,6 +1235,39 @@ function openEditTicketModal(ticket) {
     
     window.openModal('edit-ticket-modal');
 }
+
+function autoFetchClientDetails() {
+    const licInput = document.getElementById('edit-ticket-client-id');
+    if (!licInput || !licInput.value.trim()) return;
+
+    const query = licInput.value.trim();
+    fetch('api/lookup-client.php?query=' + encodeURIComponent(query))
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.found && res.data) {
+                const d = res.data;
+                if (d.customer_name) document.getElementById('edit-ticket-client-name').value = d.customer_name;
+                if (d.phone) document.getElementById('edit-ticket-phone').value = d.phone;
+                if (d.email) document.getElementById('edit-ticket-email').value = d.email;
+                if (d.product) document.getElementById('edit-ticket-product').value = d.product;
+                if (d.renewal_date) document.getElementById('edit-ticket-renewal').value = d.renewal_date;
+                if (d.address) document.getElementById('edit-ticket-address').value = d.address;
+            }
+        })
+        .catch(err => console.error('Client lookup error:', err));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetTicketId = urlParams.get('open_ticket') || urlParams.get('ticket_id');
+    if (targetTicketId) {
+        const allTickets = <?php echo json_encode($tickets); ?>;
+        const matchingTicket = allTickets.find(t => String(t.id).toLowerCase() === String(targetTicketId).toLowerCase());
+        if (matchingTicket) {
+            openEditTicketModal(matchingTicket);
+        }
+    }
+});
 </script>
 
 <!-- CSS Styles for WhatsApp Bot Simulator & Flow Form -->

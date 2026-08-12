@@ -57,9 +57,9 @@ if ($reqMethod !== 'POST') {
 
 $rawPayload = file_get_contents('php://input');
 
-// Verify HMAC SHA-256 Signature (if HTTP_X_HUB_SIGNATURE_256 header present)
+// Verify HMAC SHA-256 Signature (if HTTP_X_HUB_SIGNATURE_256 header present & real secret configured)
 $sigHeader = $_SERVER['HTTP_X_HUB_SIGNATURE_256'] ?? $_SERVER['HTTP_X_HUB_SIGNATURE'] ?? null;
-if (!empty(APP_SECRET) && !empty($sigHeader)) {
+if (!empty(APP_SECRET) && APP_SECRET !== '1a2b3c4d5e6f7g8h9i0j' && !empty($sigHeader)) {
     if (!verify_meta_signature($rawPayload, APP_SECRET, $sigHeader)) {
         write_log('error', "Webhook HMAC Signature Verification Failed!");
         http_response_code(401);
@@ -121,6 +121,25 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 $msgBodyLog = $msg['text']['body'] ?? ($msg['interactive']['button_reply']['title'] ?? $msgType);
                 $stmtMLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json) VALUES ('INBOUND', ?, ?, ?, ?, 'received', ?)");
                 $stmtMLog->execute([$from, $msgType, $msgBodyLog, $wamid, json_encode($msg)]);
+
+                // Check previous chat status for audit logging
+                $prevStatusStmt = $pdo->prepare("SELECT status FROM chat_conversations WHERE phone = ? LIMIT 1");
+                $prevStatusStmt->execute([$from]);
+                $prevStatus = $prevStatusStmt->fetchColumn();
+
+                if ($prevStatus === 'closed') {
+                    // Log audit trail
+                    $stmtAudit = $pdo->prepare("INSERT INTO chat_audit_logs (phone, action, actor_name, actor_role, remarks) VALUES (?, 'reopened', 'Customer (WhatsApp)', 'Customer', 'Auto Re-opened upon receiving customer message')");
+                    $stmtAudit->execute([$from]);
+
+                    // Log system message in message_logs
+                    $stmtSys = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status) VALUES ('OUTBOUND', ?, 'system', '🟢 Chat auto-reopened on receiving new message from customer', 'received')");
+                    $stmtSys->execute([$from]);
+                }
+
+                // Auto-set chat status to open when customer sends a message
+                $stmtConv = $pdo->prepare("INSERT INTO chat_conversations (phone, status) VALUES (?, 'open') ON DUPLICATE KEY UPDATE status = 'open'");
+                $stmtConv->execute([$from]);
             } catch (Throwable $e) {
                 // Continue execution
             }
@@ -174,7 +193,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 $flowId   = FLOW_ID;
                 $ctaText  = "Create Ticket";
                 $bodyText = "Provide info and problem here";
-                $whatsapp->sendFlow($from, $flowId, $ctaText, $bodyText, 'screen_1', null, "Marg Help soft solution", "Managed by Marg soft solution.");
+                $whatsapp->sendFlow($from, $flowId, $ctaText, $bodyText, 'WELCOME_SCREEN', null, "Marg Help soft solution", "Managed by Marg soft solution.");
             }
         }
 
@@ -196,6 +215,49 @@ foreach ($data['entry'][0]['changes'] as $change) {
             $priority     = $flowData['priority'] ?? 'Medium';
             $description  = $flowData['description'] ?? $flowData['problem'] ?? $flowData['c3'] ?? 'No description provided';
             $attachment   = $flowData['attachment'] ?? null;
+            $product      = 'Marg ERP';
+            $renewalDate  = null;
+            $address      = '';
+
+            // Auto-lookup client details by License Number if found in DB
+            if ($pdo && !empty($licenseNo) && $licenseNo !== 'N/A') {
+                try {
+                    $cdStmt = $pdo->prepare("SELECT * FROM client_directory WHERE customer_id = ? OR customer_id LIKE ? LIMIT 1");
+                    $cdStmt->execute([$licenseNo, '%' . $licenseNo]);
+                    $cdRow = $cdStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($cdRow) {
+                        if ($customerName === 'Valued Customer' || empty($customerName)) {
+                            $customerName = !empty($cdRow['contact_person']) ? $cdRow['contact_person'] : $cdRow['party_name'];
+                        }
+                        if ($firmName === 'N/A' || empty($firmName)) {
+                            $firmName = !empty($cdRow['party_name']) ? $cdRow['party_name'] : $cdRow['company_using'];
+                        }
+                        if ($email === 'N/A' || empty($email)) {
+                            $email = $cdRow['email'] ?? 'N/A';
+                        }
+                        $product = $cdRow['software_type'] ?? 'Marg ERP';
+                        $renewalDate = $cdRow['due_on'] ?? null;
+                        $address = trim(($cdRow['address'] ?? '') . ' ' . ($cdRow['city'] ?? '') . ' ' . ($cdRow['state'] ?? ''));
+                    } else {
+                        $ldStmt = $pdo->prepare("SELECT * FROM leads WHERE id = ? OR phone LIKE ? LIMIT 1");
+                        $ldStmt->execute([$licenseNo, '%' . $licenseNo . '%']);
+                        $ldRow = $ldStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($ldRow) {
+                            if ($customerName === 'Valued Customer' || empty($customerName)) {
+                                $customerName = !empty($ldRow['contact_person']) ? $ldRow['contact_person'] : $ldRow['name'];
+                            }
+                            if ($firmName === 'N/A' || empty($firmName)) {
+                                $firmName = $ldRow['company'] ?? 'N/A';
+                            }
+                            if ($email === 'N/A' || empty($email)) {
+                                $email = $ldRow['email'] ?? 'N/A';
+                            }
+                            $address = trim(($ldRow['address'] ?? '') . ' ' . ($ldRow['city'] ?? '') . ' ' . ($ldRow['state'] ?? ''));
+                        }
+                    }
+                } catch (Throwable $eLookup) {}
+            }
 
             // Generate Ticket Number (TK-2026-XXXXXX)
             $ticketNumber = generate_ticket_number($pdo);
@@ -216,6 +278,25 @@ foreach ($data['entry'][0]['changes'] as $change) {
                         $description,
                         $attachment
                     ]);
+
+                    // Also insert into main CRM support_tickets table for dashboard view (index.php?page=support)
+                    try {
+                        $stmtSup = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, phone, email, problem, callback_number, lead_id, product, renewal_date, address) VALUES (?, ?, ?, ?, 'open', 'Unassigned', ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $stmtSup->execute([
+                            $ticketNumber,
+                            $customerName,
+                            $category . ($firmName !== 'N/A' && !empty($firmName) ? " - " . $firmName : ""),
+                            strtolower($priority),
+                            $mobile,
+                            ($email !== 'N/A' ? $email : ''),
+                            $description,
+                            $mobile,
+                            $licenseNo,
+                            $product,
+                            $renewalDate,
+                            $address
+                        ]);
+                    } catch (Throwable $eSup) {}
 
                     // Send Instant Confirmation Message to Customer
                     $confirmMsg = "✅ *Ticket Created Successfully*\n\n" .

@@ -91,6 +91,19 @@ if ($db_connected && $pdo) {
     syncWebhookLogsToMessageLogs($pdo);
 }
 
+function isChatClosed($pdo, $phone) {
+    if (empty($phone) || !$pdo) return false;
+    $cleanDigits = preg_replace('/[^0-9]/', '', $phone);
+    $clean10 = substr($cleanDigits, -10);
+    $stmt = $pdo->prepare("SELECT status FROM chat_conversations WHERE phone = ? OR phone LIKE ? OR phone LIKE ? LIMIT 1");
+    $stmt->execute([$phone, "%$cleanDigits%", "%$clean10%"]);
+    $st = $stmt->fetchColumn();
+    return (strtolower($st) === 'closed');
+}
+
+// -----------------------------------------------------------------
+// ROUTE DISPATCHER
+// -----------------------------------------------------------------
 $action = $_GET['action'] ?? $_POST['action'] ?? 'conversations';
 
 switch ($action) {
@@ -105,6 +118,7 @@ switch ($action) {
         }
         try {
             $search = trim($_GET['search'] ?? '');
+            $statusFilter = strtolower(trim($_GET['status'] ?? 'open')); // 'open', 'pending', 'closed', 'all'
             
             // Query distinct contact numbers with their latest message
             $sql = "SELECT m1.*
@@ -123,20 +137,42 @@ switch ($action) {
                 $stmt = $pdo->query($sql . " ORDER BY m1.id DESC");
             }
 
-            $conversations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $rawConversations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Enhance conversations with customer profile data from customers/leads tables & 24h window
-            foreach ($conversations as &$c) {
-                $phone = preg_replace('/[^0-9]/', '', $c['recipient_or_sender']);
+            // Fetch chat status map from chat_conversations
+            $stmtStatuses = $pdo->query("SELECT phone, status FROM chat_conversations");
+            $statusMap = $stmtStatuses ? $stmtStatuses->fetchAll(PDO::FETCH_KEY_PAIR) : [];
+
+            $conversations = [];
+            $counts = ['open' => 0, 'pending' => 0, 'closed' => 0, 'all' => count($rawConversations)];
+
+            foreach ($rawConversations as $c) {
+                $rawPhone = $c['recipient_or_sender'];
+                $phone = preg_replace('/[^0-9]/', '', $rawPhone);
                 $cleanPhone = substr($phone, -10);
 
-                $name = 'Client (' . $c['recipient_or_sender'] . ')';
+                // Determine chat status (default 'open')
+                $chatStatus = strtolower($statusMap[$rawPhone] ?? ($statusMap[$phone] ?? ($statusMap[$cleanPhone] ?? 'open')));
+                if (!in_array($chatStatus, ['open', 'pending', 'closed'])) {
+                    $chatStatus = 'open';
+                }
+
+                if (isset($counts[$chatStatus])) {
+                    $counts[$chatStatus]++;
+                }
+
+                // If filter is active and doesn't match, skip adding to result list
+                if ($statusFilter !== 'all' && $chatStatus !== $statusFilter) {
+                    continue;
+                }
+
+                $name = 'Client (' . $rawPhone . ')';
                 $company = 'Marg Customer';
                 $leadId = null;
 
                 // Match with leads table
                 $stmtLead = $pdo->prepare("SELECT id, name, company FROM leads WHERE phone LIKE ? OR phone LIKE ? LIMIT 1");
-                $stmtLead->execute(["%$cleanPhone%", "%" . $c['recipient_or_sender'] . "%"]);
+                $stmtLead->execute(["%$cleanPhone%", "%" . $rawPhone . "%"]);
                 $lead = $stmtLead->fetch(PDO::FETCH_ASSOC);
 
                 if ($lead) {
@@ -144,7 +180,6 @@ switch ($action) {
                     $company = $lead['company'];
                     $leadId = $lead['id'];
                 } else {
-                    // Match with customers table
                     $stmtCust = $pdo->prepare("SELECT customer_name, firm_name FROM customers WHERE mobile LIKE ? LIMIT 1");
                     $stmtCust->execute(["%$cleanPhone%"]);
                     $cust = $stmtCust->fetch(PDO::FETCH_ASSOC);
@@ -154,9 +189,9 @@ switch ($action) {
                     }
                 }
 
-                // Calculate 24-hour service window from last INBOUND customer message
+                // 24h window
                 $stmtLastIn = $pdo->prepare("SELECT created_at FROM message_logs WHERE (recipient_or_sender = ? OR recipient_or_sender LIKE ?) AND direction = 'INBOUND' ORDER BY id DESC LIMIT 1");
-                $stmtLastIn->execute([$c['recipient_or_sender'], "%$cleanPhone%"]);
+                $stmtLastIn->execute([$rawPhone, "%$cleanPhone%"]);
                 $lastInTime = $stmtLastIn->fetchColumn();
 
                 $windowStatus = 'Expired';
@@ -174,6 +209,7 @@ switch ($action) {
                     }
                 }
 
+                $c['chat_status']     = $chatStatus;
                 $c['customer_name']   = $name;
                 $c['company_name']    = $company;
                 $c['lead_id']         = $leadId;
@@ -181,9 +217,11 @@ switch ($action) {
                 $c['window_status']   = $windowStatus;
                 $c['window_time_text']= $windowTimeText;
                 $c['window_seconds']  = $windowSeconds;
+
+                $conversations[] = $c;
             }
 
-            echo json_encode(['success' => true, 'conversations' => $conversations]);
+            echo json_encode(['success' => true, 'conversations' => $conversations, 'counts' => $counts]);
         } catch (Throwable $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         }
@@ -249,6 +287,55 @@ switch ($action) {
                 }
             }
 
+            // Look up associated support ticket by phone number
+            $profile['ticket'] = null;
+            try {
+                $stmtTck = $pdo->prepare("SELECT * FROM support_tickets WHERE phone LIKE ? OR callback_number LIKE ? ORDER BY date_created DESC LIMIT 1");
+                $stmtTck->execute(["%$clean10%", "%$clean10%"]);
+                $tckRow = $stmtTck->fetch(PDO::FETCH_ASSOC);
+                if (!$tckRow) {
+                    $stmtTck2 = $pdo->prepare("SELECT * FROM tickets WHERE mobile LIKE ? ORDER BY id DESC LIMIT 1");
+                    $stmtTck2->execute(["%$clean10%"]);
+                    $rawTck = $stmtTck2->fetch(PDO::FETCH_ASSOC);
+                    if ($rawTck) {
+                        $tckRow = [
+                            'id' => $rawTck['ticket_number'],
+                            'status' => $rawTck['status'],
+                            'subject' => $rawTck['category'] . ' - ' . $rawTck['firm_name'],
+                            'priority' => $rawTck['priority'],
+                            'assigned_to' => 'Unassigned'
+                        ];
+                    }
+                }
+                if ($tckRow) {
+                    $profile['ticket'] = [
+                        'id'          => $tckRow['id'],
+                        'status'      => ucfirst($tckRow['status'] ?? 'Open'),
+                        'subject'     => $tckRow['subject'] ?? 'Support Issue',
+                        'priority'    => ucfirst($tckRow['priority'] ?? 'Medium'),
+                        'assigned_to' => $tckRow['assigned_to'] ?? 'Unassigned'
+                    ];
+                }
+            } catch (Throwable $eTck) {}
+
+            // Fetch current chat status for profile
+            $stmtCS = $pdo->prepare("SELECT status FROM chat_conversations WHERE phone = ? OR phone LIKE ? LIMIT 1");
+            $stmtCS->execute([$phone, "%$clean10%"]);
+            $cStatus = $stmtCS->fetchColumn() ?: 'open';
+            $profile['chat_status'] = strtolower($cStatus);
+
+            // Fetch audit history logs
+            $auditLogs = [];
+            try {
+                $stmtAudit = $pdo->prepare("SELECT * FROM chat_audit_logs WHERE phone LIKE ? OR phone LIKE ? ORDER BY id DESC LIMIT 20");
+                $stmtAudit->execute(["%$cleanDigits%", "%$clean10%"]);
+                $auditLogs = $stmtAudit->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($auditLogs as &$aLog) {
+                    $aLog['formatted_time'] = date('d M, h:i A', strtotime($aLog['created_at']));
+                }
+            } catch (Throwable $eAudit) {}
+            $profile['audit_logs'] = $auditLogs;
+
             $profile['window_status']    = $windowStatus;
             $profile['window_time_text'] = $windowTimeText;
             $profile['window_seconds']   = $windowSeconds;
@@ -270,8 +357,20 @@ switch ($action) {
         }
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status) VALUES ('OUTBOUND', ?, 'system', '🔒 Conversation closed by support agent', 'closed')");
-            $stmt->execute([$phone]);
+            $actor = $_SESSION['user_name'] ?? getAuthUserContext()['name'] ?? 'Support Agent';
+            $role  = $_SESSION['user_role'] ?? 'Agent';
+
+            $stmtC = $pdo->prepare("INSERT INTO chat_conversations (phone, status) VALUES (?, 'closed') ON DUPLICATE KEY UPDATE status = 'closed'");
+            $stmtC->execute([$phone]);
+
+            // Insert into audit trail
+            $stmtAudit = $pdo->prepare("INSERT INTO chat_audit_logs (phone, action, actor_name, actor_role, remarks) VALUES (?, 'closed', ?, ?, ?)");
+            $stmtAudit->execute([$phone, $actor, $role, "Chat Closed by $actor ($role)"]);
+
+            $logText = "🔒 Conversation closed by $actor ($role)";
+            $stmt = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status) VALUES ('OUTBOUND', ?, 'system', ?, 'closed')");
+            $stmt->execute([$phone, $logText]);
+
             echo json_encode(['success' => true, 'message' => 'Conversation closed successfully']);
         } catch (Throwable $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);
@@ -279,7 +378,53 @@ switch ($action) {
         exit;
 
     // -------------------------------------------------------------
-    // 3. Send Live Reply Text Message
+    // 4. Update Chat Status (open, pending, closed)
+    // -------------------------------------------------------------
+    case 'update_chat_status':
+        $phone  = trim($_POST['phone'] ?? '');
+        $status = strtolower(trim($_POST['status'] ?? 'open'));
+        if (empty($phone) || !in_array($status, ['open', 'pending', 'closed'])) {
+            echo json_encode(['success' => false, 'message' => 'Invalid parameters']);
+            exit;
+        }
+
+        try {
+            $actor = $_SESSION['user_name'] ?? getAuthUserContext()['name'] ?? 'Support Agent';
+            $role  = $_SESSION['user_role'] ?? 'Agent';
+
+            $stmtC = $pdo->prepare("INSERT INTO chat_conversations (phone, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = ?");
+            $stmtC->execute([$phone, $status, $status]);
+
+            if ($status === 'closed') {
+                $actionName = 'closed';
+                $statusEmoji = '🔒';
+                $remarks = "Chat Closed by $actor ($role)";
+            } elseif ($status === 'pending') {
+                $actionName = 'pending';
+                $statusEmoji = '🟡';
+                $remarks = "Chat Status set to Pending by $actor ($role)";
+            } else {
+                $actionName = 'reopened';
+                $statusEmoji = '🟢';
+                $remarks = "Chat Re-opened by $actor ($role)";
+            }
+
+            // Insert into audit trail table
+            $stmtAudit = $pdo->prepare("INSERT INTO chat_audit_logs (phone, action, actor_name, actor_role, remarks) VALUES (?, ?, ?, ?, ?)");
+            $stmtAudit->execute([$phone, $actionName, $actor, $role, $remarks]);
+
+            $logText = "{$statusEmoji} {$remarks}";
+            $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status) VALUES ('OUTBOUND', ?, 'system', ?, ?)");
+            $stmtLog->execute([$phone, $logText, $status]);
+
+            echo json_encode(['success' => true, 'message' => 'Status updated to ' . $status]);
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    // -------------------------------------------------------------
+    // 5. Send Live Reply Text Message
     // -------------------------------------------------------------
     case 'send_reply':
         $phone   = trim($_POST['phone'] ?? '');
@@ -287,6 +432,11 @@ switch ($action) {
 
         if (empty($phone) || empty($message)) {
             echo json_encode(['success' => false, 'message' => 'Phone number and message text are required']);
+            exit;
+        }
+
+        if (isChatClosed($pdo, $phone)) {
+            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending messages.']);
             exit;
         }
 
@@ -301,7 +451,7 @@ switch ($action) {
         exit;
 
     // -------------------------------------------------------------
-    // 4. Send Interactive Reply Buttons
+    // 6. Send Interactive Reply Buttons
     // -------------------------------------------------------------
     case 'send_buttons':
         $phone     = trim($_POST['phone'] ?? '');
@@ -310,6 +460,11 @@ switch ($action) {
 
         if (empty($phone)) {
             echo json_encode(['success' => false, 'message' => 'Phone number is required']);
+            exit;
+        }
+
+        if (isChatClosed($pdo, $phone)) {
+            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending messages.']);
             exit;
         }
 
@@ -329,7 +484,7 @@ switch ($action) {
         exit;
 
     // -------------------------------------------------------------
-    // 5. Send WhatsApp Flow Message
+    // 7. Send WhatsApp Flow Message
     // -------------------------------------------------------------
     case 'send_flow':
         $phone  = trim($_POST['phone'] ?? '');
@@ -337,6 +492,11 @@ switch ($action) {
 
         if (empty($phone)) {
             echo json_encode(['success' => false, 'message' => 'Phone number is required']);
+            exit;
+        }
+
+        if (isChatClosed($pdo, $phone)) {
+            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending messages.']);
             exit;
         }
 

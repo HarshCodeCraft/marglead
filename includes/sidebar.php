@@ -147,6 +147,13 @@ $role = $_SESSION['user_role'];
                             <span class="badge" style="margin-left: auto; background: #10b981; color: white; font-size: 0.65rem;">LIVE</span>
                         </a>
                     </li>
+                    <li class="sidebar-item <?php echo isActivePage('broadcast_campaigns'); ?>">
+                        <a href="index.php?page=broadcast_campaigns">
+                            <i data-lucide="send" style="width: 18px; height: 18px;"></i>
+                            <span>WhatsApp Campaigns</span>
+                            <span class="badge" style="margin-left: auto; background: #3b82f6; color: white; font-size: 0.65rem;">NEW</span>
+                        </a>
+                    </li>
                 <?php endif; ?>
                 <?php if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Regional Manager'): ?>
                     <?php 

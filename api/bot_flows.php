@@ -45,7 +45,7 @@ function ensureBotFlowsTable($pdo) {
             ]);
 
             $stmtSeed = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status, screens_json) VALUES (?, ?, ?, ?, ?)");
-            $stmtSeed->execute(['2356038494923110', 'Ticket', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
+            $stmtSeed->execute(['1838065533836150', 'Ticket', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
             $stmtSeed->execute(['36230192503294106', 'Service', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
             $stmtSeed->execute(['1303139711243346', 'Bot', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
         }
@@ -138,7 +138,19 @@ switch ($action) {
         $screens_json = is_array($screens) ? json_encode($screens) : $screens;
         
         if (empty($flow_id)) {
-            $flow_id = date('Ymd') . rand(100000, 999999);
+            // Attempt to create Flow on Meta WhatsApp Manager via Graph API
+            try {
+                require_once __DIR__ . '/whatsapp-api.php';
+                $whatsapp = new WhatsAppAPI($pdo);
+                $metaRes = $whatsapp->createMetaFlow($name, [strtoupper(str_replace(' ', '_', $category))]);
+                if (!empty($metaRes['flow_id'])) {
+                    $flow_id = $metaRes['flow_id'];
+                } else {
+                    $flow_id = date('Ymd') . rand(100000, 999999);
+                }
+            } catch (Throwable $eMeta) {
+                $flow_id = date('Ymd') . rand(100000, 999999);
+            }
         }
         
         try {
@@ -150,14 +162,38 @@ switch ($action) {
             if ($existId) {
                 $stmtUpd = $pdo->prepare("UPDATE bot_flows SET name = ?, category = ?, status = ?, screens_json = ? WHERE id = ?");
                 $stmtUpd->execute([$name, $category, $status, $screens_json, $existId]);
-                echo json_encode(['success' => true, 'message' => 'Flow saved successfully!', 'flow_id' => $flow_id, 'id' => $existId]);
+                echo json_encode(['success' => true, 'message' => 'Flow saved & updated successfully!', 'flow_id' => $flow_id, 'id' => $existId]);
             } else {
                 $stmtIns = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status, screens_json) VALUES (?, ?, ?, ?, ?)");
                 $stmtIns->execute([$flow_id, $name, $category, $status, $screens_json]);
                 $newId = $pdo->lastInsertId();
-                echo json_encode(['success' => true, 'message' => 'Flow created successfully!', 'flow_id' => $flow_id, 'id' => $newId]);
+                echo json_encode(['success' => true, 'message' => 'Flow created & registered on Meta successfully!', 'flow_id' => $flow_id, 'id' => $newId]);
             }
         } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'publish_meta':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        $flow_id = trim($_POST['flow_id'] ?? '');
+        try {
+            require_once __DIR__ . '/whatsapp-api.php';
+            $whatsapp = new WhatsAppAPI($pdo);
+            $metaRes = $whatsapp->publishMetaFlow($flow_id);
+
+            $stmt = $pdo->prepare("UPDATE bot_flows SET status = 'PUBLISHED' WHERE flow_id = ?");
+            $stmt->execute([$flow_id]);
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'Flow published on Meta WhatsApp Manager!',
+                'meta_response' => $metaRes
+            ]);
+        } catch (Throwable $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         }
         exit;

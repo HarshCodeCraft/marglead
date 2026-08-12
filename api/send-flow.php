@@ -20,9 +20,11 @@ $phone    = $input['phone'] ?? $input['mobile'] ?? null;
 $flowId   = $input['flow_id'] ?? FLOW_ID;
 $ctaText  = $input['cta_text'] ?? 'Create Ticket';
 $bodyText = $input['body_text'] ?? "Provide info and problem here";
-$screen   = $input['screen'] ?? 'screen_1';
+$screen   = $input['screen'] ?? 'WELCOME_SCREEN';
 $header   = $input['header'] ?? 'Marg Help soft solution';
 $footer   = $input['footer'] ?? 'Support Desk';
+
+$mode     = $input['mode'] ?? 'published';
 
 if (empty($phone)) {
     json_response(false, 'Missing required parameter: phone', null, 400);
@@ -34,7 +36,7 @@ $dataPayload = [
     'init_time' => date('Y-m-d H:i:s')
 ];
 
-$result = $whatsapp->sendFlow($phone, $flowId, $ctaText, $bodyText, $screen, $dataPayload, $header, $footer);
+$result = $whatsapp->sendFlow($phone, $flowId, $ctaText, $bodyText, $screen, $dataPayload, $header, $footer, $mode);
 
 if ($result['success']) {
     json_response(true, 'WhatsApp Flow sent successfully.', $result['response']);

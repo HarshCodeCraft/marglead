@@ -661,6 +661,9 @@ switch ($page) {
     case 'team_inbox':
         $module_path = __DIR__ . '/modules/team_inbox.php';
         break;
+    case 'broadcast_campaigns':
+        $module_path = __DIR__ . '/modules/broadcast_campaigns.php';
+        break;
     case 'settings':
         $module_path = __DIR__ . '/modules/admin/settings.php';
         break;

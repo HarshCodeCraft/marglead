@@ -148,6 +148,60 @@ try {
         INDEX idx_action (action)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+    // 7. Chat Conversations Status Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS chat_conversations (
+        phone VARCHAR(50) PRIMARY KEY,
+        status VARCHAR(20) DEFAULT 'open',
+        assigned_to VARCHAR(100) NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // 8. Chat Audit Logs Table (Tracks who opened/closed/reopened chats and when)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS chat_audit_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        phone VARCHAR(50) NOT NULL,
+        action VARCHAR(50) NOT NULL,
+        actor_name VARCHAR(100) NOT NULL,
+        actor_role VARCHAR(50) NULL,
+        remarks TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_phone (phone)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // 9. Broadcast Campaigns & Audience Tables
+    $pdo->exec("CREATE TABLE IF NOT EXISTS broadcast_campaigns (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(150) NOT NULL,
+        template_name VARCHAR(100) NOT NULL,
+        target_type VARCHAR(50) DEFAULT 'clients',
+        custom_message TEXT NULL,
+        total_contacts INT DEFAULT 0,
+        sent_count INT DEFAULT 0,
+        failed_count INT DEFAULT 0,
+        pending_count INT DEFAULT 0,
+        delay_seconds INT DEFAULT 2,
+        status VARCHAR(30) DEFAULT 'pending_approval',
+        created_by VARCHAR(100) NULL,
+        approved_by VARCHAR(100) NULL,
+        approved_at DATETIME NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS campaign_audience (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        campaign_id INT NOT NULL,
+        mobile VARCHAR(50) NOT NULL,
+        customer_name VARCHAR(150) NULL,
+        company_name VARCHAR(150) NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        sent_at DATETIME NULL,
+        error_message TEXT NULL,
+        INDEX idx_campaign (campaign_id),
+        INDEX idx_mobile (mobile)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
     // 7. API Logs Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS api_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,

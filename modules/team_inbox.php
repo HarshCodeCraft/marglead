@@ -54,6 +54,35 @@ require_once __DIR__ . '/../includes/db.php';
     color: var(--text-main, #111827);
     box-sizing: border-box;
 }
+.inbox-status-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--bg-body, #fafafa);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+.tab-btn {
+    flex: 1;
+    padding: 5px 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted, #6b7280);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s ease;
+}
+.tab-btn:hover {
+    background: rgba(0,0,0,0.05);
+}
+.tab-btn.active {
+    background: var(--bg-card, #ffffff);
+    color: var(--primary, #10b981);
+    border-color: var(--border-color, #d1d5db);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
 .inbox-conv-list {
     flex: 1;
     overflow-y: auto;
@@ -118,9 +147,14 @@ require_once __DIR__ . '/../includes/db.php';
 .inbox-center-pane {
     display: flex;
     flex-direction: column;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
     background: var(--bg-card, #ffffff);
 }
 .chat-header {
+    flex-shrink: 0;
     padding: 0.85rem 1.25rem;
     border-bottom: 1px solid var(--border-color, #e5e7eb);
     display: flex;
@@ -147,6 +181,7 @@ require_once __DIR__ . '/../includes/db.php';
 }
 .chat-body {
     flex: 1;
+    min-height: 0;
     padding: 1.25rem;
     overflow-y: auto;
     background: var(--chat-bg, #efeae2);
@@ -217,6 +252,7 @@ require_once __DIR__ . '/../includes/db.php';
 
 /* Chat Input Bar */
 .chat-input-bar {
+    flex-shrink: 0;
     padding: 0.75rem 1rem;
     border-top: 1px solid var(--border-color, #e5e7eb);
     background: var(--bg-card, #ffffff);
@@ -282,6 +318,13 @@ require_once __DIR__ . '/../includes/db.php';
             </div>
             <input type="text" id="inboxSearchInput" class="inbox-search-input" placeholder="Search chats by name or phone..." onkeyup="fetchConversations()">
         </div>
+        <!-- Status Filter Tabs (Open, Pending, Closed, All) -->
+        <div class="inbox-status-tabs">
+            <button type="button" class="tab-btn active" id="tab-open" onclick="switchFilterTab('open')">Open (<span id="cnt-open">0</span>)</button>
+            <button type="button" class="tab-btn" id="tab-pending" onclick="switchFilterTab('pending')">Pending (<span id="cnt-pending">0</span>)</button>
+            <button type="button" class="tab-btn" id="tab-closed" onclick="switchFilterTab('closed')">Closed (<span id="cnt-closed">0</span>)</button>
+            <button type="button" class="tab-btn" id="tab-all" onclick="switchFilterTab('all')">All (<span id="cnt-all">0</span>)</button>
+        </div>
         <div class="inbox-conv-list" id="conversationsContainer">
             <div style="padding: 2rem; text-align: center; color: #888; font-size: 0.85rem;">Loading conversations...</div>
         </div>
@@ -301,16 +344,18 @@ require_once __DIR__ . '/../includes/db.php';
                     </div>
                 </div>
             </div>
-            <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+                <div id="ticketHeaderBadge"></div>
                 <div id="windowTimerBadge"></div>
                 <button type="button" class="btn-pill btn-pill-outline text-xs" onclick="fetchMessages(currentActivePhone)">
                     <i data-lucide="rotate-cw" style="width: 13px; height: 13px;"></i>
                     Refresh
                 </button>
-                <button type="button" class="btn-pill text-xs" style="background: #ef4444; color: white;" onclick="closeActiveChat()">
-                    <i data-lucide="check-circle" style="width: 13px; height: 13px;"></i>
-                    Close Chat
-                </button>
+                <div style="display: flex; gap: 2px; background: rgba(0,0,0,0.05); padding: 2px; border-radius: 20px;">
+                    <button type="button" class="btn-pill text-xs" style="background: #10b981; color: white; padding: 2px 8px;" onclick="updateChatStatus('open')" title="Mark Chat Open">🟢 Open</button>
+                    <button type="button" class="btn-pill text-xs" style="background: #f59e0b; color: white; padding: 2px 8px;" onclick="updateChatStatus('pending')" title="Mark Chat Pending">🟡 Pending</button>
+                    <button type="button" class="btn-pill text-xs" style="background: #ef4444; color: white; padding: 2px 8px;" onclick="updateChatStatus('closed')" title="Mark Chat Closed">🔒 Close</button>
+                </div>
             </div>
         </div>
 
@@ -378,16 +423,24 @@ require_once __DIR__ . '/../includes/db.php';
                 <label class="text-xs text-muted font-semibold">ASSOCIATED LEAD ID</label>
                 <div id="rightLeadLink" style="font-weight: 600; color: #3b82f6;">N/A</div>
             </div>
-            <div style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+            <div style="margin-top: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+                <label class="text-xs text-muted font-semibold mb-1 block">SUPPORT TICKET CONTEXT</label>
+                <div id="rightTicketCard"></div>
+            </div>
+            <div style="margin-top: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+                <label class="text-xs text-muted font-semibold mb-1 block">AUDIT & STATUS HISTORY</label>
+                <div id="rightAuditHistory" style="max-height: 140px; overflow-y: auto; font-size: 0.75rem;"></div>
+            </div>
+            <div style="margin-top: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
                 <label class="text-xs text-muted font-semibold mb-2 block">QUICK CRM ACTIONS</label>
-                <button type="button" class="btn-pill btn-pill-outline w-full text-xs mb-2" onclick="alert('Creating Lead for this contact...')">
+                <button type="button" class="btn-pill btn-pill-outline w-full text-xs mb-2" onclick="window.location.href='index.php?page=leads'">
                     <i data-lucide="user-plus" style="width: 13px; height: 13px;"></i>
-                    Add as CRM Lead
+                    View CRM Leads
                 </button>
-                <button type="button" class="btn-pill btn-pill-outline w-full text-xs" onclick="alert('Opening Ticket Creation...')">
+                <a href="index.php?page=support" class="btn-pill btn-pill-outline w-full text-xs block text-center" style="text-decoration: none;">
                     <i data-lucide="life-buoy" style="width: 13px; height: 13px;"></i>
-                    Create Support Ticket
-                </button>
+                    Support Operations Desk
+                </a>
             </div>
         </div>
     </div>
@@ -395,6 +448,7 @@ require_once __DIR__ . '/../includes/db.php';
 
 <script>
 let currentActivePhone = '';
+let currentFilterTab = 'open'; // Default 'open'
 let isPolling = true;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -409,13 +463,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 4000);
 });
 
+function switchFilterTab(tab) {
+    currentFilterTab = tab;
+    ['open', 'pending', 'closed', 'all'].forEach(t => {
+        const btn = document.getElementById('tab-' + t);
+        if (btn) {
+            if (t === tab) btn.classList.add('active');
+            else btn.classList.remove('active');
+        }
+    });
+    fetchConversations();
+}
+
 function fetchConversations(showLoading = true) {
     const search = document.getElementById('inboxSearchInput').value;
-    fetch(`api/inbox-api.php?action=conversations&search=${encodeURIComponent(search)}`)
+    fetch(`api/inbox-api.php?action=conversations&status=${encodeURIComponent(currentFilterTab)}&search=${encodeURIComponent(search)}`)
     .then(res => res.json())
     .then(data => {
         if (data.success) {
             renderConversations(data.conversations);
+            if (data.counts) {
+                document.getElementById('cnt-open').innerText = data.counts.open || 0;
+                document.getElementById('cnt-pending').innerText = data.counts.pending || 0;
+                document.getElementById('cnt-closed').innerText = data.counts.closed || 0;
+                document.getElementById('cnt-all').innerText = data.counts.all || 0;
+            }
         }
     })
     .catch(err => console.error(err));
@@ -424,7 +496,7 @@ function fetchConversations(showLoading = true) {
 function renderConversations(list) {
     const container = document.getElementById('conversationsContainer');
     if (!list || list.length === 0) {
-        container.innerHTML = '<div style="padding: 2rem; text-align: center; color: #888; font-size: 0.85rem;">No active conversations found.</div>';
+        container.innerHTML = `<div style="padding: 2rem; text-align: center; color: #888; font-size: 0.85rem;">No ${currentFilterTab} conversations found.</div>`;
         return;
     }
 
@@ -434,9 +506,11 @@ function renderConversations(list) {
         const isActive = (phone === currentActivePhone) ? 'active' : '';
         const initial = (c.customer_name || 'C').charAt(0).toUpperCase();
 
-        const windowBadge = (c.window_status === 'Active') 
-            ? `<span style="color: #10b981; font-weight: 600; font-size: 0.7rem;">⚡ 24h Free</span>`
-            : `<span style="color: #ef4444; font-size: 0.7rem;">🔒 Closed/Template</span>`;
+        const statusBadge = (c.chat_status === 'closed') 
+            ? `<span style="color: #ef4444; font-weight: 600; font-size: 0.68rem;">🔒 Closed</span>`
+            : ((c.chat_status === 'pending')
+                ? `<span style="color: #d97706; font-weight: 600; font-size: 0.68rem;">🟡 Pending</span>`
+                : `<span style="color: #10b981; font-weight: 600; font-size: 0.68rem;">🟢 Open</span>`);
 
         html += `
         <div class="conv-item ${isActive}" onclick="selectConversation('${phone}')">
@@ -447,7 +521,7 @@ function renderConversations(list) {
             </div>
             <div class="conv-meta">
                 <div>${c.formatted_time}</div>
-                <div style="margin-top: 2px;">${windowBadge}</div>
+                <div style="margin-top: 2px;">${statusBadge}</div>
             </div>
         </div>
         `;
@@ -462,6 +536,13 @@ function selectConversation(phone) {
     fetchMessages(phone, true);
 }
 
+function scrollChatToBottom() {
+    const body = document.getElementById('chatMessagesContainer');
+    if (body) {
+        body.scrollTop = body.scrollHeight;
+    }
+}
+
 function fetchMessages(phone, scrollBottom = true) {
     fetch(`api/inbox-api.php?action=messages&phone=${encodeURIComponent(phone)}`)
     .then(res => res.json())
@@ -470,10 +551,9 @@ function fetchMessages(phone, scrollBottom = true) {
             renderMessages(data.messages);
             renderProfile(data.profile);
             if (scrollBottom) {
-                setTimeout(() => {
-                    const body = document.getElementById('chatMessagesContainer');
-                    body.scrollTop = body.scrollHeight;
-                }, 50);
+                scrollChatToBottom();
+                setTimeout(scrollChatToBottom, 100);
+                setTimeout(scrollChatToBottom, 300);
             }
         }
     });
@@ -502,16 +582,20 @@ function renderMessages(messages) {
         } else {
             const bubbleClass = isOutbound ? 'outbound' : 'inbound';
             const wrapClass = isOutbound ? 'outbound' : 'inbound';
+            const senderTag = isOutbound 
+                ? `<div style="font-size: 0.7rem; font-weight: 700; color: #059669; margin-bottom: 2px;">Support Team / Bot</div>`
+                : `<div style="font-size: 0.7rem; font-weight: 700; color: #2563eb; margin-bottom: 2px;">👤 Customer</div>`;
 
             let bodyText = escapeHtml(m.message_body || '');
-            if (m.message_type === 'flow_submission' || m.message_body.includes('Ticket')) {
+            if (m.message_type === 'flow_submission' || (m.message_body && m.message_body.includes('Ticket'))) {
                 bodyText += `<div class="flow-card-badge">📋 <strong>Form Submission Received</strong></div>`;
             }
 
             html += `
             <div class="msg-bubble-wrap ${wrapClass}">
                 <div class="msg-bubble ${bubbleClass}">
-                    ${bodyText}
+                    ${senderTag}
+                    <div>${bodyText}</div>
                     <span class="msg-time">${m.formatted_time}</span>
                 </div>
             </div>
@@ -552,9 +636,129 @@ function renderProfile(p) {
         document.getElementById('rightLeadLink').innerText = 'N/A';
     }
 
+    // Render Ticket Header Badge & Right Profile Ticket Card
+    const ticketHeaderBadge = document.getElementById('ticketHeaderBadge');
+    if (ticketHeaderBadge) {
+        if (p.ticket) {
+            ticketHeaderBadge.innerHTML = `
+                <a href="index.php?page=support&open_ticket=${encodeURIComponent(p.ticket.id)}" class="btn-pill" style="background: rgba(59,130,246,0.15); color: #2563eb; border: 1px solid rgba(59,130,246,0.3); font-weight: 700; text-decoration: none;">
+                    🎫 Ticket ${escapeHtml(p.ticket.id)} (${escapeHtml(p.ticket.status)}) → View Ticket
+                </a>
+            `;
+        } else {
+            ticketHeaderBadge.innerHTML = '';
+        }
+    }
+
+    const rightTicketCard = document.getElementById('rightTicketCard');
+    if (rightTicketCard) {
+        if (p.ticket) {
+            rightTicketCard.innerHTML = `
+                <div style="background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.25); padding: 0.75rem; border-radius: 8px; margin-top: 0.5rem;">
+                    <div style="font-size: 0.72rem; font-weight: 700; color: #1d4ed8; text-transform: uppercase; margin-bottom: 2px;">Active Ticket</div>
+                    <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-main);">${escapeHtml(p.ticket.id)} <span class="badge text-xs" style="background: #e0f2fe; color: #0369a1;">${escapeHtml(p.ticket.status)}</span></div>
+                    <div style="font-size: 0.78rem; color: #4b5563; margin-top: 2px;">${escapeHtml(p.ticket.subject)}</div>
+                    <a href="index.php?page=support&open_ticket=${encodeURIComponent(p.ticket.id)}" class="btn-pill text-xs w-full block text-center mt-2" style="background: #2563eb; color: white; text-decoration: none; font-weight: 600;">
+                        🎫 Open Ticket in Support Ops
+                    </a>
+                </div>
+            `;
+        } else {
+            rightTicketCard.innerHTML = `
+                <div style="font-size: 0.78rem; color: #6b7280; font-style: italic;">No open ticket found for this client.</div>
+            `;
+        }
+    }
+
+    const rightStatusElem = document.getElementById('rightStatus');
+    if (rightStatusElem && p.chat_status) {
+        if (p.chat_status === 'closed') {
+            rightStatusElem.className = 'badge';
+            rightStatusElem.style.cssText = 'margin-top: 8px; background: rgba(239,68,68,0.1); color: #ef4444;';
+            rightStatusElem.innerText = '🔒 Closed';
+        } else if (p.chat_status === 'pending') {
+            rightStatusElem.className = 'badge';
+            rightStatusElem.style.cssText = 'margin-top: 8px; background: rgba(245,158,11,0.1); color: #d97706;';
+            rightStatusElem.innerText = '🟡 Pending';
+        } else {
+            rightStatusElem.className = 'badge';
+            rightStatusElem.style.cssText = 'margin-top: 8px; background: rgba(16,185,129,0.1); color: #10b981;';
+            rightStatusElem.innerText = '🟢 Open';
+        }
+    }
+
+    // Render Audit History List
+    const rightAuditElem = document.getElementById('rightAuditHistory');
+    if (rightAuditElem) {
+        if (p.audit_logs && p.audit_logs.length > 0) {
+            let auditHtml = '';
+            p.audit_logs.forEach(a => {
+                const actBadge = (a.action === 'closed') 
+                    ? `<span style="color: #ef4444; font-weight: 700;">🔒 Closed</span>`
+                    : ((a.action === 'reopened')
+                        ? `<span style="color: #10b981; font-weight: 700;">🟢 Reopened</span>`
+                        : `<span style="color: #d97706; font-weight: 700;">🟡 Pending</span>`);
+                auditHtml += `
+                    <div style="padding: 4px 0; border-bottom: 1px dashed var(--border-color, #e5e7eb);">
+                        <div>${actBadge} by <strong>${escapeHtml(a.actor_name)}</strong></div>
+                        <div style="color: #888; font-size: 0.68rem;">${a.formatted_time}</div>
+                    </div>
+                `;
+            });
+            rightAuditElem.innerHTML = auditHtml;
+        } else {
+            rightAuditElem.innerHTML = '<div style="color: #888; font-style: italic;">No audit events recorded yet.</div>';
+        }
+    }
+
+    // Lock/Unlock Reply Bar for Closed Chats
+    const replyInput = document.getElementById('replyMessageInput');
+    const chatInputBar = document.querySelector('.chat-input-bar');
+    const closedBanner = document.getElementById('closedChatBanner');
+
+    if (p.chat_status === 'closed') {
+        if (replyInput) replyInput.disabled = true;
+        if (!closedBanner && chatInputBar) {
+            const b = document.createElement('div');
+            b.id = 'closedChatBanner';
+            b.style.cssText = 'background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 6px 12px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; text-align: center; margin-bottom: 6px;';
+            b.innerHTML = '🔒 Conversation is Closed. Click <button type="button" onclick="updateChatStatus(\'open\')" style="background: #10b981; color: white; border: none; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; cursor: pointer;">🟢 Re-open Chat</button> to send messages.';
+            chatInputBar.insertBefore(b, chatInputBar.firstChild);
+        }
+    } else {
+        if (replyInput) replyInput.disabled = false;
+        if (closedBanner) closedBanner.remove();
+    }
+
     if (window.lucide) {
         lucide.createIcons();
     }
+}
+
+function updateChatStatus(status) {
+    if (!currentActivePhone) {
+        alert('Please select a conversation first.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('action', 'update_chat_status');
+    formData.append('phone', currentActivePhone);
+    formData.append('status', status);
+
+    fetch('api/inbox-api.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            fetchMessages(currentActivePhone, true);
+            fetchConversations(false);
+        } else {
+            alert('Error: ' + (data.message || 'Failed updating status'));
+        }
+    });
 }
 
 function insertQuickReply(selectElem) {

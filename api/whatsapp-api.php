@@ -98,7 +98,7 @@ class WhatsAppAPI {
     /**
      * Send WhatsApp Flow Message.
      */
-    public function sendFlow(string $to, string $flowId, string $ctaText, string $bodyText, string $screen = 'screen_1', ?array $dataPayload = null, ?string $headerText = null, ?string $footerText = null): array {
+    public function sendFlow(string $to, string $flowId, string $ctaText, string $bodyText, string $screen = 'WELCOME_SCREEN', ?array $dataPayload = null, ?string $headerText = null, ?string $footerText = null, string $mode = 'published'): array {
         $to = format_phone_number($to);
 
         $flowActionPayload = [
@@ -120,7 +120,7 @@ class WhatsAppAPI {
                     'flow_cta'             => $ctaText,
                     'flow_action'          => 'navigate',
                     'flow_action_payload'  => $flowActionPayload,
-                    'mode'                 => 'draft'
+                    'mode'                 => $mode
                 ]
             ]
         ];
@@ -396,6 +396,63 @@ class WhatsAppAPI {
             'http_code' => $httpCode,
             'response'  => $resData,
             'error'     => $curlError
+        ];
+    }
+
+    /**
+     * Create a new Flow directly inside Meta WABA account via Graph API
+     */
+    public function createMetaFlow(string $name, array $categories = ['CUSTOMER_SUPPORT']): array {
+        $wabaId = defined('WABA_ID') ? WABA_ID : '1838065533836150';
+        $url = "https://graph.facebook.com/{$this->graphVersion}/{$wabaId}/flows";
+        $payload = [
+            'name' => $name,
+            'categories' => $categories
+        ];
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $this->accessToken,
+            'Content-Type: application/json'
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $resData = json_decode($response, true) ?? [];
+        return [
+            'success' => ($httpCode >= 200 && $httpCode < 300 && !empty($resData['id'])),
+            'flow_id' => $resData['id'] ?? null,
+            'response' => $resData
+        ];
+    }
+
+    /**
+     * Publish a Flow on Meta WhatsApp Manager
+     */
+    public function publishMetaFlow(string $flowId): array {
+        $url = "https://graph.facebook.com/{$this->graphVersion}/{$flowId}/publish";
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $this->accessToken,
+            'Content-Type: application/json'
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $resData = json_decode($response, true) ?? [];
+        return [
+            'success' => ($httpCode >= 200 && $httpCode < 300 && !empty($resData['success'])),
+            'response' => $resData
         ];
     }
 }

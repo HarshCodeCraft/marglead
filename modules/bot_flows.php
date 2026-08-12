@@ -47,7 +47,7 @@ try {
                 ]
             ]);
             $stmtSeed = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status, screens_json) VALUES (?, ?, ?, ?, ?)");
-            $stmtSeed->execute(['2356038494923110', 'Ticket', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
+            $stmtSeed->execute(['1838065533836150', 'Ticket', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
             $stmtSeed->execute(['36230192503294106', 'Service', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
             $stmtSeed->execute(['1303139711243346', 'Bot', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
         }
@@ -133,10 +133,10 @@ if ($db_connected && $pdo) {
                                 <td><strong style="color: var(--text-main);">Marg AI Technical Support Bot</strong></td>
                                 <td><span class="text-xs font-semibold text-muted">Tech Support</span></td>
                                 <td><span class="badge" style="--badge-bg: rgba(59,130,246,0.1); --badge-color: #3b82f6;">Keyword + AI</span></td>
-                                <td><code>Ticket Flow (2356038494923110)</code></td>
+                                <td><code>Ticket Flow (1838065533836150)</code></td>
                                 <td><span class="status-badge status-badge-published">ACTIVE</span></td>
                                 <td style="text-align: center;">
-                                    <a href="index.php?page=bot_flow_builder&q=2356038494923110" class="btn-pill btn-pill-outline text-xs">Configure</a>
+                                    <a href="index.php?page=bot_flow_builder&q=1838065533836150" class="btn-pill btn-pill-outline text-xs">Configure</a>
                                 </td>
                             </tr>
                             <tr>
@@ -278,7 +278,7 @@ if ($db_connected && $pdo) {
                                 <td class="font-mono text-xs">#TRG-01</td>
                                 <td>Exact Match Keyword</td>
                                 <td><span class="badge" style="--badge-bg: rgba(59,130,246,0.1); --badge-color: #3b82f6;">TICKET</span></td>
-                                <td>Ticket Flow (2356038494923110)</td>
+                                <td>Ticket Flow (1838065533836150)</td>
                                 <td><span class="text-xs font-semibold" style="color: var(--danger);">High</span></td>
                                 <td><span class="status-badge status-badge-published">ACTIVE</span></td>
                                 <td style="text-align: center;">

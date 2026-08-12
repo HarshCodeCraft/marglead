@@ -44,11 +44,11 @@ define('ACCESS_TOKEN', getenv('WHATSAPP_ACCESS_TOKEN') ?: 'EAAU44LETC4cBSDfBsnKG
 // Webhook Verification Token (Matches Meta Webhook setup)
 define('VERIFY_TOKEN', getenv('WHATSAPP_VERIFY_TOKEN') ?: 'marglead_whatsapp_token_2026');
 
-// Meta App Secret (Used for HMAC SHA-256 Signature Verification)
-define('APP_SECRET', getenv('WHATSAPP_APP_SECRET') ?: '1a2b3c4d5e6f7g8h9i0j');
+// Meta App Secret (Used for HMAC SHA-256 Signature Verification, leave empty if not set)
+define('APP_SECRET', getenv('WHATSAPP_APP_SECRET') ?: '');
 
 // WhatsApp Flow ID (Generated in WhatsApp Business Manager / Flow Builder)
-define('FLOW_ID', getenv('WHATSAPP_FLOW_ID') ?: '2356038494923110');
+define('FLOW_ID', getenv('WHATSAPP_FLOW_ID') ?: '1838065533836150');
 
 // Flow Public/Private Key paths (Optional for encrypted Meta Flow endpoints)
 define('FLOW_PRIVATE_KEY_PATH', __DIR__ . '/private_key.pem');
