@@ -4,9 +4,45 @@ require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/mailer.php';
 
-// Enforce authentication
+// Check authentication and routing for public landing vs authenticated dashboard
+$requested_page = $_GET['page'] ?? '';
+
+// Public Standalone Pages routing
+if (in_array($requested_page, ['privacy', 'privacy_policy'])) {
+    require_once __DIR__ . '/privacy.php';
+    exit;
+}
+if (in_array($requested_page, ['terms', 'terms_of_service'])) {
+    require_once __DIR__ . '/terms.php';
+    exit;
+}
+if (in_array($requested_page, ['refund', 'refund_policy'])) {
+    require_once __DIR__ . '/refund.php';
+    exit;
+}
+if ($requested_page === 'contact') {
+    require_once __DIR__ . '/contact.php';
+    exit;
+}
+
+// Unauthenticated users see the Public Landing / Home page first
 if (!isset($_SESSION['user_id'])) {
-    header("Location: auth/login.php");
+    if ($requested_page === 'login') {
+        header("Location: auth/login.php");
+        exit;
+    }
+    if ($requested_page === 'register') {
+        header("Location: auth/register.php");
+        exit;
+    }
+    // Render stunning Public Landing Page
+    require_once __DIR__ . '/landing.php';
+    exit;
+}
+
+// Logged-in users visiting home / landing page explicitly
+if (in_array($requested_page, ['home', 'landing', 'public'])) {
+    require_once __DIR__ . '/landing.php';
     exit;
 }
 
