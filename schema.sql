@@ -393,4 +393,25 @@ INSERT INTO tenant_companies (id, company_name, company_code, owner_name, owner_
 (1, 'Marg Soft Solutions (Primary)', 'master', 'DEEPAK AWASTHI', 'admin@marglead.com', '+91 98765 43210', 'marg_crm', 'Enterprise', 'Active', '2030-12-31')
 ON DUPLICATE KEY UPDATE company_name = VALUES(company_name);
 
+-- 16. Multi-Tenant WhatsApp Cloud API Configuration & Embedded Signup Table
+CREATE TABLE IF NOT EXISTS tenant_whatsapp_configs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    firm_name VARCHAR(150) DEFAULT NULL,
+    marg_license_no VARCHAR(50) DEFAULT NULL,
+    waba_id VARCHAR(100) DEFAULT NULL,
+    phone_number_id VARCHAR(100) DEFAULT NULL,
+    display_phone_number VARCHAR(50) DEFAULT NULL,
+    verified_name VARCHAR(150) DEFAULT NULL,
+    access_token TEXT DEFAULT NULL,
+    signup_method ENUM('embedded', 'manual', 'central') DEFAULT 'embedded',
+    status ENUM('pending', 'active', 'failed', 'disabled') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX (user_id),
+    INDEX (phone_number_id),
+    INDEX (marg_license_no)
+);
+
+
 

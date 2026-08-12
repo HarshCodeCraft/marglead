@@ -205,6 +205,12 @@ $role = $_SESSION['user_role'];
                                     <span>Reports</span>
                                 </a>
                             </li>
+                            <li class="sidebar-subitem <?php echo isActivePage('whatsapp_settings'); ?>">
+                                <a href="index.php?page=whatsapp_settings">
+                                    <i data-lucide="key" style="width: 14px; height: 14px; color: #25D366;"></i>
+                                    <span>Cloud API Setup</span>
+                                </a>
+                            </li>
                             <li class="sidebar-subitem">
                                 <a href="admin/dashboard.php">
                                     <i data-lucide="ticket" style="width: 14px; height: 14px;"></i>
@@ -221,12 +227,12 @@ $role = $_SESSION['user_role'];
         <?php if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Regional Manager' || $role === 'Team Leader'): ?>
             <div class="menu-group-title">Management</div>
             <ul>
-                <?php if ($role === 'Super Admin' && (empty($_SESSION['tenant_db']) || $_SESSION['tenant_db'] === 'marg_crm') && empty($_SESSION['impersonate_tenant_db'])): ?>
+                <?php if (($role === 'Super Admin' || $role === 'Admin') && (empty($_SESSION['tenant_db']) || $_SESSION['tenant_db'] === 'marg_crm') && empty($_SESSION['impersonate_tenant_db'])): ?>
                     <li class="sidebar-item <?php echo isActivePage('crm_clients'); ?>">
-                        <!-- <a href="index.php?page=crm_clients">
+                        <a href="index.php?page=crm_clients">
                             <i data-lucide="building" style="width: 18px; height: 18px; color: var(--primary);"></i>
                             <span>CRM Clients</span>
-                        </a> -->
+                        </a>
                     </li>
                 <?php endif; ?>
                 <li class="sidebar-item <?php echo isActivePage('admin_users'); ?>">

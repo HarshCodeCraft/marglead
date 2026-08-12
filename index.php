@@ -664,6 +664,9 @@ switch ($page) {
     case 'broadcast_campaigns':
         $module_path = __DIR__ . '/modules/broadcast_campaigns.php';
         break;
+    case 'whatsapp_settings':
+        $module_path = __DIR__ . '/modules/whatsapp_settings.php';
+        break;
     case 'settings':
         $module_path = __DIR__ . '/modules/admin/settings.php';
         break;

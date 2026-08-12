@@ -45,6 +45,15 @@ $customer_name = 'WhatsApp Customer';
 // Parse Meta WhatsApp Cloud API structure
 if (isset($data['entry'][0]['changes'][0]['value'])) {
     $value = $data['entry'][0]['changes'][0]['value'];
+    $incoming_phone_id = $value['metadata']['phone_number_id'] ?? '';
+    
+    // Dynamic Multi-Tenant Tenant Configuration Lookup
+    $tenantConfig = null;
+    if (!empty($incoming_phone_id) && isset($pdo) && $pdo) {
+        $tenantStmt = $pdo->prepare("SELECT * FROM tenant_whatsapp_configs WHERE phone_number_id = ? AND status = 'active' LIMIT 1");
+        $tenantStmt->execute([$incoming_phone_id]);
+        $tenantConfig = $tenantStmt->fetch(PDO::FETCH_ASSOC);
+    }
     
     // Extract customer phone number
     if (isset($value['contacts'][0]['wa_id'])) {

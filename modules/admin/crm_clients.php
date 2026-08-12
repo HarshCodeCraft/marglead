@@ -11,12 +11,12 @@ $user_role = $_SESSION['user_role'] ?? '';
 $tenant_db = $_SESSION['tenant_db'] ?? 'marg_crm';
 $is_impersonating = !empty($_SESSION['impersonate_tenant_db']);
 
-// Access Security Check: Strictly restricted to Main System Owner (Super Admin of Master DB)
-if ($user_role !== 'Super Admin' || ($tenant_db !== 'marg_crm' && !$is_impersonating)) {
+// Access Security Check: Restricted to System Admin (Super Admin / Admin of Master DB)
+if (!in_array($user_role, ['Super Admin', 'Admin']) || ($tenant_db !== 'marg_crm' && !$is_impersonating)) {
     echo "<div class='card p-6 text-center' style='max-width: 500px; margin: 4rem auto; border: 1px solid var(--danger); background: var(--bg-card);'>
         <i data-lucide='shield-alert' style='width: 48px; height: 48px; color: var(--danger); margin: 0 auto 1rem auto;'></i>
         <h3 class='text-lg font-bold mb-2' style='color: var(--danger);'>Access Denied</h3>
-        <p class='text-muted text-sm mb-4'>The CRM Clients management console is strictly reserved for the Main System Owner (Super Admin).</p>
+        <p class='text-muted text-sm mb-4'>The CRM Clients management console is reserved for System Administrators.</p>
         <a href='index.php?page=dashboard' class='btn btn-primary text-xs'>Return to Workspace Dashboard</a>
     </div>";
     return;
