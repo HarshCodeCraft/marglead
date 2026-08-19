@@ -1,8 +1,8 @@
 -- Marg ERP CRM & Lead Management System Database Schema
--- Target Database: marg_crm
+-- Target Database: u978772385_friendlyaidata
 
-CREATE DATABASE IF NOT EXISTS marg_crm;
-USE marg_crm;
+CREATE DATABASE IF NOT EXISTS u978772385_friendlyaidata;
+USE u978772385_friendlyaidata;
 
 -- 1. Users & Roles Table
 CREATE TABLE IF NOT EXISTS users (
@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS users (
     otp_expires_at DATETIME NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed Initial Admin & Staff Accounts
+INSERT IGNORE INTO users (id, name, email, password, role, status) VALUES
+(1, 'DEEPAK AWASTHI', 'harshsaini20172018@gmail.com', '$2y$10$JlTS8/uEuAq8.HabxsPVk.qsITO7CangZnoZuPWPkR0cngDOyphRK', 'Super Admin', 'Active'),
+(2, 'System Admin', 'admin@marglead.com', '$2y$10$JlTS8/uEuAq8.HabxsPVk.qsITO7CangZnoZuPWPkR0cngDOyphRK', 'Admin', 'Active'),
+(3, 'MOIN KHAN', 'moin@marglead.com', '$2y$10$JlTS8/uEuAq8.HabxsPVk.qsITO7CangZnoZuPWPkR0cngDOyphRK', 'Support Executive', 'Active');
 
 -- 2. Leads Table
 CREATE TABLE IF NOT EXISTS leads (
@@ -390,7 +396,7 @@ CREATE TABLE IF NOT EXISTS tenant_companies (
 
 -- Seed Default Master Tenant (Marg Soft Solutions Owner CRM)
 INSERT INTO tenant_companies (id, company_name, company_code, owner_name, owner_email, phone, db_name, plan, status, expiry_date) VALUES
-(1, 'Marg Soft Solutions (Primary)', 'master', 'DEEPAK AWASTHI', 'admin@marglead.com', '+91 98765 43210', 'marg_crm', 'Enterprise', 'Active', '2030-12-31')
+(1, 'Marg Soft Solutions (Primary)', 'master', 'DEEPAK AWASTHI', 'harshsaini20172018@gmail.com', '+91 98765 43210', 'u978772385_friendlyaidata', 'Enterprise', 'Active', '2030-12-31')
 ON DUPLICATE KEY UPDATE company_name = VALUES(company_name);
 
 -- 16. Multi-Tenant WhatsApp Cloud API Configuration & Embedded Signup Table

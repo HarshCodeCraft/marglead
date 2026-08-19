@@ -26,31 +26,6 @@ try {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-        
-        // Seed default 3 flows if empty
-        $stmtCount = $pdo->query("SELECT COUNT(*) FROM bot_flows");
-        if ($stmtCount->fetchColumn() == 0) {
-            $defaultScreens = json_encode([
-                [
-                    "id" => "screen_1",
-                    "name" => "Welcome to Marg Soft",
-                    "title" => "Welcome to Marg Soft",
-                    "body" => "Please Provide Your Info and Problem Here..",
-                    "components" => [
-                        ["id" => "c1", "type" => "Short Answer", "label" => "License Number", "helper" => "Client Id", "required" => true],
-                        ["id" => "c2", "type" => "Dropdown", "label" => "Bill Format Issue", "helper" => "", "options" => ["Bill Format Issue", "GST Error", "Printer Setup"], "required" => false],
-                        ["id" => "c3", "type" => "Text Area", "label" => "Problem", "helper" => "Describe issue", "required" => true],
-                        ["id" => "c4", "type" => "Short Answer", "label" => "Call Back Number", "helper" => "Call Back Number", "required" => true]
-                    ],
-                    "footer_label" => "Submit",
-                    "footer_action" => "Complete"
-                ]
-            ]);
-            $stmtSeed = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status, screens_json) VALUES (?, ?, ?, ?, ?)");
-            $stmtSeed->execute(['1838065533836150', 'Ticket', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
-            $stmtSeed->execute(['36230192503294106', 'Service', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
-            $stmtSeed->execute(['1303139711243346', 'Bot', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
-        }
     }
 } catch (PDOException $e) {}
 
@@ -247,15 +222,24 @@ if ($db_connected && $pdo) {
 
             <?php elseif ($tab === 'triggers'): ?>
                 <!-- TRIGGERS (INGGERS) VIEW -->
+                <?php
+                $keywordTriggers = [];
+                if ($db_connected && $pdo) {
+                    try {
+                        $stmtKT = $pdo->query("SELECT * FROM whatsapp_keyword_triggers ORDER BY id ASC");
+                        $keywordTriggers = $stmtKT ? $stmtKT->fetchAll(PDO::FETCH_ASSOC) : [];
+                    } catch (PDOException $e) {}
+                }
+                ?>
                 <div class="flows-header-bar">
                     <div>
-                        <h1 class="flows-title">Keyword & Event Triggers (Inggers)</h1>
-                        <p class="text-xs text-muted mb-0">Configure rules for triggering specific WhatsApp flows and AI bots.</p>
+                        <h1 class="flows-title">Keyword & Event Triggers (Auto-Responders)</h1>
+                        <p class="text-xs text-muted mb-0">Configure rules for triggering specific WhatsApp flows, bot responses, or keyword replies.</p>
                     </div>
                     <div class="flows-actions-right">
-                        <button type="button" class="btn-pill btn-pill-dark" onclick="alert('Creating new trigger rule...')">
+                        <button type="button" class="btn-pill btn-pill-dark" onclick="openCreateTriggerModal()">
                             <i data-lucide="plus" style="width: 14px; height: 14px;"></i>
-                            Add New Trigger
+                            + Add New Keyword Trigger
                         </button>
                     </div>
                 </div>
@@ -265,59 +249,38 @@ if ($db_connected && $pdo) {
                         <thead>
                             <tr>
                                 <th>Rule ID</th>
-                                <th>Trigger Mechanism</th>
-                                <th>Keyword / Pattern</th>
-                                <th>Target Flow / Bot</th>
-                                <th>Priority</th>
+                                <th>Trigger Keyword</th>
+                                <th>Match Type</th>
+                                <th>Reply Type</th>
+                                <th>Response Payload / Target Flow</th>
                                 <th>Status</th>
                                 <th style="width: 100px; text-align: center;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td class="font-mono text-xs">#TRG-01</td>
-                                <td>Exact Match Keyword</td>
-                                <td><span class="badge" style="--badge-bg: rgba(59,130,246,0.1); --badge-color: #3b82f6;">TICKET</span></td>
-                                <td>Ticket Flow (1838065533836150)</td>
-                                <td><span class="text-xs font-semibold" style="color: var(--danger);">High</span></td>
-                                <td><span class="status-badge status-badge-published">ACTIVE</span></td>
-                                <td style="text-align: center;">
-                                    <button type="button" onclick="alert('Editing trigger rule #TRG-01')" class="btn-pill btn-pill-outline text-xs">Edit</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="font-mono text-xs">#TRG-02</td>
-                                <td>Exact Match Keyword</td>
-                                <td><span class="badge" style="--badge-bg: rgba(16,185,129,0.1); --badge-color: #10b981;">SERVICE</span></td>
-                                <td>Service Flow (36230192503294106)</td>
-                                <td><span class="text-xs font-semibold" style="color: var(--danger);">High</span></td>
-                                <td><span class="status-badge status-badge-published">ACTIVE</span></td>
-                                <td style="text-align: center;">
-                                    <button type="button" onclick="alert('Editing trigger rule #TRG-02')" class="btn-pill btn-pill-outline text-xs">Edit</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="font-mono text-xs">#TRG-03</td>
-                                <td>Exact Match Keyword</td>
-                                <td><span class="badge" style="--badge-bg: rgba(139,92,246,0.1); --badge-color: #8b5cf6;">BOT</span></td>
-                                <td>Bot Flow (1303139711243346)</td>
-                                <td><span class="text-xs font-semibold" style="color: var(--warning);">Medium</span></td>
-                                <td><span class="status-badge status-badge-published">ACTIVE</span></td>
-                                <td style="text-align: center;">
-                                    <button type="button" onclick="alert('Editing trigger rule #TRG-03')" class="btn-pill btn-pill-outline text-xs">Edit</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="font-mono text-xs">#TRG-04</td>
-                                <td>System Webhook Event</td>
-                                <td><span class="badge" style="--badge-bg: rgba(245,158,11,0.1); --badge-color: #f59e0b;">LEAD_CREATED</span></td>
-                                <td>Lead Qualification Bot</td>
-                                <td><span class="text-xs font-semibold" style="color: var(--danger);">High</span></td>
-                                <td><span class="status-badge status-badge-published">ACTIVE</span></td>
-                                <td style="text-align: center;">
-                                    <button type="button" onclick="alert('Editing trigger rule #TRG-04')" class="btn-pill btn-pill-outline text-xs">Edit</button>
-                                </td>
-                            </tr>
+                            <?php if (empty($keywordTriggers)): ?>
+                                <tr>
+                                    <td colspan="7" class="text-center p-6 text-muted">No keyword triggers configured yet. Click "+ Add New Keyword Trigger" to add one.</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($keywordTriggers as $kt): ?>
+                                    <tr>
+                                        <td class="font-mono text-xs">#TRG-<?php echo sprintf('%02d', $kt['id']); ?></td>
+                                        <td>
+                                            <span class="badge" style="--badge-bg: rgba(59,130,246,0.15); --badge-color: #2563eb; font-weight: 800;">
+                                                <?php echo htmlspecialchars($kt['keyword']); ?>
+                                            </span>
+                                        </td>
+                                        <td><span class="text-xs font-semibold text-muted"><?php echo strtoupper(htmlspecialchars($kt['match_type'])); ?></span></td>
+                                        <td><span class="badge text-xs" style="background: rgba(16,185,129,0.1); color: #10b981; font-weight: 700;"><?php echo strtoupper(htmlspecialchars($kt['reply_type'])); ?></span></td>
+                                        <td><code><?php echo htmlspecialchars($kt['reply_payload']); ?></code></td>
+                                        <td><span class="status-badge status-badge-published"><?php echo $kt['is_active'] ? 'ACTIVE' : 'INACTIVE'; ?></span></td>
+                                        <td style="text-align: center;">
+                                            <button type="button" onclick="deleteTriggerRule(<?php echo $kt['id']; ?>)" class="btn-pill btn-pill-outline text-xs" style="color: #ef4444;" title="Delete Rule">Delete</button>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -485,6 +448,11 @@ if ($db_connected && $pdo) {
                             <input type="text" id="searchFlowsInput" placeholder="Search Flows" onkeyup="filterFlowsTable()">
                         </div>
                         
+                        <button type="button" id="btnSyncMetaFlows" class="btn-pill btn-pill-outline flex align-center gap-1" onclick="syncMetaFlows()" title="Fetch official WhatsApp Flows directly from Facebook Meta Manager">
+                            <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+                            <span>🔄 Sync Live Meta Flows</span>
+                        </button>
+
                         <button type="button" class="btn-pill btn-pill-outline" onclick="openImportModal()">
                             <i data-lucide="upload" style="width: 14px; height: 14px;"></i>
                             Import
@@ -634,6 +602,50 @@ if ($db_connected && $pdo) {
     </div>
 </div>
 
+<!-- Create Keyword Trigger Rule Modal -->
+<div id="createTriggerModal" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: var(--bg-card, #ffffff); border-radius: 12px; padding: 1.5rem; width: 100%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0; font-family: var(--font-heading);">Add Keyword Trigger Rule</h3>
+            <button type="button" onclick="closeCreateTriggerModal()" style="background: none; border: none; font-size: 1.25rem; cursor: pointer;">&times;</button>
+        </div>
+
+        <form id="createTriggerForm" onsubmit="submitCreateTrigger(event)" style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <div>
+                <label class="form-label font-semibold text-xs mb-1">Trigger Keyword *</label>
+                <input type="text" name="keyword" class="input-styled font-bold text-xs" required placeholder="e.g. PRICE, DEMO, AMC, LOCATION">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div>
+                    <label class="form-label font-semibold text-xs mb-1">Match Type</label>
+                    <select name="match_type" class="input-styled text-xs">
+                        <option value="exact">Exact Word Match</option>
+                        <option value="contains">Contains Keyword</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label font-semibold text-xs mb-1">Reply Type</label>
+                    <select name="reply_type" class="input-styled text-xs">
+                        <option value="text">Instant Text / Template</option>
+                        <option value="flow">Trigger Interactive Flow</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="form-label font-semibold text-xs mb-1">Response Payload / Text Message *</label>
+                <textarea name="reply_payload" class="input-styled text-xs" rows="4" required placeholder="Enter automatic response text to send when customer sends keyword..."></textarea>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
+                <button type="button" class="btn-pill btn-pill-outline" onclick="closeCreateTriggerModal()">Cancel</button>
+                <button type="submit" class="btn-pill btn-pill-dark">Save Keyword Trigger</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 function filterFlowsTable() {
     const input = document.getElementById('searchFlowsInput').value.toLowerCase();
@@ -641,6 +653,37 @@ function filterFlowsTable() {
     rows.forEach(r => {
         const text = r.innerText.toLowerCase();
         r.style.display = text.includes(input) ? '' : 'none';
+    });
+}
+
+function syncMetaFlows() {
+    const btn = document.getElementById('btnSyncMetaFlows');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader" class="spin" style="width:14px; height:14px;"></i> Syncing from Meta...`;
+    }
+
+    fetch('api/bot_flows.php?action=sync_meta_flows')
+    .then(res => res.json())
+    .then(data => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="refresh-cw" style="width:14px; height:14px;"></i> <span>🔄 Sync Live Meta Flows</span>`;
+        }
+
+        if (data.success) {
+            alert('🎉 ' + data.message);
+            location.reload();
+        } else {
+            alert('❌ Error: ' + data.message);
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="refresh-cw" style="width:14px; height:14px;"></i> <span>🔄 Sync Live Meta Flows</span>`;
+        }
+        alert('❌ Network error syncing Meta Flows.');
     });
 }
 
@@ -656,6 +699,56 @@ function openCreateModal() {
 }
 function closeCreateModal() {
     document.getElementById('createModal').style.display = 'none';
+}
+
+function openCreateTriggerModal() {
+    document.getElementById('createTriggerModal').style.display = 'flex';
+}
+function closeCreateTriggerModal() {
+    document.getElementById('createTriggerModal').style.display = 'none';
+}
+
+function submitCreateTrigger(e) {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    formData.append('action', 'save_trigger');
+
+    fetch('api/bot_flows.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            closeCreateTriggerModal();
+            location.reload();
+        } else {
+            alert('Error: ' + data.message);
+        }
+    });
+}
+
+function deleteTriggerRule(id) {
+    if (confirm('Are you sure you want to delete this keyword trigger rule?')) {
+        const formData = new FormData();
+        formData.append('action', 'delete_trigger');
+        formData.append('id', id);
+
+        fetch('api/bot_flows.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        });
+    }
 }
 
 function submitImportFlow(e) {

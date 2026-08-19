@@ -6,8 +6,9 @@
 
 header('Content-Type: application/json; charset=utf-8');
 
-require_once __DIR__ . '/../includes/config.php';
-require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/cors.php';
+$auth = requireApiAuth();
+
 require_once __DIR__ . '/whatsapp-api.php';
 
 // Helper function to process and insert raw incoming webhook payload JSON into message_logs
@@ -120,33 +121,38 @@ switch ($action) {
             $search = trim($_GET['search'] ?? '');
             $statusFilter = strtolower(trim($_GET['status'] ?? 'open')); // 'open', 'pending', 'closed', 'all'
             
-            // Query distinct contact numbers with their latest message
-            $sql = "SELECT m1.*
-                    FROM message_logs m1
-                    INNER JOIN (
-                        SELECT recipient_or_sender, MAX(id) as max_id
-                        FROM message_logs
-                        GROUP BY recipient_or_sender
-                    ) m2 ON m1.id = m2.max_id";
+            // Query ALL distinct contact numbers for accurate global counts
+            $sqlAll = "SELECT m1.*
+                       FROM message_logs m1
+                       INNER JOIN (
+                           SELECT recipient_or_sender, MAX(id) as max_id
+                           FROM message_logs
+                           GROUP BY recipient_or_sender
+                       ) m2 ON m1.id = m2.max_id
+                       ORDER BY m1.id DESC";
 
-            if (!empty($search)) {
-                $sql .= " WHERE m1.recipient_or_sender LIKE ? OR m1.message_body LIKE ?";
-                $stmt = $pdo->prepare($sql . " ORDER BY m1.id DESC");
-                $stmt->execute(["%$search%", "%$search%"]);
-            } else {
-                $stmt = $pdo->query($sql . " ORDER BY m1.id DESC");
+            $stmtAll = $pdo->query($sqlAll);
+            $allConversations = $stmtAll ? $stmtAll->fetchAll(PDO::FETCH_ASSOC) : [];
+
+            // Fetch chat status map from chat_conversations with full phone normalization
+            $statusMap = [];
+            if ($stmtStatuses = $pdo->query("SELECT phone, status FROM chat_conversations")) {
+                while ($row = $stmtStatuses->fetch(PDO::FETCH_ASSOC)) {
+                    $pRaw = $row['phone'];
+                    $pDigits = preg_replace('/[^0-9]/', '', $pRaw);
+                    $p10 = substr($pDigits, -10);
+                    $st = strtolower($row['status']);
+                    
+                    if (!empty($pRaw)) $statusMap[$pRaw] = $st;
+                    if (!empty($pDigits)) $statusMap[$pDigits] = $st;
+                    if (!empty($p10)) $statusMap[$p10] = $st;
+                }
             }
 
-            $rawConversations = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Fetch chat status map from chat_conversations
-            $stmtStatuses = $pdo->query("SELECT phone, status FROM chat_conversations");
-            $statusMap = $stmtStatuses ? $stmtStatuses->fetchAll(PDO::FETCH_KEY_PAIR) : [];
-
+            $counts = ['open' => 0, 'pending' => 0, 'closed' => 0, 'all' => count($allConversations)];
             $conversations = [];
-            $counts = ['open' => 0, 'pending' => 0, 'closed' => 0, 'all' => count($rawConversations)];
 
-            foreach ($rawConversations as $c) {
+            foreach ($allConversations as $c) {
                 $rawPhone = $c['recipient_or_sender'];
                 $phone = preg_replace('/[^0-9]/', '', $rawPhone);
                 $cleanPhone = substr($phone, -10);
@@ -161,7 +167,16 @@ switch ($action) {
                     $counts[$chatStatus]++;
                 }
 
-                // If filter is active and doesn't match, skip adding to result list
+                // If search query is active, filter list items
+                if (!empty($search)) {
+                    $matchSearch = (stripos($rawPhone, $search) !== false) || 
+                                  (stripos($c['message_body'] ?? '', $search) !== false);
+                    if (!$matchSearch) {
+                        continue;
+                    }
+                }
+
+                // If tab status filter is active, filter list items
                 if ($statusFilter !== 'all' && $chatStatus !== $statusFilter) {
                     continue;
                 }
@@ -318,11 +333,24 @@ switch ($action) {
                 }
             } catch (Throwable $eTck) {}
 
-            // Fetch current chat status for profile
-            $stmtCS = $pdo->prepare("SELECT status FROM chat_conversations WHERE phone = ? OR phone LIKE ? LIMIT 1");
+            // Fetch current chat status & assigned_to for profile
+            $stmtCS = $pdo->prepare("SELECT status, assigned_to FROM chat_conversations WHERE phone = ? OR phone LIKE ? LIMIT 1");
             $stmtCS->execute([$phone, "%$clean10%"]);
-            $cStatus = $stmtCS->fetchColumn() ?: 'open';
-            $profile['chat_status'] = strtolower($cStatus);
+            $cRow = $stmtCS->fetch(PDO::FETCH_ASSOC);
+            $profile['chat_status'] = strtolower($cRow['status'] ?? 'open');
+            $profile['assigned_to']  = $cRow['assigned_to'] ?? 'Unassigned';
+
+            // Fetch internal staff notes (AiSensy Private Staff Notes)
+            $internalNotes = [];
+            try {
+                $stmtNotes = $pdo->prepare("SELECT * FROM chat_internal_notes WHERE phone LIKE ? OR phone LIKE ? ORDER BY id ASC");
+                $stmtNotes->execute(["%$cleanDigits%", "%$clean10%"]);
+                $internalNotes = $stmtNotes->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($internalNotes as &$nItem) {
+                    $nItem['formatted_time'] = date('d M, h:i A', strtotime($nItem['created_at']));
+                }
+            } catch (Throwable $eNotes) {}
+            $profile['internal_notes'] = $internalNotes;
 
             // Fetch audit history logs
             $auditLogs = [];
@@ -341,6 +369,56 @@ switch ($action) {
             $profile['window_seconds']   = $windowSeconds;
 
             echo json_encode(['success' => true, 'messages' => $messages, 'profile' => $profile]);
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    // -------------------------------------------------------------
+    // Save Private Internal Staff Note (AiSensy Team Inbox Note)
+    // -------------------------------------------------------------
+    case 'save_internal_note':
+        $phone = trim($_POST['phone'] ?? '');
+        $note  = trim($_POST['note_text'] ?? '');
+        $actor = $_SESSION['user_name'] ?? 'Staff Agent';
+
+        if (empty($phone) || empty($note)) {
+            echo json_encode(['success' => false, 'message' => 'Phone number and note text are required']);
+            exit;
+        }
+
+        try {
+            $stmtInsN = $pdo->prepare("INSERT INTO chat_internal_notes (phone, actor_name, note_text) VALUES (?, ?, ?)");
+            $stmtInsN->execute([$phone, $actor, $note]);
+
+            echo json_encode(['success' => true, 'message' => 'Internal note saved successfully!']);
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    // -------------------------------------------------------------
+    // Assign Chat to Agent (AiSensy Agent Assignment)
+    // -------------------------------------------------------------
+    case 'assign_chat_agent':
+        $phone = trim($_POST['phone'] ?? '');
+        $agent = trim($_POST['agent_name'] ?? 'Unassigned');
+        $actor = $_SESSION['user_name'] ?? 'Admin';
+        $role  = $_SESSION['user_role'] ?? 'Agent';
+
+        if (empty($phone)) {
+            echo json_encode(['success' => false, 'message' => 'Phone number is required']);
+            exit;
+        }
+
+        try {
+            $stmtC = $pdo->prepare("INSERT INTO chat_conversations (phone, assigned_to) VALUES (?, ?) ON DUPLICATE KEY UPDATE assigned_to = ?");
+            $stmtC->execute([$phone, $agent, $agent]);
+
+            $stmtAudit = $pdo->prepare("INSERT INTO chat_audit_logs (phone, action, actor_name, actor_role, remarks) VALUES (?, 'assigned', ?, ?, ?)");
+            $stmtAudit->execute([$phone, $actor, $role, "Chat Assigned to $agent by $actor"]);
+
+            echo json_encode(['success' => true, 'message' => "Chat assigned to $agent"]);
         } catch (Throwable $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         }

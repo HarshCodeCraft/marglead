@@ -53,7 +53,7 @@ if (!empty($phone)) {
     <div class="card">
         <h2>WhatsApp Live Message & Flow Tester</h2>
         <div class="info-box">
-            Connected Phone Number ID: <strong>1360878153768577</strong><br>
+            Connected Phone Number ID: <strong><?php echo htmlspecialchars(PHONE_NUMBER_ID); ?></strong><br>
             Use this tool to test sending live <strong>Text Messages</strong>, <strong>Interactive Reply Buttons</strong>, or <strong>WhatsApp Flows</strong> directly to your phone.
         </div>
 

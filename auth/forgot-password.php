@@ -1,32 +1,75 @@
 <?php
+session_start();
+require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/mailer.php';
 
 $message = '';
 $message_type = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email']);
+if (isset($_GET['error'])) {
+    if ($_GET['error'] === 'unauthorized') {
+        $message = "Unauthorized request. Please verify your email with an OTP first.";
+        $message_type = "danger";
+    } elseif ($_GET['error'] === 'invalid_token') {
+        $message = "Password reset token is invalid or has already been used. Please request a new code.";
+        $message_type = "danger";
+    } elseif ($_GET['error'] === 'expired_token') {
+        $message = "Your password reset session has expired. Please request a new verification code.";
+        $message_type = "warning";
+    } elseif ($_GET['error'] === 'device_mismatch') {
+        $message = "Security Violation: Password reset session is strictly bound to the original device that requested the OTP. Access denied from unrecognized device/IP.";
+        $message_type = "danger";
+    } elseif ($_GET['error'] === 'cookie_mismatch') {
+        $message = "Security Violation: Browser session security key not found on this device. Password reset links cannot be shared or opened on another browser or device.";
+        $message_type = "danger";
+    }
+}
 
-    if ($db_connected && $pdo) {
-        try {
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
-            $stmt->execute([$email]);
-            if ($stmt->fetch()) {
-                // Email matches, forward with email parameter to verify OTP
-                header("Location: otp-reset.php?email=" . urlencode($email));
-                exit;
-            } else {
-                $message = "No registered operator found with that email address.";
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $email = strtolower(trim($_POST['email'] ?? ''));
+    $user_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+
+    if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $message = "Please enter a valid email address.";
+        $message_type = "danger";
+    } else {
+        if ($db_connected && $pdo) {
+            try {
+                $stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE LOWER(email) = ?");
+                $stmt->execute([$email]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($user) {
+                    // Generate REAL 6-digit OTP code & 10-minute expiry
+                    $otp_code = sprintf("%06d", mt_rand(100000, 999999));
+                    $otp_expires_at = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+
+                    $updateStmt = $pdo->prepare("UPDATE users SET otp_code = ?, otp_expires_at = ?, reset_token = NULL, reset_token_expires_at = NULL, reset_ip = ?, reset_user_agent = ? WHERE id = ?");
+                    $updateStmt->execute([$otp_code, $otp_expires_at, $user_ip, $user_agent, $user['id']]);
+
+                    // Send email OTP
+                    Mailer::sendEmailVerificationOTP($user['email'], $user['name'], $otp_code);
+
+                    $_SESSION['reset_email'] = $user['email'];
+                    $_SESSION['reset_device_ip'] = $user_ip;
+                    header("Location: otp-reset.php?email=" . urlencode($user['email']) . "&msg=sent");
+                    exit;
+                } else {
+                    $message = "No registered account found with that email address.";
+                    $message_type = "danger";
+                }
+            } catch (PDOException $e) {
+                $message = "Database execution failure: " . $e->getMessage();
                 $message_type = "danger";
             }
-        } catch (PDOException $e) {
-            $message = "Database execution failure: " . $e->getMessage();
-            $message_type = "danger";
+        } else {
+            // Fallback for offline prototype
+            $_SESSION['reset_email'] = $email;
+            header("Location: otp-reset.php?email=" . urlencode($email) . "&msg=sent");
+            exit;
         }
-    } else {
-        // Fallback for offline prototype
-        header("Location: otp-reset.php?email=" . urlencode($email));
-        exit;
     }
 }
 ?>
@@ -68,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                     <div class="promo-feature-item">
                         <i data-lucide="clock" style="width: 18px; height: 18px; color: #34d399;"></i>
-                        <span>2-Minute Fast OTP Expiration Window</span>
+                        <span>10-Minute OTP Expiration Window</span>
                     </div>
                 </div>
             </div>
@@ -96,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label for="email" class="form-label text-sm">Registered Email</label>
                     <div class="input-icon-wrapper">
                         <i data-lucide="mail" style="width: 18px; height: 18px;"></i>
-                        <input type="email" id="email" name="email" class="form-control" placeholder="name@company.com" required value="admin@marglead.com">
+                        <input type="email" id="email" name="email" class="form-control" placeholder="name@company.com" required>
                     </div>
                 </div>
                 

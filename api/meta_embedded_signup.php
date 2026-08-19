@@ -40,8 +40,8 @@ try {
 
         // 1. If authorization code is provided, exchange for permanent system user token with Meta Graph API
         if (!empty($code) && empty($access_token)) {
-            $app_id = getenv('META_APP_ID') ?: '100609346387812';
-            $app_secret = getenv('META_APP_SECRET') ?: APP_SECRET;
+            $app_id = defined('META_APP_ID') ? META_APP_ID : (getenv('META_APP_ID') ?: '2484306222079451');
+            $app_secret = defined('APP_SECRET') ? APP_SECRET : (getenv('META_APP_SECRET') ?: '');
             
             $tokenUrl = "https://graph.facebook.com/" . GRAPH_API_VERSION . "/oauth/access_token?" . http_build_query([
                 'client_id' => $app_id,
@@ -105,6 +105,18 @@ try {
             $verified_name,
             $access_token
         ]);
+
+        // 4. Auto-sync into merchant_waba_settings table for Marg ERP Gateway & Campaign API compatibility
+        $stmtSync = $pdo->prepare("
+            INSERT INTO merchant_waba_settings (user_id, phone_number_id, waba_id, access_token, business_phone)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                phone_number_id = VALUES(phone_number_id),
+                waba_id = VALUES(waba_id),
+                access_token = VALUES(access_token),
+                business_phone = VALUES(business_phone)
+        ");
+        $stmtSync->execute([$user_id, $phone_number_id, $waba_id, $access_token, $display_phone_number]);
 
         // Create log notification for user
         $pdo->prepare("
@@ -189,6 +201,18 @@ try {
             $access_token
         ]);
 
+        // Auto-sync into merchant_waba_settings table for Marg ERP Gateway & Campaign API compatibility
+        $stmtSync = $pdo->prepare("
+            INSERT INTO merchant_waba_settings (user_id, phone_number_id, waba_id, access_token, business_phone)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                phone_number_id = VALUES(phone_number_id),
+                waba_id = VALUES(waba_id),
+                access_token = VALUES(access_token),
+                business_phone = VALUES(business_phone)
+        ");
+        $stmtSync->execute([$user_id, $phone_number_id, $waba_id, $access_token, $display_phone_number]);
+
         echo json_encode([
             'success' => true,
             'message' => 'WhatsApp Cloud API Manual credentials saved & verified successfully!',
@@ -203,6 +227,8 @@ try {
     } elseif ($action === 'disconnect') {
         $stmt = $pdo->prepare("UPDATE tenant_whatsapp_configs SET status = 'disabled' WHERE user_id = ?");
         $stmt->execute([$user_id]);
+
+        $pdo->prepare("UPDATE merchant_waba_settings SET phone_number_id = '', waba_id = '', access_token = '' WHERE user_id = ?")->execute([$user_id]);
 
         echo json_encode(['success' => true, 'message' => 'WhatsApp Cloud API connection disconnected successfully.']);
         exit;

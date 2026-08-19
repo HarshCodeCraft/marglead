@@ -22,16 +22,16 @@ if (isset($pdo) && $pdo) {
 
 // Fallback to central system settings if no individual config exists
 $is_connected = ($whatsappConfig && $whatsappConfig['status'] === 'active');
-$display_phone = $whatsappConfig['display_phone_number'] ?? PHONE_NUMBER_ID;
+$display_phone = $whatsappConfig['display_phone_number'] ?? '';
 $verified_name = $whatsappConfig['verified_name'] ?? 'Marg ERP CRM Partner';
-$waba_id = $whatsappConfig['waba_id'] ?? BUSINESS_ACCOUNT_ID;
-$phone_number_id = $whatsappConfig['phone_number_id'] ?? PHONE_NUMBER_ID;
+$waba_id = $whatsappConfig['waba_id'] ?? '';
+$phone_number_id = $whatsappConfig['phone_number_id'] ?? '';
 $access_token = $whatsappConfig['access_token'] ?? '';
 $signup_method = $whatsappConfig['signup_method'] ?? 'embedded';
 $firm_name = $whatsappConfig['firm_name'] ?? ($_SESSION['user_name'] ?? 'Marg Soft Solution');
 $marg_license_no = $whatsappConfig['marg_license_no'] ?? '1352947';
 
-$app_id = getenv('META_APP_ID') ?: '100609346387812';
+$app_id = defined('META_APP_ID') ? META_APP_ID : (getenv('META_APP_ID') ?: '2484306222079451');
 $config_id = getenv('META_EMBEDDED_CONFIG_ID') ?: 'config_id_embedded_signup';
 ?>
 

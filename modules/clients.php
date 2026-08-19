@@ -35,7 +35,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_client_template') {
     fputs($output, "\xEF\xBB\xBF");
     
     $headers = [
-        'S.No', 'S/W Type', 'CUSTOMER ID', 'SubPartner Code', 'SubPartner Name', 
+        'S.No', 'S/W Type', 'CUSTOMER ID', 'Category', 'SubPartner Code', 'SubPartner Name', 
         'Party Name', 'CompanyUsing', 'Address', 'Mobile', 'EmailID', 
         'User', 'Type', 'NoOfUser', 'Contact Person', 'Due On', 
         'Act On', 'Days', 'Party Status', 'City', 'Transferred Party', 
@@ -46,7 +46,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_client_template') {
     
     // Sample Row 1
     fputcsv($output, [
-        '1', 'Marg', '1352947', '', '', 
+        '1', 'Marg', '1352947', 'Category A', '', '', 
         'GANTAVYA PHARMACY', '4', 'SIS HOSPITAL 3 COM 1/9 AMBEDKAR PURAM AWAS VIKAS NO.3, KALYANPUR, KANPUR NAGAR-208017 UTTAR PRADESH, INDIA', '9340000000', 'sishospitalniramay@gmail.com', 
         'Multi User', 'Marg ERP Silver', '2', 'Mr. RAJESH', '', 
         '', '-559', 'Running', 'Kanpur', 'No', 
@@ -56,7 +56,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_client_template') {
     
     // Sample Row 2
     fputcsv($output, [
-        '2', 'Marg', '1352948', 'SP-01', 'North Zone Partner', 
+        '2', 'Marg', '1352948', 'Category B', 'SP-01', 'North Zone Partner', 
         'APEX MEDICAL STORE', '2', 'Shop No. 12, Main Market, Civil Lines, Kanpur-208001', '9876543210', 'apexmedical@gmail.com', 
         'Single User', 'Marg ERP Basic', '1', 'Dr. ANIL SHARMA', '2026-08-15', 
         '2026-07-20', '25', 'Running', 'Kanpur', 'No', 
@@ -78,7 +78,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_client_directory') {
     fputs($output, "\xEF\xBB\xBF");
     
     $headers = [
-        'S.No', 'S/W Type', 'CUSTOMER ID', 'SubPartner Code', 'SubPartner Name', 
+        'S.No', 'S/W Type', 'CUSTOMER ID', 'Category', 'SubPartner Code', 'SubPartner Name', 
         'Party Name', 'CompanyUsing', 'Address', 'Mobile', 'EmailID', 
         'User', 'Type', 'NoOfUser', 'Contact Person', 'Due On', 
         'Act On', 'Days', 'Party Status', 'City', 'Transferred Party', 
@@ -91,7 +91,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_client_directory') {
         $stmt = $pdo->query("SELECT * FROM client_directory ORDER BY id ASC");
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             fputcsv($output, [
-                $row['sno'], $row['sw_type'], $row['customer_id'], $row['subpartner_code'], $row['subpartner_name'],
+                $row['sno'], $row['sw_type'], $row['customer_id'], ($row['category'] ?? 'Category A'), $row['subpartner_code'], $row['subpartner_name'],
                 $row['party_name'], $row['company_using'], $row['address'], $row['mobile'], $row['email'],
                 $row['user_type'], $row['software_type'], $row['no_of_users'], $row['contact_person'], $row['due_on'],
                 $row['act_on'], $row['days'], $row['party_status'], $row['city'], $row['transferred_party'],
@@ -256,12 +256,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     
                     $insertStmt = $pdo->prepare("
                         INSERT INTO client_directory (
-                            sno, sw_type, customer_id, subpartner_code, subpartner_name, party_name, company_using,
+                            sno, sw_type, customer_id, category, subpartner_code, subpartner_name, party_name, company_using,
                             address, mobile, email, user_type, software_type, no_of_users, contact_person,
                             due_on, act_on, days, party_status, city, transferred_party, online_zip_code,
                             state, home_user, software_trade, version, total_amount, software_hit_date, wallet_id
                         ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?
@@ -270,7 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                     $updateStmt = $pdo->prepare("
                         UPDATE client_directory SET
-                            sno = ?, sw_type = ?, subpartner_code = ?, subpartner_name = ?, party_name = ?, company_using = ?,
+                            sno = ?, sw_type = ?, category = ?, subpartner_code = ?, subpartner_name = ?, party_name = ?, company_using = ?,
                             address = ?, mobile = ?, email = ?, user_type = ?, software_type = ?, no_of_users = ?, contact_person = ?,
                             due_on = ?, act_on = ?, days = ?, party_status = ?, city = ?, transferred_party = ?, online_zip_code = ?,
                             state = ?, home_user = ?, software_trade = ?, version = ?, total_amount = ?, software_hit_date = ?, wallet_id = ?
@@ -299,6 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                         $sno = intval($getValue($row, ['S.No', 'sno', 's_no'], 0)) ?: null;
                         $sw_type = $getValue($row, ['S/W Type', 'sw_type', 'software_type'], 1) ?: 'Marg';
+                        $category = $getValue($row, ['Category', 'category', 'client_category', 'party_category', 'cat'], -1) ?: 'Category A';
                         $subpartner_code = $getValue($row, ['SubPartner Code', 'subpartner_code'], 3) ?: null;
                         $subpartner_name = $getValue($row, ['SubPartner Name', 'subpartner_name'], 4) ?: null;
                         $company_using = $getValue($row, ['CompanyUsing', 'company_using'], 6) ?: null;
@@ -341,7 +342,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         if ($exists) {
                             if ($duplicate_option === 'update') {
                                 $updateStmt->execute([
-                                    $sno, $sw_type, $subpartner_code, $subpartner_name, $party_name, $company_using,
+                                    $sno, $sw_type, $category, $subpartner_code, $subpartner_name, $party_name, $company_using,
                                     $address, $mobile, $email, $user_type, $software_type, $no_of_users, $contact_person,
                                     $due_on, $act_on, $days, $party_status, $city, $transferred_party, $online_zip_code,
                                     $state, $home_user, $software_trade, $version, $total_amount, $software_hit_date, $wallet_id,
@@ -353,7 +354,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             }
                         } else {
                             $insertStmt->execute([
-                                $sno, $sw_type, $customer_id, $subpartner_code, $subpartner_name, $party_name, $company_using,
+                                $sno, $sw_type, $customer_id, $category, $subpartner_code, $subpartner_name, $party_name, $company_using,
                                 $address, $mobile, $email, $user_type, $software_type, $no_of_users, $contact_person,
                                 $due_on, $act_on, $days, $party_status, $city, $transferred_party, $online_zip_code,
                                 $state, $home_user, $software_trade, $version, $total_amount, $software_hit_date, $wallet_id
@@ -387,12 +388,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $id = intval($_POST['client_db_id'] ?? 0);
     $customer_id = trim($_POST['customer_id'] ?? '');
     $party_name = trim($_POST['party_name'] ?? '');
+    $category = trim($_POST['category'] ?? 'Category A');
     
     if ($id > 0 && !empty($party_name) && $pdo) {
         try {
             $stmt = $pdo->prepare("
                 UPDATE client_directory SET
-                    sw_type = ?, customer_id = ?, subpartner_code = ?, subpartner_name = ?,
+                    sw_type = ?, customer_id = ?, category = ?, subpartner_code = ?, subpartner_name = ?,
                     party_name = ?, company_using = ?, address = ?, mobile = ?, email = ?,
                     user_type = ?, software_type = ?, no_of_users = ?, contact_person = ?,
                     due_on = ?, act_on = ?, days = ?, party_status = ?, city = ?,
@@ -404,6 +406,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmt->execute([
                 $_POST['sw_type'] ?? 'Marg',
                 $customer_id,
+                $category,
                 $_POST['subpartner_code'] ?: null,
                 $_POST['subpartner_name'] ?: null,
                 $party_name,
@@ -535,6 +538,7 @@ $active_tab = $_GET['tab'] ?? 'directory';
 
 $search_query = trim($_GET['search'] ?? '');
 $status_filter = trim($_GET['status'] ?? '');
+$category_filter = trim($_GET['category'] ?? '');
 $trade_filter = trim($_GET['trade'] ?? '');
 $product_filter = trim($_GET['product'] ?? '');
 $operator_filter = trim($_GET['operator'] ?? '');
@@ -552,6 +556,7 @@ $dir_total_count = 0;
 $dir_running_count = 0;
 $dir_total_val = 0;
 $dir_trade_types = [];
+$dir_categories = [];
 $dir_records = [];
 $dir_matching_count = 0;
 
@@ -565,18 +570,26 @@ if ($db_connected && $pdo) {
         $tradeStmt = $pdo->query("SELECT DISTINCT software_trade FROM client_directory WHERE software_trade IS NOT NULL AND software_trade != '' ORDER BY software_trade ASC");
         $dir_trade_types = $tradeStmt->fetchAll(PDO::FETCH_COLUMN);
 
+        $catStmt = $pdo->query("SELECT DISTINCT category FROM client_directory WHERE category IS NOT NULL AND category != '' ORDER BY category ASC");
+        $dir_categories = $catStmt->fetchAll(PDO::FETCH_COLUMN);
+
         $dir_where = [];
         $dir_params = [];
 
         if (!empty($search_query)) {
-            $dir_where[] = "(party_name LIKE ? OR customer_id LIKE ? OR mobile LIKE ? OR email LIKE ? OR address LIKE ? OR city LIKE ? OR state LIKE ? OR contact_person LIKE ?)";
+            $dir_where[] = "(party_name LIKE ? OR customer_id LIKE ? OR mobile LIKE ? OR email LIKE ? OR address LIKE ? OR city LIKE ? OR state LIKE ? OR contact_person LIKE ? OR category LIKE ?)";
             $st = '%' . $search_query . '%';
-            for ($i = 0; $i < 8; $i++) $dir_params[] = $st;
+            for ($i = 0; $i < 9; $i++) $dir_params[] = $st;
         }
 
         if (!empty($status_filter)) {
             $dir_where[] = "LOWER(party_status) = ?";
             $dir_params[] = strtolower($status_filter);
+        }
+
+        if (!empty($category_filter)) {
+            $dir_where[] = "LOWER(category) = ?";
+            $dir_params[] = strtolower($category_filter);
         }
 
         if (!empty($trade_filter)) {
@@ -829,7 +842,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                         <i data-lucide="search" style="width: 18px; height: 18px; color: var(--primary);"></i>
                         <h3 class="m-0 text-sm font-bold" style="font-family: var(--font-heading);">Filter Client Directory Data</h3>
                     </div>
-                    <?php if (!empty($search_query) || !empty($status_filter) || !empty($trade_filter)): ?>
+                    <?php if (!empty($search_query) || !empty($status_filter) || !empty($category_filter) || !empty($trade_filter)): ?>
                         <a href="index.php?page=clients&tab=directory" class="btn btn-secondary text-xs text-danger" style="padding: 0.3rem 0.75rem;">
                             <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
                             <span>Clear Search Filters</span>
@@ -837,13 +850,31 @@ function getClientsPageUrl($tab, $p, $limit) {
                     <?php endif; ?>
                 </div>
 
-                <div class="grid" style="grid-template-columns: 2fr 1fr 1fr 1fr; gap: 1rem; align-items: end;">
+                <div class="grid" style="grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 1rem; align-items: end;">
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-semibold">Search Client Directory</label>
                         <div style="position: relative;">
-                            <input type="text" name="search" class="form-control form-control-focus text-sm" placeholder="Party Name, Customer ID, Mobile, Email, Address, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="padding-left: 2.25rem;">
+                            <input type="text" name="search" class="form-control form-control-focus text-sm" placeholder="Party Name, Customer ID, Mobile, Email, Category, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="padding-left: 2.25rem;">
                             <i data-lucide="search" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-muted);"></i>
                         </div>
+                    </div>
+
+                    <div class="form-group m-0">
+                        <label class="form-label text-xs font-semibold">Client Category</label>
+                        <select name="category" class="form-control form-control-focus text-sm">
+                            <option value="">All Categories</option>
+                            <option value="Category A" <?php echo (strcasecmp($category_filter, 'Category A') === 0) ? 'selected' : ''; ?>>Category A</option>
+                            <option value="Category B" <?php echo (strcasecmp($category_filter, 'Category B') === 0) ? 'selected' : ''; ?>>Category B</option>
+                            <option value="Category C" <?php echo (strcasecmp($category_filter, 'Category C') === 0) ? 'selected' : ''; ?>>Category C</option>
+                            <option value="Category D" <?php echo (strcasecmp($category_filter, 'Category D') === 0) ? 'selected' : ''; ?>>Category D</option>
+                            <?php foreach ($dir_categories as $cat): ?>
+                                <?php if (!in_array($cat, ['Category A', 'Category B', 'Category C', 'Category D'])): ?>
+                                    <option value="<?php echo htmlspecialchars($cat); ?>" <?php echo (strcasecmp($category_filter, $cat) === 0) ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($cat); ?>
+                                    </option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
 
                     <div class="form-group m-0">
@@ -912,6 +943,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                             <th class="col-dir-sno" style="padding: 0.85rem 0.75rem;">S.No</th>
                             <th class="col-dir-sw-type">S/W Type</th>
                             <th class="col-dir-customer-id">Customer ID</th>
+                            <th class="col-dir-category">Category</th>
                             <th class="col-dir-subpartner-code">SubPartner Code</th>
                             <th class="col-dir-subpartner-name">SubPartner Name</th>
                             <th class="col-dir-party-name">Party Name</th>
@@ -943,7 +975,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                     <tbody>
                         <?php if (empty($dir_records)): ?>
                             <tr>
-                                <td colspan="29" class="text-center text-muted py-8">
+                                <td colspan="30" class="text-center text-muted py-8">
                                     <i data-lucide="database" style="width: 40px; height: 40px; margin: 0 auto 0.75rem auto; color: var(--text-muted);"></i>
                                     <p class="text-sm font-semibold mb-1">No client directory records found.</p>
                                     <p class="text-xs text-muted mb-3">Click below to bulk import your Excel or CSV file with old client details.</p>
@@ -966,11 +998,24 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     }
                                 }
                                 $rJson = htmlspecialchars(json_encode($r), ENT_QUOTES, 'UTF-8');
+                                
+                                $catVal = $r['category'] ?? 'Category A';
+                                $catBadgeStyle = '--badge-bg: var(--primary-light); --badge-color: var(--primary);';
+                                if (strcasecmp($catVal, 'Category A') === 0 || strcasecmp($catVal, 'A') === 0) {
+                                    $catBadgeStyle = '--badge-bg: rgba(16,185,129,0.12); --badge-color: #10b981;';
+                                } elseif (strcasecmp($catVal, 'Category B') === 0 || strcasecmp($catVal, 'B') === 0) {
+                                    $catBadgeStyle = '--badge-bg: rgba(59,130,246,0.12); --badge-color: #3b82f6;';
+                                } elseif (strcasecmp($catVal, 'Category C') === 0 || strcasecmp($catVal, 'C') === 0) {
+                                    $catBadgeStyle = '--badge-bg: rgba(245,158,11,0.12); --badge-color: #f59e0b;';
+                                } elseif (strcasecmp($catVal, 'Category D') === 0 || strcasecmp($catVal, 'D') === 0) {
+                                    $catBadgeStyle = '--badge-bg: rgba(139,92,246,0.12); --badge-color: #8b5cf6;';
+                                }
                             ?>
                                 <tr>
                                     <td class="col-dir-sno" style="padding: 0.75rem; color: var(--text-muted); font-family: monospace;"><?php echo htmlspecialchars($r['sno'] ?? $r['id']); ?></td>
                                     <td class="col-dir-sw-type"><span class="badge text-xs" style="--badge-bg: var(--primary-light); --badge-color: var(--primary);"><?php echo htmlspecialchars($r['sw_type'] ?? 'Marg'); ?></span></td>
                                     <td class="col-dir-customer-id"><span class="font-bold text-primary font-mono"><?php echo htmlspecialchars($r['customer_id']); ?></span></td>
+                                    <td class="col-dir-category"><span class="badge text-xs font-bold" style="<?php echo $catBadgeStyle; ?>"><?php echo htmlspecialchars($catVal); ?></span></td>
                                     <td class="col-dir-subpartner-code text-muted"><?php echo htmlspecialchars($r['subpartner_code'] ?? '-'); ?></td>
                                     <td class="col-dir-subpartner-name text-muted"><?php echo htmlspecialchars($r['subpartner_name'] ?? '-'); ?></td>
                                     <td class="col-dir-party-name">
@@ -1421,6 +1466,11 @@ function getClientsPageUrl($tab, $p, $limit) {
                 </label>
 
                 <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app);">
+                    <input type="checkbox" class="dir-col-checkbox" value="col-dir-category" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main">4. Category (Category A, B, C...)</span>
+                </label>
+
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app);">
                     <input type="checkbox" class="dir-col-checkbox" value="col-dir-subpartner-code" style="accent-color: var(--primary); scale: 1.1;">
                     <span class="text-main">4. SubPartner Code</span>
                 </label>
@@ -1787,7 +1837,7 @@ function getClientsPageUrl($tab, $p, $limit) {
 
             <div class="modal-body p-6 flex flex-col gap-4" style="max-height: 480px; overflow-y: auto;">
                 
-                <div class="grid grid-3 gap-3">
+                <div class="grid grid-4 gap-3">
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold">Party Name *</label>
                         <input type="text" id="edit_party_name" name="party_name" required class="form-control text-xs">
@@ -1796,6 +1846,17 @@ function getClientsPageUrl($tab, $p, $limit) {
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold">Customer ID *</label>
                         <input type="text" id="edit_customer_id" name="customer_id" required class="form-control text-xs font-mono">
+                    </div>
+
+                    <div class="form-group m-0">
+                        <label class="form-label text-xs font-bold">Category</label>
+                        <input type="text" id="edit_category" name="category" placeholder="e.g. Category A, B, C" class="form-control text-xs" list="category_options">
+                        <datalist id="category_options">
+                            <option value="Category A">
+                            <option value="Category B">
+                            <option value="Category C">
+                            <option value="Category D">
+                        </datalist>
                     </div>
 
                     <div class="form-group m-0">
@@ -1918,14 +1979,14 @@ function getClientsPageUrl($tab, $p, $limit) {
 <script>
 // Column Header Preferences JavaScript
 const defaultDirVisibleCols = [
-    'col-dir-sno', 'col-dir-sw-type', 'col-dir-customer-id', 'col-dir-party-name', 
+    'col-dir-sno', 'col-dir-sw-type', 'col-dir-customer-id', 'col-dir-category', 'col-dir-party-name', 
     'col-dir-address', 'col-dir-mobile', 'col-dir-email', 'col-dir-user-type', 
     'col-dir-software-type', 'col-dir-contact-person', 'col-dir-party-status', 
     'col-dir-city', 'col-dir-software-trade', 'col-dir-total-amount', 'col-dir-actions'
 ];
 
 const allDirCols = [
-    'col-dir-sno', 'col-dir-sw-type', 'col-dir-customer-id', 'col-dir-subpartner-code', 
+    'col-dir-sno', 'col-dir-sw-type', 'col-dir-customer-id', 'col-dir-category', 'col-dir-subpartner-code', 
     'col-dir-subpartner-name', 'col-dir-party-name', 'col-dir-company-using', 'col-dir-address', 
     'col-dir-mobile', 'col-dir-email', 'col-dir-user-type', 'col-dir-software-type', 
     'col-dir-no-of-users', 'col-dir-contact-person', 'col-dir-due-on', 'col-dir-act-on', 
@@ -2059,6 +2120,7 @@ function openEditClientRecordModal(client) {
     document.getElementById('edit_client_db_id').value = client.id || '';
     document.getElementById('edit_party_name').value = client.party_name || '';
     document.getElementById('edit_customer_id').value = client.customer_id || '';
+    document.getElementById('edit_category').value = client.category || 'Category A';
     document.getElementById('edit_sw_type').value = client.sw_type || 'Marg';
     document.getElementById('edit_mobile').value = client.mobile || '';
     document.getElementById('edit_email').value = client.email || '';

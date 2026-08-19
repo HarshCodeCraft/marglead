@@ -2,7 +2,7 @@
 /**
  * Marg CRM - Meta WhatsApp Webhook Endpoint
  * 
- * URL: https://ladder-giver-splendid.ngrok-free.dev/marglead/api/webhook.php
+ * URL: https://friendlyaisolution.com/api/webhook.php
  * 
  * Responsibilities:
  * 1. GET: Verify Meta Webhook Subscription (hub.challenge)
@@ -175,7 +175,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
         }
 
         // =========================================================
-        // CASE 2: Interactive Button Replies (Sales or Support)
+        // CASE 2: Interactive Button Replies (Sales, Support, AMC, Billing, Offers)
         // =========================================================
         elseif ($msgType === 'interactive' && isset($msg['interactive']['button_reply'])) {
             $buttonId    = $msg['interactive']['button_reply']['id'] ?? '';
@@ -194,6 +194,30 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 $ctaText  = "Create Ticket";
                 $bodyText = "Provide info and problem here";
                 $whatsapp->sendFlow($from, $flowId, $ctaText, $bodyText, 'WELCOME_SCREEN', null, "Marg Help soft solution", "Managed by Marg soft solution.");
+            }
+
+            // Option C: Pay AMC / Pay Invoice Clicked
+            elseif ($buttonId === 'btn_pay_amc' || $buttonId === 'btn_pay_invoice' || str_contains($buttonTitle, 'pay')) {
+                $bankResponse = "🏦 *Marg Soft Solution - Official Bank & UPI Payment Details*\n\nAccount Name: *MARG SOFT SOLUTION*\nBank Name: *HDFC Bank*\nA/C No: *50200067891234*\nIFSC Code: *HDFC0001234*\nBranch: *Main Branch*\nUPI ID: *margsoft@upi*\n\nPlease transfer payment and send screenshot here. Thank you! 🙏";
+                $whatsapp->sendText($from, $bankResponse);
+            }
+
+            // Option D: Request Callback Clicked
+            elseif ($buttonId === 'btn_request_call' || str_contains($buttonTitle, 'callback') || str_contains($buttonTitle, 'call')) {
+                $callResponse = "📞 *Support Callback Request Received*\n\nThank you! Our support engineer has been notified and will call your mobile number shortly.\n\nFor immediate help, call: *7523830026*\nThank you for choosing Marg ERP! 🙏";
+                $whatsapp->sendText($from, $callResponse);
+            }
+
+            // Option E: Send Screenshot Clicked
+            elseif ($buttonId === 'btn_share_screenshot' || str_contains($buttonTitle, 'screenshot')) {
+                $ssResponse = "📸 *Payment Screenshot*\n\nThank you! Please attach and send your payment transfer screenshot directly in this chat thread. Our accounts team will verify and update your receipt.";
+                $whatsapp->sendText($from, $ssResponse);
+            }
+
+            // Option F: Claim Discount Offer Clicked
+            elseif ($buttonId === 'btn_claim_offer' || str_contains($buttonTitle, 'claim') || str_contains($buttonTitle, 'discount')) {
+                $promoResponse = "🎁 *Discount Coupon Unlocked!*\n\nYour 20% Upgrade Coupon Code: *MARG2026OFF*\n\nOur executive will call you shortly to assist with activation.\nCall: *7523830026*";
+                $whatsapp->sendText($from, $promoResponse);
             }
         }
 
@@ -281,7 +305,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
                     // Also insert into main CRM support_tickets table for dashboard view (index.php?page=support)
                     try {
-                        $stmtSup = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, phone, email, problem, callback_number, lead_id, product, renewal_date, address) VALUES (?, ?, ?, ?, 'open', 'Unassigned', ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $stmtSup = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, phone, email, problem, callback_number, lead_id, product, renewal_date, address, date_created) VALUES (?, ?, ?, ?, 'open', 'Unassigned', ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                         $stmtSup->execute([
                             $ticketNumber,
                             $customerName,

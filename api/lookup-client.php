@@ -7,6 +7,8 @@
 
 require_once __DIR__ . '/cors.php';
 
+$auth = requireApiAuth();
+
 header('Content-Type: application/json; charset=utf-8');
 
 if (!$db_connected || !$pdo) {

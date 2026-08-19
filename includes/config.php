@@ -23,6 +23,140 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
+// Global Anti-CSRF Token Initialization & Helpers
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+if (!function_exists('getCsrfToken')) {
+    function getCsrfToken() {
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['csrf_token'];
+    }
+}
+
+if (!function_exists('renderCsrfInput')) {
+    function renderCsrfInput() {
+        $token = getCsrfToken();
+        return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token) . '">';
+    }
+}
+
+if (!function_exists('verifyCsrfToken')) {
+    function verifyCsrfToken($token = null) {
+        if ($token === null) {
+            $token = $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        }
+        if (empty($_SESSION['csrf_token']) || empty($token)) {
+            return false;
+        }
+        return hash_equals($_SESSION['csrf_token'], $token);
+    }
+}
+
+/**
+ * Secure File Upload Helper with MIME Type & Extension Whitelisting
+ */
+if (!function_exists('secureFileUpload')) {
+    function secureFileUpload($file, $destination_subfolder = 'attachments', $allowed_mimes = [], $allowed_exts = []) {
+        if (!isset($file) || !isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
+            return ['success' => false, 'error' => 'No file uploaded or upload error occurred.'];
+        }
+
+        $tmp_name = $file['tmp_name'];
+        $original_name = basename($file['name']);
+        $file_size = $file['size'];
+
+        // 1. Max File Size Check (10MB)
+        if ($file_size > 10 * 1024 * 1024) {
+            return ['success' => false, 'error' => 'File size exceeds maximum limit of 10MB.'];
+        }
+
+        // 2. Extension Check (Prohibit executable file extensions)
+        $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+        $dangerous_extensions = ['php', 'php3', 'php4', 'php5', 'php7', 'phtml', 'exe', 'bat', 'sh', 'pl', 'py', 'cgi', 'asp', 'aspx', 'js', 'jsp'];
+        if (in_array($ext, $dangerous_extensions)) {
+            return ['success' => false, 'error' => 'Security Violation: Executable script extensions are strictly prohibited.'];
+        }
+
+        if (!empty($allowed_exts) && !in_array($ext, $allowed_exts)) {
+            return ['success' => false, 'error' => 'Invalid file extension: .' . $ext];
+        }
+
+        // 3. MIME Type Validation via finfo
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime_type = finfo_file($finfo, $tmp_name);
+            finfo_close($finfo);
+
+            $default_allowed_mimes = [
+                'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml',
+                'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'text/plain', 'text/csv', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/aac',
+                'video/mp4', 'video/webm', 'video/quicktime'
+            ];
+
+            $allowed_mimes_check = !empty($allowed_mimes) ? $allowed_mimes : $default_allowed_mimes;
+
+            if (!in_array($mime_type, $allowed_mimes_check)) {
+                return ['success' => false, 'error' => 'Security Violation: Invalid or untrusted MIME type (' . $mime_type . ').'];
+            }
+        }
+
+        // 4. Sanitize subfolder & write file safely
+        $clean_folder = trim(str_replace(['..', '\\'], '', $destination_subfolder), '/');
+        $destination_dir = __DIR__ . '/../uploads/' . $clean_folder . '/';
+        if (!is_dir($destination_dir)) {
+            @mkdir($destination_dir, 0775, true);
+        }
+
+        $clean_filename = preg_replace("/[^a-zA-Z0-9_-]/", "", pathinfo($original_name, PATHINFO_FILENAME));
+        if (empty($clean_filename)) $clean_filename = 'file';
+
+        $unique_name = time() . '_' . rand(1000, 9999) . '_' . $clean_filename . '.' . $ext;
+        $target_file_path = $destination_dir . $unique_name;
+
+        if (move_uploaded_file($tmp_name, $target_file_path)) {
+            return [
+                'success' => true,
+                'file_path' => 'uploads/' . $clean_folder . '/' . $unique_name,
+                'file_name' => $original_name,
+                'file_size' => $file_size,
+                'extension' => $ext
+            ];
+        } else {
+            return ['success' => false, 'error' => 'Failed to write upload file to server disk.'];
+        }
+    }
+}
+
+// Session Security: Inactivity Timeout (30 mins = 1800s) & Session Hijacking Guard
+if (!empty($_SESSION['user_id'])) {
+    $now = time();
+    $max_idle = 1800; // 30 minutes
+    
+    if (isset($_SESSION['last_activity']) && ($now - $_SESSION['last_activity']) > $max_idle) {
+        session_unset();
+        session_destroy();
+        session_start();
+        $_SESSION['flash_error'] = "Session expired due to 30 minutes of inactivity. Please sign in again.";
+    } else {
+        $_SESSION['last_activity'] = $now;
+    }
+
+    // Session Hijacking Guard (IP Address Check)
+    $curr_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    if (isset($_SESSION['user_ip']) && $_SESSION['user_ip'] !== $curr_ip) {
+        session_unset();
+        session_destroy();
+        session_start();
+        $_SESSION['flash_error'] = "Security Violation: Session IP address mismatch detected. Please sign in.";
+    }
+}
+
 // Connect XAMPP Database server
 require_once __DIR__ . '/db.php';
 
@@ -316,17 +450,7 @@ if (!function_exists('syncPermissionMappings')) {
 
 // Helper to check user permission
 function hasAccess($module, $role) {
-    // For demo purposes, we define roles navigation filters
-    if ($role === 'Super Admin' || $role === 'Admin') {
-        return true;
-    }
-    
-    // Everyone is allowed to view profile settings and legal policy pages
-    if (in_array($module, ['settings', 'privacy_policy', 'terms_conditions', 'refund_policy'])) {
-        return true;
-    }
-    
-    // Normalize sub-pages to their parent permissions
+    // 1. Normalize sub-pages to their parent permissions
     $normalized_module = $module;
     if (in_array($module, ['lead_form', 'lead_details', 'lead_import'])) {
         $normalized_module = 'leads';
@@ -336,9 +460,72 @@ function hasAccess($module, $role) {
         $normalized_module = 'bot_flows';
     } elseif ($module === 'admin_reports') {
         $normalized_module = 'reports';
+    } elseif ($module === 'whatsapp_flows') {
+        $normalized_module = 'bot_flows';
     }
-    
-    // Check custom user-specific permissions if logged in and not currently mimicking a different role
+
+    // 2. Everyone is allowed to view legal & compliance pages
+    if (in_array($module, ['privacy_policy', 'terms_conditions', 'refund_policy'])) {
+        return true;
+    }
+
+    // 3. Check Tenant Company Power Permissions (CRM Client allowed_modules block)
+    $is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') || !empty($_SESSION['impersonate_tenant_db']);
+    if ($is_tenant_session) {
+        $active_tenant_db = $_SESSION['impersonate_tenant_db'] ?? $_SESSION['tenant_db'];
+        
+        // Fetch fresh allowed_modules for active tenant so Super Admin updates apply instantly
+        global $pdo_master;
+        if (isset($pdo_master)) {
+            try {
+                $stmtT = $pdo_master->prepare("SELECT allowed_modules FROM tenant_companies WHERE db_name = ?");
+                $stmtT->execute([$active_tenant_db]);
+                $jsonM = $stmtT->fetchColumn();
+                if ($jsonM !== false && $jsonM !== null && $jsonM !== '') {
+                    $decoded_mods = json_decode($jsonM, true);
+                    $_SESSION['tenant_allowed_modules'] = is_array($decoded_mods) ? $decoded_mods : [];
+                } else {
+                    $_SESSION['tenant_allowed_modules'] = [];
+                }
+                $_SESSION['tenant_allowed_db'] = $active_tenant_db;
+            } catch (\PDOException $e) {}
+        }
+
+        if (isset($_SESSION['tenant_allowed_modules']) && is_array($_SESSION['tenant_allowed_modules'])) {
+            $tenant_mods = $_SESSION['tenant_allowed_modules'];
+            
+            // Build alias keys for WhatsApp modules
+            $check_keys = [$normalized_module];
+            if ($normalized_module === 'bot_flows' || $normalized_module === 'whatsapp_flows') {
+                $check_keys[] = 'bot_flows';
+                $check_keys[] = 'whatsapp_flows';
+            }
+            if ($normalized_module === 'whatsapp_settings' || $normalized_module === 'merchant_waba_settings') {
+                $check_keys[] = 'whatsapp_settings';
+                $check_keys[] = 'merchant_waba_settings';
+            }
+            
+            // If none of the check keys are in tenant_mods, DENY access
+            $has_tenant_perm = false;
+            foreach ($check_keys as $k) {
+                if (in_array($k, $tenant_mods)) {
+                    $has_tenant_perm = true;
+                    break;
+                }
+            }
+            
+            if (!$has_tenant_perm) {
+                return false;
+            }
+        }
+    }
+
+    // 4. For Tenant Admin & System Super Admin, if Tenant Power Check passed, grant access
+    if ($role === 'Super Admin' || $role === 'Admin') {
+        return true;
+    }
+
+    // 5. For sub-user Employee roles, check user_permissions or role permissions matrix
     $login_role = isset($_SESSION['login_role']) ? $_SESSION['login_role'] : $role;
     if (isset($_SESSION['user_permissions']) && is_array($_SESSION['user_permissions']) && $role === $login_role) {
         if (in_array($normalized_module, $_SESSION['user_permissions'])) {
@@ -350,18 +537,19 @@ function hasAccess($module, $role) {
         if ($normalized_module === 'support_close' && hasActionAccess('can_update_status')) return true;
         return false;
     }
-    
+
     $permissions = [
-        'Client' => ['dashboard', 'quotation', 'payments', 'support', 'renewals', 'bot_flows'],
-        'Sales Head' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'renewals', 'reports', 'manager'],
-        'Technical Head' => ['dashboard', 'support', 'installation', 'training', 'renewals', 'reports', 'support_create', 'support_edit', 'support_assign', 'support_close', 'manager'],
-        'Regional Manager' => ['dashboard', 'leads', 'pipeline', 'demo', 'quotation', 'payments', 'renewals', 'reports', 'manager'],
-        'Team Leader' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'renewals', 'manager'],
-        'Sales Executive' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'employee'],
-        'Telecaller' => ['dashboard', 'leads', 'followups', 'employee'],
-        'Support Executive' => ['dashboard', 'support', 'employee'],
-        'Installation Engineer' => ['dashboard', 'installation', 'training', 'employee'],
-        'Accounts' => ['dashboard', 'payments', 'quotation', 'renewals']
+        'Admin' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings', 'bot_flows', 'whatsapp_flows', 'team_inbox', 'broadcast_campaigns', 'merchant_waba_settings', 'whatsapp_settings', 'bulk_broadcast', 'clients', 'admin_users', 'admin_permissions', 'privacy_policy', 'terms_conditions', 'refund_policy'],
+        'Client' => ['dashboard', 'quotation', 'payments', 'support', 'renewals', 'bot_flows', 'privacy_policy', 'terms_conditions', 'refund_policy'],
+        'Sales Head' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
+        'Technical Head' => ['dashboard', 'support', 'team_inbox', 'bot_flows', 'installation', 'training', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'support_create', 'support_edit', 'support_assign', 'support_close', 'manager'],
+        'Regional Manager' => ['dashboard', 'leads', 'pipeline', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
+        'Team Leader' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'team_inbox', 'broadcast_campaigns', 'renewals', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
+        'Sales Executive' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'privacy_policy', 'terms_conditions', 'refund_policy', 'employee'],
+        'Telecaller' => ['dashboard', 'leads', 'followups', 'privacy_policy', 'terms_conditions', 'refund_policy', 'employee'],
+        'Support Executive' => ['dashboard', 'support', 'team_inbox', 'bot_flows', 'privacy_policy', 'terms_conditions', 'refund_policy', 'support_create', 'support_edit', 'support_close', 'employee'],
+        'Installation Engineer' => ['dashboard', 'installation', 'training', 'privacy_policy', 'terms_conditions', 'refund_policy', 'employee'],
+        'Accounts' => ['dashboard', 'payments', 'quotation', 'renewals', 'privacy_policy', 'terms_conditions', 'refund_policy']
     ];
     
     if (isset($permissions[$role])) {
@@ -400,6 +588,35 @@ if (!function_exists('getUserPermissions')) {
         ];
         
         return isset($role_permissions[$role]) ? $role_permissions[$role] : ['dashboard'];
+    }
+}
+
+// System Settings Data Storage Helpers
+if (!function_exists('getSystemSetting')) {
+    function getSystemSetting($key, $default = '') {
+        global $pdo;
+        if (!$pdo) return $default;
+        try {
+            $stmt = $pdo->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?");
+            $stmt->execute([$key]);
+            $val = $stmt->fetchColumn();
+            return ($val !== false && $val !== null) ? $val : $default;
+        } catch (PDOException $e) {
+            return $default;
+        }
+    }
+}
+
+if (!function_exists('setSystemSetting')) {
+    function setSystemSetting($key, $value) {
+        global $pdo;
+        if (!$pdo) return false;
+        try {
+            $stmt = $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
+            return $stmt->execute([$key, $value]);
+        } catch (PDOException $e) {
+            return false;
+        }
     }
 }
 
@@ -595,6 +812,74 @@ if (!function_exists('getLiveMetricCounts')) {
             'demo' => $demo_counts,
             'callback' => $callback_counts
         ];
+    }
+}
+
+/**
+ * Global Email Validation & Anti-Disposable Burner Email Checker
+ */
+if (!function_exists('isDisposableEmail')) {
+    function isDisposableEmail($email) {
+        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return true; // Malformed email format
+        }
+
+        $domain = strtolower(substr(strrchr($email, "@"), 1));
+        
+        $disposable_domains = [
+            'mailinator.com', '10minutemail.com', 'tempmail.com', 'guerrillamail.com',
+            'dispostable.com', 'trashmail.com', 'yopmail.com', 'rpaintel.com',
+            'throwawaymail.com', 'getnada.com', 'fakeinbox.com', 'sharklasers.com',
+            'temp-mail.org', 'maildrop.cc', 'mohmal.com', 'inboxalias.com',
+            'crazymailing.com', 'mytemp.email', 'tempail.com', 'generator.email',
+            'emailondeck.com', 'byom.de', 'dropmail.me', 'boun.cr', 'armyspy.com',
+            'cuvox.de', 'dayrep.com', 'einrot.com', 'fleckens.hu', 'gustr.com',
+            'jourrapide.com', 'rhyta.com', 'superrito.com', 'teleworm.us'
+        ];
+
+        return in_array($domain, $disposable_domains);
+    }
+}
+
+/**
+ * CSRF Protection Utilities
+ */
+if (!function_exists('getCsrfToken')) {
+    function getCsrfToken() {
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['csrf_token'];
+    }
+}
+
+if (!function_exists('verifyCsrfToken')) {
+    function verifyCsrfToken($token) {
+        if (empty($token) || empty($_SESSION['csrf_token'])) {
+            return false;
+        }
+        return hash_equals($_SESSION['csrf_token'], $token);
+    }
+}
+
+/**
+ * Immutable Activity Logger
+ */
+if (!function_exists('logActivity')) {
+    function logActivity($action, $module, $details = null) {
+        global $pdo, $db_connected;
+        if (!$db_connected || !$pdo) return;
+        try {
+            $user_id = $_SESSION['user_id'] ?? null;
+            $user_name = $_SESSION['user_name'] ?? 'Guest/System';
+            $user_role = $_SESSION['user_role'] ?? 'Guest';
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+            $stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, user_name, user_role, action, module, details, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$user_id, $user_name, $user_role, $action, $module, $details, $ip]);
+        } catch (\PDOException $e) {
+            // Ignore audit log error
+        }
     }
 }
 

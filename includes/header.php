@@ -111,7 +111,7 @@ if ($db_connected && $pdo && isset($_SESSION['user_id'])) {
                         <i data-lucide="shield-check" class="text-muted" style="width: 16px; height: 16px; color: var(--primary);"></i>
                         <select id="global-role-switcher" class="text-xs font-semibold pointer" style="border: none; background: transparent; padding-right: 0.5rem; text-transform: uppercase; color: var(--text-main);">
                             <?php 
-                            $header_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') ? $EMPLOYEE_ROLES : $ROLES;
+                            $header_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) ? $EMPLOYEE_ROLES : $ROLES;
                             foreach ($header_roles as $roleName => $desc): 
                             ?>
                                 <option value="<?php echo $roleName; ?>" <?php echo ($_SESSION['user_role'] === $roleName) ? 'selected' : ''; ?>>

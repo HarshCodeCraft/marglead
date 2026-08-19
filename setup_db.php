@@ -86,18 +86,22 @@
 <body>
     <div class="setup-card">
         <h1>Database Setup Wizard</h1>
-        <p>Connecting Marg Lead Management System to XAMPP MySQL server</p>
+        <p>Connecting Marg Lead Management System to MySQL server</p>
         
         <div class="step-log">
             <?php
-            $db_host = 'localhost';
-            $db_user = 'root';
-            $db_pass = '';
+            require_once __DIR__ . '/config/config.php';
+            $db_host = defined('DB_HOST') ? DB_HOST : 'localhost';
+            $db_user = defined('DB_USER') ? DB_USER : 'u978772385_friendlyaidata';
+            $db_pass = defined('DB_PASS') ? DB_PASS : '';
+            $db_name = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
+            $db_port = defined('DB_PORT') ? DB_PORT : '3306';
             
-            // 1. Connection test (try 3307 then 3306 fallback)
+            // 1. Connection test (try primary port then fallback port)
             $conn = null;
             $last_error = '';
-            foreach (['3307', '3306'] as $port) {
+            $ports_to_try = [$db_port, ($db_port === '3306' ? '3307' : '3306')];
+            foreach ($ports_to_try as $port) {
                 try {
                     $conn = new PDO("mysql:host=$db_host;port=$port", $db_user, $db_pass);
                     $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -132,18 +136,18 @@
                 
                 // Migration check: ensure otp_code and otp_expires_at exist on users table
                 try {
-                    $conn->exec("ALTER TABLE marg_crm.users ADD COLUMN otp_code VARCHAR(10) NULL");
+                    $conn->exec("ALTER TABLE `{$db_name}`.users ADD COLUMN otp_code VARCHAR(10) NULL");
                 } catch (Exception $ex) {}
                 try {
-                    $conn->exec("ALTER TABLE marg_crm.users ADD COLUMN otp_expires_at DATETIME NULL");
+                    $conn->exec("ALTER TABLE `{$db_name}`.users ADD COLUMN otp_expires_at DATETIME NULL");
                 } catch (Exception $ex) {}
 
                 // Overwrite passwords with local PHP engine bcrypt hashes to ensure match
                 $hash = password_hash('password123', PASSWORD_DEFAULT);
-                $updatePass = $conn->prepare("UPDATE marg_crm.users SET password = ?");
+                $updatePass = $conn->prepare("UPDATE `{$db_name}`.users SET password = ?");
                 $updatePass->execute([$hash]);
                 
-                echo '<div class="log-entry"><span>Creating database "marg_crm"...</span><span class="status-ok">CREATED</span></div>';
+                echo '<div class="log-entry"><span>Creating database "' . htmlspecialchars($db_name) . '"...</span><span class="status-ok">CREATED</span></div>';
                 echo '<div class="log-entry"><span>Creating tables & schema...</span><span class="status-ok">COMPLETED</span></div>';
                 echo '<div class="log-entry"><span>Seeding database records...</span><span class="status-ok">SEEDED</span></div>';
                 $setup_success = true;

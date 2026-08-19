@@ -144,6 +144,10 @@ try {
         $assigned_to = $uName;
     }
 
+    if (empty($subject) || $subject === 'General Technical Support') {
+        $subject = mb_strimwidth($problem, 0, 70, '...');
+    }
+
     $product = 'Marg ERP 9+';
     $priority = 'high';
     $status = 'open';
@@ -151,8 +155,8 @@ try {
 
     // Save Real Ticket to Database (support_tickets table)
     $stmt = $pdo->prepare("INSERT INTO support_tickets 
-        (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, address, problem, due_date, callback_number) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, address, problem, due_date, callback_number, date_created) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
     
     $stmt->execute([
         $ticketId,

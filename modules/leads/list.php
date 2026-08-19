@@ -981,58 +981,58 @@ if (empty($leads)) {
             </div>
             
             <div class="column-options-list flex flex-col gap-2">
-                <label class="col-item-card">
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_lead_id')">
                     <span class="text-xs font-semibold">Lead ID</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-lead-id" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_lead_id" class="col-toggle-cb" data-target="col-lead-id" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_assigned')">
                     <span class="text-xs font-semibold">Assigned to</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-assigned" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_assigned" class="col-toggle-cb" data-target="col-assigned" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_contact_person')">
                     <span class="text-xs font-semibold">Person Name</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-contact-person" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_contact_person" class="col-toggle-cb" data-target="col-contact-person" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_name')">
                     <span class="text-xs font-semibold">Client Details</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-name" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_name" class="col-toggle-cb" data-target="col-name" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_group')">
                     <span class="text-xs font-semibold">Group</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-group" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_group" class="col-toggle-cb" data-target="col-group" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_status')">
                     <span class="text-xs font-semibold">Status</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-status" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_status" class="col-toggle-cb" data-target="col-status" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_priority')">
                     <span class="text-xs font-semibold">Priority</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-priority" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_priority" class="col-toggle-cb" data-target="col-priority" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_source')">
                     <span class="text-xs font-semibold">Source</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-source" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_source" class="col-toggle-cb" data-target="col-source" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_enq_for')">
                     <span class="text-xs font-semibold">Enq For</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-enq-for" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_enq_for" class="col-toggle-cb" data-target="col-enq-for" onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_tags')">
                     <span class="text-xs font-semibold">Tags</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-tags" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_tags" class="col-toggle-cb" data-target="col-tags" onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_address')">
                     <span class="text-xs font-semibold">Address</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-address" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_address" class="col-toggle-cb" data-target="col-address" onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_remarks')">
                     <span class="text-xs font-semibold">Remarks</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-remarks" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
-                <label class="col-item-card">
+                    <input type="checkbox" id="cb_col_remarks" class="col-toggle-cb" data-target="col-remarks" onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_activity')">
                     <span class="text-xs font-semibold">Last Activity</span>
-                    <input type="checkbox" class="col-toggle-cb" data-target="col-activity" checked style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
-                </label>
+                    <input type="checkbox" id="cb_col_activity" class="col-toggle-cb" data-target="col-activity" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
             </div>
         </div>
         
@@ -1403,9 +1403,40 @@ if (empty($leads)) {
     }
 
     // Dynamic Select Columns Drawer Functions
+    function toggleColumnCheckbox(checkboxId) {
+        const cb = document.getElementById(checkboxId);
+        if (cb) {
+            cb.checked = !cb.checked;
+            toggleColumnByCheckbox(cb);
+        }
+    }
+
+    function toggleColumnByCheckbox(cb) {
+        const targetClass = cb.getAttribute('data-target');
+        const isChecked = cb.checked;
+        const cells = document.querySelectorAll('.' + targetClass);
+        cells.forEach(cell => {
+            if (isChecked) {
+                cell.style.setProperty('display', 'table-cell', 'important');
+            } else {
+                cell.style.setProperty('display', 'none', 'important');
+            }
+        });
+    }
+
     function toggleColumnSelectorDrawer() {
         const modal = document.getElementById('column-selector-modal');
         if (modal) {
+            // Sync checkbox state with current visible columns
+            const checkboxes = document.querySelectorAll('.col-toggle-cb');
+            checkboxes.forEach(cb => {
+                const targetClass = cb.getAttribute('data-target');
+                const th = document.querySelector('th.' + targetClass);
+                if (th) {
+                    cb.checked = (window.getComputedStyle(th).display !== 'none');
+                }
+            });
+
             modal.classList.remove('hidden');
             modal.classList.add('open');
             modal.style.display = 'flex';
@@ -1425,6 +1456,7 @@ if (empty($leads)) {
         const checkboxes = document.querySelectorAll('.col-toggle-cb');
         checkboxes.forEach(cb => {
             cb.checked = selectState;
+            toggleColumnByCheckbox(cb);
         });
     }
 
@@ -1436,11 +1468,7 @@ if (empty($leads)) {
             const targetClass = cb.getAttribute('data-target');
             const isChecked = cb.checked;
             prefs[targetClass] = isChecked;
-
-            const cells = document.querySelectorAll('.' + targetClass);
-            cells.forEach(cell => {
-                cell.style.display = isChecked ? '' : 'none';
-            });
+            toggleColumnByCheckbox(cb);
         });
 
         localStorage.setItem('lead_table_column_prefs', JSON.stringify(prefs));
@@ -1449,25 +1477,32 @@ if (empty($leads)) {
 
     function loadColumnPreferences() {
         const saved = localStorage.getItem('lead_table_column_prefs');
-        if (!saved) return;
-        try {
-            const prefs = JSON.parse(saved);
-            const checkboxes = document.querySelectorAll('.col-toggle-cb');
-            checkboxes.forEach(cb => {
-                const targetClass = cb.getAttribute('data-target');
-                if (prefs.hasOwnProperty(targetClass)) {
-                    cb.checked = prefs[targetClass];
-                    const cells = document.querySelectorAll('.' + targetClass);
-                    cells.forEach(cell => {
-                        cell.style.display = prefs[targetClass] ? '' : 'none';
-                    });
-                }
-            });
-        } catch(e) {}
+        const checkboxes = document.querySelectorAll('.col-toggle-cb');
+
+        let prefs = {};
+        if (saved) {
+            try {
+                prefs = JSON.parse(saved);
+            } catch(e) {}
+        }
+
+        checkboxes.forEach(cb => {
+            const targetClass = cb.getAttribute('data-target');
+            let isChecked = cb.checked;
+            if (saved && prefs.hasOwnProperty(targetClass)) {
+                isChecked = prefs[targetClass];
+                cb.checked = isChecked;
+            }
+            toggleColumnByCheckbox(cb);
+        });
     }
 
     // Load saved user column visibility preferences on initialization
-    loadColumnPreferences();
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadColumnPreferences);
+    } else {
+        loadColumnPreferences();
+    }
 </script>
 
 <!-- Modal: Enlarged Scan-to-Call QR Code -->

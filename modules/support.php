@@ -20,13 +20,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($act === 'whatsapp_create_ticket') {
         header('Content-Type: application/json');
         $license_no = trim($_POST['license_no'] ?? '');
-        $subject = trim($_POST['subject'] ?? 'General Technical Support');
+        $subject = trim($_POST['subject'] ?? '');
         $problem = trim($_POST['problem'] ?? '');
         $callback_number = trim($_POST['callback_number'] ?? '');
 
         if (empty($license_no) || empty($problem) || empty($callback_number)) {
             echo json_encode(['status' => 'error', 'message' => 'Please fill in License Number, Problem, and Call Back Number.']);
             exit;
+        }
+
+        // Auto-fill subject from problem text if subject is empty or generic
+        if (empty($subject) || $subject === 'General Technical Support') {
+            $subject = mb_strimwidth($problem, 0, 70, '...');
         }
 
         try {
@@ -50,9 +55,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $assigned_to = $uName;
             }
 
+            $date_created = date('Y-m-d H:i:s');
+
             $stmt = $pdo->prepare("INSERT INTO support_tickets 
-                (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, address, problem, due_date, callback_number) 
-                VALUES (?, ?, ?, 'high', 'open', ?, ?, ?, 'whatsapp@marglead.com', 'Marg ERP 9+', 'WhatsApp Automated Flow', ?, ?, ?)");
+                (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, address, problem, due_date, callback_number, date_created) 
+                VALUES (?, ?, ?, 'high', 'open', ?, ?, ?, 'whatsapp@marglead.com', 'Marg ERP 9+', 'WhatsApp Automated Flow', ?, ?, ?, ?)");
             
             $stmt->execute([
                 $ticketId,
@@ -63,7 +70,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $callback_number,
                 $problem,
                 date('Y-m-d', strtotime('+2 days')),
-                $callback_number
+                $callback_number,
+                $date_created
             ]);
 
             // Notifications
@@ -82,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 'subject' => $subject,
                 'problem' => $problem,
                 'callback_number' => $callback_number,
-                'date_created' => date('Y-m-d H:i:s'),
+                'date_created' => $date_created,
                 'message' => "Dear Customer, 👋\n\nThank you for contacting us. Your ticket has been successfully created. 🎟️\n\nOur support team will review your issue and get back to you shortly.\n\nWe appreciate your patience and support. 😊\n\nRegards,\nSupport Team"
             ]);
         } catch (PDOException $e) {
@@ -114,11 +122,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $due_date = empty($_POST['due_date']) ? null : $_POST['due_date'];
         $callback_number = trim($_POST['callback_number'] ?? '');
         
+        if (empty($subject) && !empty($problem)) {
+            $subject = mb_strimwidth($problem, 0, 70, '...');
+        }
+
         $ticketId = 'TCK-' . rand(1000, 9999);
         
         if ($db_connected && $pdo) {
             try {
-                $stmt = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, renewal_date, address, problem, due_date, callback_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, renewal_date, address, problem, due_date, callback_number, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                 $stmt->execute([$ticketId, $customer_name, $subject, $priority, $status, $assigned_to, $lead_id, $phone, $email, $product, $renewal_date, $address, $problem, $due_date, $callback_number]);
                 
                 // Write activity log if lead_id exists in leads table
@@ -155,18 +167,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
         
     } elseif ($act === 'update_ticket') {
-        if (!$canEdit) {
-            $_SESSION['flash_error'] = "Access Denied: You do not have permissions to edit support tickets.";
-            header("Location: index.php?page=support");
-            exit;
-        }
-        
         $ticketId = trim($_POST['ticket_id']);
         $priority = trim($_POST['priority']);
         $status = trim($_POST['status']);
         $subject = trim($_POST['subject']);
         $problem = trim($_POST['problem']);
-        $assigned_to = trim($_POST['assigned_to']);
+        $assigned_to = trim($_POST['assigned_to'] ?? '');
         $due_date = empty($_POST['due_date']) ? null : $_POST['due_date'];
         $callback_number = trim($_POST['callback_number']);
         $lead_id = trim($_POST['lead_id'] ?? '');
@@ -182,18 +188,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 // Fetch original ticket details for validation checks
                 $origStmt = $pdo->prepare("SELECT lead_id, assigned_to, status, phone, callback_number FROM support_tickets WHERE id = ?");
                 $origStmt->execute([$ticketId]);
-                $orig = $origStmt->fetch();
+                $orig = $origStmt->fetch(PDO::FETCH_ASSOC);
                 
                 if ($orig) {
-                    // Security enforcement: Non-admin users cannot edit/update tickets assigned to another employee
-                    if (!$is_admin && !empty($orig['assigned_to']) && $orig['assigned_to'] !== 'Unassigned' && strtolower($orig['assigned_to']) !== strtolower($user_name)) {
+                    $origAssigned = strtolower(trim($orig['assigned_to'] ?? ''));
+                    $currentUser = strtolower(trim($user_name ?? ''));
+                    $isAssignedToMe = !empty($origAssigned) && $origAssigned !== 'unassigned' && ($origAssigned === $currentUser);
+
+                    // Super Admin, Admin, assigned employee, or user with edit permission can edit/update
+                    if (!$is_admin && !$isAssignedToMe && !$canEdit) {
                         $_SESSION['flash_error'] = "Access Denied: You can only edit or update tickets assigned to you.";
                         header("Location: index.php?page=support");
                         exit;
                     }
 
-                    // Check Assign/Transfer permission
-                    if ($orig['assigned_to'] !== $assigned_to && !$canAssign) {
+                    // Check Assign/Transfer permission - if user cannot assign, preserve existing assigned_to
+                    if (!$canAssign) {
+                        $assigned_to = $orig['assigned_to'] ?? $assigned_to;
+                    } elseif ($orig['assigned_to'] !== $assigned_to && !$canAssign) {
                         $_SESSION['flash_error'] = "Access Denied: You do not have permissions to assign/transfer tickets.";
                         header("Location: index.php?page=support");
                         exit;
@@ -372,10 +384,10 @@ $query_params = [];
 
 // Non-admin employees only see tickets assigned to them
 if (!$is_admin) {
-    $where_conditions[] = "assigned_to = ?";
+    $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
     $query_params[] = $user_name;
 } elseif (!empty($operator_filter)) {
-    $where_conditions[] = "assigned_to = ?";
+    $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
     $query_params[] = $operator_filter;
 }
 
@@ -442,18 +454,12 @@ if ($db_connected && $pdo) {
     }
 }
 
-// Seed mock tickets if table is empty and no filters applied
-if (empty($tickets) && empty($where_conditions) && $db_connected && $pdo) {
+// Clean up old demo tickets from database if present
+if ($db_connected && $pdo) {
     try {
-        $pdo->exec("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, renewal_date, address, problem, due_date, callback_number) VALUES
-        ('TCK-8902', 'A TO Z MEDICAL STORE', 'Printer configuration issues with receipt bills', 'high', 'open', 'Vikas Patel', '177912', '7275243844', 'margsoftsolutionknp@gmail.com', 'Marg Silver Edition', '2016-02-13', 'TIRWA ROAD,KANNAUJ KANNAUJ', 'Receipt printer paper feed jams on printing daily invoices.', '2026-07-25', '7275243844'),
-        ('TCK-8789', 'Metro Chemicals & Co.', 'GST return filing API mismatch error code 400', 'critical', 'in_progress', 'Harsh Vardhan', 'LD-6512', '+91 91234 56789', 'rgupta@metrochem.org', 'Marg ERP Gold', '2027-08-20', 'Industrial Area Zone 1', 'GST API throws mismatch error code 400 when generating monthly returns.', '2026-07-23', '+91 91234 56789')");
-        
-        $stmt = $pdo->query("SELECT * FROM support_tickets ORDER BY date_created DESC");
-        $tickets = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        // Ignore seeder errors
-    }
+        $pdo->exec("DELETE FROM support_tickets WHERE id IN ('TCK-8902', 'TCK-8789')");
+        $pdo->exec("DELETE FROM tickets WHERE ticket_number IN ('TCK-8902', 'TCK-8789')");
+    } catch (Throwable $eClean) {}
 }
 
 // Calculate counters
@@ -675,7 +681,11 @@ foreach ($tickets as $t) {
                         ?>
                             <tr>
                                 <td style="padding: 0.85rem 1rem;">
-                                    <span class="font-bold text-primary font-mono text-xs"><?php echo htmlspecialchars($t['id']); ?></span>
+                                    <span class="font-bold text-primary font-mono text-xs block"><?php echo htmlspecialchars($t['id']); ?></span>
+                                    <span class="text-xs text-muted font-mono block mt-1" style="font-size: 0.7rem;" title="Ticket Creation Date">
+                                        <i data-lucide="calendar" style="width: 10px; height: 10px; display: inline-block; vertical-align: middle; margin-right: 2px;"></i>
+                                        <?php echo !empty($t['date_created']) ? date('d M Y, h:i A', strtotime($t['date_created'])) : date('d M Y'); ?>
+                                    </span>
                                 </td>
                                 <td>
                                     <strong class="text-main block text-sm"><?php echo htmlspecialchars($t['customer_name']); ?></strong>
@@ -683,9 +693,9 @@ foreach ($tickets as $t) {
                                 </td>
                                 <td class="font-mono text-xs text-muted"><?php echo htmlspecialchars($t['phone'] ?? '-'); ?></td>
                                 <td style="max-width: 250px;">
-                                    <strong class="text-xs text-main block"><?php echo htmlspecialchars($t['subject']); ?></strong>
+                                    <strong class="text-xs text-main block"><?php echo htmlspecialchars(!empty($t['subject']) ? $t['subject'] : mb_strimwidth($t['problem'] ?? '', 0, 50, '...')); ?></strong>
                                     <span class="text-xs text-muted" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                                        <?php echo htmlspecialchars($t['problem']); ?>
+                                        <?php echo htmlspecialchars($t['problem'] ?? ''); ?>
                                     </span>
                                 </td>
                                 <td><span class="badge text-xs" style="--badge-bg: var(--accent-light); --badge-color: var(--accent);"><?php echo htmlspecialchars($t['product'] ?? 'Marg ERP'); ?></span></td>
@@ -697,7 +707,12 @@ foreach ($tickets as $t) {
                                         else echo '<span class="badge text-xs text-muted">' . ucfirst($p) . '</span>';
                                     ?>
                                 </td>
-                                <td><span class="text-xs font-semibold text-main"><?php echo htmlspecialchars($t['assigned_to'] ?? 'Unassigned'); ?></span></td>
+                                <td>
+                                    <span class="badge text-xs" style="--badge-bg: rgba(59, 130, 246, 0.15); --badge-color: #3b82f6; font-weight: 700;">
+                                        <i data-lucide="user-check" style="width: 11px; height: 11px; display: inline-block; vertical-align: middle; margin-right: 3px;"></i>
+                                        <?php echo htmlspecialchars(!empty($t['assigned_to']) ? $t['assigned_to'] : 'Unassigned'); ?>
+                                    </span>
+                                </td>
                                 <td>
                                     <?php 
                                         $s = strtolower($t['status']);
@@ -710,11 +725,14 @@ foreach ($tickets as $t) {
                                 <td style="text-align: right; padding-right: 1.25rem;">
                                     <div class="flex align-center justify-end gap-1">
                                         <?php 
-                                            $canUserEditThisTicket = $is_admin || empty($t['assigned_to']) || $t['assigned_to'] === 'Unassigned' || (strtolower($t['assigned_to']) === strtolower($user_name));
+                                            $tAssigned = strtolower(trim($t['assigned_to'] ?? ''));
+                                            $currUser = strtolower(trim($user_name ?? ''));
+                                            $isAssignedToMe = !empty($tAssigned) && $tAssigned !== 'unassigned' && ($tAssigned === $currUser);
+                                            $canUserEditThisTicket = $is_admin || $isAssignedToMe || ($canEdit && (empty($tAssigned) || $tAssigned === 'unassigned'));
                                         ?>
-                                        <?php if ($canEdit && $canUserEditThisTicket): ?>
-                                            <button type="button" class="btn-icon" title="Edit / Transfer Ticket" onclick='openEditTicketModal(<?php echo $tJson; ?>)'>
-                                                <i data-lucide="edit-3" style="width: 15px; height: 15px;"></i>
+                                        <?php if ($canUserEditThisTicket): ?>
+                                            <button type="button" class="btn-icon" title="Edit / Update Ticket" onclick='openEditTicketModal(<?php echo $tJson; ?>)'>
+                                                <i data-lucide="edit-3" style="width: 15px; height: 15px; color: var(--primary);"></i>
                                             </button>
                                         <?php else: ?>
                                             <span class="text-xs text-muted" title="Locked: Assigned to another technician"><i data-lucide="lock" style="width: 14px; height: 14px; opacity: 0.5;"></i></span>
@@ -856,6 +874,7 @@ foreach ($tickets as $t) {
                     <div class="form-group m-0">
                         <label class="form-label text-xs">Assign to Technician</label>
                         <select name="assigned_to" class="form-control text-xs" required>
+                            <option value="Unassigned">Unassigned</option>
                             <?php foreach ($db_operators as $op): ?>
                                 <option value="<?php echo htmlspecialchars($op['name']); ?>"><?php echo htmlspecialchars($op['name']) . " (" . htmlspecialchars($op['role']) . ")"; ?></option>
                             <?php endforeach; ?>
@@ -989,6 +1008,7 @@ foreach ($tickets as $t) {
                     <div class="form-group m-0">
                         <label class="form-label text-xs">Assign / Transfer to technician</label>
                         <select name="assigned_to" id="edit-ticket-assigned" class="form-control text-xs" required <?php echo !$canAssign ? 'disabled' : ''; ?>>
+                            <option value="Unassigned">Unassigned</option>
                             <?php foreach ($db_operators as $op): ?>
                                 <option value="<?php echo htmlspecialchars($op['name']); ?>"><?php echo htmlspecialchars($op['name']) . " (" . htmlspecialchars($op['role']) . ")"; ?></option>
                             <?php endforeach; ?>
@@ -1211,7 +1231,7 @@ function openEditTicketModal(ticket) {
     document.getElementById('edit-ticket-id-display').innerText = ticket.id;
     
     // Readonly values
-    document.getElementById('edit-ticket-client-name').value = ticket.customer_name;
+    document.getElementById('edit-ticket-client-name').value = ticket.customer_name || "";
     document.getElementById('edit-ticket-client-id').value = ticket.lead_id || "";
     document.getElementById('edit-ticket-phone').value = ticket.phone || "";
     document.getElementById('edit-ticket-email').value = ticket.email || "";
@@ -1220,7 +1240,14 @@ function openEditTicketModal(ticket) {
     document.getElementById('edit-ticket-address').value = ticket.address || "";
     
     // Editable values
-    document.getElementById('edit-ticket-priority').value = ticket.priority;
+    document.getElementById('edit-ticket-priority').value = ticket.priority || "medium";
+    
+    // Populate Subject & Problem Summary
+    const subjElem = document.getElementById('edit-ticket-subject');
+    if (subjElem) subjElem.value = ticket.subject || "";
+    
+    const probElem = document.getElementById('edit-ticket-problem');
+    if (probElem) probElem.value = ticket.problem || "";
     
     const statusSelect = document.getElementById('edit-ticket-status');
     if (statusSelect) {
@@ -1228,6 +1255,24 @@ function openEditTicketModal(ticket) {
     } else {
         const hiddenStatus = document.getElementById('edit-ticket-status-hidden');
         if (hiddenStatus) hiddenStatus.value = ticket.status;
+    }
+    
+    // Populate Technician Assignment
+    const assignVal = ticket.assigned_to || "Unassigned";
+    const assignedSelect = document.getElementById('edit-ticket-assigned');
+    if (assignedSelect) {
+        let hasOption = Array.from(assignedSelect.options).some(opt => opt.value.toLowerCase() === assignVal.toLowerCase());
+        if (!hasOption && assignVal) {
+            const newOpt = document.createElement('option');
+            newOpt.value = assignVal;
+            newOpt.textContent = assignVal;
+            assignedSelect.appendChild(newOpt);
+        }
+        assignedSelect.value = assignVal;
+    }
+    const hiddenAssigned = document.getElementById('edit-ticket-assigned-hidden');
+    if (hiddenAssigned) {
+        hiddenAssigned.value = assignVal;
     }
     
     document.getElementById('edit-ticket-due-date').value = ticket.due_date || "";

@@ -8,11 +8,12 @@ require_once __DIR__ . '/../../includes/config.php';
 require_once __DIR__ . '/../../includes/db.php';
 
 $user_role = $_SESSION['user_role'] ?? '';
-$tenant_db = $_SESSION['tenant_db'] ?? 'marg_crm';
+$master_db_name = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
+$tenant_db = $_SESSION['tenant_db'] ?? $master_db_name;
 $is_impersonating = !empty($_SESSION['impersonate_tenant_db']);
 
 // Access Security Check: Restricted to System Admin (Super Admin / Admin of Master DB)
-if (!in_array($user_role, ['Super Admin', 'Admin']) || ($tenant_db !== 'marg_crm' && !$is_impersonating)) {
+if (!in_array($user_role, ['Super Admin', 'Admin']) || ($tenant_db !== $master_db_name && !$is_impersonating)) {
     echo "<div class='card p-6 text-center' style='max-width: 500px; margin: 4rem auto; border: 1px solid var(--danger); background: var(--bg-card);'>
         <i data-lucide='shield-alert' style='width: 48px; height: 48px; color: var(--danger); margin: 0 auto 1rem auto;'></i>
         <h3 class='text-lg font-bold mb-2' style='color: var(--danger);'>Access Denied</h3>
@@ -50,8 +51,8 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
         $schemaFile = __DIR__ . '/../../schema.sql';
         if (file_exists($schemaFile)) {
             $sql = file_get_contents($schemaFile);
-            $sql = preg_replace('/CREATE DATABASE IF NOT EXISTS marg_crm;/i', '', $sql);
-            $sql = preg_replace('/USE marg_crm;/i', '', $sql);
+            $sql = preg_replace('/CREATE DATABASE IF NOT EXISTS (marg_crm|[a-zA-Z0-9_]+);/i', '', $sql);
+            $sql = preg_replace('/USE (marg_crm|[a-zA-Z0-9_]+);/i', '', $sql);
             
             $queries = explode(';', $sql);
             foreach ($queries as $q) {
@@ -120,6 +121,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $flash_type = 'danger';
         }
     }
+    // C. Register Already ERP User
+    elseif ($_POST['action'] === 'register_erp_user') {
+        $ownerEmail = trim($_POST['owner_email'] ?? '');
+        $cPhone = trim($_POST['phone'] ?? '');
+        $licenseNo = trim($_POST['marg_license_no'] ?? '');
+        $cName = trim($_POST['company_name'] ?? '');
+        $cPwd = $_POST['password'] ?? 'marg123';
+        $cPlan = $_POST['plan'] ?? 'Silver';
+        
+        if (!empty($ownerEmail) && !empty($licenseNo)) {
+            $codeSlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $licenseNo));
+            if (empty($codeSlug)) $codeSlug = 'erp_' . time();
+            $companyName = !empty($cName) ? $cName : ("ERP License " . $licenseNo);
+            
+            $provRes = provisionNewCrmClient($pdo_master, $codeSlug, $companyName, $companyName, $ownerEmail, $cPhone, $cPlan, $cPwd, 12);
+            if ($provRes['success']) {
+                try {
+                    $stmtUpLic = $pdo_master->prepare("UPDATE tenant_companies SET phone = ? WHERE company_code = ?");
+                    $stmtUpLic->execute([$cPhone, $codeSlug]);
+                } catch (\PDOException $e) {}
+                
+                $flash_msg = "🎉 Marg ERP User registered successfully! Email: {$ownerEmail} | License: {$licenseNo}. Client can now log in and connect Meta WABA!";
+                $flash_type = 'success';
+            } else {
+                $flash_msg = $provRes['message'];
+                $flash_type = 'danger';
+            }
+        } else {
+            $flash_msg = "Please enter Owner Email and Marg ERP License Number.";
+            $flash_type = 'danger';
+        }
+    }
     // B. Edit Client Plan / Expiry / Status
     elseif ($_POST['action'] === 'update_client_status') {
         $tenantId = intval($_POST['tenant_id'] ?? 0);
@@ -176,6 +209,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             } catch (PDOException $e) {
                 $flash_msg = "Error deleting CRM Client: " . $e->getMessage();
+                $flash_type = "danger";
+            }
+        }
+    }
+    // E. Update Client Power & Page Access Permissions
+    elseif ($_POST['action'] === 'update_client_permissions') {
+        $tenantId = intval($_POST['tenant_id'] ?? 0);
+        $modulesArr = isset($_POST['modules']) && is_array($_POST['modules']) ? $_POST['modules'] : [];
+
+        // Auto-sync alias keys for WhatsApp settings and bot flows
+        if (in_array('whatsapp_settings', $modulesArr) && !in_array('merchant_waba_settings', $modulesArr)) {
+            $modulesArr[] = 'merchant_waba_settings';
+        }
+        if (in_array('merchant_waba_settings', $modulesArr) && !in_array('whatsapp_settings', $modulesArr)) {
+            $modulesArr[] = 'whatsapp_settings';
+        }
+        if (in_array('whatsapp_flows', $modulesArr) && !in_array('bot_flows', $modulesArr)) {
+            $modulesArr[] = 'bot_flows';
+        }
+        if (in_array('bot_flows', $modulesArr) && !in_array('whatsapp_flows', $modulesArr)) {
+            $modulesArr[] = 'whatsapp_flows';
+        }
+
+        $modulesJson = json_encode(array_values(array_unique($modulesArr)));
+        
+        if ($tenantId > 0 && isset($pdo_master)) {
+            try {
+                $stmtPerm = $pdo_master->prepare("UPDATE tenant_companies SET allowed_modules = ? WHERE id = ?");
+                $stmtPerm->execute([$modulesJson, $tenantId]);
+
+                // Synchronize with tenant DB user permissions
+                $stmtGetT = $pdo_master->prepare("SELECT * FROM tenant_companies WHERE id = ?");
+                $stmtGetT->execute([$tenantId]);
+                $tComp = $stmtGetT->fetch();
+                if ($tComp && !empty($tComp['db_name'])) {
+                    try {
+                        $tDsn = "mysql:host=$db_host;port=$db_port;dbname={$tComp['db_name']};charset=utf8mb4";
+                        $tPdo = new PDO($tDsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                        $stmtUpdUser = $tPdo->prepare("UPDATE users SET permissions = ? WHERE role = 'Admin'");
+                        $stmtUpdUser->execute([$modulesJson]);
+                    } catch (PDOException $tEx) {
+                        // Tenant DB sync warning ignored
+                    }
+                }
+
+                // Clear session cache so permissions take effect instantly
+                unset($_SESSION['tenant_allowed_modules']);
+                unset($_SESSION['tenant_allowed_db']);
+                unset($_SESSION['user_permissions']);
+
+                $flash_msg = "Client Power & Page Access permissions updated successfully!";
+                $flash_type = "success";
+            } catch (PDOException $e) {
+                $flash_msg = "Error updating permissions: " . $e->getMessage();
                 $flash_type = "danger";
             }
         }
@@ -250,10 +337,16 @@ if (isset($pdo_master)) {
             <h2 style="font-family: var(--font-heading); font-size: 1.75rem; font-weight: 700;" class="mb-1">CRM Clients & SaaS Multi-Tenancy</h2>
             <p class="text-muted text-sm">Provision dedicated CRM accounts, manage client subscription plans, enforce data isolation, and impersonate tenant workspaces.</p>
         </div>
-        <button type="button" class="btn btn-primary text-sm flex align-center gap-2" style="padding: 0.65rem 1.25rem;" onclick="window.openModal('create-crm-client-modal')">
-            <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
-            <span>Register New CRM Client</span>
-        </button>
+        <div class="flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-primary text-sm flex align-center gap-2" style="padding: 0.65rem 1.25rem;" onclick="window.openModal('create-crm-client-modal')">
+                <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
+                <span>Register New CRM Client</span>
+            </button>
+            <button type="button" class="btn btn-success text-sm flex align-center gap-2" style="padding: 0.65rem 1.25rem; background: #10b981; border: none; color: white;" onclick="window.openModal('register-erp-user-modal')">
+                <i data-lucide="user-check" style="width: 16px; height: 16px;"></i>
+                <span>Already ERP User</span>
+            </button>
+        </div>
     </div>
 
     <!-- SaaS KPI Summary Cards -->
@@ -328,6 +421,22 @@ if (isset($pdo_master)) {
                         <?php foreach ($clients as $cl): 
                             $status_class = ($cl['status'] === 'Active') ? 'success' : (($cl['status'] === 'Suspended') ? 'danger' : 'warning');
                             $plan_class = ($cl['plan'] === 'Enterprise') ? 'accent' : (($cl['plan'] === 'Gold') ? 'primary' : 'secondary');
+
+                            $default_all = ["dashboard","leads","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","team_inbox","merchant_waba_settings","whatsapp_settings","whatsapp_flows","bot_flows","broadcast_campaigns","bulk_broadcast","reports","settings"];
+                            $allowed_modules = !empty($cl['allowed_modules']) ? json_decode($cl['allowed_modules'], true) : $default_all;
+                            if (!is_array($allowed_modules)) $allowed_modules = $default_all;
+
+                            // Fetch live stats from tenant DB safely
+                            $tenant_users_cnt = 'N/A';
+                            $tenant_leads_cnt = 'N/A';
+                            try {
+                                $tDsnInst = "mysql:host=$db_host;port=$db_port;dbname={$cl['db_name']};charset=utf8mb4";
+                                $tPdoInst = new PDO($tDsnInst, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                                $tenant_users_cnt = $tPdoInst->query("SELECT COUNT(*) FROM users")->fetchColumn();
+                                $tenant_leads_cnt = $tPdoInst->query("SELECT COUNT(*) FROM leads")->fetchColumn();
+                            } catch (PDOException $ex) {
+                                // DB down or unreadable
+                            }
                         ?>
                             <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td class="p-3">
@@ -348,10 +457,15 @@ if (isset($pdo_master)) {
                                     </div>
                                 </td>
                                 <td class="p-3">
-                                    <span class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted); font-family: monospace;">
-                                        <i data-lucide="database" style="width: 12px; height: 12px; margin-right: 4px;"></i>
-                                        <?php echo htmlspecialchars($cl['db_name']); ?>
-                                    </span>
+                                    <div class="flex flex-col gap-1">
+                                        <span class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted); font-family: monospace;">
+                                            <i data-lucide="database" style="width: 12px; height: 12px; margin-right: 4px;"></i>
+                                            <?php echo htmlspecialchars($cl['db_name']); ?>
+                                        </span>
+                                        <span class="text-xs text-muted" style="font-size: 0.725rem;">
+                                            👥 Users: <strong><?php echo $tenant_users_cnt; ?></strong> | 📊 Leads: <strong><?php echo $tenant_leads_cnt; ?></strong>
+                                        </span>
+                                    </div>
                                 </td>
                                 <td class="p-3">
                                     <span class="badge text-xs" style="--badge-bg: var(--<?php echo $plan_class; ?>-light); --badge-color: var(--<?php echo $plan_class; ?>); font-weight: 700;">
@@ -367,7 +481,16 @@ if (isset($pdo_master)) {
                                     <?php echo !empty($cl['expiry_date']) ? date('M d, Y', strtotime($cl['expiry_date'])) : 'Lifetime'; ?>
                                 </td>
                                 <td class="p-3 text-right">
-                                    <div class="flex align-center justify-end gap-2">
+                                    <div class="flex align-center justify-end gap-2 flex-wrap">
+                                        <!-- Power Access & Page Permissions -->
+                                        <button type="button" 
+                                                class="btn btn-sm btn-cyan text-xs flex align-center gap-1" 
+                                                onclick='openPermissionsModal(<?php echo $cl['id']; ?>, <?php echo json_encode($cl['company_name']); ?>, <?php echo json_encode($allowed_modules); ?>)'
+                                                title="Grant/Revoke Page & Module Permissions">
+                                            <i data-lucide="shield-alert" style="width: 13px; height: 13px;"></i>
+                                            <span>Power Access</span>
+                                        </button>
+
                                         <!-- Impersonate / Login as Client -->
                                         <a href="index.php?action=impersonate_client&db=<?php echo urlencode($cl['db_name']); ?>&company=<?php echo urlencode($cl['company_name']); ?>" 
                                            class="btn btn-sm btn-secondary text-xs flex align-center gap-1" 
@@ -498,6 +621,61 @@ if (isset($pdo_master)) {
     </div>
 </div>
 
+<!-- Modal 2: Register Existing Marg ERP User -->
+<div id="register-erp-user-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 580px;">
+        <div class="modal-header">
+            <h3 class="m-0" style="font-family: var(--font-heading); color: #10b981;">Register Existing Marg ERP User</h3>
+            <button class="btn-icon" onclick="window.closeModal('register-erp-user-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+        </div>
+        <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
+            <input type="hidden" name="action" value="register_erp_user">
+
+            <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">User Email Address *</label>
+                    <input type="email" name="owner_email" class="form-control" placeholder="e.g. client@marguser.com" required>
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Phone Number *</label>
+                    <input type="text" name="phone" class="form-control" placeholder="e.g. 9876543210" required>
+                </div>
+            </div>
+
+            <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Marg ERP License No *</label>
+                    <input type="text" name="marg_license_no" class="form-control" placeholder="e.g. LIC-1114878" required>
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Initial Password *</label>
+                    <input type="text" name="password" class="form-control" value="marg123" required>
+                </div>
+            </div>
+
+            <div class="form-group m-0">
+                <label class="form-label text-xs font-semibold">Firm / Company Name (Optional)</label>
+                <input type="text" name="company_name" class="form-control" placeholder="e.g. POSHAK PATHAK TRADERS">
+            </div>
+
+            <div class="p-3 border-radius-sm" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2);">
+                <span class="text-xs text-muted block">
+                    <i data-lucide="shield-check" style="width: 14px; height: 14px; color: #10b981; vertical-align: middle; margin-right: 4px;"></i>
+                    This registers the existing Marg ERP client in the CRM. Once logged in, the client will immediately get a Meta Embedded Signup modal to connect their WABA account in 1-Click!
+                </span>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-2">
+                <button type="button" class="btn btn-secondary text-xs" onclick="window.closeModal('register-erp-user-modal')">Cancel</button>
+                <button type="submit" class="btn btn-success text-xs flex align-center gap-2" style="background: #10b981; border: none; color: white;">
+                    <i data-lucide="user-check" style="width: 14px; height: 14px;"></i>
+                    <span>Register ERP User & Generate ID</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Modal 2: Edit Plan & Expiry -->
 <div id="edit-client-plan-modal" class="modal-overlay">
     <div class="modal-container" style="max-width: 450px;">
@@ -542,6 +720,78 @@ if (isset($pdo_master)) {
     </div>
 </div>
 
+<!-- Modal 3: Client Power & Page Access Permissions Console -->
+<div id="edit-client-permissions-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 650px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="m-0" style="font-family: var(--font-heading);" id="perm-modal-title">Admin Client Power & Page Permissions</h3>
+                <span class="text-xs text-muted">Enable or disable specific workspace pages & modules for this client</span>
+            </div>
+            <button class="btn-icon" onclick="window.closeModal('edit-client-permissions-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+        </div>
+        <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
+            <input type="hidden" name="action" value="update_client_permissions">
+            <input type="hidden" name="tenant_id" id="perm-tenant-id" value="">
+
+            <div class="flex justify-between align-center p-3 border-radius-sm" style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.2);">
+                <span class="text-xs text-muted flex align-center gap-1">
+                    <i data-lucide="shield-check" style="width: 14px; height: 14px; color: var(--accent-cyan);"></i>
+                    Selected modules will be accessible to all users under this client's isolated database.
+                </span>
+                <div class="flex gap-2">
+                    <button type="button" class="btn btn-secondary text-xs" style="padding: 2px 8px;" onclick="selectAllModules(true)">Select All</button>
+                    <button type="button" class="btn btn-secondary text-xs" style="padding: 2px 8px;" onclick="selectAllModules(false)">Deselect All</button>
+                </div>
+            </div>
+
+            <div class="grid" style="grid-template-columns: repeat(2, 1fr); gap: 0.75rem; max-height: 340px; overflow-y: auto; padding-right: 4px;">
+                <?php 
+                $all_sys_modules = [
+                    'dashboard' => ['name' => 'Workspace Dashboard', 'desc' => 'Overview & Key Performance Indicators'],
+                    'leads' => ['name' => 'Leads Management', 'desc' => 'Directory of Leads & Customer Profiles'],
+                    'pipeline' => ['name' => 'Sales Pipeline Kanban', 'desc' => 'Stage-by-stage Deal Pipeline'],
+                    'followups' => ['name' => 'Follow-up Planner', 'desc' => 'Call Schedules & Reminders'],
+                    'demo' => ['name' => 'Product Demos', 'desc' => 'Live & Online Client Demo Tracker'],
+                    'quotation' => ['name' => 'Quotation & Invoice Builder', 'desc' => 'GST Invoices & PDF Export'],
+                    'payments' => ['name' => 'Payment Tracker', 'desc' => 'Outstanding & Payment Reminders'],
+                    'bank_accounts' => ['name' => 'Bank & QR Details', 'desc' => 'Bank Accounts & Payment QR Code Setup'],
+                    'installation' => ['name' => 'Deployment & Setup', 'desc' => 'On-site & Online Setup Checklist'],
+                    'training' => ['name' => 'Client Staff Training', 'desc' => 'Training Log & Hours Certification'],
+                    'support' => ['name' => 'Support Tickets', 'desc' => 'Customer Issues & Ticketing Desk'],
+                    'renewals' => ['name' => 'License Renewals', 'desc' => 'Expiry Tracker & AMC Reminders'],
+                    'team_inbox' => ['name' => 'Team Inbox & Live Chat', 'desc' => 'Multi-agent Team Chat Inbox'],
+                    'merchant_waba_settings' => ['name' => 'Marg ERP WABA Setup', 'desc' => 'Marg ERP 9+ Webhook Gateway Setup'],
+                    'whatsapp_settings' => ['name' => 'WhatsApp Cloud API', 'desc' => 'Meta API Settings & Embedded Signup'],
+                    'whatsapp_flows' => ['name' => 'WhatsApp Flow Builder', 'desc' => 'Interactive Bot Flow Designer'],
+                    'broadcast_campaigns' => ['name' => 'WhatsApp Campaigns', 'desc' => 'Targeted Audience WhatsApp Broadcasts'],
+                    'bulk_broadcast' => ['name' => 'Bulk Marketing Broadcast', 'desc' => 'Mass CSV/Excel Marketing Broadcasts'],
+                    'reports' => ['name' => 'Reports & Analytics', 'desc' => 'Business Intelligence & CSV Exports'],
+                    'settings' => ['name' => 'Workspace Settings', 'desc' => 'General CRM & Company Preferences']
+                ];
+                foreach ($all_sys_modules as $mod_key => $mod_info):
+                ?>
+                    <label class="flex align-center gap-3 p-3 border-radius-sm cursor-pointer" style="background: var(--bg-body); border: 1px solid var(--border-color); transition: all 0.2s ease;">
+                        <input type="checkbox" name="modules[]" value="<?php echo $mod_key; ?>" class="module-perm-chk" style="width: 16px; height: 16px; accent-color: var(--accent-cyan);">
+                        <div class="flex flex-col">
+                            <span class="text-xs font-bold" style="color: var(--text-main);"><?php echo htmlspecialchars($mod_info['name']); ?></span>
+                            <span class="text-xs text-muted" style="font-size: 0.725rem;"><?php echo htmlspecialchars($mod_info['desc']); ?></span>
+                        </div>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-2">
+                <button type="button" class="btn btn-secondary text-xs" onclick="window.closeModal('edit-client-permissions-modal')">Cancel</button>
+                <button type="submit" class="btn btn-cyan text-xs flex align-center gap-2">
+                    <i data-lucide="save" style="width: 14px; height: 14px;"></i>
+                    <span>Save Power Permissions</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 function openEditPlanModal(tenantId, companyName, plan, status, expiryDate) {
     document.getElementById('edit-tenant-id').value = tenantId;
@@ -550,5 +800,33 @@ function openEditPlanModal(tenantId, companyName, plan, status, expiryDate) {
     document.getElementById('edit-tenant-status').value = status;
     document.getElementById('edit-tenant-expiry').value = expiryDate;
     window.openModal('edit-client-plan-modal');
+}
+
+function openPermissionsModal(tenantId, companyName, allowedModules) {
+    document.getElementById('perm-tenant-id').value = tenantId;
+    document.getElementById('perm-modal-title').textContent = 'Power Permissions: ' + companyName;
+
+    const checkboxes = document.querySelectorAll('.module-perm-chk');
+    checkboxes.forEach(chk => {
+        let val = chk.value;
+        let isChecked = Array.isArray(allowedModules) && allowedModules.includes(val);
+
+        if (!isChecked && Array.isArray(allowedModules)) {
+            if (val === 'whatsapp_settings' && allowedModules.includes('merchant_waba_settings')) isChecked = true;
+            if (val === 'merchant_waba_settings' && allowedModules.includes('whatsapp_settings')) isChecked = true;
+            if (val === 'whatsapp_flows' && allowedModules.includes('bot_flows')) isChecked = true;
+            if (val === 'bot_flows' && allowedModules.includes('whatsapp_flows')) isChecked = true;
+        }
+
+        chk.checked = isChecked;
+    });
+
+    window.openModal('edit-client-permissions-modal');
+}
+
+function selectAllModules(selectState) {
+    document.querySelectorAll('.module-perm-chk').forEach(chk => {
+        chk.checked = selectState;
+    });
 }
 </script>

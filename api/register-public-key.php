@@ -2,7 +2,7 @@
 /**
  * Marg CRM - Register WhatsApp Flow Public Key with Meta Graph API
  * 
- * URL: https://ladder-giver-splendid.ngrok-free.dev/marglead/api/register-public-key.php
+ * URL: https://friendlyaisolution.com/api/register-public-key.php
  * 
  * Performs POST to: https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/whatsapp_business_encryption
  * sending 'business_public_key' from config/public_key.pem.

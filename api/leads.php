@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/cors.php';
 
+$auth = requireApiAuth();
+
 if (!$db_connected || !$pdo) {
     sendJsonResponse(['success' => false, 'message' => 'Database offline.'], 500);
 }

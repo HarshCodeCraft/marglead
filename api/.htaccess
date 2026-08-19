@@ -1,0 +1,13 @@
+# Marg ERP CRM - API Security Configuration
+# Prevent Directory Indexing & File Snooping
+
+Options -Indexes
+
+# Disable Server Signature
+ServerSignature Off
+
+# Deny access to dotfiles
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

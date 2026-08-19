@@ -469,7 +469,7 @@ window.applyQuickDT = function(btn, dateAction, timeStr) {
 window.initEasyDateTimePickers = function() {
     const dtInputs = document.querySelectorAll('input[type="datetime-local"], input[type="date"]');
     dtInputs.forEach(input => {
-        if (input.dataset.quickDtInit === 'true') return;
+        if (input.dataset.quickDtInit === 'true' || input.dataset.noQuick === 'true' || input.classList.contains('no-quick')) return;
         input.dataset.quickDtInit = 'true';
 
         const isDateOnly = (input.type === 'date');

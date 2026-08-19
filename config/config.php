@@ -21,46 +21,28 @@ if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
 }
 
 // -------------------------------------------------------------
-// 1. Environment & Base URL Settings (ngrok / Live domain)
+// 1. Environment & Base URL Settings (Auto-Detects Localhost vs Hostinger Live)
 // -------------------------------------------------------------
-define('NGROK_URL', 'https://ladder-giver-splendid.ngrok-free.dev/marglead');
-define('BASE_URL', rtrim(NGROK_URL, '/') . '/');
+$http_host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$is_local_env = ($http_host === 'localhost' || strpos($http_host, '127.0.0.1') !== false || strpos($http_host, '::1') !== false || strpos($http_host, 'ngrok') !== false);
 
-// -------------------------------------------------------------
-// 2. WhatsApp Cloud API Configuration
-// -------------------------------------------------------------
-// Meta Graph API Version
-define('GRAPH_API_VERSION', 'v20.0');
-
-// Phone Number ID (From Meta WhatsApp Dashboard)
-define('PHONE_NUMBER_ID', getenv('WHATSAPP_PHONE_NUMBER_ID') ?: '1360878153768577');
-
-// WhatsApp Business Account ID (WABA ID)
-define('BUSINESS_ACCOUNT_ID', getenv('WHATSAPP_BUSINESS_ACCOUNT_ID') ?: '1360878153768577');
-
-// Permanent Meta Access Token (User or System User Token)
-define('ACCESS_TOKEN', getenv('WHATSAPP_ACCESS_TOKEN') ?: 'EAAU44LETC4cBSDfBsnKGNrWkNtp8PPjJ3wOX2IlME4XvgtdVZCJzZBKCxLqv0O3XncF6xQ1zSt7uzaiXioCasCC0683qUZAVGf059yCw5YsLDUNRh5DkxZCbhfQTzm09lmB9VvPKuJ7feGc59fzdPilpE99VOcmMOMPY3ZCrFKTfKmPDg3bfAvSN1uohI1sPR3wZDZD');
-
-// Webhook Verification Token (Matches Meta Webhook setup)
-define('VERIFY_TOKEN', getenv('WHATSAPP_VERIFY_TOKEN') ?: 'marglead_whatsapp_token_2026');
-
-// Meta App Secret (Used for HMAC SHA-256 Signature Verification, leave empty if not set)
-define('APP_SECRET', getenv('WHATSAPP_APP_SECRET') ?: '');
-
-// WhatsApp Flow ID (Generated in WhatsApp Business Manager / Flow Builder)
-define('FLOW_ID', getenv('WHATSAPP_FLOW_ID') ?: '1838065533836150');
-
-// Flow Public/Private Key paths (Optional for encrypted Meta Flow endpoints)
-define('FLOW_PRIVATE_KEY_PATH', __DIR__ . '/private_key.pem');
-
-// -------------------------------------------------------------
-// 3. Database Credentials (XAMPP Default)
-// -------------------------------------------------------------
-define('DB_HOST', 'localhost');
-define('DB_PORT', '3307'); // Default XAMPP MySQL port set to 3307 or 3306
-define('DB_NAME', 'marg_crm');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+if ($is_local_env) {
+    define('NGROK_URL', getenv('APP_URL') ?: ('http://' . $http_host . '/marglead'));
+    define('BASE_URL', rtrim(NGROK_URL, '/') . '/');
+    define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+    define('DB_PORT', getenv('DB_PORT') ?: '3307'); // Default XAMPP MySQL port
+    define('DB_NAME', getenv('DB_NAME') ?: 'marg_crm');
+    define('DB_USER', getenv('DB_USER') ?: 'root');
+    define('DB_PASS', getenv('DB_PASS') ?: '');
+} else {
+    define('NGROK_URL', getenv('APP_URL') ?: 'https://friendlyaisolution.com');
+    define('BASE_URL', rtrim(NGROK_URL, '/') . '/');
+    define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+    define('DB_PORT', getenv('DB_PORT') ?: '3306'); // Standard Hostinger MySQL port
+    define('DB_NAME', getenv('DB_NAME') ?: 'u978772385_friendlyaidata');
+    define('DB_USER', getenv('DB_USER') ?: 'u978772385_friendlyaidata');
+    define('DB_PASS', getenv('DB_PASS') ?: '');
+}
 define('DB_CHARSET', 'utf8mb4');
 
 // -------------------------------------------------------------

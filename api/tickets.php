@@ -87,8 +87,8 @@ if ($method === 'GET') {
         $tckId = 'TCK-' . rand(1000, 9999);
         
         $stmt = $pdo->prepare("
-            INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, problem)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, problem, date_created)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ");
         
         $stmt->execute([

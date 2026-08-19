@@ -2,7 +2,7 @@
 /**
  * Marg CRM - WhatsApp Flow Endpoint (Data Exchange & Dynamic Lookup)
  * 
- * URL: https://ladder-giver-splendid.ngrok-free.dev/marglead/api/flow-endpoint.php
+ * URL: https://friendlyaisolution.com/api/flow-endpoint.php
  * 
  * Supports:
  * 1. Meta WhatsApp Flows Encryption/Decryption Protocol (RSA OAEP SHA-256 + AES-128-GCM)
@@ -172,6 +172,90 @@ if ($action === 'ping') {
     ];
 }
 
+// Case B: Ticket Submission / Form Completion
+elseif ($action === 'submit' || $action === 'complete' || $action === 'create_ticket' || !empty($data['problem']) || !empty($data['description']) || !empty($data['c3'])) {
+
+    $licenseNo    = trim($data['license_number'] ?? $data['c1'] ?? 'N/A');
+    $customerName = trim($data['customer_name'] ?? $data['contact_person'] ?? 'Valued Customer');
+    $firmName     = trim($data['firm_name'] ?? $data['company'] ?? 'N/A');
+    $mobile       = trim($data['mobile_number'] ?? $data['callback_number'] ?? $data['c4'] ?? $data['phone'] ?? '');
+    $email        = trim($data['email_address'] ?? 'N/A');
+    $category     = trim($data['issue_category'] ?? $data['subject'] ?? $data['c2'] ?? 'Technical Support');
+    $priority     = trim($data['priority'] ?? 'Medium');
+    $description  = trim($data['description'] ?? $data['problem'] ?? $data['c3'] ?? '');
+    $attachment   = trim($data['attachment'] ?? '');
+
+    // Generate Ticket Number (TK-2026-XXXXXX)
+    $ticketNumber = generate_ticket_number($pdo);
+
+    try {
+        $stmt = $pdo->prepare("INSERT INTO tickets (ticket_number, license_number, firm_name, customer_name, mobile, email, category, priority, description, attachment, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open')");
+        $stmt->execute([
+            $ticketNumber,
+            $licenseNo,
+            $firmName,
+            $customerName,
+            $mobile,
+            $email,
+            $category,
+            $priority,
+            $description,
+            $attachment
+        ]);
+
+        // Sync insert into main support_tickets table
+        try {
+            $subj = (!empty($category) ? $category : 'Technical Support') . ($firmName !== 'N/A' && !empty($firmName) ? " - " . $firmName : "");
+            $stmtSup = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, phone, email, problem, callback_number, lead_id, product, date_created) VALUES (?, ?, ?, ?, 'open', 'Unassigned', ?, ?, ?, ?, ?, 'Marg ERP Pro', NOW())");
+            $stmtSup->execute([
+                $ticketNumber,
+                $customerName,
+                $subj,
+                strtolower($priority),
+                $mobile,
+                ($email !== 'N/A' ? $email : ''),
+                $description,
+                $mobile,
+                $licenseNo
+            ]);
+        } catch (Throwable $eSup) {}
+
+        write_log('flow', "Ticket Created Successfully: $ticketNumber", ['ticket_number' => $ticketNumber, 'mobile' => $mobile]);
+
+        // Send Confirmation WhatsApp Message
+        if (!empty($mobile)) {
+            $whatsapp = new WhatsAppAPI($pdo);
+            $confirmText = "✅ *Ticket Created Successfully*\n\n" .
+                           "*Ticket Number*\n" .
+                           "{$ticketNumber}\n\n" .
+                           "Thank you for contacting Marg Soft Solution.\n\n" .
+                           "Our support engineer will contact you shortly.";
+            $whatsapp->sendText($mobile, $confirmText);
+        }
+
+    } catch (Throwable $e) {
+        write_log('error', "Failed inserting ticket: " . $e->getMessage());
+    }
+
+    $targetSuccessScreen = ($screen === 'REVIEW_SCREEN' || $action === 'create_ticket') ? 'SUCCESS_SCREEN' : 'SUCCESS';
+
+    $responsePayload = [
+        'version' => '3.0',
+        'screen'  => $targetSuccessScreen,
+        'data'    => [
+            'ticket_number' => $ticketNumber,
+            'extension_message_response' => [
+                'params' => [
+                    'flow_token'    => $flowToken,
+                    'ticket_number' => $ticketNumber,
+                    'status'        => 'SUCCESS',
+                    'message'       => 'Ticket Created Successfully'
+                ]
+            ]
+        ]
+    ];
+}
+
 // Case A: Dynamic License Number Lookup (data_exchange / license_lookup)
 elseif ($action === 'data_exchange' || $action === 'license_lookup' || isset($data['license_number']) || isset($data['license_no'])) {
     
@@ -233,73 +317,6 @@ elseif ($action === 'data_exchange' || $action === 'license_lookup' || isset($da
     }
 
     write_log('flow', "License Lookup Response for '$licenseNo'", $responsePayload);
-}
-
-// Case B: Ticket Submission
-elseif ($action === 'submit' || $action === 'create_ticket' || isset($data['problem']) || isset($data['description']) || isset($data['c3'])) {
-
-    $licenseNo    = trim($data['license_number'] ?? $data['c1'] ?? 'N/A');
-    $customerName = trim($data['customer_name'] ?? $data['contact_person'] ?? 'Valued Customer');
-    $firmName     = trim($data['firm_name'] ?? $data['company'] ?? 'N/A');
-    $mobile       = trim($data['mobile_number'] ?? $data['callback_number'] ?? $data['c4'] ?? $data['phone'] ?? '');
-    $email        = trim($data['email_address'] ?? 'N/A');
-    $category     = trim($data['issue_category'] ?? $data['subject'] ?? $data['c2'] ?? 'Technical Support');
-    $priority     = trim($data['priority'] ?? 'Medium');
-    $description  = trim($data['description'] ?? $data['problem'] ?? $data['c3'] ?? '');
-    $attachment   = trim($data['attachment'] ?? '');
-
-    // Generate Ticket Number (TK-2026-XXXXXX)
-    $ticketNumber = generate_ticket_number($pdo);
-
-    try {
-        $stmt = $pdo->prepare("INSERT INTO tickets (ticket_number, license_number, firm_name, customer_name, mobile, email, category, priority, description, attachment, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open')");
-        $stmt->execute([
-            $ticketNumber,
-            $licenseNo,
-            $firmName,
-            $customerName,
-            $mobile,
-            $email,
-            $category,
-            $priority,
-            $description,
-            $attachment
-        ]);
-
-        write_log('flow', "Ticket Created Successfully: $ticketNumber", ['ticket_number' => $ticketNumber, 'mobile' => $mobile]);
-
-        // Send Confirmation WhatsApp Message
-        if (!empty($mobile)) {
-            $whatsapp = new WhatsAppAPI($pdo);
-            $confirmText = "✅ *Ticket Created Successfully*\n\n" .
-                           "*Ticket Number*\n" .
-                           "{$ticketNumber}\n\n" .
-                           "Thank you for contacting ABC Software.\n\n" .
-                           "Our support engineer will contact you shortly.";
-            $whatsapp->sendText($mobile, $confirmText);
-        }
-
-    } catch (Throwable $e) {
-        write_log('error', "Failed inserting ticket: " . $e->getMessage());
-    }
-
-    $targetSuccessScreen = ($screen === 'REVIEW_SCREEN' || $action === 'create_ticket') ? 'SUCCESS_SCREEN' : 'SUCCESS';
-
-    $responsePayload = [
-        'version' => '3.0',
-        'screen'  => $targetSuccessScreen,
-        'data'    => [
-            'ticket_number' => $ticketNumber,
-            'extension_message_response' => [
-                'params' => [
-                    'flow_token'    => $flowToken,
-                    'ticket_number' => $ticketNumber,
-                    'status'        => 'SUCCESS',
-                    'message'       => 'Ticket Created Successfully'
-                ]
-            ]
-        ]
-    ];
 } else {
     $responsePayload = [
         'version' => '3.0',

@@ -475,164 +475,227 @@ if ($db_connected && $pdo) {
 
     <!-- Analytical KPI Summary Cards (for User-wise reports) -->
     <?php if (in_array($report_type, ['user_leads', 'user_tickets', 'user_demos', 'user_followups', 'user_installations'])): ?>
-    <div class="grid grid-cols-4 gap-4 mb-6 print-hidden">
-        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-            <div class="text-xs text-muted font-bold uppercase mb-1">Total Records</div>
-            <div class="text-2xl font-bold text-main"><?php echo number_format($kpi['total_count']); ?></div>
-            <div class="text-xs text-muted mt-1">In selected timeframe</div>
-        </div>
-        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-            <div class="text-xs text-muted font-bold uppercase mb-1">
-                <?php 
-                if ($report_type === 'user_tickets') echo 'Resolved Tickets';
-                elseif ($report_type === 'user_leads') echo 'Closed Won Leads';
-                elseif ($report_type === 'user_demos') echo 'Completed Demos';
-                elseif ($report_type === 'user_followups') echo 'Completed Follow-ups';
-                elseif ($report_type === 'user_installations') echo 'Completed Deployments';
-                ?>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;" class="print-hidden">
+        
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <div class="text-xs text-muted font-bold uppercase mb-1">Total Records</div>
+                <div class="text-2xl font-bold text-main" style="font-size: 1.65rem; font-family: var(--font-heading);"><?php echo number_format($kpi['total_count']); ?></div>
+                <div class="text-xs text-muted mt-1">In selected timeframe</div>
             </div>
-            <div class="text-2xl font-bold text-success"><?php echo number_format($kpi['positive_count']); ?></div>
-            <div class="text-xs text-success mt-1">Success / Done count</div>
-        </div>
-        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-            <div class="text-xs text-muted font-bold uppercase mb-1">
-                <?php 
-                if ($report_type === 'user_tickets') echo 'Open / In-Progress';
-                elseif ($report_type === 'user_leads') echo 'Active Pipeline Leads';
-                elseif ($report_type === 'user_demos') echo 'Scheduled Demos';
-                elseif ($report_type === 'user_followups') echo 'Pending Follow-ups';
-                elseif ($report_type === 'user_installations') echo 'In-Progress / Scheduled';
-                ?>
-            </div>
-            <div class="text-2xl font-bold text-warning"><?php echo number_format($kpi['pending_count']); ?></div>
-            <div class="text-xs text-warning mt-1">Action required</div>
-        </div>
-        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-            <div class="text-xs text-muted font-bold uppercase mb-1">
-                <?php 
-                if ($report_type === 'user_leads') echo 'Pipeline Value / Conv. Rate';
-                elseif ($report_type === 'user_demos') echo 'Avg Client Rating';
-                else echo 'Completion Rate';
-                ?>
-            </div>
-            <div class="text-2xl font-bold text-primary">
-                <?php 
-                if ($report_type === 'user_leads') {
-                    echo '₹' . number_format($kpi['financial_sum'], 0);
-                } elseif ($report_type === 'user_demos' && $kpi['financial_sum'] > 0) {
-                    echo $kpi['financial_sum'] . ' / 5.0 ⭐';
-                } else {
-                    echo $kpi['rate_pct'] . '%';
-                }
-                ?>
-            </div>
-            <div class="text-xs text-muted mt-1">
-                <?php echo ($report_type === 'user_leads') ? 'Success Rate: ' . $kpi['rate_pct'] . '%' : 'Overall Efficiency'; ?>
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(99,102,241,0.12); color: #6366f1; display: flex; align-items: center; justify-content: justify-content: center; align-items: center;">
+                <i data-lucide="layers" style="width: 22px; height: 22px; margin: auto;"></i>
             </div>
         </div>
+
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <div class="text-xs text-muted font-bold uppercase mb-1">
+                    <?php 
+                    if ($report_type === 'user_tickets') echo 'Resolved Tickets';
+                    elseif ($report_type === 'user_leads') echo 'Closed Won Leads';
+                    elseif ($report_type === 'user_demos') echo 'Completed Demos';
+                    elseif ($report_type === 'user_followups') echo 'Completed Follow-ups';
+                    elseif ($report_type === 'user_installations') echo 'Completed Deployments';
+                    ?>
+                </div>
+                <div class="text-2xl font-bold text-success" style="font-size: 1.65rem; font-family: var(--font-heading);"><?php echo number_format($kpi['positive_count']); ?></div>
+                <div class="text-xs text-success mt-1">Success / Done count</div>
+            </div>
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(16,185,129,0.12); color: #10b981; display: flex; align-items: center; justify-content: center;">
+                <i data-lucide="check-circle-2" style="width: 22px; height: 22px; margin: auto;"></i>
+            </div>
+        </div>
+
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <div class="text-xs text-muted font-bold uppercase mb-1">
+                    <?php 
+                    if ($report_type === 'user_tickets') echo 'Open / In-Progress';
+                    elseif ($report_type === 'user_leads') echo 'Active Pipeline Leads';
+                    elseif ($report_type === 'user_demos') echo 'Scheduled Demos';
+                    elseif ($report_type === 'user_followups') echo 'Pending Follow-ups';
+                    elseif ($report_type === 'user_installations') echo 'In-Progress / Scheduled';
+                    ?>
+                </div>
+                <div class="text-2xl font-bold text-warning" style="font-size: 1.65rem; font-family: var(--font-heading);"><?php echo number_format($kpi['pending_count']); ?></div>
+                <div class="text-xs text-warning mt-1">Action required</div>
+            </div>
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(245,158,11,0.12); color: #f59e0b; display: flex; align-items: center; justify-content: center;">
+                <i data-lucide="clock" style="width: 22px; height: 22px; margin: auto;"></i>
+            </div>
+        </div>
+
+        <div class="card p-4" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <div class="text-xs text-muted font-bold uppercase mb-1">
+                    <?php 
+                    if ($report_type === 'user_leads') echo 'Pipeline Value / Conv.';
+                    elseif ($report_type === 'user_demos') echo 'Avg Client Rating';
+                    else echo 'Completion Rate';
+                    ?>
+                </div>
+                <div class="text-2xl font-bold text-primary" style="font-size: 1.5rem; font-family: var(--font-heading);">
+                    <?php 
+                    if ($report_type === 'user_leads') {
+                        echo '₹' . number_format($kpi['financial_sum'], 0);
+                    } elseif ($report_type === 'user_demos' && $kpi['financial_sum'] > 0) {
+                        echo $kpi['financial_sum'] . ' / 5.0 ⭐';
+                    } else {
+                        echo $kpi['rate_pct'] . '%';
+                    }
+                    ?>
+                </div>
+                <div class="text-xs text-muted mt-1">
+                    <?php echo ($report_type === 'user_leads') ? 'Success Rate: ' . $kpi['rate_pct'] . '%' : 'Overall Efficiency'; ?>
+                </div>
+            </div>
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(6,182,212,0.12); color: #06b6d4; display: flex; align-items: center; justify-content: center;">
+                <i data-lucide="trending-up" style="width: 22px; height: 22px; margin: auto;"></i>
+            </div>
+        </div>
+
     </div>
     <?php endif; ?>
 
+<style>
+.reports-container .quick-dt-presets-container,
+.reports-container .quick-dt-label,
+.reports-container .quick-dt-chip {
+    display: none !important;
+}
+.report-query-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+}
+.report-query-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr 0.9fr 0.9fr 1.1fr;
+    gap: 0.85rem;
+    align-items: end;
+}
+@media (max-width: 1200px) {
+    .report-query-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+@media (max-width: 640px) {
+    .report-query-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
     <!-- Dynamic Query Filters Control Card -->
-    <div class="card p-6 mb-6 print-hidden" style="border: 1px solid var(--border-color); background-color: var(--bg-card);">
-        <div class="flex justify-between align-center mb-4">
-            <h3 class="text-xs text-muted font-bold uppercase m-0" style="color: var(--primary); letter-spacing: 0.05em;">Report Query Parameters</h3>
+    <div class="report-query-card print-hidden">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h3 class="text-xs text-muted font-bold uppercase m-0 flex align-center gap-2" style="color: var(--primary); letter-spacing: 0.05em;">
+                <i data-lucide="filter" style="width: 14px; height: 14px;"></i>
+                <span>Report Query Parameters</span>
+            </h3>
             <!-- Quick Date Range Shortcuts -->
-            <div class="flex gap-1" style="font-size: 0.75rem;">
-                <span class="text-muted mr-1">Quick Dates:</span>
-                <button type="button" onclick="setDateRange('today')" class="btn btn-secondary py-1 px-2 text-xs">Today</button>
-                <button type="button" onclick="setDateRange('yesterday')" class="btn btn-secondary py-1 px-2 text-xs">Yesterday</button>
-                <button type="button" onclick="setDateRange('this_week')" class="btn btn-secondary py-1 px-2 text-xs">This Week</button>
-                <button type="button" onclick="setDateRange('this_month')" class="btn btn-secondary py-1 px-2 text-xs">This Month</button>
-                <button type="button" onclick="setDateRange('last_30')" class="btn btn-secondary py-1 px-2 text-xs">Last 30 Days</button>
+            <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; flex-wrap: wrap;">
+                <span class="text-muted mr-1 font-semibold">Quick Range:</span>
+                <button type="button" onclick="setDateRange('today')" class="btn-pill btn-pill-outline text-xs" style="padding: 0.25rem 0.65rem;">Today</button>
+                <button type="button" onclick="setDateRange('yesterday')" class="btn-pill btn-pill-outline text-xs" style="padding: 0.25rem 0.65rem;">Yesterday</button>
+                <button type="button" onclick="setDateRange('this_week')" class="btn-pill btn-pill-outline text-xs" style="padding: 0.25rem 0.65rem;">This Week</button>
+                <button type="button" onclick="setDateRange('this_month')" class="btn-pill btn-pill-outline text-xs" style="padding: 0.25rem 0.65rem;">This Month</button>
+                <button type="button" onclick="setDateRange('last_30')" class="btn-pill btn-pill-outline text-xs" style="padding: 0.25rem 0.65rem;">Last 30 Days</button>
             </div>
         </div>
 
-        <form id="reportFilterForm" class="grid" style="grid-template-columns: repeat(5, 1fr); gap: 0.75rem;" action="index.php" method="GET">
+        <form id="reportFilterForm" action="index.php" method="GET">
             <input type="hidden" name="page" value="admin_reports">
             
-            <!-- Category -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Report Category</label>
-                <select name="type" class="form-control text-xs font-semibold" onchange="this.form.submit()">
-                    <optgroup label="User & Employee Activity Reports">
-                        <option value="user_leads" <?php echo $report_type === 'user_leads' ? 'selected' : ''; ?>>👤 User-Wise & Date-Wise Leads</option>
-                        <option value="user_tickets" <?php echo $report_type === 'user_tickets' ? 'selected' : ''; ?>>🎫 User-Wise Support Tickets</option>
-                        <option value="user_demos" <?php echo $report_type === 'user_demos' ? 'selected' : ''; ?>>💻 User-Wise Scheduled Demos</option>
-                        <option value="user_followups" <?php echo $report_type === 'user_followups' ? 'selected' : ''; ?>>📞 User-Wise Follow-Up Logs</option>
-                        <option value="user_installations" <?php echo $report_type === 'user_installations' ? 'selected' : ''; ?>>🛠️ User-Wise Deployments</option>
-                    </optgroup>
-                    <optgroup label="Business Intelligence & Analytics">
-                        <option value="conversions" <?php echo $report_type === 'conversions' ? 'selected' : ''; ?>>Lead Conversions by Source</option>
-                        <option value="performance" <?php echo $report_type === 'performance' ? 'selected' : ''; ?>>Employee Conversion Matrix</option>
-                        <option value="sales" <?php echo $report_type === 'sales' ? 'selected' : ''; ?>>Weekly Sales & Collections</option>
-                        <option value="renewals" <?php echo $report_type === 'renewals' ? 'selected' : ''; ?>>Renewals & Grace Forecasts</option>
-                    </optgroup>
-                </select>
-            </div>
+            <div class="report-query-grid">
+                <!-- Category -->
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold mb-1">Report Category</label>
+                    <select name="type" class="form-control text-xs font-semibold" onchange="this.form.submit()" style="height: 38px;">
+                        <optgroup label="User & Employee Activity Reports">
+                            <option value="user_leads" <?php echo $report_type === 'user_leads' ? 'selected' : ''; ?>>👤 User-Wise Leads</option>
+                            <option value="user_tickets" <?php echo $report_type === 'user_tickets' ? 'selected' : ''; ?>>🎫 User-Wise Support Tickets</option>
+                            <option value="user_demos" <?php echo $report_type === 'user_demos' ? 'selected' : ''; ?>>💻 User-Wise Scheduled Demos</option>
+                            <option value="user_followups" <?php echo $report_type === 'user_followups' ? 'selected' : ''; ?>>📞 User-Wise Follow-Up Logs</option>
+                            <option value="user_installations" <?php echo $report_type === 'user_installations' ? 'selected' : ''; ?>>🛠️ User-Wise Deployments</option>
+                        </optgroup>
+                        <optgroup label="Business Intelligence & Analytics">
+                            <option value="conversions" <?php echo $report_type === 'conversions' ? 'selected' : ''; ?>>Lead Conversions by Source</option>
+                            <option value="performance" <?php echo $report_type === 'performance' ? 'selected' : ''; ?>>Employee Conversion Matrix</option>
+                            <option value="sales" <?php echo $report_type === 'sales' ? 'selected' : ''; ?>>Weekly Sales & Collections</option>
+                            <option value="renewals" <?php echo $report_type === 'renewals' ? 'selected' : ''; ?>>Renewals & Grace Forecasts</option>
+                        </optgroup>
+                    </select>
+                </div>
 
-            <!-- User Selector -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Target User / Engineer</label>
-                <select name="user" class="form-control text-xs font-semibold">
-                    <option value="all" <?php echo $selected_user === 'all' ? 'selected' : ''; ?>>-- All Users & Staff --</option>
-                    <?php foreach ($system_users as $uname => $urole): ?>
-                        <option value="<?php echo htmlspecialchars($uname); ?>" <?php echo $selected_user === $uname ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($uname) . ' (' . htmlspecialchars($urole) . ')'; ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+                <!-- User Selector -->
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold mb-1">Target User / Staff</label>
+                    <select name="user" class="form-control text-xs font-semibold" style="height: 38px;">
+                        <option value="all" <?php echo $selected_user === 'all' ? 'selected' : ''; ?>>-- All Users & Staff --</option>
+                        <?php foreach ($system_users as $uname => $urole): ?>
+                            <option value="<?php echo htmlspecialchars($uname); ?>" <?php echo $selected_user === $uname ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($uname) . ' (' . htmlspecialchars($urole) . ')'; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
 
-            <!-- Status Selector -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Status Filter</label>
-                <select name="status" class="form-control text-xs">
-                    <option value="all" <?php echo $status_filter === 'all' ? 'selected' : ''; ?>>-- All Statuses --</option>
-                    <?php if ($report_type === 'user_tickets'): ?>
-                        <option value="open" <?php echo $status_filter === 'open' ? 'selected' : ''; ?>>Open</option>
-                        <option value="in_progress" <?php echo $status_filter === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
-                        <option value="resolved" <?php echo $status_filter === 'resolved' ? 'selected' : ''; ?>>Resolved</option>
-                    <?php elseif ($report_type === 'user_demos'): ?>
-                        <option value="scheduled" <?php echo $status_filter === 'scheduled' ? 'selected' : ''; ?>>Scheduled</option>
-                        <option value="completed" <?php echo $status_filter === 'completed' ? 'selected' : ''; ?>>Completed</option>
-                        <option value="cancelled" <?php echo $status_filter === 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
-                    <?php elseif ($report_type === 'user_followups'): ?>
-                        <option value="pending" <?php echo $status_filter === 'pending' ? 'selected' : ''; ?>>Pending</option>
-                        <option value="completed" <?php echo $status_filter === 'completed' ? 'selected' : ''; ?>>Completed</option>
-                        <option value="missed" <?php echo $status_filter === 'missed' ? 'selected' : ''; ?>>Missed</option>
-                    <?php elseif ($report_type === 'user_installations'): ?>
-                        <option value="assigned" <?php echo $status_filter === 'assigned' ? 'selected' : ''; ?>>Assigned</option>
-                        <option value="in_progress" <?php echo $status_filter === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
-                        <option value="completed" <?php echo $status_filter === 'completed' ? 'selected' : ''; ?>>Completed</option>
-                    <?php else: ?>
-                        <option value="new" <?php echo $status_filter === 'new' ? 'selected' : ''; ?>>New Lead</option>
-                        <option value="contacted" <?php echo $status_filter === 'contacted' ? 'selected' : ''; ?>>Contacted</option>
-                        <option value="interested" <?php echo $status_filter === 'interested' ? 'selected' : ''; ?>>Interested</option>
-                        <option value="quotation_sent" <?php echo $status_filter === 'quotation_sent' ? 'selected' : ''; ?>>Quotation Sent</option>
-                        <option value="payment_pending" <?php echo $status_filter === 'payment_pending' ? 'selected' : ''; ?>>Payment Pending</option>
-                        <option value="install_pending" <?php echo $status_filter === 'install_pending' ? 'selected' : ''; ?>>Install Pending</option>
-                        <option value="won" <?php echo $status_filter === 'won' ? 'selected' : ''; ?>>Closed Won</option>
-                        <option value="lost" <?php echo $status_filter === 'lost' ? 'selected' : ''; ?>>Closed Lost</option>
-                    <?php endif; ?>
-                </select>
-            </div>
+                <!-- Status Selector -->
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold mb-1">Status Filter</label>
+                    <select name="status" class="form-control text-xs" style="height: 38px;">
+                        <option value="all" <?php echo $status_filter === 'all' ? 'selected' : ''; ?>>-- All Statuses --</option>
+                        <?php if ($report_type === 'user_tickets'): ?>
+                            <option value="open" <?php echo $status_filter === 'open' ? 'selected' : ''; ?>>Open</option>
+                            <option value="in_progress" <?php echo $status_filter === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
+                            <option value="resolved" <?php echo $status_filter === 'resolved' ? 'selected' : ''; ?>>Resolved</option>
+                        <?php elseif ($report_type === 'user_demos'): ?>
+                            <option value="scheduled" <?php echo $status_filter === 'scheduled' ? 'selected' : ''; ?>>Scheduled</option>
+                            <option value="completed" <?php echo $status_filter === 'completed' ? 'selected' : ''; ?>>Completed</option>
+                            <option value="cancelled" <?php echo $status_filter === 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
+                        <?php elseif ($report_type === 'user_followups'): ?>
+                            <option value="pending" <?php echo $status_filter === 'pending' ? 'selected' : ''; ?>>Pending</option>
+                            <option value="completed" <?php echo $status_filter === 'completed' ? 'selected' : ''; ?>>Completed</option>
+                            <option value="missed" <?php echo $status_filter === 'missed' ? 'selected' : ''; ?>>Missed</option>
+                        <?php elseif ($report_type === 'user_installations'): ?>
+                            <option value="assigned" <?php echo $status_filter === 'assigned' ? 'selected' : ''; ?>>Assigned</option>
+                            <option value="in_progress" <?php echo $status_filter === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
+                            <option value="completed" <?php echo $status_filter === 'completed' ? 'selected' : ''; ?>>Completed</option>
+                        <?php else: ?>
+                            <option value="new" <?php echo $status_filter === 'new' ? 'selected' : ''; ?>>New Lead</option>
+                            <option value="contacted" <?php echo $status_filter === 'contacted' ? 'selected' : ''; ?>>Contacted</option>
+                            <option value="interested" <?php echo $status_filter === 'interested' ? 'selected' : ''; ?>>Interested</option>
+                            <option value="quotation_sent" <?php echo $status_filter === 'quotation_sent' ? 'selected' : ''; ?>>Quotation Sent</option>
+                            <option value="payment_pending" <?php echo $status_filter === 'payment_pending' ? 'selected' : ''; ?>>Payment Pending</option>
+                            <option value="install_pending" <?php echo $status_filter === 'install_pending' ? 'selected' : ''; ?>>Install Pending</option>
+                            <option value="won" <?php echo $status_filter === 'won' ? 'selected' : ''; ?>>Closed Won</option>
+                            <option value="lost" <?php echo $status_filter === 'lost' ? 'selected' : ''; ?>>Closed Lost</option>
+                        <?php endif; ?>
+                    </select>
+                </div>
 
-            <!-- Date Pickers -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">From Date</label>
-                <input type="date" id="from_date_input" name="from" class="form-control text-xs" value="<?php echo $from_date; ?>">
-            </div>
-            <div class="form-group m-0">
-                <label class="form-label text-xs">To Date</label>
-                <input type="date" id="to_date_input" name="to" class="form-control text-xs" value="<?php echo $to_date; ?>">
-            </div>
+                <!-- Date Pickers -->
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold mb-1">From Date</label>
+                    <input type="date" id="from_date_input" name="from" class="form-control text-xs no-quick" data-no-quick="true" value="<?php echo $from_date; ?>" style="height: 38px;">
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold mb-1">To Date</label>
+                    <input type="date" id="to_date_input" name="to" class="form-control text-xs no-quick" data-no-quick="true" value="<?php echo $to_date; ?>" style="height: 38px;">
+                </div>
 
-            <div class="form-group m-0" style="grid-column: span 5; display: flex; justify-content: flex-end; margin-top: 0.5rem;">
-                <button type="submit" class="btn btn-primary text-xs font-semibold px-6" style="height: 38px;">
-                    <i data-lucide="filter" style="width: 14px; height: 14px; margin-right: 0.25rem; display: inline; vertical-align: middle;"></i>
-                    <span>Apply Filter & Generate Report</span>
-                </button>
+                <!-- Submit Button Inline -->
+                <div class="form-group m-0">
+                    <button type="submit" class="btn btn-primary text-xs font-bold w-full" style="height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; border-radius: 8px;">
+                        <i data-lucide="filter" style="width: 14px; height: 14px;"></i>
+                        <span>Apply Filter</span>
+                    </button>
+                </div>
             </div>
         </form>
     </div>

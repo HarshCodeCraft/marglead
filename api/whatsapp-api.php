@@ -402,8 +402,12 @@ class WhatsAppAPI {
     /**
      * Create a new Flow directly inside Meta WABA account via Graph API
      */
-    public function createMetaFlow(string $name, array $categories = ['CUSTOMER_SUPPORT']): array {
-        $wabaId = defined('WABA_ID') ? WABA_ID : '1838065533836150';
+    public function createMetaFlow(string $name, array $categories = ['OTHER']): array {
+        $stmtWaba = $this->pdo->query("SELECT waba_id, access_token FROM merchant_waba_settings WHERE waba_id != '' LIMIT 1");
+        $wabaRow = $stmtWaba ? $stmtWaba->fetch(PDO::FETCH_ASSOC) : null;
+        $wabaId = !empty($wabaRow['waba_id']) ? $wabaRow['waba_id'] : '1591494139287387';
+        $token = !empty($wabaRow['access_token']) ? $wabaRow['access_token'] : $this->accessToken;
+
         $url = "https://graph.facebook.com/{$this->graphVersion}/{$wabaId}/flows";
         $payload = [
             'name' => $name,
@@ -412,7 +416,7 @@ class WhatsAppAPI {
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Bearer ' . $this->accessToken,
+            'Authorization: Bearer ' . $token,
             'Content-Type: application/json'
         ]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -452,6 +456,90 @@ class WhatsAppAPI {
         $resData = json_decode($response, true) ?? [];
         return [
             'success' => ($httpCode >= 200 && $httpCode < 300 && !empty($resData['success'])),
+            'response' => $resData
+        ];
+    }
+
+    /**
+     * Submit Message Template directly to Meta Graph API for Approval
+     */
+    public function createMetaTemplate(string $wabaId, string $name, string $category, string $bodyText, string $language = 'en_US', ?string $headerText = null, ?string $footerText = null): array {
+        $url = "https://graph.facebook.com/{$this->graphVersion}/{$wabaId}/message_templates";
+        
+        $categoryMap = [
+            'MARKETING' => 'MARKETING',
+            'UTILITY' => 'UTILITY',
+            'AUTHENTICATION' => 'AUTHENTICATION'
+        ];
+        $metaCategory = $categoryMap[strtoupper($category)] ?? 'MARKETING';
+
+        // Auto-convert human placeholder tags {name}, {company}, {amount} to Meta variables {{1}}, {{2}}...
+        $paramCount = 1;
+        $formattedBody = preg_replace_callback('/\{[a-zA-Z0-9_]+\}/', function($m) use (&$paramCount) {
+            return '{{' . ($paramCount++) . '}}';
+        }, $bodyText);
+
+        $components = [];
+        if (!empty($headerText)) {
+            $components[] = [
+                'type' => 'HEADER',
+                'format' => 'TEXT',
+                'text' => $headerText
+            ];
+        }
+        
+        $bodyComp = [
+            'type' => 'BODY',
+            'text' => $formattedBody
+        ];
+
+        // Meta requires mandatory example object if variables are present in body
+        preg_match_all('/\{\{(\d+)\}\}/', $formattedBody, $matches);
+        if (!empty($matches[1])) {
+            $sampleVars = [];
+            $sampleValues = ['Customer Name', 'Marg ERP Software', 'Rs 1500', '31-Aug-2026', 'Sales Team'];
+            foreach ($matches[1] as $idx => $num) {
+                $sampleVars[] = $sampleValues[$idx % count($sampleValues)];
+            }
+            $bodyComp['example'] = [
+                'body_text' => [$sampleVars]
+            ];
+        }
+
+        $components[] = $bodyComp;
+        
+        if (!empty($footerText)) {
+            $components[] = [
+                'type' => 'FOOTER',
+                'text' => $footerText
+            ];
+        }
+
+        $payload = [
+            'name' => strtolower($name),
+            'category' => $metaCategory,
+            'language' => $language,
+            'components' => $components
+        ];
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $this->accessToken,
+            'Content-Type: application/json'
+        ]);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $resData = json_decode($response, true) ?? [];
+        return [
+            'success' => ($httpCode >= 200 && $httpCode < 300 && (!empty($resData['id']) || !empty($resData['status']))),
+            'template_id' => $resData['id'] ?? null,
+            'status' => $resData['status'] ?? 'PENDING',
             'response' => $resData
         ];
     }
