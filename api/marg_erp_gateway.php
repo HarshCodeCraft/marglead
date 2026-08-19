@@ -355,7 +355,7 @@ $helpline       = $parsedData['helpline'];
 
 // Handle Marg ERP Direct GUI PDF File Uploads or Local PDF File Copies
 $pdfDownloadUrl = null;
-$baseUrl = defined('NGROK_URL') ? rtrim(NGROK_URL, '/') : ('http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/MARGLEAD');
+$baseUrl = defined('BASE_URL') ? rtrim(BASE_URL, '/') : (defined('NGROK_URL') ? rtrim(NGROK_URL, '/') : ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost')));
 $uploadsDir = __DIR__ . '/../uploads/invoices/';
 
 if (!is_dir($uploadsDir)) {
