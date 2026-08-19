@@ -400,8 +400,15 @@ if (!empty($search_query)) {
 }
 
 if (!empty($status_filter)) {
-    $where_conditions[] = "LOWER(status) = ?";
-    $query_params[] = strtolower($status_filter);
+    $stVal = strtolower($status_filter);
+    if ($stVal === 'resolved' || $stVal === 'closed') {
+        $where_conditions[] = "LOWER(status) IN ('resolved', 'closed')";
+    } elseif ($stVal === 'pending' || $stVal === 'in_progress') {
+        $where_conditions[] = "LOWER(status) IN ('in_progress', 'pending')";
+    } else {
+        $where_conditions[] = "LOWER(status) = ?";
+        $query_params[] = $stVal;
+    }
 }
 
 if (!empty($product_filter)) {
@@ -518,7 +525,7 @@ foreach ($tickets as $t) {
 
     <!-- KPI Summary Row -->
     <div class="grid grid-4 gap-4 mb-6">
-        <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
+        <a href="index.php?page=support&status=open" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'open') ? 'var(--primary)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'open') ? 'translateY(-2px)' : 'none'; ?>;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <i data-lucide="ticket" style="width: 24px; height: 24px;"></i>
             </div>
@@ -526,19 +533,19 @@ foreach ($tickets as $t) {
                 <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Open Queue</span>
                 <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--text-main);"><?php echo number_format($openCount); ?></span>
             </div>
-        </div>
+        </a>
 
-        <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
+        <a href="index.php?page=support&status=in_progress" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'var(--warning)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'translateY(-2px)' : 'none'; ?>;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--warning-light); color: var(--warning); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <i data-lucide="clock" style="width: 24px; height: 24px;"></i>
             </div>
             <div class="flex flex-col">
-                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">In Progress</span>
+                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">In Progress / Pending</span>
                 <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--warning);"><?php echo number_format($inProgressCount); ?></span>
             </div>
-        </div>
+        </a>
 
-        <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
+        <a href="index.php?page=support&priority=critical" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($priority_filter === 'critical') ? 'var(--danger)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($priority_filter === 'critical') ? 'translateY(-2px)' : 'none'; ?>;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--danger-light); color: var(--danger); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <i data-lucide="alert-triangle" style="width: 24px; height: 24px;"></i>
             </div>
@@ -546,9 +553,9 @@ foreach ($tickets as $t) {
                 <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Critical Priority</span>
                 <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--danger);"><?php echo number_format($criticalCount); ?></span>
             </div>
-        </div>
+        </a>
 
-        <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
+        <a href="index.php?page=support&status=resolved" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'var(--success)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'translateY(-2px)' : 'none'; ?>;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--success-light); color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <i data-lucide="check-circle-2" style="width: 24px; height: 24px;"></i>
             </div>
@@ -556,7 +563,7 @@ foreach ($tickets as $t) {
                 <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Resolved / Closed</span>
                 <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--success);"><?php echo number_format($resolvedCount); ?></span>
             </div>
-        </div>
+        </a>
     </div>
 
     <!-- Search & Filters Bar -->

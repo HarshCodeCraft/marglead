@@ -33,6 +33,11 @@ $closedWon = 0;
 $closedLost = 0;
 $renewalsDue = 0;
 
+$totalTickets = 0;
+$openTickets = 0;
+$pendingTickets = 0;
+$resolvedTickets = 0;
+
 // Default chart baselines (fallbacks)
 $leads_baseline = array_fill(0, 12, 0);
 $sales_baseline = array_fill(0, 12, 0);
@@ -78,6 +83,11 @@ if ($db_connected && $pdo) {
             $closedWon = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(status) IN ('won', 'closed_won', 'install_pending', 'payment_pending')")->fetchColumn();
             $closedLost = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(status) IN ('lost', 'closed_lost')")->fetchColumn();
             $renewalsDue = $pdo->query("SELECT COUNT(*) FROM renewals WHERE expiry_date <= DATE_ADD(CURRENT_DATE(), INTERVAL 30 DAY)")->fetchColumn();
+
+            $totalTickets = $pdo->query("SELECT COUNT(*) FROM support_tickets")->fetchColumn();
+            $openTickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE LOWER(status) = 'open'")->fetchColumn();
+            $pendingTickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE LOWER(status) IN ('in_progress', 'pending')")->fetchColumn();
+            $resolvedTickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE LOWER(status) IN ('resolved', 'closed')")->fetchColumn();
         } else {
             // Filter queries for employee users (assigned leads only)
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE assigned_to = ?");
@@ -159,6 +169,22 @@ if ($db_connected && $pdo) {
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM renewals WHERE lead_id IN (SELECT id FROM leads WHERE assigned_to = ?) AND expiry_date <= DATE_ADD(CURRENT_DATE(), INTERVAL 30 DAY)");
             $stmt->execute([$user_name]);
             $renewalsDue = $stmt->fetchColumn();
+
+            $stmtT = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))");
+            $stmtT->execute([$user_name]);
+            $totalTickets = $stmtT->fetchColumn();
+
+            $stmtT = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) AND LOWER(status) = 'open'");
+            $stmtT->execute([$user_name]);
+            $openTickets = $stmtT->fetchColumn();
+
+            $stmtT = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) AND LOWER(status) IN ('in_progress', 'pending')");
+            $stmtT->execute([$user_name]);
+            $pendingTickets = $stmtT->fetchColumn();
+
+            $stmtT = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) AND LOWER(status) IN ('resolved', 'closed')");
+            $stmtT->execute([$user_name]);
+            $resolvedTickets = $stmtT->fetchColumn();
         }
 
         $leadTrend = ($lastMonthLeads > 0) ? '+' . round((($thisMonthLeads - $lastMonthLeads) / $lastMonthLeads) * 100, 1) . '% this month' : '+10% this month';
@@ -416,6 +442,50 @@ $kpi_cards = [
         'bg' => 'var(--warning-light)',
         'color' => 'var(--warning)',
         'link' => 'index.php?page=renewals'
+    ],
+    [
+        'title' => 'Total Tickets',
+        'value' => number_format($totalTickets),
+        'icon' => 'life-buoy',
+        'trend' => 'All helpdesk tickets',
+        'trend_class' => 'neutral',
+        'border' => 'var(--primary)',
+        'bg' => 'var(--primary-light)',
+        'color' => 'var(--primary)',
+        'link' => 'index.php?page=support'
+    ],
+    [
+        'title' => 'Open Tickets',
+        'value' => number_format($openTickets),
+        'icon' => 'ticket',
+        'trend' => 'Awaiting technician',
+        'trend_class' => 'negative',
+        'border' => 'var(--warning)',
+        'bg' => 'var(--warning-light)',
+        'color' => 'var(--warning)',
+        'link' => 'index.php?page=support&status=open'
+    ],
+    [
+        'title' => 'Pending Tickets',
+        'value' => number_format($pendingTickets),
+        'icon' => 'clock',
+        'trend' => 'In-progress resolution',
+        'trend_class' => 'neutral',
+        'border' => 'var(--info)',
+        'bg' => 'var(--info-light)',
+        'color' => 'var(--info)',
+        'link' => 'index.php?page=support&status=in_progress'
+    ],
+    [
+        'title' => 'Closed Tickets',
+        'value' => number_format($resolvedTickets),
+        'icon' => 'check-circle-2',
+        'trend' => 'Resolved client issues',
+        'trend_class' => 'positive',
+        'border' => 'var(--success)',
+        'bg' => 'var(--success-light)',
+        'color' => 'var(--success)',
+        'link' => 'index.php?page=support&status=resolved'
     ]
 ];
 ?>
