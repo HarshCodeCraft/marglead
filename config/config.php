@@ -23,26 +23,27 @@ if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
 // -------------------------------------------------------------
 // 1. Environment & Base URL Settings (Auto-Detects Localhost vs Hostinger Live)
 // -------------------------------------------------------------
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['SERVER_PORT'] ?? 80) == 443 || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https' ? 'https://' : 'http://';
 $http_host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-$is_local_env = ($http_host === 'localhost' || strpos($http_host, '127.0.0.1') !== false || strpos($http_host, '::1') !== false || strpos($http_host, 'ngrok') !== false);
+$is_local_env = ($http_host === 'localhost' || strpos($http_host, '127.0.0.1') !== false || strpos($http_host, '::1') !== false);
 
 if ($is_local_env) {
-    define('NGROK_URL', getenv('APP_URL') ?: ('http://' . $http_host . '/marglead'));
-    define('BASE_URL', rtrim(NGROK_URL, '/') . '/');
+    define('BASE_URL', $scheme . $http_host . '/marglead/');
     define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
     define('DB_PORT', getenv('DB_PORT') ?: '3307'); // Default XAMPP MySQL port
     define('DB_NAME', getenv('DB_NAME') ?: 'marg_crm');
     define('DB_USER', getenv('DB_USER') ?: 'root');
     define('DB_PASS', getenv('DB_PASS') ?: '');
 } else {
-    define('NGROK_URL', getenv('APP_URL') ?: 'https://friendlyaisolution.com');
-    define('BASE_URL', rtrim(NGROK_URL, '/') . '/');
+    // Production / Live Server (friendlyaisolution.com)
+    define('BASE_URL', $scheme . $http_host . '/');
     define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
     define('DB_PORT', getenv('DB_PORT') ?: '3306'); // Standard Hostinger MySQL port
     define('DB_NAME', getenv('DB_NAME') ?: 'u978772385_friendlyaidata');
     define('DB_USER', getenv('DB_USER') ?: 'u978772385_friendlyaidata');
     define('DB_PASS', getenv('DB_PASS') ?: '');
 }
+define('NGROK_URL', rtrim(BASE_URL, '/'));
 define('DB_CHARSET', 'utf8mb4');
 
 // -------------------------------------------------------------
