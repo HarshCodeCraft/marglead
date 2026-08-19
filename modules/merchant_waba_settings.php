@@ -143,10 +143,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Generate Full Gateway Webhook URL with Marg ERP parameters
-$protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-$domain = $_SERVER['HTTP_HOST'] ?? 'localhost';
-$gateway_url = $protocol . $domain . '/MARGLEAD/api/marg_erp_gateway.php?api_key=' . urlencode($wabaSettings['tenant_api_key'] ?? '') . '&mob={1}&msg={2}&pdf_url={PDF}';
+// Generate Full Gateway Webhook URL with Marg ERP parameters using dynamic BASE_URL
+$base_gateway = defined('BASE_URL') ? BASE_URL : ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/');
+$gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' . urlencode($wabaSettings['tenant_api_key'] ?? '') . '&mob={1}&msg={2}&pdf_url={PDF}';
 ?>
 
 <div class="content-header" style="margin-bottom: 24px;">
