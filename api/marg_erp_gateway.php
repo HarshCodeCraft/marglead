@@ -375,6 +375,21 @@ if (!empty($_FILES)) {
     }
 }
 
+// 1.1. Check for Base64 Encoded PDF data in POST body or JSON payload
+if (!$pdfDownloadUrl) {
+    $rawBase64 = $_POST['pdf_base64'] ?? $_POST['base64_pdf'] ?? $_POST['file_data'] ?? $_POST['pdf_content'] ?? $_POST['attachment_base64'] ?? $jsonInput['pdf_base64'] ?? $jsonInput['base64_pdf'] ?? $jsonInput['file_data'] ?? $jsonInput['pdf_content'] ?? '';
+    if (!empty($rawBase64)) {
+        $cleanBase64 = preg_replace('/^data:application\/[a-z]+;base64,/', '', trim($rawBase64));
+        $decodedPdf = base64_decode($cleanBase64, true);
+        if ($decodedPdf && str_starts_with($decodedPdf, '%PDF')) {
+            $targetFile = $uploadsDir . "Marg_GUI_Invoice_" . $safeBillNo . ".pdf";
+            if (file_put_contents($targetFile, $decodedPdf)) {
+                $pdfDownloadUrl = $baseUrl . "/uploads/invoices/Marg_GUI_Invoice_" . $safeBillNo . ".pdf";
+            }
+        }
+    }
+}
+
 // 2. Check if Marg ERP passed a local Windows file path or web URL in pdf_url parameter
 if (!$pdfDownloadUrl && !empty($pdf_url) && $pdf_url !== '{PDF}') {
     $rawPath = trim(rawurldecode($pdf_url), " \"'\t\n\r");
