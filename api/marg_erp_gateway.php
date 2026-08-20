@@ -507,44 +507,39 @@ if (!$pdfDownloadUrl) {
     }
 }
 
-// 5. Fallback to Dynamic Invoice PDF Endpoint with full parsed invoice parameters
-if (!$pdfDownloadUrl) {
-    $pdfParams = [
-        'bill'     => $bill_number,
-        'amount'   => $bill_amount,
-        'customer' => $customer_name,
-        'firm'     => $firm_name,
-        'balance'  => $balance,
-        'helpline' => $helpline,
-        'upi'      => $parsedData['upi_id'],
-        'bank'     => $parsedData['bank_name'],
-        'account'  => $parsedData['account_no'],
-        'ifsc'     => $parsedData['ifsc_code']
-    ];
-    $pdfDownloadUrl = $baseUrl . "/api/generate_invoice_pdf.php?" . http_build_query($pdfParams);
-}
+$formattedCaption = $parsedData['formatted_text'];
 
-$formattedCaption = $parsedData['formatted_text'] . "Preview: " . $pdfDownloadUrl;
-
-// Document title attachment name matching screenshot (e.g. SB_POSHAK_PATHAK.pdf)
-$firmTitleClean = trim($firm_name ?: 'Testing_Suraj_india_Ltd');
-$docFilename = "SB_" . str_replace(' ', '_', preg_replace('/[^A-Za-z0-9\s\_]/', '', $firmTitleClean)) . ".pdf";
-
-// Prepare Meta Graph API Payload (Document Message with PDF attached at top)
+// Prepare Meta Graph API Payload
 $metaUrl = "https://graph.facebook.com/v19.0/{$phone_number_id}/messages";
 
-// 1. Try Document Payload with PDF file attached at top
-$payload = [
-    'messaging_product' => 'whatsapp',
-    'recipient_type'    => 'individual',
-    'to'                => $phoneDigits,
-    'type'              => 'document',
-    'document'          => [
-        'link'     => $pdfDownloadUrl,
-        'filename' => $docFilename,
-        'caption'  => $formattedCaption
-    ]
-];
+if (!empty($pdfDownloadUrl)) {
+    // 1. Send Document Payload ONLY when Marg ERP's exact PDF file is present
+    $firmTitleClean = trim($firm_name ?: 'Invoice');
+    $docFilename = "SB_" . str_replace(' ', '_', preg_replace('/[^A-Za-z0-9\s\_]/', '', $firmTitleClean)) . ".pdf";
+    $payload = [
+        'messaging_product' => 'whatsapp',
+        'recipient_type'    => 'individual',
+        'to'                => $phoneDigits,
+        'type'              => 'document',
+        'document'          => [
+            'link'     => $pdfDownloadUrl,
+            'filename' => $docFilename,
+            'caption'  => $formattedCaption
+        ]
+    ];
+} else {
+    // 2. If Marg ERP's PDF file is not present, send Formatted Text Message ONLY (No custom PDF generated)
+    $payload = [
+        'messaging_product' => 'whatsapp',
+        'recipient_type'    => 'individual',
+        'to'                => $phoneDigits,
+        'type'              => 'text',
+        'text'              => [
+            'preview_url'   => false,
+            'body'          => $formattedCaption
+        ]
+    ];
+}
 
 function sendMetaRequest($url, $token, $data) {
     $ch = curl_init($url);
