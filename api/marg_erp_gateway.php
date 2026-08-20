@@ -416,11 +416,17 @@ if (!$pdfDownloadUrl) {
         'C:/MARG/files/',
         'C:/MARG/Others/',
         'C:/MARG/',
+        'C:/MARGWIN/emailserver/',
+        'C:/MARGWIN/PDF/',
+        'C:/MARGWIN/',
         'C:/MARGEXE/PDF/',
         'C:/MARGEXE/',
-        'C:/MARG2026/PDF/',
-        'C:/MARG2025/PDF/',
-        'C:/xampp/htdocs/MARGLEAD/PDF/',
+        'D:/MARG/emailserver/',
+        'D:/MARG/PDF/',
+        'D:/MARG/',
+        'E:/MARG/emailserver/',
+        'E:/MARG/PDF/',
+        'E:/MARG/',
         sys_get_temp_dir() . '/'
     ];
 

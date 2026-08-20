@@ -19,7 +19,7 @@ $pdf_url = $_GET['pdf_url'] ?? $_POST['pdf_url'] ?? '';
 $queryString = $_SERVER['QUERY_STRING'] ?? '';
 $targetUrl = $live_gateway_url . (!empty($queryString) ? '?' . $queryString : '');
 
-// Search local Windows directories for Marg ERP generated PDF
+// Search local Windows directories across C:, D:, E:, F: drives for Marg ERP generated PDF
 $searchDirs = [
     'C:/MARG/emailserver/',
     'C:/MARG/PDF/',
@@ -29,11 +29,17 @@ $searchDirs = [
     'C:/MARG/files/',
     'C:/MARG/Others/',
     'C:/MARG/',
+    'C:/MARGWIN/emailserver/',
+    'C:/MARGWIN/PDF/',
+    'C:/MARGWIN/',
     'C:/MARGEXE/PDF/',
     'C:/MARGEXE/',
-    'C:/MARG2026/PDF/',
-    'C:/MARG2025/PDF/',
-    'C:/xampp/htdocs/MARGLEAD/PDF/',
+    'D:/MARG/emailserver/',
+    'D:/MARG/PDF/',
+    'D:/MARG/',
+    'E:/MARG/emailserver/',
+    'E:/MARG/PDF/',
+    'E:/MARG/',
     sys_get_temp_dir() . '/'
 ];
 
@@ -58,16 +64,25 @@ foreach ($searchDirs as $dir) {
     }
 }
 
-// Find the most recently created Marg default PDF (created within last 2 hours)
-if (!empty($pdfCandidates)) {
+// 1. First check if Marg ERP passed an explicit PDF file path in pdf_url parameter
+if (!empty($pdf_url) && $pdf_url !== '{PDF}') {
+    $rawPath = trim(rawurldecode($pdf_url), " \"'\t\n\r");
+    $normalizedPath = str_replace('\\', '/', $rawPath);
+    if (file_exists($normalizedPath) && is_file($normalizedPath) && filesize($normalizedPath) > 0) {
+        $matchedFile = $normalizedPath;
+    }
+}
+
+// 2. If no explicit path or file not found, search local Windows directories for Marg ERP generated PDF
+if (!$matchedFile && !empty($pdfCandidates)) {
     usort($pdfCandidates, function($a, $b) { return $b['mtime'] - $a['mtime']; });
     if ((time() - $pdfCandidates[0]['mtime']) < 7200) {
         $matchedFile = $pdfCandidates[0]['path'];
     }
 }
 
-// Prepare cURL POST payload to Live Hostinger Server
-$postData = $_POST;
+// Prepare cURL POST payload to Live Hostinger Server (Merge GET & POST parameters)
+$postData = array_merge($_GET, $_POST);
 
 if ($matchedFile && file_exists($matchedFile)) {
     // Attach exact Marg default PDF file
