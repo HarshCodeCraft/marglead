@@ -113,12 +113,15 @@ if (!$matchedFile) {
         }
     }
 
-    // Match most recently created PDF file created within last 30 minutes
+    // Match most recently created PDF file created within last 120 seconds (exact bill save window)
     if (!$matchedFile && !empty($pdfCandidates)) {
         usort($pdfCandidates, function($a, $b) { return $b['mtime'] - $a['mtime']; });
-        if ((time() - $pdfCandidates[0]['mtime']) < 1800) {
+        $freshAge = time() - $pdfCandidates[0]['mtime'];
+        if ($freshAge < 120) {
             $matchedFile = $pdfCandidates[0]['path'];
-            logBridge("Match found by Most Recent PDF File: $matchedFile (Age: " . (time() - $pdfCandidates[0]['mtime']) . "s)");
+            logBridge("Match found by Fresh PDF File: $matchedFile (Age: {$freshAge}s)");
+        } else {
+            logBridge("No fresh PDF file found created within last 120s. Latest file on disk is {$freshAge}s old: " . $pdfCandidates[0]['path']);
         }
     }
 }
