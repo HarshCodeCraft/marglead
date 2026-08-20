@@ -15,10 +15,24 @@ class WhatsAppAPI {
     private ?PDO $pdo;
 
     public function __construct(?PDO $pdo = null) {
-        $this->phoneNumberId = PHONE_NUMBER_ID;
-        $this->accessToken   = ACCESS_TOKEN;
-        $this->graphVersion  = GRAPH_API_VERSION;
-        $this->pdo           = $pdo;
+        $this->pdo          = $pdo;
+        $this->graphVersion = defined('GRAPH_API_VERSION') ? GRAPH_API_VERSION : 'v20.0';
+
+        $wabaPhone = '';
+        $wabaToken = '';
+        if ($this->pdo) {
+            try {
+                $stmt = $this->pdo->query("SELECT phone_number_id, access_token FROM merchant_waba_settings WHERE phone_number_id != '' AND access_token != '' ORDER BY id DESC LIMIT 1");
+                $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
+                if ($row) {
+                    $wabaPhone = $row['phone_number_id'] ?? '';
+                    $wabaToken = $row['access_token'] ?? '';
+                }
+            } catch (Throwable $e) {}
+        }
+
+        $this->phoneNumberId = !empty($wabaPhone) ? $wabaPhone : (defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : '');
+        $this->accessToken   = !empty($wabaToken) ? $wabaToken : (defined('ACCESS_TOKEN') ? ACCESS_TOKEN : '');
     }
 
     /**

@@ -38,16 +38,25 @@ try {
                 $pdo = new PDO($dsn_alt, $db_user, $db_pass, $options);
             } catch (PDOException $e3) {
                 $dsn_alt_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$alt_db_name;charset=$db_charset";
-                $pdo = new PDO($dsn_alt_fallback, $db_user, $db_pass, $options);
+                try {
+                    $pdo = new PDO($dsn_alt_fallback, $db_user, $db_pass, $options);
+                } catch (PDOException $e4) {
+                    $pdo = null;
+                }
             }
         }
     }
-    
-    $db_connected = true;
 
-    // -------------------------------------------------------------
-    // Auto Database Schema Migration for WhatsApp Support Ticket System
-    // -------------------------------------------------------------
+    if ($pdo) {
+        $db_connected = true;
+    } else {
+        $db_connected = false;
+    }
+
+    if ($pdo) {
+        // -------------------------------------------------------------
+        // Auto Database Schema Migration for WhatsApp Support Ticket System
+        // -------------------------------------------------------------
 
     // 1. Users Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS users (
@@ -275,8 +284,9 @@ try {
         setting_value TEXT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
 
-} catch (PDOException $e) {
+} catch (Throwable $e) {
     $db_connected = false;
     $db_error = $e->getMessage();
     error_log("Database connection failed in config/db.php: " . $e->getMessage());

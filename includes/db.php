@@ -9,7 +9,7 @@ require_once __DIR__ . '/../config/config.php';
 $db_host = defined('DB_HOST') ? DB_HOST : 'localhost';
 $db_name = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
 $db_user = defined('DB_USER') ? DB_USER : 'u978772385_friendlyaidata';
-$db_pass = defined('DB_PASS') ? DB_PASS : '';
+$db_pass = defined('DB_PASS') ? DB_PASS : 'Liahshsrahinahs%$#@12345';
 $db_port = defined('DB_PORT') ? DB_PORT : '3307';
 $db_charset = defined('DB_CHARSET') ? DB_CHARSET : 'utf8mb4';
 
@@ -18,6 +18,7 @@ $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
+    PDO::ATTR_TIMEOUT            => 3,
 ];
 
 try {
@@ -37,16 +38,28 @@ try {
                 $pdo_master = new PDO($dsn_alt, $db_user, $db_pass, $options);
                 $db_name = $alt_db_name;
             } catch (\PDOException $e3) {
-                // Final fallback: test alt DB on fallback port
-                $dsn_alt_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$alt_db_name;charset=$db_charset";
-                $pdo_master = new PDO($dsn_alt_fallback, $db_user, $db_pass, $options);
-                $db_name = $alt_db_name;
-                $db_port = $fallback_port;
+                try {
+                    $dsn_alt_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$alt_db_name;charset=$db_charset";
+                    $pdo_master = new PDO($dsn_alt_fallback, $db_user, $db_pass, $options);
+                    $db_name = $alt_db_name;
+                    $db_port = $fallback_port;
+                } catch (\PDOException $e4) {
+                    // Fallback to local XAMPP MySQL if remote connection fails locally
+                    try {
+                        $pdo_master = new PDO("mysql:host=localhost;port=3307;dbname=marg_crm;charset=utf8mb4", "root", "", $options);
+                    } catch (\PDOException $e5) {
+                        try {
+                            $pdo_master = new PDO("mysql:host=localhost;port=3306;dbname=marg_crm;charset=utf8mb4", "root", "", $options);
+                        } catch (\PDOException $e6) {
+                            $pdo_master = null;
+                        }
+                    }
+                }
             }
         }
     }
     $pdo = $pdo_master;
-    $db_connected = true;
+    $db_connected = !empty($pdo);
 
     // Multi-tenant Dynamic Database Router
     $active_tenant_db = null;
@@ -56,7 +69,7 @@ try {
         $active_tenant_db = $_SESSION['tenant_db'];
     }
 
-    if (!empty($active_tenant_db) && $active_tenant_db !== $db_name) {
+    if (!empty($active_tenant_db) && $active_tenant_db !== $db_name && !empty($pdo)) {
         try {
             $tenant_dsn = "mysql:host=$db_host;port=$db_port;dbname=$active_tenant_db;charset=$db_charset";
             $pdo = new PDO($tenant_dsn, $db_user, $db_pass, $options);
@@ -67,7 +80,8 @@ try {
     }
     
     // Schema auto-upgrade to support new Lead fields
-    $columnsQuery = $pdo->query("SHOW COLUMNS FROM leads");
+    if (!empty($pdo)) {
+        $columnsQuery = $pdo->query("SHOW COLUMNS FROM leads");
     $columns = $columnsQuery->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('tags', $columns)) {
         $pdo->exec("ALTER TABLE leads ADD COLUMN tags VARCHAR(255) NULL AFTER priority");
@@ -400,6 +414,7 @@ try {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
+}
 } catch (\PDOException $e) {
     $pdo = null;
     $db_connected = false;
