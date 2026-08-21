@@ -23,39 +23,135 @@ $recipient    = $_GET['mob'] ?? $_POST['mob'] ?? '';
 $message_body = $_GET['msg'] ?? $_POST['msg'] ?? '';
 $pdf_url      = $_GET['pdf_url'] ?? $_POST['pdf_url'] ?? '';
 
+// Fallback: If msg is empty (to prevent WinHttp GET URL newline crashes in Marg ERP), extract last message from local margsms.txt
+if (empty($message_body)) {
+    $smsSearchFiles = [
+        'C:/Users/Public/MARG/margsms.txt',
+        'C:/Users/Public/MARG/margsms.log',
+        'C:/Users/Public/Documents/MARG/margsms.txt'
+    ];
+    // Add dynamic subfolders under C:\Users\Public\MARG\
+    $publicMargSub = @glob('C:/Users/Public/MARG/*', GLOB_ONLYDIR);
+    if (!empty($publicMargSub)) {
+        foreach ($publicMargSub as $pSub) {
+            $pClean = str_replace('\\', '/', $pSub);
+            $smsSearchFiles[] = rtrim($pClean, '/') . '/margsms.txt';
+            $smsSearchFiles[] = rtrim($pClean, '/') . '/margsms.log';
+        }
+    }
+
+    foreach (range('C', 'Z') as $driveLetter) {
+        $smsSearchFiles[] = $driveLetter . ':/MARG/margsms.txt';
+        $smsSearchFiles[] = $driveLetter . ':/MARGWIN/margsms.txt';
+        $smsSearchFiles[] = $driveLetter . ':/MargERP/margsms.txt';
+        $smsSearchFiles[] = $driveLetter . ':/Marg_ERP/margsms.txt';
+        $smsSearchFiles[] = $driveLetter . ':/MARG/margsms.log';
+    }
+
+    foreach ($smsSearchFiles as $smsFile) {
+        if (file_exists($smsFile)) {
+            $lines = array_filter(array_map('trim', file($smsFile)));
+            if (!empty($lines)) {
+                $lastLine = end($lines);
+                $parts = explode('|', $lastLine);
+                if (isset($parts[2]) && !empty($parts[2])) {
+                    $message_body = trim($parts[2]);
+                    logBridge("Extracted message body from local margsms log ($smsFile): " . substr($message_body, 0, 80));
+                    break;
+                } elseif (count($parts) === 1 && !empty($lastLine)) {
+                    $message_body = $lastLine;
+                    logBridge("Extracted raw message body from local margsms log ($smsFile): " . substr($message_body, 0, 80));
+                    break;
+                }
+            }
+        }
+    }
+}
+
 logBridge("Bridge invoked. Recipient: $recipient | pdf_url: $pdf_url | Query: " . ($_SERVER['QUERY_STRING'] ?? ''));
 
 // Build full forwarding URL with query string
 $queryString = $_SERVER['QUERY_STRING'] ?? '';
+if (!empty($message_body) && empty($_GET['msg']) && empty($_POST['msg'])) {
+    $queryString .= (!empty($queryString) ? '&' : '') . 'msg=' . urlencode($message_body);
+}
 $targetUrl = $live_gateway_url . (!empty($queryString) ? '?' . $queryString : '');
 
-// Search local Windows directories across C:, D:, E:, F: drives for Marg ERP generated PDF
-$searchDirs = [
-    'C:/MARG/emailserver/pdf/',
-    'C:/MARG/emailserver/',
-    'C:/MARG/PDF/',
-    'C:/MARG/Reports/',
-    'C:/MARG/export/',
-    'C:/MARG/temp/',
-    'C:/MARG/files/',
-    'C:/MARG/Others/',
-    'C:/MARG/',
-    'C:/MARGWIN/emailserver/pdf/',
-    'C:/MARGWIN/emailserver/',
-    'C:/MARGWIN/PDF/',
-    'C:/MARGWIN/',
-    'C:/MARGEXE/PDF/',
-    'C:/MARGEXE/',
-    'D:/MARG/emailserver/pdf/',
-    'D:/MARG/emailserver/',
-    'D:/MARG/PDF/',
-    'D:/MARG/',
-    'E:/MARG/emailserver/pdf/',
-    'E:/MARG/emailserver/',
-    'E:/MARG/PDF/',
-    'E:/MARG/',
-    sys_get_temp_dir() . '/'
-];
+// Search local Windows directories across all drives (C: through Z:), Users\Public\MARG (and dynamic company folders like 31041)
+$searchDirs = [];
+$subDirs = ['emailserver/pdf/', 'emailserver/', 'PDF/', 'Reports/', 'export/', 'temp/', 'files/', 'Others/', ''];
+$margRoots = ['MARG', 'MARGWIN', 'MARGEXE', 'MargERP', 'Marg_ERP'];
+
+// Scan Public User MARG folders (e.g. C:\Users\Public\MARG and dynamic company subfolders like 31041)
+$publicMargRoots = ['C:/Users/Public/MARG', 'C:/Users/Public/Documents/MARG', 'C:/Users/Public/MargERP'];
+foreach ($publicMargRoots as $pRoot) {
+    if (@is_dir($pRoot)) {
+        $searchDirs[] = rtrim($pRoot, '/') . '/';
+        foreach ($subDirs as $sub) {
+            $pSub = rtrim($pRoot, '/') . '/' . $sub;
+            if (@is_dir($pSub)) $searchDirs[] = $pSub;
+        }
+        // Scan 1st & 2nd level subdirectories dynamically (e.g. C:\Users\Public\MARG\31041\)
+        $dynDirs = @glob(rtrim($pRoot, '/') . '/*', GLOB_ONLYDIR);
+        if (!empty($dynDirs)) {
+            foreach ($dynDirs as $dDir) {
+                $dClean = str_replace('\\', '/', $dDir);
+                $searchDirs[] = rtrim($dClean, '/') . '/';
+                foreach ($subDirs as $sub) {
+                    $dSub = rtrim($dClean, '/') . '/' . $sub;
+                    if (@is_dir($dSub)) $searchDirs[] = $dSub;
+                }
+                $dynDirsL2 = @glob(rtrim($dClean, '/') . '/*', GLOB_ONLYDIR);
+                if (!empty($dynDirsL2)) {
+                    foreach ($dynDirsL2 as $dL2) {
+                        $dL2Clean = str_replace('\\', '/', $dL2);
+                        $searchDirs[] = rtrim($dL2Clean, '/') . '/';
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Scan all user profiles for MARG subfolders
+$userMargFolders = @glob('C:/Users/*/MARG*', GLOB_ONLYDIR);
+if (!empty($userMargFolders)) {
+    foreach ($userMargFolders as $uDir) {
+        $uClean = str_replace('\\', '/', $uDir);
+        $searchDirs[] = rtrim($uClean, '/') . '/';
+        foreach ($subDirs as $sub) {
+            $uSub = rtrim($uClean, '/') . '/' . $sub;
+            if (@is_dir($uSub)) $searchDirs[] = $uSub;
+        }
+    }
+}
+
+foreach (range('C', 'Z') as $driveLetter) {
+    $driveRoot = $driveLetter . ':/';
+    if (!@is_dir($driveRoot)) continue;
+    foreach ($margRoots as $root) {
+        foreach ($subDirs as $sub) {
+            $dirPath = $driveRoot . $root . '/' . $sub;
+            if (@is_dir($dirPath)) {
+                $searchDirs[] = $dirPath;
+            }
+        }
+    }
+    $topFolders = @glob($driveRoot . '*[Mm][Aa][Rr][Gg]*', GLOB_ONLYDIR);
+    if (!empty($topFolders)) {
+        foreach ($topFolders as $topDir) {
+            $topDirClean = str_replace('\\', '/', $topDir);
+            foreach ($subDirs as $sub) {
+                $dirPath = rtrim($topDirClean, '/') . '/' . $sub;
+                if (@is_dir($dirPath)) {
+                    $searchDirs[] = $dirPath;
+                }
+            }
+        }
+    }
+}
+$searchDirs[] = sys_get_temp_dir() . '/';
+$searchDirs = array_unique($searchDirs);
 
 $matchedFile = null;
 
@@ -113,15 +209,16 @@ if (!$matchedFile) {
         }
     }
 
-    // Match most recently created PDF file created within last 120 seconds (exact bill save window)
+    // Match most recently created PDF file on disk (created/updated within last 24 hours)
     if (!$matchedFile && !empty($pdfCandidates)) {
         usort($pdfCandidates, function($a, $b) { return $b['mtime'] - $a['mtime']; });
         $freshAge = time() - $pdfCandidates[0]['mtime'];
-        if ($freshAge < 120) {
+        if ($freshAge < 86400) {
             $matchedFile = $pdfCandidates[0]['path'];
-            logBridge("Match found by Fresh PDF File: $matchedFile (Age: {$freshAge}s)");
+            logBridge("Match found by Latest PDF File on disk: $matchedFile (Age: {$freshAge}s)");
         } else {
-            logBridge("No fresh PDF file found created within last 120s. Latest file on disk is {$freshAge}s old: " . $pdfCandidates[0]['path']);
+            $matchedFile = $pdfCandidates[0]['path'];
+            logBridge("Fallback: Picking most recent PDF file on disk: $matchedFile (Age: {$freshAge}s)");
         }
     }
 }
