@@ -57,50 +57,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt->execute([$email]);
                     $user = $stmt->fetch();
 
-                    // 2. If not found in master users, check tenant_companies (Client Owners & Client Staff)
+                    // 2. If not found in master users, check tenant_companies (SaaS CRM Clients)
                     if (!$user) {
                         // Check if email matches a Tenant Company Owner Email or Company Code
                         $stmtT = $effective_pdo->prepare("SELECT * FROM tenant_companies WHERE (LOWER(owner_email) = ? OR LOWER(company_code) = ?) AND status = 'Active'");
                         $stmtT->execute([$email, $email]);
                         $tenantComp = $stmtT->fetch();
                         
-                        if ($tenantComp && !empty($tenantComp['db_name'])) {
-                            $tenant_db_target = $tenantComp['db_name'];
-                            if (strpos($tenant_db_target, 't_') === 0) {
-                                $targetUsersTbl = "{$tenant_db_target}users";
-                                try {
-                                    $stmtTU = $effective_pdo->prepare("SELECT * FROM `{$targetUsersTbl}` WHERE LOWER(email) = ?");
-                                    $stmtTU->execute([$email]);
-                                    $user = $stmtTU->fetch();
-                                } catch (\PDOException $ex) {}
-                            } else {
-                                try {
-                                    $tenantPdo = new PDO("mysql:host=$db_host;port=$db_port;dbname={$tenant_db_target};charset=$db_charset", $db_user, $db_pass, $options);
-                                    $stmtTU = $tenantPdo->prepare("SELECT * FROM users WHERE LOWER(email) = ?");
-                                    $stmtTU->execute([$email]);
-                                    $user = $stmtTU->fetch();
-                                } catch (\PDOException $ex) {}
+                        if ($tenantComp) {
+                            $user_pwd_hash = $tenantComp['password'] ?? '';
+                            if (password_verify($password, $user_pwd_hash) || $password === $user_pwd_hash) {
+                                // Reset failed login attempts on successful login
+                                $del_attempts = $effective_pdo->prepare("DELETE FROM login_attempts WHERE ip_address = ? OR email = ?");
+                                $del_attempts->execute([$user_ip, $email]);
+
+                                $_SESSION['user_id'] = $tenantComp['id'];
+                                $_SESSION['user_role'] = 'Admin';
+                                $_SESSION['login_role'] = 'Admin';
+                                $_SESSION['user_name'] = $tenantComp['owner_name'];
+                                $_SESSION['user_email'] = $tenantComp['owner_email'];
+                                $_SESSION['user_permissions'] = null;
+                                $_SESSION['tenant_db'] = $tenantComp['db_name'];
+                                unset($_SESSION['impersonate_tenant_db']);
+
+                                header("Location: ../index.php");
+                                exit;
                             }
-                        } else {
-                            // If email belongs to a staff/employee created inside a client DB (e.g. t_poshak_users)
-                            try {
-                                $allTenants = $effective_pdo->query("SELECT db_name FROM tenant_companies WHERE status = 'Active'")->fetchAll(PDO::FETCH_COLUMN);
-                                foreach ($allTenants as $tDb) {
-                                    if (!empty($tDb) && strpos($tDb, 't_') === 0) {
-                                        $tblName = "{$tDb}users";
-                                        try {
-                                            $chkStmt = $effective_pdo->prepare("SELECT * FROM `{$tblName}` WHERE LOWER(email) = ?");
-                                            $chkStmt->execute([$email]);
-                                            $foundUser = $chkStmt->fetch();
-                                            if ($foundUser) {
-                                                $user = $foundUser;
-                                                $tenant_db_target = $tDb;
-                                                break;
-                                            }
-                                        } catch (\PDOException $ex) {}
-                                    }
-                                }
-                            } catch (\PDOException $ex) {}
                         }
                     }
 
