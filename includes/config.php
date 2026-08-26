@@ -517,12 +517,12 @@ function hasAccess($module, $role) {
             try {
                 $stmtT = $pdo_master->prepare("SELECT allowed_modules FROM tenant_companies WHERE db_name = ?");
                 $stmtT->execute([$active_tenant_db]);
-                $jsonM = $stmtT->fetchColumn();
-                if ($jsonM !== false && $jsonM !== null && $jsonM !== '') {
+                $default_all_mods = ["dashboard","leads","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","reports","settings","bot_flows","whatsapp_flows","team_inbox","broadcast_campaigns","merchant_waba_settings","whatsapp_settings","bulk_broadcast","clients"];
+                if ($jsonM !== false && $jsonM !== null && $jsonM !== '' && $jsonM !== 'null') {
                     $decoded_mods = json_decode($jsonM, true);
-                    $_SESSION['tenant_allowed_modules'] = is_array($decoded_mods) ? $decoded_mods : [];
+                    $_SESSION['tenant_allowed_modules'] = (is_array($decoded_mods) && !empty($decoded_mods)) ? $decoded_mods : $default_all_mods;
                 } else {
-                    $_SESSION['tenant_allowed_modules'] = [];
+                    $_SESSION['tenant_allowed_modules'] = $default_all_mods;
                 }
                 $_SESSION['tenant_allowed_db'] = $active_tenant_db;
             } catch (\PDOException $e) {}

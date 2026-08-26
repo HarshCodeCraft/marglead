@@ -100,10 +100,11 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
             }
         }
         
-        // C. Register in master tenant_companies table (Includes Password directly)
+        // C. Register in master tenant_companies table (Includes Password & Default Allowed Modules directly)
+        $defaultModulesJson = json_encode(["dashboard","leads","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","reports","settings","bot_flows","whatsapp_flows","team_inbox","broadcast_campaigns","merchant_waba_settings","whatsapp_settings","bulk_broadcast","clients"]);
         $expiryDate = date('Y-m-d', strtotime("+{$expiryMonths} months"));
-        $stmtMaster = $masterPdo->prepare("INSERT INTO tenant_companies (company_name, company_code, owner_name, owner_email, phone, password, db_name, plan, status, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?) ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), owner_name=VALUES(owner_name), owner_email=VALUES(owner_email), phone=VALUES(phone), password=VALUES(password), plan=VALUES(plan), db_name=VALUES(db_name), expiry_date=VALUES(expiry_date)");
-        $stmtMaster->execute([$companyName, $codeSlug, $ownerName, $ownerEmail, $phone, $pwdHash, $finalDbName, $plan, $expiryDate]);
+        $stmtMaster = $masterPdo->prepare("INSERT INTO tenant_companies (company_name, company_code, owner_name, owner_email, phone, password, db_name, plan, status, expiry_date, allowed_modules) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?) ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), owner_name=VALUES(owner_name), owner_email=VALUES(owner_email), phone=VALUES(phone), password=VALUES(password), plan=VALUES(plan), db_name=VALUES(db_name), expiry_date=VALUES(expiry_date), allowed_modules=COALESCE(tenant_companies.allowed_modules, VALUES(allowed_modules))");
+        $stmtMaster->execute([$companyName, $codeSlug, $ownerName, $ownerEmail, $phone, $pwdHash, $finalDbName, $plan, $expiryDate, $defaultModulesJson]);
         
         return [
             'success' => true,
