@@ -463,6 +463,12 @@ if (!function_exists('syncPermissionMappings')) {
  */
 if (!function_exists('isSystemAdminRole')) {
     function isSystemAdminRole(?string $role = null): bool {
+        // Active SaaS Tenant Client sessions are NEVER Master System Admins
+        $active_tenant = $_SESSION['tenant_db'] ?? '';
+        if (!empty($active_tenant) && strpos($active_tenant, 't_') === 0 && empty($_SESSION['impersonate_tenant_db'])) {
+            return false;
+        }
+
         if ($role === null) {
             $role = $_SESSION['user_role'] ?? '';
         }
@@ -471,9 +477,7 @@ if (!function_exists('isSystemAdminRole')) {
 
         return (
             $cleanRole === 'super admin' || 
-            $cleanRole === 'admin' || 
             $cleanRole === 'superadmin' || 
-            $cleanRole === 'owner' || 
             $userId === 1 || 
             !empty($_SESSION['is_super_admin'])
         );
@@ -507,7 +511,8 @@ function hasAccess($module, $role) {
     }
 
     // 3. Check Tenant Company Power Permissions (CRM Client allowed_modules block)
-    $is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') || !empty($_SESSION['impersonate_tenant_db']);
+    $master_db_name = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
+    $is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== $master_db_name && $_SESSION['tenant_db'] !== 'marg_crm') || !empty($_SESSION['impersonate_tenant_db']);
     if ($is_tenant_session) {
         $active_tenant_db = $_SESSION['impersonate_tenant_db'] ?? $_SESSION['tenant_db'];
         
@@ -515,8 +520,9 @@ function hasAccess($module, $role) {
         global $pdo_master;
         if (isset($pdo_master)) {
             try {
-                $stmtT = $pdo_master->prepare("SELECT allowed_modules FROM tenant_companies WHERE db_name = ?");
-                $stmtT->execute([$active_tenant_db]);
+                $stmtT = $pdo_master->prepare("SELECT allowed_modules FROM tenant_companies WHERE db_name = ? OR company_code = ? OR owner_email = ?");
+                $stmtT->execute([$active_tenant_db, $_SESSION['tenant_code'] ?? '', $_SESSION['user_email'] ?? '']);
+                $jsonM = $stmtT->fetchColumn();
                 $default_all_mods = ["dashboard","leads","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","reports","settings","bot_flows","whatsapp_flows","team_inbox","broadcast_campaigns","merchant_waba_settings","whatsapp_settings","bulk_broadcast","clients"];
                 if ($jsonM !== false && $jsonM !== null && $jsonM !== '' && $jsonM !== 'null') {
                     $decoded_mods = json_decode($jsonM, true);
@@ -558,7 +564,7 @@ function hasAccess($module, $role) {
     }
 
     // 4. For Tenant Admin & System Super Admin, if Tenant Power Check passed, grant access
-    if ($role === 'Super Admin' || $role === 'Admin') {
+    if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Tenant Admin') {
         return true;
     }
 

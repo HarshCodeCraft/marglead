@@ -7,26 +7,48 @@ $page = isset($_GET['page']) ? $_GET['page'] : 'dashboard';
 $pageTitle = ucwords(str_replace('_', ' ', $page));
 
 // Fetch latest user details from database to avoid stale session data
-$logged_user_name = $_SESSION['user_name'] ?? 'Harsh Vardhan';
+$logged_user_name = $_SESSION['user_name'] ?? 'System Operator';
 $logged_user_photo = $_SESSION['user_photo'] ?? null;
 $logged_user_role = $_SESSION['user_role'] ?? 'Admin';
 
-if ($db_connected && $pdo && isset($_SESSION['user_id'])) {
+$is_tenant_session = (!empty($_SESSION['user_role']) && $_SESSION['user_role'] === 'Tenant Admin') || (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata') && empty($_SESSION['impersonate_tenant_db']));
+
+if ($db_connected && isset($_SESSION['user_id'])) {
     try {
-        $stmtUser = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-        $stmtUser->execute([$_SESSION['user_id']]);
-        $userRow = $stmtUser->fetch();
-        if ($userRow) {
-            $logged_user_name = $userRow['name'];
-            $logged_user_photo = $userRow['profile_photo'];
-            $logged_user_role = $userRow['role'];
-            
-            // Sync session
-            $_SESSION['user_name'] = $userRow['name'];
-            $_SESSION['user_photo'] = $userRow['profile_photo'];
-            $_SESSION['user_role'] = $userRow['role'];
+        if ($is_tenant_session) {
+            $effectivePdo = $pdo_master ?? $pdo;
+            if (isset($effectivePdo) && $effectivePdo) {
+                $stmtTenant = $effectivePdo->prepare("SELECT * FROM tenant_companies WHERE id = ? OR owner_email = ? OR company_code = ?");
+                $stmtTenant->execute([$_SESSION['user_id'], $_SESSION['user_email'] ?? '', $_SESSION['user_email'] ?? '']);
+                $tenantRow = $stmtTenant->fetch();
+                if ($tenantRow) {
+                    $logged_user_name = $tenantRow['company_name'] . ' (' . $tenantRow['owner_name'] . ')';
+                    $logged_user_photo = null;
+                    $logged_user_role = 'Tenant Admin';
+
+                    $_SESSION['user_name'] = $tenantRow['owner_name'];
+                    $_SESSION['user_email'] = $tenantRow['owner_email'];
+                    $_SESSION['user_role'] = 'Tenant Admin';
+                }
+            }
+        } else {
+            $effectivePdo = $pdo_master ?? $pdo;
+            if (isset($effectivePdo) && $effectivePdo) {
+                $stmtUser = $effectivePdo->prepare("SELECT * FROM users WHERE id = ?");
+                $stmtUser->execute([$_SESSION['user_id']]);
+                $userRow = $stmtUser->fetch();
+                if ($userRow) {
+                    $logged_user_name = $userRow['name'];
+                    $logged_user_photo = $userRow['profile_photo'];
+                    $logged_user_role = $userRow['role'];
+
+                    $_SESSION['user_name'] = $userRow['name'];
+                    $_SESSION['user_photo'] = $userRow['profile_photo'];
+                    $_SESSION['user_role'] = $userRow['role'];
+                }
+            }
         }
-    } catch (PDOException $e) {}
+    } catch (\Exception $e) {}
 }
 ?>
 <!DOCTYPE html>
