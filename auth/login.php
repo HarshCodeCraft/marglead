@@ -16,6 +16,15 @@ if (isset($_GET['verified'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Clear any previous active session when submitting a new login form
+    unset($_SESSION['user_id']);
+    unset($_SESSION['user_role']);
+    unset($_SESSION['login_role']);
+    unset($_SESSION['user_email']);
+    unset($_SESSION['user_name']);
+    unset($_SESSION['user_permissions']);
+    unset($_SESSION['impersonate_tenant_db']);
+
     $email = strtolower(trim($_POST['email'] ?? ''));
     $password = $_POST['password'] ?? '';
     $user_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
@@ -80,8 +89,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $is_password_valid = false;
                     if ($user) {
                         if (password_verify($password, $user['password']) || $password === $user['password']) {
-                            $is_password_valid = true;
-                        } elseif (in_array($user['role'], ['Super Admin', 'Admin']) && in_array($password, ['12341234', '123456', 'password123', 'admin123'])) {
                             $is_password_valid = true;
                         }
                     }
