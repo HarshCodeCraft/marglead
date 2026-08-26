@@ -480,7 +480,8 @@ function hasAccess($module, $role) {
 
     // 3. Super Admin & Master System Owner ALWAYS get 100% full access to all pages on Master CRM
     $userEmail = strtolower($_SESSION['user_email'] ?? '');
-    $isSuperAdmin = ($role === 'Super Admin' || $role === 'Admin' || $userEmail === 'deepakawasthi587@gmail.com' || !empty($_SESSION['is_super_admin']));
+    $roleLower = strtolower($role ?? '');
+    $isSuperAdmin = ($roleLower === 'super admin' || $roleLower === 'admin' || $roleLower === 'superadmin' || $roleLower === 'owner' || $userEmail === 'deepakawasthi587@gmail.com' || !empty($_SESSION['is_super_admin']));
     
     if ($isSuperAdmin && empty($_SESSION['impersonate_tenant_db'])) {
         return true;
