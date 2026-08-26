@@ -292,6 +292,29 @@ try {
         $pdo->exec("UPDATE tenant_companies SET allowed_modules = '{$defaultModulesJson}' WHERE allowed_modules IS NULL OR allowed_modules = '' OR allowed_modules = 'null'");
     } catch (\Exception $e) {}
 
+    // Schema auto-upgrade to support merchant WABA & Web API Dual Gateway settings
+    try {
+        $mwChk = $pdo->query("SHOW TABLES LIKE 'merchant_waba_settings'");
+        if ($mwChk && $mwChk->rowCount() > 0) {
+            $mwCols = $pdo->query("SHOW COLUMNS FROM merchant_waba_settings")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('gateway_type', $mwCols)) {
+                $pdo->exec("ALTER TABLE merchant_waba_settings ADD COLUMN gateway_type VARCHAR(50) NULL DEFAULT 'meta'");
+            }
+            if (!in_array('web_api_url', $mwCols)) {
+                $pdo->exec("ALTER TABLE merchant_waba_settings ADD COLUMN web_api_url TEXT NULL");
+            }
+            if (!in_array('web_api_token', $mwCols)) {
+                $pdo->exec("ALTER TABLE merchant_waba_settings ADD COLUMN web_api_token TEXT NULL");
+            }
+            if (!in_array('web_api_instance_id', $mwCols)) {
+                $pdo->exec("ALTER TABLE merchant_waba_settings ADD COLUMN web_api_instance_id VARCHAR(100) NULL");
+            }
+            if (!in_array('web_api_session_status', $mwCols)) {
+                $pdo->exec("ALTER TABLE merchant_waba_settings ADD COLUMN web_api_session_status VARCHAR(50) NULL DEFAULT 'disconnected'");
+            }
+        }
+    } catch (\Exception $e) {}
+
     // Schema auto-upgrade to support lead installation checklist status
     try {
         $leadColumnsQuery = $pdo->query("SHOW COLUMNS FROM leads");

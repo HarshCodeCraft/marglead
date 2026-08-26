@@ -216,10 +216,11 @@ if ($gateway_type === 'meta') {
 
 } else if ($gateway_type === 'web_api') {
     // ==========================================
-    // 2. THIRD-PARTY WEB API DISPATCH
+    // 2. THIRD-PARTY WEB API / QR INSTANCE DISPATCH
     // ==========================================
-    $webApiUrl = $merchant['web_api_url'] ?? '';
+    $webApiUrl = !empty($merchant['web_api_url']) ? rtrim($merchant['web_api_url'], '/') : 'https://wa.whtapi.com';
     $webApiToken = $merchant['web_api_token'] ?? '';
+    $webApiInstance = $merchant['web_api_instance_id'] ?? '';
 
     if (empty($webApiUrl)) {
         http_response_code(400);
@@ -227,13 +228,19 @@ if ($gateway_type === 'meta') {
         exit;
     }
 
+    $dispatchEndpoint = (strpos($webApiUrl, '/send') !== false) ? $webApiUrl : ($webApiUrl . '/send-message');
+
     $payload = [
-        'phone' => $phoneDigits,
-        'mobile' => $phoneDigits,
-        'message' => $parsedData['formatted_text'],
+        'recipient'    => $phoneDigits,
+        'phone'        => $phoneDigits,
+        'mobile'       => $phoneDigits,
+        'message'      => $parsedData['formatted_text'],
         'document_url' => $pdfDownloadUrl,
-        'file_url' => $pdfDownloadUrl,
-        'filename' => "Invoice.pdf"
+        'file_url'     => $pdfDownloadUrl,
+        'pdf_url'      => $pdfDownloadUrl,
+        'filename'     => "Invoice.pdf",
+        'instance'     => $webApiInstance,
+        'token'        => $webApiToken
     ];
 
     $headers = ['Content-Type: application/json'];
@@ -242,18 +249,21 @@ if ($gateway_type === 'meta') {
         $headers[] = 'apikey: ' . $webApiToken;
     }
 
-    $ch = curl_init($webApiUrl);
+    $ch = curl_init($dispatchEndpoint);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     $resRaw = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
     $apiResponseData = json_decode($resRaw, true) ?? ['raw_response' => $resRaw];
     if ($httpCode >= 200 && $httpCode < 300) {
+        $success = true;
+    } else if (!empty($apiResponseData['status']) && strtolower((string)$apiResponseData['status']) === 'success') {
         $success = true;
     }
 }
