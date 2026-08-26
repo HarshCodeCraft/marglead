@@ -68,10 +68,33 @@ if ($action === 'get_qr') {
     echo json_encode([
         'status'     => 'waiting_engine',
         'qr_code'    => null,
-        'qr_image'   => $noticeImgUrl,
+        'qr_image'   => null,
         'source'     => 'self_hosted_php_bridge',
         'session_id' => 'session_user_' . $user_id,
         'message'    => 'Run "npm start" inside whatsapp_engine folder on your server to generate live QR code'
+    ], JSON_PRETTY_PRINT);
+    exit;
+}
+
+if ($action === 'get_pairing_code') {
+    $phone = $_GET['phone'] ?? $_POST['phone'] ?? '';
+    $phoneDigits = preg_replace('/\D/', '', $phone);
+    if (strlen($phoneDigits) === 10) $phoneDigits = '91' . $phoneDigits;
+
+    if (empty($phoneDigits)) {
+        echo json_encode(['status' => 'error', 'message' => 'Please enter a valid 10-digit mobile number.'], JSON_PRETTY_PRINT);
+        exit;
+    }
+
+    $nodeRes = callLocalNodeEngine('/pairing-code', ['phone' => $phoneDigits]);
+    if ($nodeRes) {
+        echo json_encode($nodeRes, JSON_PRETTY_PRINT);
+        exit;
+    }
+
+    echo json_encode([
+        'status'  => 'engine_offline',
+        'message' => 'Node Engine is offline. Run "npm start" inside whatsapp_engine folder to request pairing code.'
     ], JSON_PRETTY_PRINT);
     exit;
 }

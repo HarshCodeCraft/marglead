@@ -2,7 +2,7 @@
 /**
  * Marg ERP CRM - Add-On: Merchant WABA Setup & Marg ERP Gateway Settings
  * Allows merchants & Super Admin to configure Meta WhatsApp Cloud API credentials
- * OR Self-Hosted WhatsApp Web API (QR Code Instance Gateway)
+ * OR Self-Hosted WhatsApp Web API (QR Code Instance & Phone Pairing Code)
  * and copy their unique Marg ERP 9+ Webhook Gateway URL.
  */
 
@@ -256,7 +256,7 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
                 <span class="badge" style="background: #10b981; color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem;">100% Self-Made / No External API</span>
             </div>
             <p style="font-size: 0.825rem; color: #94a3b8; margin: 0; line-height: 1.5;">
-                Connect regular WhatsApp by scanning QR Code with phone camera. Runs 100% on your own server. Invoices send automatically!
+                Connect regular WhatsApp by scanning QR Code or 8-digit Phone Pairing Code. Runs 100% on your own server. Invoices send automatically!
             </p>
         </div>
     </div>
@@ -366,11 +366,11 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
         </div>
     </div>
 
-    <!-- Section B: Self-Hosted WhatsApp Web API Settings & QR Scanner Console -->
+    <!-- Section B: Self-Hosted WhatsApp Web API Settings & Pairing Console -->
     <div id="panel-gateway-web" style="display: <?php echo ($current_gateway === 'web_api') ? 'block' : 'none'; ?>; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
         <h3 style="font-size: 1.1rem; font-weight: 700; color: #ffffff; margin-top: 0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
             <i data-lucide="smartphone" style="width: 22px; height: 22px; color: #10b981;"></i>
-            Self-Hosted WhatsApp Web API Settings & QR Code Account Pairing
+            Self-Hosted WhatsApp Web API Settings & Phone Pairing Console
         </h3>
 
         <!-- QR Code Pairing & Account Console -->
@@ -378,28 +378,59 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
             
             <div style="background: white; padding: 14px; border-radius: 12px; text-align: center; width: 180px; height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); position: relative;">
                 <div id="qrCodeContainer">
-                    <img id="qrImage" src="api/whatsapp_web_engine.php?action=get_qr" alt="Self-Hosted WhatsApp Web Pairing QR Code" style="width: 150px; height: 150px; display: block; border-radius: 6px;">
+                    <img id="qrImage" src="" alt="Live QR Code" style="width: 150px; height: 150px; display: none; border-radius: 6px;">
+                    <div id="qrPlaceholder" style="color: #64748b; font-size: 0.8rem; line-height: 1.4; padding: 10px;">
+                        ⚡ <strong>Self-Hosted Engine</strong><br>
+                        Run <code>npm start</code> inside <code>whatsapp_engine/</code> to display Live QR
+                    </div>
                 </div>
             </div>
 
             <div style="flex: 1; min-width: 250px;">
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                    <span class="badge" id="sessionStatusBadge" style="background: #10b981; color: white; font-weight: 700; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem;">
-                        🟢 Status: Self-Hosted Engine Ready
+                    <span class="badge" id="sessionStatusBadge" style="background: #f59e0b; color: white; font-weight: 700; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem;">
+                        🟡 Status: Engine Ready / Select Pairing Method
                     </span>
                 </div>
-                <h4 style="font-size: 1rem; font-weight: 700; color: white; margin: 0 0 6px 0;">Pair Phone via WhatsApp Camera</h4>
-                <p style="font-size: 0.825rem; color: #cbd5e1; margin: 0 0 14px 0; line-height: 1.5;">
+                
+                <!-- Method Selector Tabs: QR Code vs Phone Pairing Code -->
+                <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                    <button type="button" onclick="switchPairMethod('qr')" id="btnPairQr" class="btn btn-primary" style="padding: 5px 12px; font-size: 0.8rem; border-radius: 6px; background: #10b981; border: none;">
+                        <i data-lucide="qr-code" style="width: 14px; height: 14px; margin-right: 4px;"></i> Scan QR Code
+                    </button>
+                    <button type="button" onclick="switchPairMethod('code')" id="btnPairCode" class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.8rem; border-radius: 6px;">
+                        <i data-lucide="smartphone" style="width: 14px; height: 14px; margin-right: 4px;"></i> Link with Phone Number Code
+                    </button>
+                </div>
+
+                <!-- Box 1: QR Instructions -->
+                <div id="boxPairQr" style="font-size: 0.825rem; color: #cbd5e1; line-height: 1.5;">
                     1. Open WhatsApp on your phone &rarr; Tap Menu/Settings &rarr; Linked Devices.<br>
-                    2. Tap <strong>Link a Device</strong> & point phone camera at the QR code above.<br>
-                    3. Phone stays paired with your own server & Marg ERP invoices send automatically!
-                </p>
-                <div style="display: flex; gap: 10px;">
+                    2. Tap <strong>Link a Device</strong> & point phone camera at the QR code on screen.<br>
+                    3. Your phone stays paired with your own server & Marg ERP invoices send automatically!
+                </div>
+
+                <!-- Box 2: 8-Digit Phone Pairing Code Request -->
+                <div id="boxPairCode" style="display: none; background: rgba(0,0,0,0.4); border-radius: 10px; padding: 12px; margin-top: 8px;">
+                    <label style="font-size: 0.8rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Enter Your 10-Digit WhatsApp Mobile Number:</label>
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                        <input type="text" id="pairMobileInput" placeholder="e.g. 9876543210" class="form-control" style="background: rgba(0,0,0,0.4); border-color: rgba(255,255,255,0.15); color: #fff; font-size: 0.85rem;">
+                        <button type="button" onclick="generatePhonePairingCode()" class="btn btn-success" style="white-space: nowrap; padding: 0 14px; font-size: 0.8rem; background: #10b981; border: none;">
+                            Get Code
+                        </button>
+                    </div>
+                    <div id="pairingCodeResult" style="display: none; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; border-radius: 8px; padding: 10px; text-align: center;">
+                        <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 4px;">Your 8-Digit WhatsApp Pairing Code:</span>
+                        <strong id="displayPairingCode" style="font-size: 1.4rem; color: #34d399; letter-spacing: 4px; font-family: monospace;">ABCD-1234</strong>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 14px;">
                     <button type="button" onclick="loadLiveQrCode()" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem; border-radius: 8px; background: #10b981; border: none;">
-                        <i data-lucide="refresh-cw" style="width: 14px; height: 14px; margin-right: 4px;"></i> Refresh Live QR Code
+                        <i data-lucide="refresh-cw" style="width: 14px; height: 14px; margin-right: 4px;"></i> Refresh Status
                     </button>
                     <button type="button" onclick="checkSessionStatus()" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.8rem; border-radius: 8px;">
-                        <i data-lucide="check-circle" style="width: 14px; height: 14px; margin-right: 4px;"></i> Check Status
+                        <i data-lucide="check-circle" style="width: 14px; height: 14px; margin-right: 4px;"></i> Verify Connection
                     </button>
                 </div>
             </div>
@@ -466,6 +497,25 @@ function selectGateway(mode) {
     }
 }
 
+function switchPairMethod(method) {
+    const boxQr = document.getElementById('boxPairQr');
+    const boxCode = document.getElementById('boxPairCode');
+    const btnQr = document.getElementById('btnPairQr');
+    const btnCode = document.getElementById('btnPairCode');
+
+    if (method === 'code') {
+        boxQr.style.display = 'none';
+        boxCode.style.display = 'block';
+        btnCode.style.background = '#10b981';
+        btnQr.style.background = 'rgba(255,255,255,0.1)';
+    } else {
+        boxQr.style.display = 'block';
+        boxCode.style.display = 'none';
+        btnQr.style.background = '#10b981';
+        btnCode.style.background = 'rgba(255,255,255,0.1)';
+    }
+}
+
 function copyGatewayUrl() {
     const input = document.getElementById('gatewayUrlInput');
     input.select();
@@ -478,12 +528,45 @@ function loadLiveQrCode() {
     fetch('api/whatsapp_web_engine.php?action=get_qr')
         .then(res => res.json())
         .then(data => {
-            if (data && data.qr_image) {
-                document.getElementById('qrImage').src = data.qr_image;
+            const img = document.getElementById('qrImage');
+            const ph = document.getElementById('qrPlaceholder');
+
+            if (data && data.status === 'scan_qr' && data.qr_image) {
+                img.src = data.qr_image;
+                img.style.display = 'block';
+                ph.style.display = 'none';
+            } else {
+                img.style.display = 'none';
+                ph.style.display = 'block';
+                if (data && data.message) {
+                    ph.innerHTML = "⚡ <strong>Node Engine Status</strong><br>" + data.message;
+                }
             }
         })
         .catch(err => {
-            console.log('QR load fallback');
+            console.log('QR load error');
+        });
+}
+
+function generatePhonePairingCode() {
+    const phone = document.getElementById('pairMobileInput').value;
+    if (!phone || phone.length < 10) {
+        alert('Please enter a valid 10-digit mobile number.');
+        return;
+    }
+
+    fetch('api/whatsapp_web_engine.php?action=get_pairing_code&phone=' + encodeURIComponent(phone))
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.pairing_code) {
+                document.getElementById('displayPairingCode').innerText = data.pairing_code;
+                document.getElementById('pairingCodeResult').style.display = 'block';
+            } else {
+                alert(data.message || 'Node Engine offline. Run "npm start" inside whatsapp_engine folder first.');
+            }
+        })
+        .catch(err => {
+            alert('Unable to request pairing code. Run "npm start" inside whatsapp_engine folder first.');
         });
 }
 
@@ -496,7 +579,7 @@ function checkSessionStatus() {
                 badge.innerHTML = "🟢 Status: Connected (" + (data.phone_number || 'Paired') + ")";
                 badge.style.background = "#10b981";
             } else {
-                badge.innerHTML = "🟡 Status: Ready / Pairing Active";
+                badge.innerHTML = "🟡 Status: Ready / Select Pairing Method";
                 badge.style.background = "#f59e0b";
             }
         })
