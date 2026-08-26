@@ -419,5 +419,39 @@ CREATE TABLE IF NOT EXISTS tenant_whatsapp_configs (
     INDEX (marg_license_no)
 );
 
-
-
+-- 17. Customer KYC Details & Govt Verification Table
+CREATE TABLE IF NOT EXISTS customer_kyc_details (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    lead_id VARCHAR(20) NULL,
+    full_name VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    firm_name VARCHAR(200) NOT NULL,
+    registration_type ENUM('registered', 'unregistered') NOT NULL DEFAULT 'registered',
+    pan_number VARCHAR(10) NOT NULL,
+    pan_doc_path VARCHAR(255) NOT NULL,
+    pan_verified TINYINT(1) DEFAULT 0,
+    pan_api_response TEXT NULL,
+    aadhaar_number VARCHAR(12) NOT NULL,
+    aadhaar_doc_path VARCHAR(255) NOT NULL,
+    aadhaar_verified TINYINT(1) DEFAULT 0,
+    aadhaar_api_response TEXT NULL,
+    udyam_number VARCHAR(30) NOT NULL,
+    udyam_doc_path VARCHAR(255) NOT NULL,
+    udyam_verified TINYINT(1) DEFAULT 0,
+    udyam_api_response TEXT NULL,
+    gstin_number VARCHAR(15) NULL,
+    gstin_doc_path VARCHAR(255) NULL,
+    gstin_verified TINYINT(1) DEFAULT 0,
+    gstin_api_response TEXT NULL,
+    kyc_status ENUM('Pending', 'Verified', 'Rejected') DEFAULT 'Pending',
+    rejection_reason TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_email (email),
+    INDEX idx_phone (phone),
+    INDEX idx_pan (pan_number),
+    INDEX idx_gstin (gstin_number),
+    INDEX idx_udyam (udyam_number),
+    INDEX idx_kyc_status (kyc_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -59,12 +59,55 @@ if ($db_connected && $pdo) {
         $query_params = [];
 
         if (!$is_admin && !empty($user_name)) {
-            $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
+            $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE ?)";
             $query_params[] = $user_name;
+            $query_params[] = $user_name;
+            $query_params[] = '%' . $user_name . '%';
         }
 
         if (!empty($_GET['filter']) && $_GET['filter'] === 'today') {
             $where_conditions[] = "DATE(created_at) = CURRENT_DATE()";
+        }
+
+        $search_term = trim($_GET['search'] ?? $_GET['q'] ?? '');
+        if (!empty($search_term)) {
+            $clean_search_phone = preg_replace('/[^0-9]/', '', $search_term);
+            if (!empty($clean_search_phone) && strlen($clean_search_phone) >= 4) {
+                $where_conditions[] = "(id LIKE ? OR name LIKE ? OR company LIKE ? OR phone LIKE ? OR REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+91', '') LIKE ? OR email LIKE ? OR address LIKE ? OR source LIKE ? OR tags LIKE ? OR enq_for LIKE ? OR contact_person LIKE ? OR remarks LIKE ?)";
+                $st = '%' . $search_term . '%';
+                $pst = '%' . $clean_search_phone . '%';
+                $query_params[] = $st;
+                $query_params[] = $st;
+                $query_params[] = $st;
+                $query_params[] = $st;
+                $query_params[] = $pst;
+                $query_params[] = $st;
+                $query_params[] = $st;
+                $query_params[] = $st;
+                $query_params[] = $st;
+                $query_params[] = $st;
+                $query_params[] = $st;
+                $query_params[] = $st;
+            } else {
+                $where_conditions[] = "(id LIKE ? OR name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ? OR address LIKE ? OR source LIKE ? OR tags LIKE ? OR enq_for LIKE ? OR contact_person LIKE ? OR remarks LIKE ?)";
+                $st = '%' . $search_term . '%';
+                for ($s = 0; $s < 12; $s++) {
+                    $query_params[] = $st;
+                }
+            }
+        }
+
+        if (!empty($_GET['source'])) {
+            $where_conditions[] = "LOWER(source) = ?";
+            $query_params[] = strtolower(trim($_GET['source']));
+        }
+
+        if (!empty($_GET['assigned_to'])) {
+            $req_op = trim($_GET['assigned_to']);
+            $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE ?)";
+            $query_params[] = $req_op;
+            $query_params[] = $req_op;
+            $query_params[] = '%' . $req_op . '%';
         }
 
         if (!empty($_GET['priority'])) {
@@ -400,9 +443,14 @@ if (empty($leads)) {
     <div class="card p-4 mb-6 flex flex-wrap align-center justify-between gap-4" style="border: 1px solid var(--border-color);">
         <!-- Left: Search and filters toggler -->
         <div class="flex align-center gap-3 flex-wrap">
-            <div class="search-input-wrapper flex align-center gap-2" style="background-color: var(--bg-app); border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: var(--border-radius-sm); width: 260px;">
-                <i data-lucide="search" class="text-muted" style="width: 16px; height: 16px;"></i>
-                <input type="text" id="leads-search-input" placeholder="Search customer, company, phone..." class="w-full text-xs" style="border: none; background: transparent; outline: none;">
+            <div class="search-input-wrapper flex align-center gap-2" style="background-color: var(--bg-app); border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: var(--border-radius-sm); width: 300px; position: relative;">
+                <i data-lucide="search" class="text-muted" style="width: 16px; height: 16px; flex-shrink: 0;"></i>
+                <input type="text" id="leads-search-input" placeholder="Search customer, company, phone..." class="w-full text-xs" style="border: none; background: transparent; outline: none;" value="<?php echo htmlspecialchars($search_term ?? ''); ?>">
+                <?php if (!empty($search_term)): ?>
+                    <button type="button" onclick="clearLeadsSearch()" class="text-muted hover-danger" style="background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center;" title="Clear Search Filter">
+                        <i data-lucide="x-circle" style="width: 15px; height: 15px;"></i>
+                    </button>
+                <?php endif; ?>
             </div>
             <button class="btn btn-secondary text-xs" style="padding: 0.55rem 1rem;" onclick="document.getElementById('advanced-filter-drawer').classList.toggle('hidden');">
                 <i data-lucide="filter" style="width: 14px; height: 14px;"></i>
@@ -433,14 +481,28 @@ if (empty($leads)) {
                 <option value="restore">Re-activate / Restore Dropped Leads</option>
             </select>
 
-            <!-- Dynamic Sub-Select: Employee Assignment -->
-            <div id="batch-employee-wrapper" class="hidden flex align-center gap-2">
-                <select class="form-control text-xs" style="width: auto; padding: 0.4rem 0.8rem; height: 34px;" id="batch-employee-select">
-                    <option value="">-- Select Employee --</option>
-                    <?php foreach ($operators as $op): ?>
-                        <option value="<?php echo htmlspecialchars($op); ?>"><?php echo htmlspecialchars($op); ?></option>
-                    <?php endforeach; ?>
-                </select>
+            <!-- Dynamic Sub-Select: Employee Assignment (Multi-Employee Selection) -->
+            <div id="batch-employee-wrapper" class="hidden flex align-center gap-2" style="position: relative;">
+                <div class="batch-emp-dropdown-container" style="position: relative; display: inline-block;">
+                    <button type="button" class="btn btn-secondary text-xs flex align-center justify-between gap-2" id="batch-emp-btn" onclick="toggleBatchEmpDropdown()" style="height: 34px; padding: 0.4rem 0.8rem; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-weight: 600;">
+                        <span id="batch-emp-btn-text">-- Select Employee(s) --</span>
+                        <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+                    </button>
+                    <div id="batch-emp-dropdown-menu" class="hidden" style="position: absolute; top: 110%; left: 0; z-index: 1000; width: 250px; max-height: 220px; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); box-shadow: 0 8px 24px rgba(0,0,0,0.18); padding: 0.6rem;">
+                        <div class="flex justify-between align-center mb-2 pb-1" style="border-bottom: 1px solid var(--border-color);">
+                            <span class="text-xs font-bold text-muted" style="text-transform: uppercase;">Select Assignees</span>
+                            <span class="text-xs text-primary font-semibold pointer" onclick="toggleSelectAllBatchEmp()">Toggle All</span>
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <?php foreach ($operators as $op): ?>
+                                <label class="flex align-center gap-2 text-xs pointer p-1 rounded hover-bg" style="cursor: pointer; display: flex; align-items: center; padding: 0.3rem 0.5rem; border-radius: 4px; user-select: none;">
+                                    <input type="checkbox" class="batch-emp-cb" value="<?php echo htmlspecialchars($op); ?>" onchange="updateBatchEmpBtnText()" style="accent-color: var(--primary); width: 14px; height: 14px;">
+                                    <span><?php echo htmlspecialchars($op); ?></span>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
                 <!-- Hover Employee List Badge -->
                 <div class="employee-hover-tooltip-container" style="position: relative; display: inline-block;">
                     <span class="badge text-xs" style="background: rgba(99, 102, 241, 0.1); color: var(--primary); border: 1px solid var(--primary); cursor: pointer; padding: 0.35rem 0.6rem;" title="Hover to view all available employees">
@@ -501,45 +563,51 @@ if (empty($leads)) {
             <!-- Source Filter -->
             <div class="form-group m-0">
                 <label class="form-label text-xs">Lead Source</label>
-                <select id="filter-source" class="form-control text-xs" onchange="applyAdvancedFilters()">
+                <select id="filter-source" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
                     <option value="">All Sources</option>
-                    <option value="Website">Website</option>
-                    <option value="Google Ads">Google Ads</option>
-                    <option value="Cold Calls">Cold Calls</option>
-                    <option value="Referrals">Referrals</option>
-                    <option value="Exhibitions">Exhibitions</option>
-                    <option value="HO">HO</option>
-                    <option value="Office">Office</option>
-                    <option value="Imported">Imported</option>
+                    <?php 
+                    $cur_src = $_GET['source'] ?? '';
+                    $src_list = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Imported'];
+                    foreach ($src_list as $srcItem): 
+                    ?>
+                        <option value="<?php echo htmlspecialchars($srcItem); ?>" <?php echo (strcasecmp($cur_src, $srcItem) === 0) ? 'selected' : ''; ?>><?php echo htmlspecialchars($srcItem); ?></option>
+                    <?php endforeach; ?>
                 </select>
             </div>
             <!-- Priority Filter -->
             <div class="form-group m-0">
                 <label class="form-label text-xs">Priority</label>
-                <select id="filter-priority" class="form-control text-xs" onchange="applyAdvancedFilters()">
+                <select id="filter-priority" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
                     <option value="">All Priorities</option>
-                    <option value="hot">Hot</option>
-                    <option value="warm">Warm</option>
-                    <option value="cold">Cold</option>
+                    <?php $cur_prio = strtolower($_GET['priority'] ?? ''); ?>
+                    <option value="hot" <?php echo ($cur_prio === 'hot') ? 'selected' : ''; ?>>Hot</option>
+                    <option value="warm" <?php echo ($cur_prio === 'warm') ? 'selected' : ''; ?>>Warm</option>
+                    <option value="cold" <?php echo ($cur_prio === 'cold') ? 'selected' : ''; ?>>Cold</option>
                 </select>
             </div>
             <!-- Status Filter -->
             <div class="form-group m-0">
                 <label class="form-label text-xs">Pipeline Status</label>
-                <select id="filter-status" class="form-control text-xs" onchange="applyAdvancedFilters()">
+                <select id="filter-status" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
                     <option value="">All Stages</option>
-                    <?php foreach ($PIPELINE_STAGES as $key => $stage): ?>
-                        <option value="<?php echo htmlspecialchars($key); ?>"><?php echo htmlspecialchars($stage['label']); ?></option>
+                    <?php 
+                    $cur_st = strtolower($_GET['status'] ?? '');
+                    foreach ($PIPELINE_STAGES as $key => $stage): 
+                    ?>
+                        <option value="<?php echo htmlspecialchars($key); ?>" <?php echo ($cur_st === strtolower($key)) ? 'selected' : ''; ?>><?php echo htmlspecialchars($stage['label']); ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
             <!-- Assigned Exec Filter -->
             <div class="form-group m-0">
                 <label class="form-label text-xs">Assigned Employee</label>
-                <select id="filter-assigned" class="form-control text-xs" onchange="applyAdvancedFilters()">
+                <select id="filter-assigned" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
                     <option value="">All Employees</option>
-                    <?php foreach ($operators as $op): ?>
-                        <option value="<?php echo htmlspecialchars($op); ?>"><?php echo htmlspecialchars($op); ?></option>
+                    <?php 
+                    $cur_ass = $_GET['assigned_to'] ?? '';
+                    foreach ($operators as $op): 
+                    ?>
+                        <option value="<?php echo htmlspecialchars($op); ?>" <?php echo (strcasecmp($cur_ass, $op) === 0) ? 'selected' : ''; ?>><?php echo htmlspecialchars($op); ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -547,7 +615,7 @@ if (empty($leads)) {
     </div>
 
     <!-- Spreadsheet-like Leads Table Container -->
-    <div class="card p-0 overflow-hidden" style="border: 1px solid var(--border-color);">
+    <div class="card p-0 overflow-hidden" id="leads-table-card" style="border: 1px solid var(--border-color);">
         <div class="table-responsive">
             <table class="table">
                 <thead>
@@ -624,7 +692,7 @@ if (empty($leads)) {
                                 </div>
                             </td>
                             <td class="col-group" style="vertical-align: middle;">
-                                <span class="font-semibold text-xs"><?php echo htmlspecialchars(!empty($lead['company']) ? $lead['company'] : 'NA'); ?></span>
+                                <span class="font-semibold text-xs"><?php echo htmlspecialchars(!empty($lead['group_stage']) ? $lead['group_stage'] : (!empty($lead['tags']) && $lead['tags'] !== 'NA' ? $lead['tags'] : (!empty($lead['company']) ? $lead['company'] : 'NA'))); ?></span>
                             </td>
                             <td class="col-status" style="vertical-align: middle;">
                                 <?php echo getStatusBadge($lead['status']); ?>
@@ -689,7 +757,7 @@ if (empty($leads)) {
                 <span class="text-xs text-muted">Showing <?php echo $start_num; ?> to <?php echo $end_num; ?> of <?php echo $total_leads; ?> leads</span>
                 <span class="text-xs text-muted">|</span>
                 <span class="text-xs text-muted">Show:</span>
-                <select class="form-control text-xs" style="width: auto; padding: 0.2rem 0.5rem; height: 28px;" onchange="window.location.href = this.value;">
+                <select class="form-control text-xs" style="width: auto; padding: 0.2rem 0.5rem; height: 28px;" onchange="fetchLeadsPartialWithoutReload(this.value, true);">
                     <option value="<?php echo getPageUrl(1, 10); ?>" <?php echo $limit == 10 ? 'selected' : ''; ?>>10 per page</option>
                     <option value="<?php echo getPageUrl(1, 25); ?>" <?php echo $limit == 25 ? 'selected' : ''; ?>>25 per page</option>
                     <option value="<?php echo getPageUrl(1, 50); ?>" <?php echo $limit == 50 ? 'selected' : ''; ?>>50 per page</option>
@@ -772,14 +840,16 @@ if (empty($leads)) {
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Assign to</label>
-                            <select name="assigned_to" id="qf-assigned-to" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
-                                <option value="">-- Choose Operator --</option>
+                        <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Assign to Employee(s) (Select Multiple)</label>
+                            <div class="employee-select-grid" style="display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 100px; overflow-y: auto; padding: 0.4rem; background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);">
                                 <?php foreach ($operators as $op): ?>
-                                    <option value="<?php echo htmlspecialchars($op); ?>"><?php echo htmlspecialchars($op); ?></option>
+                                    <label class="flex align-center gap-15 text-xs pointer" style="padding: 0.25rem 0.5rem; border-radius: 4px; background: var(--bg-card); border: 1px solid var(--border-color); user-select: none;">
+                                        <input type="checkbox" name="assigned_to[]" class="qf-assigned-cb" value="<?php echo htmlspecialchars($op); ?>" style="accent-color: var(--primary); width: 13px; height: 13px;">
+                                        <span><?php echo htmlspecialchars($op); ?></span>
+                                    </label>
                                 <?php endforeach; ?>
-                            </select>
+                            </div>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px; color: var(--text-muted);">Assigned By (Read-Only)</label>
@@ -1044,15 +1114,22 @@ if (empty($leads)) {
 </div>
 
 <script>
-    // Prototyping checkboxes selection
-    const selectAll = document.getElementById('select-all-leads');
-    const checkboxes = document.querySelectorAll('.lead-checkbox');
-    
-    if (selectAll) {
-        selectAll.addEventListener('change', () => {
-            checkboxes.forEach(cb => cb.checked = selectAll.checked);
-        });
-    }
+    // Universal Select All leads checkbox handler using event delegation
+    document.addEventListener('change', function(e) {
+        if (e.target && e.target.id === 'select-all-leads') {
+            const isChecked = e.target.checked;
+            document.querySelectorAll('.lead-checkbox').forEach(cb => {
+                cb.checked = isChecked;
+            });
+        } else if (e.target && e.target.classList.contains('lead-checkbox')) {
+            const selectAll = document.getElementById('select-all-leads');
+            if (selectAll) {
+                const total = document.querySelectorAll('.lead-checkbox').length;
+                const checked = document.querySelectorAll('.lead-checkbox:checked').length;
+                selectAll.checked = (total > 0 && total === checked);
+            }
+        }
+    });
 
     // Quick Follow-up Modal controls
     const quickFollowupModal = document.getElementById('quick-followup-modal');
@@ -1075,7 +1152,10 @@ if (empty($leads)) {
                 if (document.getElementById('qf-modal-title')) document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name || ''}</strong> ( ${lead.phone || ''} )`;
                 if (document.getElementById('qf-company')) document.getElementById('qf-company').value = lead.company || '';
                 if (document.getElementById('qf-status')) document.getElementById('qf-status').value = lead.status || 'new';
-                if (document.getElementById('qf-assigned-to')) document.getElementById('qf-assigned-to').value = lead.assigned || '';
+                const assignedList = (lead.assigned || '').split(',').map(s => s.trim().toLowerCase());
+                document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
+                    cb.checked = assignedList.includes(cb.value.trim().toLowerCase());
+                });
                 if (document.getElementById('qf-assigned-by')) document.getElementById('qf-assigned-by').value = lead.assigned_by || 'Not assigned yet';
                 if (document.getElementById('qf-tags')) document.getElementById('qf-tags').value = lead.tags || '';
                 if (document.getElementById('qf-address')) document.getElementById('qf-address').value = lead.address || '';
@@ -1218,12 +1298,84 @@ if (empty($leads)) {
     });
     
     // Advanced Realtime Multi-Criteria Table Filtering
-    function applyAdvancedFilters() {
+    function fetchLeadsPartialWithoutReload(targetUrl, pushState = true) {
+        if (!targetUrl) return Promise.resolve(false);
+        
+        if (pushState && history.pushState) {
+            history.pushState(null, '', targetUrl);
+        }
+
+        return fetch(targetUrl, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' }
+        })
+        .then(res => {
+            if (!res.ok) return null;
+            return res.text();
+        })
+        .then(html => {
+            if (!html) return false;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+
+            // 1. Swap table card container & pagination
+            const newTableCard = doc.querySelector('#leads-table-card');
+            const currentTableCard = document.querySelector('#leads-table-card');
+            if (newTableCard && currentTableCard) {
+                currentTableCard.innerHTML = newTableCard.innerHTML;
+            }
+
+            // 2. Swap search input clear button / state if input isn't active
+            const newSearchInput = doc.querySelector('#leads-search-input');
+            const currentSearchInput = document.querySelector('#leads-search-input');
+            if (newSearchInput && currentSearchInput && currentSearchInput !== document.activeElement) {
+                currentSearchInput.value = newSearchInput.value;
+            }
+
+            // 3. Sync count badges
+            const cntSpans = document.querySelectorAll('[id^="cnt-"]');
+            cntSpans.forEach(span => {
+                const newSpan = doc.querySelector('#' + CSS.escape(span.id));
+                if (newSpan) {
+                    span.innerHTML = newSpan.innerHTML;
+                }
+            });
+
+            // 4. Re-initialize Lucide Icons & Column preferences
+            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+            if (typeof loadDirColumnPreferences === 'function') {
+                loadDirColumnPreferences();
+            }
+
+            applyAdvancedFilters(false);
+            return true;
+        })
+        .catch(err => {
+            console.error('AJAX partial update failed:', err);
+            return false;
+        });
+    }
+
+    window.fetchLeadsPartialWithoutReload = fetchLeadsPartialWithoutReload;
+
+    function applyAdvancedFilters(triggerServer = false) {
         const searchVal = (document.getElementById('leads-search-input')?.value || '').toLowerCase().trim();
         const sourceVal = (document.getElementById('filter-source')?.value || '').toLowerCase().trim();
         const priorityVal = (document.getElementById('filter-priority')?.value || '').toLowerCase().trim();
         const statusVal = (document.getElementById('filter-status')?.value || '').toLowerCase().trim();
         const assignedVal = (document.getElementById('filter-assigned')?.value || '').toLowerCase().trim();
+
+        if (triggerServer) {
+            const url = new URL(window.location.href);
+            if (sourceVal) url.searchParams.set('source', sourceVal); else url.searchParams.delete('source');
+            if (priorityVal) url.searchParams.set('priority', priorityVal); else url.searchParams.delete('priority');
+            if (statusVal) url.searchParams.set('status', statusVal); else url.searchParams.delete('status');
+            if (assignedVal) url.searchParams.set('assigned_to', assignedVal); else url.searchParams.delete('assigned_to');
+            url.searchParams.set('p', '1');
+            fetchLeadsPartialWithoutReload(url.toString(), true);
+            return;
+        }
 
         const rows = document.querySelectorAll('table.table tbody tr');
         rows.forEach(row => {
@@ -1238,14 +1390,11 @@ if (empty($leads)) {
             const matchPriority = !priorityVal || rPriority === priorityVal;
             const matchAssigned = !assignedVal || rAssigned.includes(assignedVal);
 
-            // Dropped Status Visibility Logic:
-            // 1. If user explicitly chooses 'dropped' in Pipeline Status filter -> display dropped leads.
-            // 2. Otherwise (default or any active stage) -> hide dropped leads from the list.
             let matchStatus = false;
             if (statusVal === 'dropped') {
                 matchStatus = (rStatus === 'dropped');
             } else if (statusVal === '') {
-                matchStatus = (rStatus !== 'dropped'); // Hide dropped leads by default in main list
+                matchStatus = (rStatus !== 'dropped');
             } else {
                 matchStatus = (rStatus === statusVal);
             }
@@ -1258,10 +1407,74 @@ if (empty($leads)) {
         });
     }
 
-    const searchInput = document.getElementById('leads-search-input');
-    if (searchInput) {
-        searchInput.addEventListener('input', applyAdvancedFilters);
+    function resetFilters() {
+        fetchLeadsPartialWithoutReload('index.php?page=leads', true);
     }
+
+    const searchInput = document.getElementById('leads-search-input');
+    let searchDebounceTimer = null;
+
+    function triggerGlobalSearch(val) {
+        const url = new URL(window.location.href);
+        const currentSearch = (url.searchParams.get('search') || url.searchParams.get('q') || '').trim();
+        const trimmed = (val || '').trim();
+
+        if (trimmed === currentSearch) return;
+
+        if (trimmed) {
+            url.searchParams.set('search', trimmed);
+        } else {
+            url.searchParams.delete('search');
+            url.searchParams.delete('q');
+        }
+        url.searchParams.set('p', '1');
+        fetchLeadsPartialWithoutReload(url.toString(), true);
+    }
+
+    function clearLeadsSearch() {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('search');
+        url.searchParams.delete('q');
+        url.searchParams.set('p', '1');
+        if (searchInput) searchInput.value = '';
+        fetchLeadsPartialWithoutReload(url.toString(), true);
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            applyAdvancedFilters(false);
+            
+            clearTimeout(searchDebounceTimer);
+            const query = this.value;
+            searchDebounceTimer = setTimeout(() => {
+                triggerGlobalSearch(query);
+            }, 500);
+        });
+
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                clearTimeout(searchDebounceTimer);
+                triggerGlobalSearch(this.value);
+            }
+        });
+    }
+
+    // Event delegation for pagination & metric card links to fetch via AJAX without page reload
+    document.addEventListener('click', function(e) {
+        const targetLink = e.target.closest('#leads-table-card a.btn, .live-metric-cards-container a');
+        if (targetLink && targetLink.getAttribute('href')) {
+            const href = targetLink.getAttribute('href');
+            if (href.startsWith('index.php?page=leads') || href.startsWith('?page=leads')) {
+                e.preventDefault();
+                fetchLeadsPartialWithoutReload(href, true);
+            }
+        }
+    });
+
+    window.addEventListener('popstate', function() {
+        fetchLeadsPartialWithoutReload(window.location.href, false);
+    });
 
     // Apply default filtering immediately on load to hide dropped leads
     applyAdvancedFilters();
@@ -1277,22 +1490,32 @@ if (empty($leads)) {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(async response => {
+                const text = await response.text();
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.error('Server response:', text);
+                    throw new Error('Invalid response: ' + text.substring(0, 150));
+                }
+            })
             .then(data => {
                 if (data.success) {
                     closeQuickFollowupModal();
                     if (typeof refreshDataWithoutReload === 'function') {
                         refreshDataWithoutReload(true);
+                    } else if (typeof fetchLeadsPartialWithoutReload === 'function') {
+                        fetchLeadsPartialWithoutReload(window.location.href, false);
                     } else {
                         window.location.reload();
                     }
                 } else {
-                    alert('Failed to save details: ' + data.message);
+                    alert('Failed to save details: ' + (data.message || 'Unknown error'));
                 }
             })
             .catch(err => {
                 console.error(err);
-                alert('An unexpected network error occurred.');
+                alert('Save error: ' + err.message);
             });
         });
     }
@@ -1325,6 +1548,41 @@ if (empty($leads)) {
         }
     }
 
+    function toggleBatchEmpDropdown() {
+        const menu = document.getElementById('batch-emp-dropdown-menu');
+        if (menu) {
+            menu.classList.toggle('hidden');
+        }
+    }
+
+    document.addEventListener('click', function(e) {
+        const container = e.target.closest('.batch-emp-dropdown-container');
+        if (!container) {
+            const menu = document.getElementById('batch-emp-dropdown-menu');
+            if (menu) menu.classList.add('hidden');
+        }
+    });
+
+    function toggleSelectAllBatchEmp() {
+        const cbs = document.querySelectorAll('.batch-emp-cb');
+        const allChecked = Array.from(cbs).every(cb => cb.checked);
+        cbs.forEach(cb => cb.checked = !allChecked);
+        updateBatchEmpBtnText();
+    }
+
+    function updateBatchEmpBtnText() {
+        const selected = Array.from(document.querySelectorAll('.batch-emp-cb:checked')).map(cb => cb.value);
+        const btnText = document.getElementById('batch-emp-btn-text');
+        if (!btnText) return;
+        if (selected.length === 0) {
+            btnText.textContent = '-- Select Employee(s) --';
+        } else if (selected.length === 1) {
+            btnText.textContent = selected[0];
+        } else {
+            btnText.textContent = selected.length + ' Employees Selected';
+        }
+    }
+
     function executeBatchAction() {
         const action = document.getElementById('batch-action-select').value;
         const selected = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
@@ -1341,12 +1599,12 @@ if (empty($leads)) {
 
         let targetValue = '';
         if (action === 'assign') {
-            const empSelect = document.getElementById('batch-employee-select');
-            targetValue = empSelect ? empSelect.value : '';
-            if (!targetValue) {
-                alert('Please select an employee from the dropdown list to assign the selected ' + selected.length + ' lead(s).');
+            const selectedEmps = Array.from(document.querySelectorAll('.batch-emp-cb:checked')).map(cb => cb.value.trim());
+            if (selectedEmps.length === 0) {
+                alert('Please select at least one employee from the multi-select dropdown to assign the selected ' + selected.length + ' lead(s).');
                 return;
             }
+            targetValue = selectedEmps.join(', ');
         } else if (action === 'status' || action === 'restore') {
             const statusSelect = document.getElementById('batch-status-select');
             targetValue = statusSelect ? statusSelect.value : '';

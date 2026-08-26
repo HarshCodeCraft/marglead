@@ -24,6 +24,10 @@ if ($requested_page === 'contact') {
     require_once __DIR__ . '/contact.php';
     exit;
 }
+if (in_array($requested_page, ['kyc', 'customer_kyc_form'])) {
+    require_once __DIR__ . '/customer_kyc_form.php';
+    exit;
+}
 
 // Unauthenticated users see the Public Landing / Home page first
 if (!isset($_SESSION['user_id'])) {
@@ -330,13 +334,18 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_lead_json') {
 
 // Quick Follow-up Data Save AJAX receiver
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'quick_followup_save') {
+    while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json');
     if ($db_connected && $pdo) {
         try {
-            $lead_id = $_POST['lead_id'];
+            $lead_id = $_POST['lead_id'] ?? '';
             $company = $_POST['company'] ?? '';
             $status = $_POST['status'] ?? '';
-            $assigned_to = $_POST['assigned_to'] ?? '';
+            $assigned_to_raw = $_POST['assigned_to'] ?? '';
+            $assigned_to = is_array($assigned_to_raw) ? implode(', ', array_filter(array_map('trim', $assigned_to_raw))) : trim($assigned_to_raw);
+            if (strlen($assigned_to) > 250) {
+                $assigned_to = substr($assigned_to, 0, 247) . '...';
+            }
             $tags = $_POST['tags'] ?? '';
             $address = $_POST['address'] ?? '';
             $source = $_POST['source'] ?? '';
@@ -721,6 +730,10 @@ switch ($page) {
         break;
     case 'refund_policy':
         $module_path = __DIR__ . '/modules/refund_policy.php';
+        break;
+    case 'customer_kyc':
+    case 'customer_kyc_admin':
+        $module_path = __DIR__ . '/modules/customer_kyc_admin.php';
         break;
     default:
         $module_path = __DIR__ . '/modules/dashboard.php';

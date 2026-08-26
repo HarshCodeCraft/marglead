@@ -223,7 +223,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'switch_role' && isset($_GET['
 }
 
 // Global Application Constants
-define('APP_NAME', 'Marg Soft Solution');
+define('APP_NAME', 'Friendly AI Solution');
 define('APP_VERSION', '1.0.0');
 
 // Default Session values for prototyping
@@ -386,15 +386,24 @@ if (isset($_SESSION['user_role'])) {
                 if (!$is_admin_user && !empty($n['role']) && ($n['role'] === 'Admin' || $n['role'] === 'Super Admin')) {
                     continue;
                 }
-                $time_diff = time() - strtotime($n['created_at']);
+                $created_time = strtotime($n['created_at']);
+                $time_diff = time() - $created_time;
+                if ($time_diff < 0) {
+                    $time_diff = 0;
+                }
+
                 if ($time_diff < 60) {
                     $rel_time = 'Just now';
                 } elseif ($time_diff < 3600) {
-                    $rel_time = round($time_diff / 60) . ' mins ago';
+                    $mins = max(1, floor($time_diff / 60));
+                    $rel_time = $mins . ($mins == 1 ? ' min ago' : ' mins ago');
                 } elseif ($time_diff < 86400) {
-                    $rel_time = round($time_diff / 3600) . ' hours ago';
+                    $hours = floor($time_diff / 3600);
+                    $rel_time = $hours . ($hours == 1 ? ' hour ago' : ' hours ago');
+                } elseif ($time_diff < 172800) {
+                    $rel_time = 'Yesterday at ' . date('h:i A', $created_time);
                 } else {
-                    $rel_time = date('Y-m-d', strtotime($n['created_at']));
+                    $rel_time = date('M d, h:i A', $created_time);
                 }
                 
                 $NOTIFICATIONS[] = [
@@ -728,83 +737,85 @@ if (!function_exists('getLiveMetricCounts')) {
             ];
         }
 
+        $user_name = trim($user_name);
+        $exec_where_fup = ($is_admin || empty($user_name)) ? "" : " AND (LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")) OR FIND_IN_SET(LOWER(TRIM(" . $pdo->quote($user_name) . ")), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE " . $pdo->quote('%' . $user_name . '%') . " OR lead_id IN (SELECT id FROM leads WHERE (LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")) OR FIND_IN_SET(LOWER(TRIM(" . $pdo->quote($user_name) . ")), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE " . $pdo->quote('%' . $user_name . '%') . ")))";
+
+        $exec_where_dm = ($is_admin || empty($user_name)) ? "" : " AND (LOWER(TRIM(engineer)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")) OR FIND_IN_SET(LOWER(TRIM(" . $pdo->quote($user_name) . ")), LOWER(REPLACE(engineer, ', ', ','))) OR engineer LIKE " . $pdo->quote('%' . $user_name . '%') . " OR lead_id IN (SELECT id FROM leads WHERE (LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")) OR FIND_IN_SET(LOWER(TRIM(" . $pdo->quote($user_name) . ")), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE " . $pdo->quote('%' . $user_name . '%') . ")))";
+
+        // Check optional renewals table safely
+        $has_renewals = false;
         try {
-            $user_name = trim($user_name);
-            $exec_where_ren = ($is_admin || empty($user_name)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")))";
-            $exec_where_fup = ($is_admin || empty($user_name)) ? "" : " AND (LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")) OR lead_id IN (SELECT id FROM leads WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . "))))";
-            $exec_where_dm = ($is_admin || empty($user_name)) ? "" : " AND LOWER(TRIM(engineer)) = LOWER(TRIM(" . $pdo->quote($user_name) . "))";
+            $chk = $pdo->query("SHOW TABLES LIKE 'renewals'");
+            if ($chk && $chk->fetch()) $has_renewals = true;
+        } catch (PDOException $e) {}
 
-            // 1. Upcoming Expired Lead
-            $stmtExpTotal = $pdo->query("SELECT 
-                (SELECT COUNT(*) FROM renewals WHERE 1=1 {$exec_where_ren}) 
-                + 
-                (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%' OR status = 'missed' OR scheduled_at <= NOW()) {$exec_where_fup})");
-            $expired_counts['total'] = (int)$stmtExpTotal->fetchColumn();
+        $ren_q_tot = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE 1=1" . (($is_admin || empty($user_name)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")))") . ") +" : "";
+        $ren_q_tod = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) <= '{$today_str}'" . (($is_admin || empty($user_name)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")))") . ") +" : "";
+        $ren_q_tom = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$tomorrow_str}'" . (($is_admin || empty($user_name)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")))") . ") +" : "";
+        $ren_q_nxt = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$nextday_str}'" . (($is_admin || empty($user_name)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(" . $pdo->quote($user_name) . ")))") . ") +" : "";
 
-            $stmtExpT = $pdo->prepare("SELECT 
-                (SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) <= ? {$exec_where_ren}) 
-                + 
-                (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) <= ? AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%' OR status = 'missed' OR scheduled_at <= NOW()) {$exec_where_fup})");
-            $stmtExpT->execute([$today_str, $today_str]);
-            $expired_counts['today'] = (int)$stmtExpT->fetchColumn();
+        // 1. Upcoming Expired Lead
+        $expiry_where = "(action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')";
+        try {
+            $res = $pdo->query("SELECT {$ren_q_tot} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup})");
+            if ($res) $expired_counts['total'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            $stmtExpTom = $pdo->prepare("SELECT 
-                (SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = ? {$exec_where_ren}) 
-                + 
-                (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ? AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%') {$exec_where_fup})");
-            $stmtExpTom->execute([$tomorrow_str, $tomorrow_str]);
-            $expired_counts['tomorrow'] = (int)$stmtExpTom->fetchColumn();
+        try {
+            $res = $pdo->query("SELECT {$ren_q_tod} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) <= '{$today_str}' AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup})");
+            if ($res) $expired_counts['today'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            $stmtExpNext = $pdo->prepare("SELECT 
-                (SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = ? {$exec_where_ren}) 
-                + 
-                (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ? AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%') {$exec_where_fup})");
-            $stmtExpNext->execute([$nextday_str, $nextday_str]);
-            $expired_counts['next_day'] = (int)$stmtExpNext->fetchColumn();
+        try {
+            $res = $pdo->query("SELECT {$ren_q_tom} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$tomorrow_str}' AND {$expiry_where} {$exec_where_fup})");
+            if ($res) $expired_counts['tomorrow'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            // 2. Demo Scheduled
-            $stmtDmTotal = $pdo->query("SELECT 
-                (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' {$exec_where_dm}) 
-                + 
-                (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') {$exec_where_fup})");
-            $demo_counts['total'] = (int)$stmtDmTotal->fetchColumn();
+        try {
+            $res = $pdo->query("SELECT {$ren_q_nxt} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$nextday_str}' AND {$expiry_where} {$exec_where_fup})");
+            if ($res) $expired_counts['next_day'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            $stmtDmT = $pdo->prepare("SELECT 
-                (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) <= ? {$exec_where_dm}) 
-                + 
-                (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) <= ? {$exec_where_fup})");
-            $stmtDmT->execute([$today_str, $today_str]);
-            $demo_counts['today'] = (int)$stmtDmT->fetchColumn();
+        // 2. Demo Scheduled
+        try {
+            $res = $pdo->query("SELECT (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' {$exec_where_dm}) + (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') {$exec_where_fup})");
+            if ($res) $demo_counts['total'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            $stmtDmTom = $pdo->prepare("SELECT 
-                (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) = ? {$exec_where_dm}) 
-                + 
-                (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) = ? {$exec_where_fup})");
-            $stmtDmTom->execute([$tomorrow_str, $tomorrow_str]);
-            $demo_counts['tomorrow'] = (int)$stmtDmTom->fetchColumn();
+        try {
+            $res = $pdo->query("SELECT (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) <= '{$today_str}' {$exec_where_dm}) + (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) <= '{$today_str}' {$exec_where_fup})");
+            if ($res) $demo_counts['today'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            $stmtDmNext = $pdo->prepare("SELECT 
-                (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) = ? {$exec_where_dm}) 
-                + 
-                (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) = ? {$exec_where_fup})");
-            $stmtDmNext->execute([$nextday_str, $nextday_str]);
-            $demo_counts['next_day'] = (int)$stmtDmNext->fetchColumn();
+        try {
+            $res = $pdo->query("SELECT (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) = '{$tomorrow_str}' {$exec_where_dm}) + (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) = '{$tomorrow_str}' {$exec_where_fup})");
+            if ($res) $demo_counts['tomorrow'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            // 3. Call Back
-            $stmtCbTotal = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' {$exec_where_fup}");
-            $callback_counts['total'] = (int)$stmtCbTotal->fetchColumn();
+        try {
+            $res = $pdo->query("SELECT (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) = '{$nextday_str}' {$exec_where_dm}) + (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) = '{$nextday_str}' {$exec_where_fup})");
+            if ($res) $demo_counts['next_day'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            $stmtCbT = $pdo->prepare("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND DATE(scheduled_at) <= ? {$exec_where_fup}");
-            $stmtCbT->execute([$today_str]);
-            $callback_counts['today'] = (int)$stmtCbT->fetchColumn();
+        // 3. Call Back
+        try {
+            $res = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' {$exec_where_fup}");
+            if ($res) $callback_counts['total'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            $stmtCbTom = $pdo->prepare("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = ? {$exec_where_fup}");
-            $stmtCbTom->execute([$tomorrow_str]);
-            $callback_counts['tomorrow'] = (int)$stmtCbTom->fetchColumn();
+        try {
+            $res = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND DATE(scheduled_at) <= '{$today_str}' {$exec_where_fup}");
+            if ($res) $callback_counts['today'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
 
-            $stmtCbNext = $pdo->prepare("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = ? {$exec_where_fup}");
-            $stmtCbNext->execute([$nextday_str]);
-            $callback_counts['next_day'] = (int)$stmtCbNext->fetchColumn();
+        try {
+            $res = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = '{$tomorrow_str}' {$exec_where_fup}");
+            if ($res) $callback_counts['tomorrow'] = (int)$res->fetchColumn();
+        } catch (PDOException $e) {}
+
+        try {
+            $res = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = '{$nextday_str}' {$exec_where_fup}");
+            if ($res) $callback_counts['next_day'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         return [

@@ -788,80 +788,88 @@ function getClientsPageUrl($tab, $p, $limit) {
         <!-- TAB 1: CLIENT DIRECTORY DATABASE (client_directory TABLE)             -->
         <!-- ==================================================================== -->
 
-        <!-- KPI Metrics Row -->
-        <div class="grid grid-4 gap-4 mb-6">
-            <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
-                <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <!-- KPI Metrics Row (Modern 4-Column Card Grid) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+            <!-- Card 1: Total Client Records -->
+            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     <i data-lucide="users" style="width: 24px; height: 24px;"></i>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Total Client Records</span>
-                    <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--text-main);"><?php echo number_format($dir_total_count); ?></span>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Total Client Records</span>
+                    <span style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); font-family: var(--font-heading); margin-top: 2px;"><?php echo number_format($dir_total_count); ?></span>
                 </div>
             </div>
 
-            <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
-                <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--success-light); color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <i data-lucide="check-circle" style="width: 24px; height: 24px;"></i>
+            <!-- Card 2: Running Party Accounts -->
+            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <i data-lucide="check-circle-2" style="width: 24px; height: 24px;"></i>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Running Party Accounts</span>
-                    <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--success);"><?php echo number_format($dir_running_count); ?></span>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Running Party Accounts</span>
+                    <span style="font-size: 1.5rem; font-weight: 800; color: #10b981; font-family: var(--font-heading); margin-top: 2px;"><?php echo number_format($dir_running_count); ?></span>
                 </div>
             </div>
 
-            <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
-                <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--accent-light); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <!-- Card 3: Total Directory Value -->
+            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(139, 92, 246, 0.12); color: #8b5cf6; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     <i data-lucide="indian-rupee" style="width: 24px; height: 24px;"></i>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Total Directory Value</span>
-                    <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--accent);">₹<?php echo number_format($dir_total_val); ?></span>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Total Directory Value</span>
+                    <span style="font-size: 1.4rem; font-weight: 800; color: #8b5cf6; font-family: monospace; margin-top: 2px;">₹<?php echo number_format($dir_total_val); ?></span>
                 </div>
             </div>
 
-            <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
-                <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--warning-light); color: var(--warning); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <!-- Card 4: Software Trade Types -->
+            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(245, 158, 11, 0.12); color: #f59e0b; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     <i data-lucide="layers" style="width: 24px; height: 24px;"></i>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Software Trade Types</span>
-                    <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--warning);"><?php echo count($dir_trade_types); ?></span>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Software Trade Types</span>
+                    <span style="font-size: 1.5rem; font-weight: 800; color: #f59e0b; font-family: var(--font-heading); margin-top: 2px;"><?php echo count($dir_trade_types); ?></span>
                 </div>
             </div>
         </div>
 
-        <!-- Search & Filter Panel for Directory -->
-        <div class="card p-5 mb-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-lg);">
+        <!-- Search & Filter Panel for Directory — Modern Premium Redesign -->
+        <div class="card mb-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 18px; padding: 1.25rem 1.5rem; box-shadow: 0 4px 16px rgba(0,0,0,0.03);">
             <form action="index.php" method="GET" class="flex flex-col gap-4">
                 <input type="hidden" name="page" value="clients">
                 <input type="hidden" name="tab" value="directory">
 
-                <div class="flex justify-between align-center border-bottom pb-3" style="border-bottom: 1px solid var(--border-color);">
+                <div class="flex justify-between align-center pb-3" style="border-bottom: 1px solid var(--border-color);">
                     <div class="flex align-center gap-2">
-                        <i data-lucide="search" style="width: 18px; height: 18px; color: var(--primary);"></i>
-                        <h3 class="m-0 text-sm font-bold" style="font-family: var(--font-heading);">Filter Client Directory Data</h3>
+                        <div style="background: var(--primary-light); padding: 0.4rem; border-radius: 8px; display:flex; align-items:center; justify-content:center;">
+                            <i data-lucide="filter" style="width: 16px; height: 16px; color: var(--primary);"></i>
+                        </div>
+                        <h3 class="m-0 text-sm font-extrabold" style="font-family: var(--font-heading); color: var(--text-main);">Filter Client Directory Data</h3>
                     </div>
                     <?php if (!empty($search_query) || !empty($status_filter) || !empty($category_filter) || !empty($trade_filter)): ?>
-                        <a href="index.php?page=clients&tab=directory" class="btn btn-secondary text-xs text-danger" style="padding: 0.3rem 0.75rem;">
+                        <a href="index.php?page=clients&tab=directory" class="btn text-xs flex align-center gap-1" style="background: rgba(239, 68, 68, 0.08); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; font-weight: 600; padding: 0.35rem 0.85rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.16)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.08)'">
                             <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
                             <span>Clear Search Filters</span>
                         </a>
                     <?php endif; ?>
                 </div>
 
-                <div class="grid" style="grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 1rem; align-items: end;">
+                <div class="grid" style="grid-template-columns: 2.2fr 1fr 1fr 1fr 1.1fr; gap: 1rem; align-items: end;">
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold">Search Client Directory</label>
-                        <div style="position: relative;">
-                            <input type="text" name="search" class="form-control form-control-focus text-sm" placeholder="Party Name, Customer ID, Mobile, Email, Category, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="padding-left: 2.25rem;">
-                            <i data-lucide="search" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-muted);"></i>
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Search Client Directory</label>
+                        <div style="display: flex; align-items: center; width: 100%; height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); overflow: hidden; transition: border-color 0.2s, box-shadow 0.2s;" onfocusin="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 3px rgba(37, 99, 235, 0.15)';" onfocusout="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none';">
+                            <div style="padding-left: 14px; padding-right: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary);">
+                                <i data-lucide="search" style="width: 16px; height: 16px;"></i>
+                            </div>
+                            <input type="text" name="search" placeholder="Party Name, Customer ID, Mobile, Email, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="border: none !important; outline: none !important; background: transparent !important; height: 100%; width: 100%; padding: 0 14px 0 0 !important; color: var(--text-main); font-size: 0.85rem; box-shadow: none !important;">
                         </div>
                     </div>
 
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold">Client Category</label>
-                        <select name="category" class="form-control form-control-focus text-sm">
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Client Category</label>
+                        <select name="category" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Categories</option>
                             <option value="Category A" <?php echo (strcasecmp($category_filter, 'Category A') === 0) ? 'selected' : ''; ?>>Category A</option>
                             <option value="Category B" <?php echo (strcasecmp($category_filter, 'Category B') === 0) ? 'selected' : ''; ?>>Category B</option>
@@ -878,8 +886,8 @@ function getClientsPageUrl($tab, $p, $limit) {
                     </div>
 
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold">Party Status</label>
-                        <select name="status" class="form-control form-control-focus text-sm">
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Party Status</label>
+                        <select name="status" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Statuses</option>
                             <option value="Running" <?php echo (strcasecmp($status_filter, 'Running') === 0) ? 'selected' : ''; ?>>Running</option>
                             <option value="Expired" <?php echo (strcasecmp($status_filter, 'Expired') === 0) ? 'selected' : ''; ?>>Expired</option>
@@ -889,8 +897,8 @@ function getClientsPageUrl($tab, $p, $limit) {
                     </div>
 
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold">Software Trade</label>
-                        <select name="trade" class="form-control form-control-focus text-sm">
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Software Trade</label>
+                        <select name="trade" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Trade Categories</option>
                             <?php foreach ($dir_trade_types as $tr): ?>
                                 <option value="<?php echo htmlspecialchars($tr); ?>" <?php echo ($trade_filter === $tr) ? 'selected' : ''; ?>>
@@ -900,9 +908,10 @@ function getClientsPageUrl($tab, $p, $limit) {
                         </select>
                     </div>
 
-                    <div>
-                        <button type="submit" class="btn btn-primary text-sm" style="width: 100%; padding: 0.65rem 1rem;">
-                            <i data-lucide="filter" style="width: 16px; height: 16px;"></i>
+                    <div class="form-group m-0">
+                        <label class="form-label text-xs font-bold mb-1" style="visibility: hidden; display: block;">&nbsp;</label>
+                        <button type="submit" class="btn btn-primary font-bold text-sm" style="width: 100%; height: 42px; border-radius: 10px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <i data-lucide="search" style="width: 15px; height: 15px;"></i>
                             <span>Search Records</span>
                         </button>
                     </div>
@@ -986,7 +995,10 @@ function getClientsPageUrl($tab, $p, $limit) {
                                 </td>
                             </tr>
                         <?php else: ?>
-                            <?php foreach ($dir_records as $r): 
+                            <?php foreach ($dir_records as $idx => $r): 
+                                $perPage = is_numeric($limit) ? intval($limit) : 25;
+                                $sn = ($limit === 'all') ? ($idx + 1) : (($page_num - 1) * $perPage + $idx + 1);
+                                
                                 if ($pdo && !empty($r['email'])) {
                                     $uStmt = $pdo->prepare("SELECT id as user_id, status as user_status, permissions FROM users WHERE email = ? LIMIT 1");
                                     $uStmt->execute([$r['email']]);
@@ -1012,7 +1024,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                                 }
                             ?>
                                 <tr>
-                                    <td class="col-dir-sno" style="padding: 0.75rem; color: var(--text-muted); font-family: monospace;"><?php echo htmlspecialchars($r['sno'] ?? $r['id']); ?></td>
+                                    <td class="col-dir-sno font-mono text-xs font-bold text-center" style="padding: 0.75rem; color: var(--text-main);"><?php echo $sn; ?></td>
                                     <td class="col-dir-sw-type"><span class="badge text-xs" style="--badge-bg: var(--primary-light); --badge-color: var(--primary);"><?php echo htmlspecialchars($r['sw_type'] ?? 'Marg'); ?></span></td>
                                     <td class="col-dir-customer-id"><span class="font-bold text-primary font-mono"><?php echo htmlspecialchars($r['customer_id']); ?></span></td>
                                     <td class="col-dir-category"><span class="badge text-xs font-bold" style="<?php echo $catBadgeStyle; ?>"><?php echo htmlspecialchars($catVal); ?></span></td>
@@ -1059,11 +1071,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     
                                     <!-- Actions Column: Credentials Modal, Folder & Edit Icons -->
                                     <td class="col-dir-actions" style="text-align: right; padding-right: 1.25rem;">
-                                        <div class="flex align-center justify-end gap-1">
-                                            <!-- Login & Access Credentials Modal Button -->
-                                            <button type="button" class="btn btn-primary text-xs" style="padding: 0.25rem 0.5rem; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="Manage Client Credentials, Software Plan & Module Access Permissions" onclick='openClientAccountModal(<?php echo $rJson; ?>)'>
-                                                <i data-lucide="key" style="width: 13px; height: 13px;"></i> Login & Access
-                                            </button>
+                                        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-left: auto; width: 100%;">
                                             <!-- Folder Icon (Licence & AMC Window) -->
                                             <button type="button" class="btn-icon text-primary" title="View Licence & AMC Information Window" onclick='openLicenceAmcWindow(<?php echo $rJson; ?>)'>
                                                 <i data-lucide="folder" style="width: 15px; height: 15px;"></i>
@@ -1081,19 +1089,32 @@ function getClientsPageUrl($tab, $p, $limit) {
                 </table>
             </div>
 
-            <!-- Pagination Bar for Directory -->
+            <!-- Pagination Bar for Directory (Smart Truncated Pagination) -->
             <?php if ($limit !== 'all' && $dir_total_pages > 1): ?>
-                <div class="p-4 flex justify-between align-center" style="border-top: 1px solid var(--border-color); background-color: var(--border-card);">
-                    <span class="text-xs text-muted">Showing Directory Page <?php echo $page_num; ?> of <?php echo $dir_total_pages; ?></span>
-                    <div class="flex gap-1">
+                <div class="p-4 flex justify-between align-center flex-wrap gap-2" style="border-top: 1px solid var(--border-color); background-color: var(--border-card);">
+                    <span class="text-xs text-muted font-bold">Showing Directory Page <?php echo $page_num; ?> of <?php echo $dir_total_pages; ?></span>
+                    <div class="flex gap-1 align-center flex-wrap">
                         <?php if ($page_num > 1): ?>
-                            <a href="<?php echo getClientsPageUrl('directory', $page_num - 1, $limit); ?>" class="btn btn-secondary text-xs">Previous</a>
+                            <a href="<?php echo getClientsPageUrl('directory', $page_num - 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.35rem 0.65rem;">Previous</a>
                         <?php endif; ?>
-                        <?php for ($i = 1; $i <= $dir_total_pages; $i++): ?>
-                            <a href="<?php echo getClientsPageUrl('directory', $i, $limit); ?>" class="btn btn-secondary text-xs <?php echo ($i == $page_num) ? 'active' : ''; ?>"><?php echo $i; ?></a>
-                        <?php endfor; ?>
+
+                        <?php 
+                            $prev_p = 0;
+                            for ($i = 1; $i <= $dir_total_pages; $i++):
+                                if ($i == 1 || $i == $dir_total_pages || ($i >= $page_num - 2 && $i <= $page_num + 2)):
+                                    if ($prev_p > 0 && $i - $prev_p > 1):
+                                        echo '<span class="text-xs text-muted px-1" style="line-height: 28px;">...</span>';
+                                    endif;
+                                    $prev_p = $i;
+                        ?>
+                            <a href="<?php echo getClientsPageUrl('directory', $i, $limit); ?>" class="btn btn-secondary text-xs <?php echo ($i == $page_num) ? 'active' : ''; ?>" style="<?php echo ($i == $page_num) ? 'background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700;' : ''; ?> padding: 0.35rem 0.65rem;"><?php echo $i; ?></a>
+                        <?php 
+                                endif;
+                            endfor; 
+                        ?>
+
                         <?php if ($page_num < $dir_total_pages): ?>
-                            <a href="<?php echo getClientsPageUrl('directory', $page_num + 1, $limit); ?>" class="btn btn-secondary text-xs">Next</a>
+                            <a href="<?php echo getClientsPageUrl('directory', $page_num + 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.35rem 0.65rem;">Next</a>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -1105,80 +1126,84 @@ function getClientsPageUrl($tab, $p, $limit) {
         <!-- TAB 2: ACTIVE CRM CLIENT ACCOUNTS (leads TABLE)                      -->
         <!-- ==================================================================== -->
 
-        <!-- KPI Summary Row for CRM Accounts -->
-        <div class="grid grid-4 gap-4 mb-6">
-            <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
-                <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <!-- KPI Summary Row for CRM Accounts (Modern 4-Column Card Grid) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     <i data-lucide="building-2" style="width: 24px; height: 24px;"></i>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Total CRM Clients</span>
-                    <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--text-main);"><?php echo number_format($crm_total_count); ?></span>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Total CRM Clients</span>
+                    <span style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); font-family: var(--font-heading); margin-top: 2px;"><?php echo number_format($crm_total_count); ?></span>
                 </div>
             </div>
 
-            <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
-                <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--success-light); color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     <i data-lucide="check-circle-2" style="width: 24px; height: 24px;"></i>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Installed & Active</span>
-                    <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--success);"><?php echo number_format($crm_installed_count); ?></span>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Installed &amp; Active</span>
+                    <span style="font-size: 1.5rem; font-weight: 800; color: #10b981; font-family: var(--font-heading); margin-top: 2px;"><?php echo number_format($crm_installed_count); ?></span>
                 </div>
             </div>
 
-            <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
-                <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--accent-light); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(139, 92, 246, 0.12); color: #8b5cf6; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     <i data-lucide="indian-rupee" style="width: 24px; height: 24px;"></i>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Portfolio Contract Value</span>
-                    <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--accent);">₹<?php echo number_format($crm_portfolio_val / 100000, 2); ?>L</span>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Portfolio Contract Value</span>
+                    <span style="font-size: 1.4rem; font-weight: 800; color: #8b5cf6; font-family: monospace; margin-top: 2px;">₹<?php echo number_format($crm_portfolio_val / 100000, 2); ?>L</span>
                 </div>
             </div>
 
-            <div class="card p-4 flex align-center gap-4" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-md);">
-                <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--warning-light); color: var(--warning); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(245, 158, 11, 0.12); color: #f59e0b; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     <i data-lucide="user-check" style="width: 24px; height: 24px;"></i>
                 </div>
-                <div class="flex flex-col">
-                    <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Account Reps</span>
-                    <span class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--warning);"><?php echo count($operators_list); ?></span>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Account Reps</span>
+                    <span style="font-size: 1.5rem; font-weight: 800; color: #f59e0b; font-family: var(--font-heading); margin-top: 2px;"><?php echo count($operators_list); ?></span>
                 </div>
             </div>
         </div>
 
-        <!-- CRM Clients Search Panel -->
-        <div class="card p-5 mb-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-lg);">
+        <!-- CRM Clients Search Panel — Modern Premium Redesign -->
+        <div class="card mb-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 18px; padding: 1.25rem 1.5rem; box-shadow: 0 4px 16px rgba(0,0,0,0.03);">
             <form action="index.php" method="GET" class="flex flex-col gap-4">
                 <input type="hidden" name="page" value="clients">
                 <input type="hidden" name="tab" value="crm">
                 
-                <div class="flex justify-between align-center border-bottom pb-3" style="border-bottom: 1px solid var(--border-color);">
+                <div class="flex justify-between align-center pb-3" style="border-bottom: 1px solid var(--border-color);">
                     <div class="flex align-center gap-2">
-                        <i data-lucide="search-code" style="width: 18px; height: 18px; color: var(--primary);"></i>
-                        <h3 class="m-0 text-sm font-bold" style="font-family: var(--font-heading);">Filter CRM Accounts</h3>
+                        <div style="background: var(--primary-light); padding: 0.4rem; border-radius: 8px; display:flex; align-items:center; justify-content:center;">
+                            <i data-lucide="search-code" style="width: 16px; height: 16px; color: var(--primary);"></i>
+                        </div>
+                        <h3 class="m-0 text-sm font-extrabold" style="font-family: var(--font-heading); color: var(--text-main);">Filter CRM Accounts</h3>
                     </div>
                     <?php if (!empty($search_query) || !empty($status_filter) || !empty($product_filter) || !empty($operator_filter)): ?>
-                        <a href="index.php?page=clients&tab=crm" class="btn btn-secondary text-xs text-danger" style="padding: 0.3rem 0.75rem;">
+                        <a href="index.php?page=clients&tab=crm" class="btn text-xs flex align-center gap-1" style="background: rgba(239, 68, 68, 0.08); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; font-weight: 600; padding: 0.35rem 0.85rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.16)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.08)'">
                             <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
                             <span>Clear All Filters</span>
                         </a>
                     <?php endif; ?>
                 </div>
 
-                <div class="grid" style="grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 1rem; align-items: end;">
+                <div class="grid" style="grid-template-columns: 2.2fr 1fr 1fr 1fr 1.1fr; gap: 1rem; align-items: end;">
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold">Search Client Accounts</label>
-                        <div style="position: relative;">
-                            <input type="text" name="search" class="form-control form-control-focus text-sm" placeholder="Company, Contact Person, Phone, Email, GSTIN, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="padding-left: 2.25rem;">
-                            <i data-lucide="search" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-muted);"></i>
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Search Client Accounts</label>
+                        <div style="display: flex; align-items: center; width: 100%; height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); overflow: hidden; transition: border-color 0.2s, box-shadow 0.2s;" onfocusin="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 3px rgba(37, 99, 235, 0.15)';" onfocusout="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none';">
+                            <div style="padding-left: 14px; padding-right: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary);">
+                                <i data-lucide="search" style="width: 16px; height: 16px;"></i>
+                            </div>
+                            <input type="text" name="search" placeholder="Company, Phone, Email, GSTIN, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="border: none !important; outline: none !important; background: transparent !important; height: 100%; width: 100%; padding: 0 14px 0 0 !important; color: var(--text-main); font-size: 0.85rem; box-shadow: none !important;">
                         </div>
                     </div>
 
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold">Client Status</label>
-                        <select name="status" class="form-control form-control-focus text-sm">
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Client Status</label>
+                        <select name="status" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Statuses</option>
                             <option value="won" <?php echo ($status_filter === 'won' || $status_filter === 'closed_won') ? 'selected' : ''; ?>>Closed Won</option>
                             <option value="payment_received" <?php echo ($status_filter === 'payment_received') ? 'selected' : ''; ?>>Payment Received</option>
@@ -1191,8 +1216,8 @@ function getClientsPageUrl($tab, $p, $limit) {
                     </div>
 
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold">Software Product</label>
-                        <select name="product" class="form-control form-control-focus text-sm">
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Software Product</label>
+                        <select name="product" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Products</option>
                             <?php foreach ($products_options as $pOpt): ?>
                                 <option value="<?php echo htmlspecialchars($pOpt); ?>" <?php echo (strcasecmp($product_filter, $pOpt) === 0) ? 'selected' : ''; ?>>
@@ -1203,8 +1228,8 @@ function getClientsPageUrl($tab, $p, $limit) {
                     </div>
 
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold">Account Representative</label>
-                        <select name="operator" class="form-control form-control-focus text-sm">
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Account Representative</label>
+                        <select name="operator" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Operators</option>
                             <?php foreach ($operators_list as $op): ?>
                                 <option value="<?php echo htmlspecialchars($op); ?>" <?php echo ($operator_filter === $op) ? 'selected' : ''; ?>>
@@ -1214,9 +1239,10 @@ function getClientsPageUrl($tab, $p, $limit) {
                         </select>
                     </div>
 
-                    <div>
-                        <button type="submit" class="btn btn-primary text-sm" style="width: 100%; padding: 0.65rem 1rem;">
-                            <i data-lucide="filter" style="width: 16px; height: 16px;"></i>
+                    <div class="form-group m-0">
+                        <label class="form-label text-xs font-bold mb-1" style="visibility: hidden; display: block;">&nbsp;</label>
+                        <button type="submit" class="btn btn-primary font-bold text-sm" style="width: 100%; height: 42px; border-radius: 10px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <i data-lucide="search" style="width: 15px; height: 15px;"></i>
                             <span>Apply Filters</span>
                         </button>
                     </div>
@@ -1318,19 +1344,32 @@ function getClientsPageUrl($tab, $p, $limit) {
                 </table>
             </div>
 
-            <!-- Pagination Controls Bar -->
+            <!-- Pagination Controls Bar (Smart Truncated Pagination) -->
             <?php if ($limit !== 'all' && $crm_total_pages > 1): ?>
-                <div class="p-4 flex justify-between align-center" style="border-top: 1px solid var(--border-color); background-color: var(--border-card);">
-                    <span class="text-xs text-muted">Showing Page <?php echo $page_num; ?> of <?php echo $crm_total_pages; ?></span>
-                    <div class="flex gap-1">
+                <div class="p-4 flex justify-between align-center flex-wrap gap-2" style="border-top: 1px solid var(--border-color); background-color: var(--border-card);">
+                    <span class="text-xs text-muted font-bold">Showing Page <?php echo $page_num; ?> of <?php echo $crm_total_pages; ?></span>
+                    <div class="flex gap-1 align-center flex-wrap">
                         <?php if ($page_num > 1): ?>
-                            <a href="<?php echo getClientsPageUrl('crm', $page_num - 1, $limit); ?>" class="btn btn-secondary text-xs">Previous</a>
+                            <a href="<?php echo getClientsPageUrl('crm', $page_num - 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.35rem 0.65rem;">Previous</a>
                         <?php endif; ?>
-                        <?php for ($i = 1; $i <= $crm_total_pages; $i++): ?>
-                            <a href="<?php echo getClientsPageUrl('crm', $i, $limit); ?>" class="btn btn-secondary text-xs <?php echo ($i == $page_num) ? 'active' : ''; ?>"><?php echo $i; ?></a>
-                        <?php endfor; ?>
+
+                        <?php 
+                            $prev_p = 0;
+                            for ($i = 1; $i <= $crm_total_pages; $i++):
+                                if ($i == 1 || $i == $crm_total_pages || ($i >= $page_num - 2 && $i <= $page_num + 2)):
+                                    if ($prev_p > 0 && $i - $prev_p > 1):
+                                        echo '<span class="text-xs text-muted px-1" style="line-height: 28px;">...</span>';
+                                    endif;
+                                    $prev_p = $i;
+                        ?>
+                            <a href="<?php echo getClientsPageUrl('crm', $i, $limit); ?>" class="btn btn-secondary text-xs <?php echo ($i == $page_num) ? 'active' : ''; ?>" style="<?php echo ($i == $page_num) ? 'background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700;' : ''; ?> padding: 0.35rem 0.65rem;"><?php echo $i; ?></a>
+                        <?php 
+                                endif;
+                            endfor; 
+                        ?>
+
                         <?php if ($page_num < $crm_total_pages): ?>
-                            <a href="<?php echo getClientsPageUrl('crm', $page_num + 1, $limit); ?>" class="btn btn-secondary text-xs">Next</a>
+                            <a href="<?php echo getClientsPageUrl('crm', $page_num + 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.35rem 0.65rem;">Next</a>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -1612,363 +1651,466 @@ function getClientsPageUrl($tab, $p, $limit) {
     </div>
 </div>
 
-<!-- Modal 3: Client Licence & AMC Information Window (Matching Design System & Exact Side-by-Side Layout from Screenshot 1) -->
+<!-- Modal 3: Client Licence & AMC Information Window — Modern Premium Redesign -->
 <div id="licence-amc-modal" class="modal-overlay">
-    <div class="modal-container" style="max-width: 1180px; width: 95%; background: var(--bg-card); color: var(--text-main); border-radius: var(--border-radius-lg); border: 1px solid var(--border-color); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); overflow: hidden;">
-        
-        <!-- Window Header Bar -->
-        <div style="background-color: var(--border-card); padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color);" class="flex align-center justify-between">
+    <div class="modal-container" style="max-width: 1200px; width: 96%; max-height: 90vh; display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-main); border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 32px 64px -12px rgba(0,0,0,0.6); overflow: hidden;">
+
+        <!-- ── HEADER (Fixed Top) ── -->
+        <div style="flex-shrink: 0; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); padding: 1rem 1.5rem;" class="flex align-center justify-between">
             <div class="flex align-center gap-3">
-                <div style="background-color: var(--primary-light); color: var(--primary); padding: 0.6rem; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                    <i data-lucide="folder" style="width: 22px; height: 22px;"></i>
+                <div style="background: rgba(255,255,255,0.18); backdrop-filter: blur(8px); padding: 0.55rem; border-radius: 12px; display:flex; align-items:center; justify-content:center;">
+                    <i data-lucide="folder-open" style="width:20px; height:20px; color:#fff;"></i>
                 </div>
                 <div>
-                    <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.25rem; font-weight: 800; color: var(--text-main);">
-                        Client Licence & AMC Workspace
+                    <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;">
+                        Client Licence &amp; AMC Workspace
                     </h3>
-                    <span class="text-xs text-muted">Review active software license information and execute AMC fee updates.</span>
+                    <span style="font-size: 0.72rem; color: rgba(255,255,255,0.75);">Review license details &amp; execute AMC fee updates</span>
                 </div>
             </div>
-            <button class="btn-icon" onclick="window.closeModal('licence-amc-modal')">
-                <i data-lucide="x" style="width: 20px; height: 20px;"></i>
+            <button type="button" onclick="window.closeModal('licence-amc-modal')" style="background: rgba(255,255,255,0.15); border: none; border-radius: 10px; width: 34px; height: 34px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+                <i data-lucide="x" style="width:18px; height:18px; color:#fff;"></i>
             </button>
         </div>
 
-        <form action="index.php?page=clients&tab=directory" method="POST">
+        <form action="index.php?page=clients&tab=directory" method="POST" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">
             <input type="hidden" name="action" value="update_client_amc">
             <input type="hidden" id="amc_client_id" name="amc_client_id" value="">
 
-            <div class="p-6 flex flex-col gap-5" style="background-color: var(--bg-app);">
-                
-                <!-- Radio Selection & Top Search Row -->
-                <div class="flex flex-col gap-3">
-                    <!-- Top Radio Selectors -->
-                    <div class="flex align-center gap-6">
-                        <label class="flex align-center gap-2 pointer text-sm font-extrabold" style="color: var(--text-main);">
-                            <input type="radio" name="sw_product_type" value="MARG ERP" checked style="accent-color: var(--primary); scale: 1.2;">
-                            <span>MARG ERP</span>
+            <!-- ── SEARCH BAR STRIP (Fixed Sub-header) ── -->
+            <div style="flex-shrink: 0; background: var(--bg-app); border-bottom: 1px solid var(--border-color); padding: 0.75rem 1.5rem;">
+                <div class="flex align-center gap-3 flex-wrap">
+                    <!-- Product Type Pills -->
+                    <div style="display:flex; gap: 0.4rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.25rem;">
+                        <label style="display:flex; align-items:center; gap:5px; padding: 0.25rem 0.65rem; border-radius: 7px; cursor:pointer; font-size: 0.72rem; font-weight: 700; background: var(--primary); color: #fff; transition: all 0.2s;" id="lbl_marg_erp" onclick="highlightProductPill('marg_erp')">
+                            <input type="radio" name="sw_product_type" value="MARG ERP" checked style="display:none;" id="radio_marg_erp">
+                            <i data-lucide="cpu" style="width:13px; height:13px;"></i> MARG ERP
                         </label>
-                        <label class="flex align-center gap-2 pointer text-sm font-extrabold" style="color: var(--text-muted);">
-                            <input type="radio" name="sw_product_type" value="Marg Books" style="accent-color: var(--primary); scale: 1.2;">
-                            <span>Marg Books</span>
+                        <label style="display:flex; align-items:center; gap:5px; padding: 0.25rem 0.65rem; border-radius: 7px; cursor:pointer; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); transition: all 0.2s;" id="lbl_marg_books" onclick="highlightProductPill('marg_books')">
+                            <input type="radio" name="sw_product_type" value="Marg Books" style="display:none;" id="radio_marg_books">
+                            <i data-lucide="book-open" style="width:13px; height:13px;"></i> Marg Books
                         </label>
                     </div>
 
-                    <!-- Search Input Row -->
-                    <div class="flex align-center gap-3 flex-wrap">
-                        <input type="text" id="win_licence_no_input" placeholder="Licence No" class="form-control form-control-focus text-xs font-mono" style="width: 170px; background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main);">
-                        <input type="text" id="win_mobile_no_input" placeholder="Mobile No" class="form-control form-control-focus text-xs font-mono" style="width: 170px; background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main);">
-                        <input type="text" id="win_firm_name_input" placeholder="Firm Name" class="form-control form-control-focus text-xs" style="width: 220px; background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main);">
-                        <button type="button" onclick="performWinLicenceSearch()" class="btn btn-primary text-xs font-bold px-4" style="height: 36px; padding: 0 1.25rem;">
-                            SEARCH
-                        </button>
+                    <div style="width: 1px; height: 28px; background: var(--border-color); margin: 0 0.2rem;"></div>
+
+                    <!-- Search Inputs -->
+                    <div style="position:relative; display:flex; align-items:center;">
+                        <i data-lucide="hash" style="position:absolute; left:10px; width:13px; height:13px; color: var(--text-muted);"></i>
+                        <input type="text" id="win_licence_no_input" placeholder="Licence No" class="form-control form-control-focus font-mono" style="padding-left: 30px; width: 145px; font-size: 0.75rem; border-radius: 9px; height: 34px;">
+                    </div>
+                    <div style="position:relative; display:flex; align-items:center;">
+                        <i data-lucide="phone" style="position:absolute; left:10px; width:13px; height:13px; color: var(--text-muted);"></i>
+                        <input type="text" id="win_mobile_no_input" placeholder="Mobile No" class="form-control form-control-focus font-mono" style="padding-left: 30px; width: 145px; font-size: 0.75rem; border-radius: 9px; height: 34px;">
+                    </div>
+                    <div style="position:relative; display:flex; align-items:center; flex:1; min-width: 180px;">
+                        <i data-lucide="building-2" style="position:absolute; left:10px; width:13px; height:13px; color: var(--text-muted);"></i>
+                        <input type="text" id="win_firm_name_input" placeholder="Firm / Company Name" class="form-control form-control-focus" style="padding-left: 30px; width: 100%; font-size: 0.75rem; border-radius: 9px; height: 34px;">
+                    </div>
+                    <button type="button" onclick="performWinLicenceSearch()" class="btn btn-primary font-bold flex align-center gap-2" style="height: 34px; padding: 0 1.1rem; font-size: 0.78rem; border-radius: 9px; white-space: nowrap;">
+                        <i data-lucide="search" style="width:13px; height:13px;"></i> Search
+                    </button>
+                </div>
+            </div>
+
+            <!-- ── MAIN CONTENT GRID (Fills Remaining Space) ── -->
+            <div style="display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 0; flex: 1; min-height: 0; overflow: hidden;">
+
+                <!-- ─── LEFT: LICENCE INFO PANEL ─── -->
+                <div style="border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: var(--bg-app); min-height: 0; overflow: hidden;">
+
+                    <!-- Panel Header -->
+                    <div style="flex-shrink: 0; padding: 0.7rem 1.5rem; background: var(--bg-card); border-bottom: 1px solid var(--border-color); display:flex; align-items:center; gap: 0.6rem;">
+                        <i data-lucide="id-card" style="width:15px; height:15px; color: var(--primary);"></i>
+                        <span style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-main); font-family: var(--font-heading);">Licence Information</span>
+                    </div>
+
+                    <!-- Scrollable Info Rows -->
+                    <div style="overflow-y: auto; flex: 1; min-height: 0; padding: 0.5rem 0;">
+                        <?php
+                        $lic_sections = [
+                            'IDENTITY' => [
+                                ['icon'=>'key-round',    'label'=>'Licence No',      'id'=>'info_licence_no',      'primary'=>true],
+                                ['icon'=>'building-2',   'label'=>'Company Name',    'id'=>'info_company_name',    'bold'=>true],
+                                ['icon'=>'mail',         'label'=>'Email ID',        'id'=>'info_email'],
+                                ['icon'=>'phone',        'label'=>'Mobile',          'id'=>'info_mobile'],
+                                ['icon'=>'user-round',   'label'=>'Contact Person',  'id'=>'info_contact_person'],
+                            ],
+                            'ADDRESS' => [
+                                ['icon'=>'map-pin',      'label'=>'Address1',        'id'=>'info_address1'],
+                                ['icon'=>'map',          'label'=>'Address2',        'id'=>'info_address2'],
+                                ['icon'=>'globe',        'label'=>'Address3',        'id'=>'info_address3'],
+                                ['icon'=>'map-pin-check','label'=>'City',            'id'=>'info_city'],
+                                ['icon'=>'landmark',     'label'=>'State',           'id'=>'info_state'],
+                                ['icon'=>'hash',         'label'=>'Pin Code',        'id'=>'info_pin_code'],
+                            ],
+                            'SOFTWARE' => [
+                                ['icon'=>'layers',       'label'=>'Software Type',   'id'=>'info_software_type',   'badge'=>true],
+                                ['icon'=>'package',      'label'=>'S/W Type',        'id'=>'info_sw_type'],
+                                ['icon'=>'tag',          'label'=>'Category',        'id'=>'info_category'],
+                                ['icon'=>'users',        'label'=>'No of Users',     'id'=>'info_no_of_users'],
+                                ['icon'=>'user-check',   'label'=>'User Type',       'id'=>'info_user_type'],
+                                ['icon'=>'building',     'label'=>'No of Companies', 'id'=>'info_no_of_companies_left'],
+                            ],
+                            'PARTNER & STATUS' => [
+                                ['icon'=>'link',         'label'=>'Sub Partner Code','id'=>'info_subpartner_code'],
+                                ['icon'=>'user-tie',     'label'=>'Sub Partner Name','id'=>'info_subpartner_name'],
+                                ['icon'=>'activity',     'label'=>'Party Status',    'id'=>'info_party_status'],
+                                ['icon'=>'home',         'label'=>'Home User',       'id'=>'info_home_user'],
+                                ['icon'=>'shopping-bag', 'label'=>'Software Trade',  'id'=>'info_software_trade'],
+                            ],
+                            'FINANCIALS & DATES' => [
+                                ['icon'=>'indian-rupee', 'label'=>'Total Amount',    'id'=>'info_total_amount',    'money'=>true],
+                                ['icon'=>'calendar',     'label'=>'Renewal Date',    'id'=>'info_renewal_date',    'warning'=>true],
+                                ['icon'=>'calendar-check','label'=>'Act On',         'id'=>'info_act_on'],
+                                ['icon'=>'zap',          'label'=>'Last Hit Date',   'id'=>'info_last_hit'],
+                            ],
+                        ];
+                        foreach ($lic_sections as $sectionTitle => $fields): ?>
+                        <!-- Section Label -->
+                        <div style="padding: 0.4rem 1.5rem 0.2rem; margin-top: 0.2rem;">
+                            <span style="font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--primary); opacity: 0.8;"><?php echo $sectionTitle; ?></span>
+                        </div>
+                        <?php foreach ($fields as $f):
+                            $valStyle = 'font-size: 0.8rem; color: var(--text-main);';
+                            if (!empty($f['primary']))  { $valStyle = 'font-size: 0.95rem; font-weight: 800; color: var(--primary); font-family: monospace;'; }
+                            elseif (!empty($f['bold'])) { $valStyle = 'font-size: 0.82rem; font-weight: 700; color: var(--text-main);'; }
+                            elseif (!empty($f['warning'])) { $valStyle = 'font-size: 0.8rem; font-weight: 700; color: var(--warning, #f59e0b); font-family: monospace;'; }
+                            elseif (!empty($f['money'])) { $valStyle = 'font-size: 0.82rem; font-weight: 700; color: var(--success, #10b981); font-family: monospace;'; }
+                            $wrapEl = !empty($f['badge'])
+                                ? '<span id="' . $f['id'] . '" style="display:inline-flex; padding: 2px 9px; border-radius: 20px; background: var(--accent-light); color: var(--accent); font-weight: 700; font-size: 0.72rem;">—</span>'
+                                : '<span id="' . $f['id'] . '" style="' . $valStyle . '">—</span>';
+                        ?>
+                        <div style="display: grid; grid-template-columns: 36px 135px 1fr; align-items: center; padding: 0.35rem 1.5rem; gap: 0.5rem; transition: background 0.15s;" onmouseover="this.style.background='var(--bg-card)'" onmouseout="this.style.background='transparent'">
+                            <div style="width:28px; height:28px; border-radius: 7px; background: var(--primary-light); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                                <i data-lucide="<?php echo $f['icon']; ?>" style="width:13px; height:13px; color: var(--primary);"></i>
+                            </div>
+                            <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted);"><?php echo $f['label']; ?></span>
+                            <?php echo $wrapEl; ?>
+                        </div>
+                        <?php endforeach; ?>
+                        <?php endforeach; ?>
                     </div>
                 </div>
 
-                <!-- Two Main Side-By-Side Section Grid (Matching Screenshot 1 Layout Exactly) -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; align-items: stretch;">
-                    
-                    <!-- LEFT CARD: Licence Information: -->
-                    <div style="background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); overflow: hidden; display: flex; flex-direction: column;">
-                        <div style="background-color: var(--border-card); padding: 0.6rem 1rem; border-bottom: 1px solid var(--border-color);">
-                            <h4 class="m-0 text-xs font-extrabold text-main" style="text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-heading);">
-                                Licence Information:
-                            </h4>
-                        </div>
+                <!-- ─── RIGHT: AMC UPDATE PANEL ─── -->
+                <div style="border-left: 0; display: flex; flex-direction: column; background: var(--bg-card); min-height: 0; overflow: hidden;">
 
-                        <div class="p-4 flex flex-col gap-2 text-xs" style="flex: 1;">
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: center;">
-                                <span class="text-muted font-semibold">Licence No:</span>
-                                <strong id="info_licence_no" class="font-mono text-primary font-bold text-sm">-</strong>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: center;">
-                                <span class="text-muted font-semibold">Company Name:</span>
-                                <strong id="info_company_name" class="text-main font-bold text-sm">-</strong>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: center;">
-                                <span class="text-muted font-semibold">Reg Email ID:</span>
-                                <span id="info_email" class="font-mono text-main">-</span>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: center;">
-                                <span class="text-muted font-semibold">Reg Mobile:</span>
-                                <span id="info_mobile" class="font-mono text-main">-</span>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: flex-start;">
-                                <span class="text-muted font-semibold">Address1:</span>
-                                <span id="info_address1" class="text-main">-</span>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: flex-start;">
-                                <span class="text-muted font-semibold">Address2:</span>
-                                <span id="info_address2" class="text-main">-</span>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: flex-start;">
-                                <span class="text-muted font-semibold">Address3:</span>
-                                <span id="info_address3" class="text-main">-</span>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: center;">
-                                <span class="text-muted font-semibold">Software Type:</span>
-                                <span id="info_software_type" class="badge text-xs" style="--badge-bg: var(--accent-light); --badge-color: var(--accent); font-weight: 700; width: fit-content;">-</span>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: center;">
-                                <span class="text-muted font-semibold">Renewal Date:</span>
-                                <span id="info_renewal_date" class="font-mono text-warning font-bold">-</span>
-                            </div>
-
-                            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 0.5rem; align-items: center;">
-                                <span class="text-muted font-semibold">Last Hit Date:</span>
-                                <span id="info_last_hit" class="font-mono text-main">-</span>
-                            </div>
-                        </div>
+                    <!-- Panel Header -->
+                    <div style="flex-shrink: 0; padding: 0.7rem 1.5rem; background: var(--border-card); border-bottom: 1px solid var(--border-color); display:flex; align-items:center; gap: 0.6rem;">
+                        <i data-lucide="refresh-cw" style="width:15px; height:15px; color: var(--success, #10b981);"></i>
+                        <span style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-main); font-family: var(--font-heading);">AMC Update</span>
                     </div>
 
-                    <!-- RIGHT CARD: AMC Update Information: -->
-                    <div style="background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); overflow: hidden; display: flex; flex-direction: column;">
-                        <div style="background-color: var(--border-card); padding: 0.6rem 1rem; border-bottom: 1px solid var(--border-color);">
-                            <h4 class="m-0 text-xs font-extrabold text-main" style="text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-heading);">
-                                AMC Update Information:
-                            </h4>
+                    <div style="overflow-y: auto; flex: 1; min-height: 0; padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.85rem;">
+
+                        <!-- AMC Stats Tiles (2×2) -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+                            <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 11px; padding: 0.75rem 0.9rem;">
+                                <div style="font-size: 0.63rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px;">Basic Amount</div>
+                                <div id="amc_basic_amount" style="font-size: 1rem; font-weight: 800; color: var(--text-main); font-family: monospace;">₹0.00</div>
+                            </div>
+                            <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 11px; padding: 0.75rem 0.9rem;">
+                                <div style="font-size: 0.63rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px;">No of Users</div>
+                                <div id="amc_no_of_users" style="font-size: 1rem; font-weight: 800; color: var(--text-main); font-family: monospace;">1</div>
+                            </div>
+                            <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 11px; padding: 0.75rem 0.9rem;">
+                                <div style="font-size: 0.63rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px;">No of Companies</div>
+                                <div id="amc_no_of_companies" style="font-size: 1rem; font-weight: 800; color: var(--text-main); font-family: monospace;">1</div>
+                            </div>
+                            <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 11px; padding: 0.75rem 0.9rem;">
+                                <div style="font-size: 0.63rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px;">Allowed Users</div>
+                                <div id="amc_allowed_users" style="font-size: 1rem; font-weight: 800; color: var(--text-main); font-family: monospace;">1</div>
+                            </div>
                         </div>
 
-                        <div class="p-4 flex flex-col gap-3 text-xs" style="flex: 1;">
-                            
-                            <!-- Field Row 1 -->
-                            <div class="grid grid-2 gap-4">
-                                <div class="flex align-center gap-2"><span class="text-muted font-semibold">Basic Amount :</span> <strong id="amc_basic_amount" class="text-main font-mono">₹0.00</strong></div>
-                                <div class="flex align-center justify-end gap-2"><span class="text-muted font-semibold">No Of Users :</span> <strong id="amc_no_of_users" class="text-main font-mono">1</strong></div>
+                        <!-- Totals Summary -->
+                        <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 11px; padding: 0.85rem 1.1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <div class="flex justify-between align-center">
+                                <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; display:flex; align-items:center; gap:5px;"><i data-lucide="layers" style="width:12px; height:12px;"></i> Total Amount</span>
+                                <strong id="amc_total_amount" style="font-family: monospace; color: var(--text-main);">₹0.00</strong>
                             </div>
-
-                            <!-- Field Row 2 -->
-                            <div class="flex justify-end">
-                                <div class="flex align-center gap-2"><span class="text-muted font-semibold">No Of Companies :</span> <span id="amc_no_of_companies" class="text-main font-mono">1</span></div>
+                            <div class="flex justify-between align-center">
+                                <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; display:flex; align-items:center; gap:5px;"><i data-lucide="plus-circle" style="width:12px; height:12px;"></i> Extra User Amt</span>
+                                <span style="font-family: monospace; color: var(--text-main); font-size: 0.78rem;">₹0.00</span>
                             </div>
-
-                            <!-- Field Row 3 -->
-                            <div class="grid grid-2 gap-4">
-                                <div class="flex align-center gap-2"><span class="text-muted font-semibold">Extra User Amt :</span> <span class="text-main font-mono">₹0.00</span></div>
-                                <div class="flex align-center justify-end gap-2"><span class="text-muted font-semibold">Total Amount :</span> <strong id="amc_total_amount" class="text-main font-mono">₹0.00</strong></div>
+                            <div class="flex justify-between align-center">
+                                <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; display:flex; align-items:center; gap:5px;"><i data-lucide="percent" style="width:12px; height:12px;"></i> GST 18%</span>
+                                <span id="amc_gst_18" style="font-family: monospace; color: var(--text-main); font-size: 0.78rem;">₹0.00</span>
                             </div>
-
-                            <!-- Field Row 4 -->
-                            <div class="grid grid-2 gap-4">
-                                <div class="flex align-center gap-2"><span class="text-muted font-semibold">Allowed Users :</span> <span id="amc_allowed_users" class="text-main font-mono">1</span></div>
-                                <div class="flex align-center justify-end gap-2"><span class="text-muted font-semibold">GST 18% :</span> <span id="amc_gst_18" class="text-main font-mono">₹0.00</span></div>
+                            <div style="border-top: 1.5px dashed var(--border-color); padding-top: 0.5rem;" class="flex justify-between align-center">
+                                <span style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); display:flex; align-items:center; gap:5px;"><i data-lucide="check-circle" style="width:13px; height:13px; color:var(--success,#10b981);"></i> Final Amount</span>
+                                <strong id="amc_final_amount" style="font-family: monospace; color: var(--success, #10b981); font-size: 1.1rem;">₹0.00</strong>
                             </div>
+                        </div>
 
-                            <!-- Field Row 5 -->
-                            <div>
-                                <div class="flex align-center gap-2"><span class="text-muted font-semibold">Final Amount :</span> <strong id="amc_final_amount" class="text-success font-extrabold text-sm font-mono">₹0.00</strong></div>
+                        <!-- Feed AMC Amount -->
+                        <div style="background: var(--primary-light); border: 1.5px solid var(--primary); border-radius: 11px; padding: 0.85rem 1.1rem;">
+                            <div style="font-size: 0.68rem; font-weight: 700; color: var(--primary); margin-bottom: 0.55rem; text-transform: uppercase; letter-spacing: 0.05em; display:flex; align-items:center; gap:5px;">
+                                <i data-lucide="calculator" style="width:13px; height:13px;"></i> Feed AMC Amount
                             </div>
-
-                            <!-- Feed AMC Amount Calculation Row (Matching Screenshot 1 Layout Exactly) -->
-                            <div class="flex align-center gap-2 py-2 flex-wrap" style="border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); margin: 0.25rem 0;">
-                                <span class="text-muted font-semibold" style="width: 140px;">Feed AMC Amount :</span>
-                                <input type="number" step="0.01" id="feed_amc_amount_input" name="feed_amc_amount" placeholder="" class="form-control form-control-focus text-xs font-mono" style="width: 140px; background-color: var(--bg-app); border: 1px solid var(--border-color); color: var(--text-main);" oninput="calculateAmcGst()">
-                                <span class="font-bold text-xs text-muted" style="margin: 0 0.25rem;">+ 18% GST</span>
-                                <input type="text" id="amc_calculated_total_display" name="amc_final_amount" readonly class="form-control text-xs font-extrabold font-mono text-success" style="width: 140px; background-color: var(--bg-app); border: 1px solid var(--border-color);" value="">
+                            <div class="flex align-center gap-2 flex-wrap">
+                                <input type="number" step="0.01" id="feed_amc_amount_input" name="feed_amc_amount" placeholder="0.00" class="form-control form-control-focus font-mono" style="flex:1; min-width:100px; font-size: 0.82rem; border-radius: 8px; height: 36px;" oninput="calculateAmcGst()">
+                                <div style="font-size: 0.68rem; font-weight: 700; color: var(--text-muted); white-space: nowrap;">+ 18% GST</div>
+                                <input type="text" id="amc_calculated_total_display" name="amc_final_amount" readonly class="form-control font-mono font-bold" style="flex:1; min-width:100px; font-size: 0.82rem; border-radius: 8px; height: 36px; color: var(--success, #10b981); background: var(--bg-card);" value="" placeholder="Total incl. GST">
                                 <input type="hidden" id="amc_calculated_gst_hidden" name="amc_gst_amount" value="0.00">
                             </div>
-
-                            <!-- Reasons Checkboxes Matrix (Matching Screenshot 1 Layout Exactly) -->
-                            <div class="flex gap-2" style="align-items: start;">
-                                <span class="text-muted font-semibold" style="width: 140px; flex-shrink: 0;">Reasons :</span>
-                                <div class="flex flex-col gap-2">
-                                    <div class="flex align-center gap-3 flex-wrap text-xs">
-                                        <label class="flex align-center gap-1 pointer"><input type="checkbox" name="reasons[]" value="Extra Services" style="accent-color: var(--primary); scale: 1.1;"> <span class="text-main">Extra Services</span></label>
-                                        <label class="flex align-center gap-1 pointer"><input type="checkbox" name="reasons[]" value="Extra Features" style="accent-color: var(--primary); scale: 1.1;"> <span class="text-main">Extra Features</span></label>
-                                        <label class="flex align-center gap-1 pointer"><input type="checkbox" name="reasons[]" value="Extra Training" style="accent-color: var(--primary); scale: 1.1;"> <span class="text-main">Extra Training</span></label>
-                                    </div>
-                                    <div class="flex align-center gap-3 flex-wrap text-xs">
-                                        <label class="flex align-center gap-1 pointer"><input type="checkbox" name="reasons[]" value="Implementation Charges" style="accent-color: var(--primary); scale: 1.1;"> <span class="text-main">Implementation Charges</span></label>
-                                        <label class="flex align-center gap-1 pointer"><input type="checkbox" name="reasons[]" value="Printing And Barcoding" style="accent-color: var(--primary); scale: 1.1;"> <span class="text-main">Printing And Barcoding</span></label>
-                                        <label class="flex align-center gap-1 pointer"><input type="checkbox" name="reasons[]" value="Other" style="accent-color: var(--primary); scale: 1.1;"> <span class="text-main">Other</span></label>
-                                    </div>
-                                </div>
-                            </div>
-
                         </div>
-                    </div>
 
+                        <!-- Reasons Checkboxes -->
+                        <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 11px; padding: 0.85rem 1.1rem;">
+                            <div style="font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.65rem; display:flex; align-items:center; gap:5px;">
+                                <i data-lucide="list-checks" style="width:13px; height:13px;"></i> Reasons
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem;">
+                                <?php foreach (['Extra Services','Extra Features','Extra Training','Implementation Charges','Printing And Barcoding','Other'] as $reason): ?>
+                                <label style="display:flex; align-items:center; gap: 6px; cursor:pointer; padding: 0.4rem 0.6rem; border-radius: 7px; border: 1px solid var(--border-color); background: var(--bg-card); font-size: 0.7rem; font-weight: 600; color: var(--text-main); transition: all 0.15s; user-select:none;" onmouseover="this.style.borderColor='var(--primary)'; this.style.color='var(--primary)'; this.style.background='var(--primary-light)'" onmouseout="this.style.borderColor='var(--border-color)'; this.style.color='var(--text-main)'; this.style.background='var(--bg-card)'">
+                                    <input type="checkbox" name="reasons[]" value="<?php echo $reason; ?>" style="accent-color: var(--primary); width: 13px; height: 13px; flex-shrink:0;">
+                                    <?php echo $reason; ?>
+                                </label>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
 
             </div>
 
-            <div class="modal-footer p-4 flex justify-end gap-2" style="background-color: var(--border-card); border-top: 1px solid var(--border-color);">
-                <button type="button" class="btn btn-secondary text-sm" onclick="window.closeModal('licence-amc-modal')">Close Window</button>
-                <button type="submit" class="btn btn-success text-sm font-bold flex align-center gap-2">
-                    <i data-lucide="check-circle-2" style="width: 16px; height: 16px;"></i>
-                    <span>Save AMC Update</span>
+            <!-- ── FOOTER (ALWAYS FIXED VISIBLE AT BOTTOM) ── -->
+            <div style="flex-shrink: 0; padding: 0.85rem 1.5rem; background: var(--border-card); border-top: 1px solid var(--border-color); display:flex; justify-content:flex-end; gap: 0.75rem; align-items:center;">
+                <button type="button" onclick="window.closeModal('licence-amc-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.25rem; font-size: 0.8rem;">
+                    <i data-lucide="x" style="width:14px; height:14px;"></i> Close Window
+                </button>
+                <button type="submit" class="btn btn-success font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.88rem; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);">
+                    <i data-lucide="check-circle-2" style="width:15px; height:15px;"></i>
+                    Save AMC Update
                 </button>
             </div>
+
         </form>
     </div>
 </div>
+<script>
+function highlightProductPill(which) {
+    var lblMarg  = document.getElementById('lbl_marg_erp');
+    var lblBooks = document.getElementById('lbl_marg_books');
+    var base = 'display:flex;align-items:center;gap:6px;padding:0.3rem 0.75rem;border-radius:7px;cursor:pointer;font-size:0.75rem;font-weight:700;transition:all 0.2s;';
+    if (which === 'marg_erp') {
+        document.getElementById('radio_marg_erp').checked = true;
+        lblMarg.style.cssText  = base + 'background:var(--primary);color:#fff;';
+        lblBooks.style.cssText = base + 'color:var(--text-muted);';
+    } else {
+        document.getElementById('radio_marg_books').checked = true;
+        lblBooks.style.cssText = base + 'background:var(--primary);color:#fff;';
+        lblMarg.style.cssText  = base + 'color:var(--text-muted);';
+    }
+}
+</script>
 
-<!-- Modal 4: Edit Client Directory Record Modal (Triggered by Edit Icon ✏️) -->
+<!-- Modal 4: Edit Client Directory Record Modal — Modern Premium Redesign -->
 <div id="edit-client-record-modal" class="modal-overlay">
-    <div class="modal-container" style="max-width: 850px; background: var(--bg-card); border-radius: 16px; border: 1px solid var(--border-color);">
-        <div class="modal-header" style="background-color: var(--border-card); border-bottom: 1px solid var(--border-color);">
+    <div class="modal-container" style="max-width: 950px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-main); border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 32px 64px -12px rgba(0,0,0,0.6); overflow: hidden;">
+        
+        <!-- HEADER (Fixed Top) -->
+        <div style="flex-shrink: 0; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); padding: 1rem 1.5rem;" class="flex align-center justify-between">
             <div class="flex align-center gap-3">
-                <div style="background-color: var(--primary-light); color: var(--primary); padding: 0.5rem; border-radius: 8px;">
-                    <i data-lucide="edit-3" style="width: 22px; height: 22px;"></i>
+                <div style="background: rgba(255,255,255,0.18); backdrop-filter: blur(8px); padding: 0.55rem; border-radius: 12px; display:flex; align-items:center; justify-content:center;">
+                    <i data-lucide="edit-3" style="width:20px; height:20px; color:#fff;"></i>
                 </div>
                 <div>
-                    <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 700; color: var(--text-main);">
+                    <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;">
                         Edit Client Directory Record
                     </h3>
-                    <span class="text-xs text-muted">Update client profile details, license parameters, software edition, and address.</span>
+                    <span style="font-size: 0.72rem; color: rgba(255,255,255,0.75);">Update client profile details, license parameters, software edition, and address.</span>
                 </div>
             </div>
-            <button class="btn-icon" onclick="window.closeModal('edit-client-record-modal')">
-                <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+            <button type="button" onclick="window.closeModal('edit-client-record-modal')" style="background: rgba(255,255,255,0.15); border: none; border-radius: 10px; width: 34px; height: 34px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+                <i data-lucide="x" style="width:18px; height:18px; color:#fff;"></i>
             </button>
         </div>
 
-        <form action="index.php?page=clients&tab=directory" method="POST">
+        <form action="index.php?page=clients&tab=directory" method="POST" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">
             <input type="hidden" name="action" value="update_client_directory">
             <input type="hidden" id="edit_client_db_id" name="client_db_id" value="">
 
-            <div class="modal-body p-6 flex flex-col gap-4" style="max-height: 480px; overflow-y: auto;">
+            <div class="modal-body p-6 flex flex-col gap-5" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-app);">
                 
-                <div class="grid grid-4 gap-3">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Party Name *</label>
-                        <input type="text" id="edit_party_name" name="party_name" required class="form-control text-xs">
+                <!-- SECTION 1: IDENTITY & BASIC INFO -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
+                        <i data-lucide="id-card" style="width:14px; height:14px;"></i> Client Identity &amp; Classification
                     </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Customer ID *</label>
-                        <input type="text" id="edit_customer_id" name="customer_id" required class="form-control text-xs font-mono">
-                    </div>
+                    <div class="grid grid-4 gap-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Name *</label>
+                            <input type="text" id="edit_party_name" name="party_name" required class="form-control text-xs" style="border-radius: 8px;">
+                        </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Category</label>
-                        <input type="text" id="edit_category" name="category" placeholder="e.g. Category A, B, C" class="form-control text-xs" list="category_options">
-                        <datalist id="category_options">
-                            <option value="Category A">
-                            <option value="Category B">
-                            <option value="Category C">
-                            <option value="Category D">
-                        </datalist>
-                    </div>
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" id="edit_customer_id_label" style="color: var(--text-main);">
+                                Customer ID *
+                                <span id="edit_customer_id_locked_badge" class="badge" style="display:none; --badge-bg: rgba(239,68,68,0.1); --badge-color: #dc2626; font-size: 0.65rem; margin-left: 6px; vertical-align: middle;">
+                                    🔒 Non-Editable
+                                </span>
+                            </label>
+                            <input type="text" id="edit_customer_id" name="customer_id" required class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">S/W Type</label>
-                        <input type="text" id="edit_sw_type" name="sw_type" value="Marg" class="form-control text-xs">
-                    </div>
-                </div>
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Category</label>
+                            <input type="text" id="edit_category" name="category" placeholder="e.g. Category A, B, C" class="form-control text-xs" list="category_options" style="border-radius: 8px;">
+                            <datalist id="category_options">
+                                <option value="Category A">
+                                <option value="Category B">
+                                <option value="Category C">
+                                <option value="Category D">
+                            </datalist>
+                        </div>
 
-                <div class="grid grid-3 gap-3">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Reg Mobile</label>
-                        <input type="text" id="edit_mobile" name="mobile" class="form-control text-xs font-mono">
-                    </div>
-
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Reg Email</label>
-                        <input type="email" id="edit_email" name="email" class="form-control text-xs font-mono">
-                    </div>
-
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Contact Person</label>
-                        <input type="text" id="edit_contact_person" name="contact_person" class="form-control text-xs">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">S/W Type</label>
+                            <input type="text" id="edit_sw_type" name="sw_type" value="Marg" class="form-control text-xs" style="border-radius: 8px;">
+                        </div>
                     </div>
                 </div>
 
-                <div class="grid grid-3 gap-3">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Software Type (Edition)</label>
-                        <input type="text" id="edit_software_type" name="software_type" placeholder="e.g. Marg ERP Silver" class="form-control text-xs">
+                <!-- SECTION 2: CONTACT DETAILS -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
+                        <i data-lucide="phone-call" style="width:14px; height:14px;"></i> Contact &amp; Communication
                     </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">User Type</label>
-                        <select id="edit_user_type" name="user_type" class="form-control text-xs">
-                            <option value="Single User">Single User</option>
-                            <option value="Multi User">Multi User</option>
-                        </select>
-                    </div>
+                    <div class="grid grid-3 gap-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Reg Mobile</label>
+                            <input type="text" id="edit_mobile" name="mobile" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">No. of Users</label>
-                        <input type="number" id="edit_no_of_users" name="no_of_users" min="1" value="1" class="form-control text-xs">
-                    </div>
-                </div>
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Reg Email</label>
+                            <input type="email" id="edit_email" name="email" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
 
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-bold">Registered Address</label>
-                    <textarea id="edit_address" name="address" rows="2" class="form-control text-xs"></textarea>
-                </div>
-
-                <div class="grid grid-3 gap-3">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">City</label>
-                        <input type="text" id="edit_city" name="city" class="form-control text-xs">
-                    </div>
-
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">State</label>
-                        <input type="text" id="edit_state" name="state" class="form-control text-xs">
-                    </div>
-
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Online Zip Code</label>
-                        <input type="text" id="edit_online_zip_code" name="online_zip_code" class="form-control text-xs font-mono">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Contact Person</label>
+                            <input type="text" id="edit_contact_person" name="contact_person" class="form-control text-xs" style="border-radius: 8px;">
+                        </div>
                     </div>
                 </div>
 
-                <div class="grid grid-3 gap-3">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Software Trade</label>
-                        <input type="text" id="edit_software_trade" name="software_trade" placeholder="e.g. Pharmaceutical & Chemicals" class="form-control text-xs">
+                <!-- SECTION 3: SOFTWARE & LICENSE DETAILS -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
+                        <i data-lucide="cpu" style="width:14px; height:14px;"></i> Software Parameters &amp; Commercials
                     </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Total Contract Amount (₹)</label>
-                        <input type="number" step="0.01" id="edit_total_amount" name="total_amount" class="form-control text-xs font-mono">
+                    <div class="grid grid-3 gap-3 mb-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Type (Edition)</label>
+                            <input type="text" id="edit_software_type" name="software_type" placeholder="e.g. Marg ERP Silver" class="form-control text-xs" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">User Type</label>
+                            <select id="edit_user_type" name="user_type" class="form-control text-xs" style="border-radius: 8px;">
+                                <option value="Single User">Single User</option>
+                                <option value="Multi User">Multi User</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">No. of Users</label>
+                            <input type="number" id="edit_no_of_users" name="no_of_users" min="1" value="1" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
                     </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Party Status</label>
-                        <select id="edit_party_status" name="party_status" class="form-control text-xs">
-                            <option value="Running">Running</option>
-                            <option value="Expired">Expired</option>
-                            <option value="Deactive">Deactive</option>
-                            <option value="Suspended">Suspended</option>
-                        </select>
+                    <div class="grid grid-3 gap-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Trade</label>
+                            <input type="text" id="edit_software_trade" name="software_trade" placeholder="e.g. Pharmaceutical & Chemicals" class="form-control text-xs" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Total Contract Amount (₹)</label>
+                            <input type="number" step="0.01" id="edit_total_amount" name="total_amount" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Status</label>
+                            <select id="edit_party_status" name="party_status" class="form-control text-xs" style="border-radius: 8px;">
+                                <option value="Running">Running</option>
+                                <option value="Expired">Expired</option>
+                                <option value="Deactive">Deactive</option>
+                                <option value="Suspended">Suspended</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
-                <div class="grid grid-3 gap-3">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Due On</label>
-                        <input type="date" id="edit_due_on" name="due_on" class="form-control text-xs font-mono">
+                <!-- SECTION 4: ADDRESS -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
+                        <i data-lucide="map-pin" style="width:14px; height:14px;"></i> Registered Location &amp; Address
                     </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Act On</label>
-                        <input type="date" id="edit_act_on" name="act_on" class="form-control text-xs font-mono">
+                    <div class="form-group mb-3">
+                        <label class="form-label text-xs font-bold" style="color: var(--text-main);">Registered Address</label>
+                        <textarea id="edit_address" name="address" rows="2" class="form-control text-xs" style="border-radius: 8px; resize: vertical;"></textarea>
                     </div>
 
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold">Software Hit Date</label>
-                        <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono">
+                    <div class="grid grid-3 gap-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">City</label>
+                            <input type="text" id="edit_city" name="city" class="form-control text-xs" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">State</label>
+                            <input type="text" id="edit_state" name="state" class="form-control text-xs" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Online Zip Code</label>
+                            <input type="text" id="edit_online_zip_code" name="online_zip_code" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECTION 5: DATES -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
+                        <i data-lucide="calendar" style="width:14px; height:14px;"></i> Key License &amp; Followup Dates
+                    </div>
+
+                    <div class="grid grid-3 gap-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Due On</label>
+                            <input type="date" id="edit_due_on" name="due_on" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Act On</label>
+                            <input type="date" id="edit_act_on" name="act_on" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Hit Date</label>
+                            <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
                     </div>
                 </div>
 
             </div>
 
-            <div class="modal-footer p-4 flex justify-end gap-2" style="background-color: var(--border-card); border-top: 1px solid var(--border-color);">
-                <button type="button" class="btn btn-secondary text-sm" onclick="window.closeModal('edit-client-record-modal')">Cancel</button>
-                <button type="submit" class="btn btn-primary text-sm flex align-center gap-2">
-                    <i data-lucide="check" style="width: 16px; height: 16px;"></i>
+            <!-- FOOTER (ALWAYS FIXED AT BOTTOM) -->
+            <div style="flex-shrink: 0; padding: 0.85rem 1.5rem; background: var(--border-card); border-top: 1px solid var(--border-color); display:flex; justify-content:flex-end; gap: 0.75rem; align-items:center;">
+                <button type="button" onclick="window.closeModal('edit-client-record-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.25rem; font-size: 0.8rem;">
+                    <i data-lucide="x" style="width:14px; height:14px;"></i> Cancel
+                </button>
+                <button type="submit" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
+                    <i data-lucide="check-circle-2" style="width:15px; height:15px;"></i>
                     <span>Save Changes</span>
                 </button>
             </div>
@@ -2047,17 +2189,33 @@ function openLicenceAmcWindow(client) {
     document.getElementById('win_mobile_no_input').value = client.mobile || '';
     document.getElementById('win_firm_name_input').value = client.party_name || '';
 
-    // Populate Left Card: Licence Info
-    document.getElementById('info_licence_no').innerText = client.customer_id || '-';
-    document.getElementById('info_company_name').innerText = client.party_name || '-';
-    document.getElementById('info_email').innerText = client.email || '-';
-    document.getElementById('info_mobile').innerText = client.mobile || '-';
-    document.getElementById('info_address1').innerText = client.address || '-';
-    document.getElementById('info_address2').innerText = (client.city ? client.city + ', ' : '') + (client.state || '') + (client.online_zip_code ? ' - ' + client.online_zip_code : '');
-    document.getElementById('info_address3').innerText = 'INDIA';
-    document.getElementById('info_software_type').innerText = client.software_type || 'Marg ERP Silver';
-    document.getElementById('info_renewal_date').innerText = client.due_on || client.act_on || 'N/A';
-    document.getElementById('info_last_hit').innerText = client.software_hit_date || 'N/A';
+    // Populate Left Card: All Licence Info Fields
+    document.getElementById('info_licence_no').innerText           = client.customer_id || '-';
+    document.getElementById('info_company_name').innerText         = client.party_name || '-';
+    document.getElementById('info_email').innerText                = client.email || '-';
+    document.getElementById('info_mobile').innerText               = client.mobile || '-';
+    document.getElementById('info_contact_person').innerText       = client.contact_person || '-';
+    document.getElementById('info_address1').innerText             = client.address || '-';
+    document.getElementById('info_address2').innerText             = (client.city ? client.city + ' - ' : '') + (client.online_zip_code || '');
+    document.getElementById('info_address3').innerText             = 'INDIA';
+    document.getElementById('info_city').innerText                 = client.city || '-';
+    document.getElementById('info_state').innerText                = client.state || '-';
+    document.getElementById('info_pin_code').innerText             = client.online_zip_code || '-';
+    document.getElementById('info_software_type').innerText        = client.software_type || '-';
+    document.getElementById('info_sw_type').innerText              = client.sw_type || '-';
+    document.getElementById('info_category').innerText             = client.category || '-';
+    document.getElementById('info_no_of_users').innerText          = client.no_of_users || '-';
+    document.getElementById('info_user_type').innerText            = client.user_type || '-';
+    document.getElementById('info_no_of_companies_left').innerText = client.company_using || '-';
+    document.getElementById('info_subpartner_code').innerText      = client.subpartner_code || '-';
+    document.getElementById('info_subpartner_name').innerText      = client.subpartner_name || '-';
+    document.getElementById('info_party_status').innerText         = client.party_status || '-';
+    document.getElementById('info_home_user').innerText            = client.home_user || '-';
+    document.getElementById('info_software_trade').innerText       = client.software_trade || '-';
+    document.getElementById('info_total_amount').innerText         = client.total_amount ? '₹' + parseFloat(client.total_amount).toFixed(2) : '-';
+    document.getElementById('info_renewal_date').innerText         = client.due_on || client.act_on || 'N/A';
+    document.getElementById('info_act_on').innerText               = client.act_on || 'N/A';
+    document.getElementById('info_last_hit').innerText             = client.software_hit_date || 'N/A';
 
     // Populate Right Card: AMC Info
     const totalAmt = parseFloat(client.total_amount || 0);
@@ -2138,6 +2296,25 @@ function openEditClientRecordModal(client) {
     document.getElementById('edit_due_on').value = client.due_on || '';
     document.getElementById('edit_act_on').value = client.act_on || '';
     document.getElementById('edit_software_hit_date').value = client.software_hit_date || '';
+
+    // Lock Customer ID field if it already has a value (non-editable for existing clients)
+    var custIdInput = document.getElementById('edit_customer_id');
+    var custIdBadge = document.getElementById('edit_customer_id_locked_badge');
+    if (client.customer_id && client.customer_id.trim() !== '') {
+        custIdInput.setAttribute('readonly', 'readonly');
+        custIdInput.style.background = 'var(--bg-card, #f8f8f8)';
+        custIdInput.style.color = 'var(--text-muted, #888)';
+        custIdInput.style.cursor = 'not-allowed';
+        custIdInput.style.borderColor = 'var(--border-color)';
+        if (custIdBadge) custIdBadge.style.display = 'inline-block';
+    } else {
+        custIdInput.removeAttribute('readonly');
+        custIdInput.style.background = '';
+        custIdInput.style.color = '';
+        custIdInput.style.cursor = '';
+        custIdInput.style.borderColor = '';
+        if (custIdBadge) custIdBadge.style.display = 'none';
+    }
 
     window.openModal('edit-client-record-modal');
 }

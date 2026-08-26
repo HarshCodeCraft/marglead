@@ -10,6 +10,7 @@ require_once __DIR__ . '/cors.php';
 $auth = requireApiAuth();
 
 require_once __DIR__ . '/whatsapp-api.php';
+require_once __DIR__ . '/helpers.php';
 
 // Helper function to process and insert raw incoming webhook payload JSON into message_logs
 function processIncomingPayloadJson($pdo, $jsonString, $createdAt = null) {
@@ -45,8 +46,8 @@ function processIncomingPayloadJson($pdo, $jsonString, $createdAt = null) {
     }
 }
 
-// Ensure message_logs table exists and sync any raw webhook_logs or file log entries
-function syncWebhookLogsToMessageLogs($pdo) {
+// Ensure message_logs table exists
+function ensureMessageLogsTableExists($pdo) {
     if (!$pdo) return;
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS message_logs (
@@ -62,34 +63,11 @@ function syncWebhookLogsToMessageLogs($pdo) {
             INDEX (recipient_or_sender),
             INDEX (direction)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-
-        // 1. Sync from DB table webhook_logs
-        try {
-            $stmt = $pdo->query("SELECT payload, created_at FROM webhook_logs WHERE payload LIKE '%\"messages\"%' ORDER BY id ASC");
-            if ($stmt) {
-                $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                foreach ($logs as $l) {
-                    processIncomingPayloadJson($pdo, $l['payload'], $l['created_at']);
-                }
-            }
-        } catch (Throwable $e) {}
-
-        // 2. Sync from file logs/webhook.log
-        $logFilePath = __DIR__ . '/../logs/webhook.log';
-        if (file_exists($logFilePath)) {
-            $logLines = file($logFilePath);
-            foreach ($logLines as $line) {
-                $line = trim($line);
-                if (str_starts_with($line, '{') && str_contains($line, '"messages"')) {
-                    processIncomingPayloadJson($pdo, $line);
-                }
-            }
-        }
     } catch (Throwable $e) {}
 }
 
 if ($db_connected && $pdo) {
-    syncWebhookLogsToMessageLogs($pdo);
+    ensureMessageLogsTableExists($pdo);
 }
 
 function isChatClosed($pdo, $phone) {
@@ -105,9 +83,25 @@ function isChatClosed($pdo, $phone) {
 // -----------------------------------------------------------------
 // ROUTE DISPATCHER
 // -----------------------------------------------------------------
+// Throttled background trigger to auto-delete MP4 and MP3/audio media older than 48 hours
+auto_trigger_48h_media_cleanup();
+
 $action = $_GET['action'] ?? $_POST['action'] ?? 'conversations';
 
 switch ($action) {
+
+    // -------------------------------------------------------------
+    // 0. Manual 48H Audio/Video Media Cleanup Endpoint
+    // -------------------------------------------------------------
+    case 'cleanup_media':
+        $res = cleanup_48h_audio_video_media();
+        $freedMb = round($res['freed_bytes'] / (1024 * 1024), 2);
+        echo json_encode([
+            'success' => true,
+            'message' => "Media cleanup complete: {$res['deleted_files']} expired MP4 & MP3 media files (>48h) deleted, freeing {$freedMb} MB disk space.",
+            'stats'   => $res
+        ]);
+        exit;
 
     // -------------------------------------------------------------
     // 1. Get List of Conversations (Left Pane)
@@ -264,8 +258,87 @@ switch ($action) {
             $stmt->execute(["%$cleanDigits%", "%$clean10%"]);
             $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            $whatsappObj = null;
+            $uploadDir = __DIR__ . '/../uploads/whatsapp/';
+
             foreach ($messages as &$m) {
                 $m['formatted_time'] = date('h:i A', strtotime($m['created_at']));
+                $m['media_url']      = null;
+                $m['media_type']     = null;
+                $m['media_caption']  = null;
+                $m['media_filename'] = null;
+
+                $type = $m['message_type'] ?? 'text';
+                $raw  = !empty($m['raw_json']) ? json_decode($m['raw_json'], true) : null;
+
+                // Media URL & Metadata Resolution
+                if (in_array($type, ['image', 'document', 'pdf', 'video', 'audio', 'voice', 'sticker']) || ($raw && isset($raw['type']) && in_array($raw['type'], ['image', 'document', 'video', 'audio', 'voice', 'sticker']))) {
+                    $mType = $type;
+                    if ($raw && isset($raw['type'])) {
+                        $mType = $raw['type'];
+                    }
+
+                    $mediaData = ($raw && isset($raw[$mType])) ? $raw[$mType] : ($raw ?? []);
+                    $mediaId   = $mediaData['id'] ?? ($raw['media_id'] ?? '');
+                    $caption   = $mediaData['caption'] ?? ($raw['caption'] ?? '');
+                    $filename  = $mediaData['filename'] ?? ($raw['filename'] ?? '');
+                    $mimeType  = $mediaData['mime_type'] ?? ($raw['mime_type'] ?? '');
+                    $directUrl = $mediaData['link'] ?? ($raw['media_url'] ?? ($raw['url'] ?? ''));
+
+                    $m['media_type']     = $mType;
+                    $m['media_caption']  = $caption;
+                    $m['media_filename'] = $filename;
+
+                    // 1. Check if media file is stored in raw_json direct URL
+                    if (!empty($raw['media_url'])) {
+                        $m['media_url'] = $raw['media_url'];
+                    }
+                    // 2. Search local storage for cached file matching mediaId
+                    elseif (!empty($mediaId)) {
+                        $pattern = $uploadDir . $mediaId . '_*';
+                        $matchingFiles = glob($pattern);
+
+                        if (!empty($matchingFiles)) {
+                            $m['media_url'] = 'uploads/whatsapp/' . basename($matchingFiles[0]);
+                        } else {
+                            // File not downloaded yet -> attempt on-demand Meta download
+                            if ($whatsappObj === null) {
+                                $whatsappObj = new WhatsAppAPI($pdo);
+                            }
+                            if (!is_dir($uploadDir)) {
+                                @mkdir($uploadDir, 0755, true);
+                            }
+
+                            $ext = 'bin';
+                            if (!empty($filename) && str_contains($filename, '.')) {
+                                $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+                            } elseif (str_contains($mimeType, 'jpeg') || str_contains($mimeType, 'jpg')) {
+                                $ext = 'jpg';
+                            } elseif (str_contains($mimeType, 'png')) {
+                                $ext = 'png';
+                            } elseif (str_contains($mimeType, 'pdf')) {
+                                $ext = 'pdf';
+                            } elseif (str_contains($mimeType, 'mp4')) {
+                                $ext = 'mp4';
+                            } elseif (str_contains($mimeType, 'ogg')) {
+                                $ext = 'ogg';
+                            } elseif (str_contains($mimeType, 'webp')) {
+                                $ext = 'webp';
+                            }
+
+                            $cleanFile = !empty($filename) ? preg_replace('/[^a-zA-Z0-9_\.-]/', '_', $filename) : "media_{$mediaId}.{$ext}";
+                            $savePath  = $uploadDir . $mediaId . '_' . $cleanFile;
+
+                            if ($whatsappObj->downloadMedia($mediaId, $savePath)) {
+                                $m['media_url'] = 'uploads/whatsapp/' . $mediaId . '_' . $cleanFile;
+                            } elseif (!empty($directUrl)) {
+                                $m['media_url'] = $directUrl;
+                            }
+                        }
+                    } elseif (!empty($directUrl)) {
+                        $m['media_url'] = $directUrl;
+                    }
+                }
             }
 
             // Fetch customer profile meta
@@ -585,6 +658,84 @@ switch ($action) {
             echo json_encode(['success' => true, 'message' => 'WhatsApp Flow dispatched successfully!']);
         } else {
             echo json_encode(['success' => false, 'message' => $res['error']['message'] ?? 'Failed to dispatch WhatsApp Flow']);
+        }
+        exit;
+
+    // -------------------------------------------------------------
+    // 8. Send Image / PDF Document Media Attachment
+    // -------------------------------------------------------------
+    case 'send_media':
+        $phone   = trim($_POST['phone'] ?? '');
+        $caption = trim($_POST['caption'] ?? '');
+
+        if (empty($phone)) {
+            echo json_encode(['success' => false, 'message' => 'Phone number is required']);
+            exit;
+        }
+
+        if (isChatClosed($pdo, $phone)) {
+            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending files.']);
+            exit;
+        }
+
+        if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error occurred']);
+            exit;
+        }
+
+        try {
+            $file = $_FILES['file'];
+            $fileName = basename($file['name']);
+            $fileTmp  = $file['tmp_name'];
+            $mimeType = mime_content_type($fileTmp) ?: $file['type'];
+
+            $uploadDir = __DIR__ . '/../uploads/whatsapp/';
+            if (!is_dir($uploadDir)) {
+                @mkdir($uploadDir, 0755, true);
+            }
+
+            $sanitizedName = time() . '_' . preg_replace('/[^a-zA-Z0-9_\.-]/', '_', $fileName);
+            $targetPath    = $uploadDir . $sanitizedName;
+
+            if (!move_uploaded_file($fileTmp, $targetPath)) {
+                echo json_encode(['success' => false, 'message' => 'Failed to save uploaded file']);
+                exit;
+            }
+
+            $publicUrl  = BASE_URL . 'uploads/whatsapp/' . $sanitizedName;
+            $relativeUrl = 'uploads/whatsapp/' . $sanitizedName;
+
+            $whatsapp = new WhatsAppAPI($pdo);
+            if (str_contains($mimeType, 'image/')) {
+                $msgType = 'image';
+                $res = $whatsapp->sendImage($phone, $publicUrl, $caption);
+                $logBody = !empty($caption) ? "📷 " . $caption : "📷 Image: " . $fileName;
+            } else {
+                $msgType = 'document';
+                $res = $whatsapp->sendDocument($phone, $publicUrl, $caption, $fileName);
+                $logBody = !empty($caption) ? "📄 " . $caption : "📄 Document: " . $fileName;
+            }
+
+            $rawLogData = [
+                'type'          => $msgType,
+                'media_url'     => $relativeUrl,
+                'caption'       => $caption,
+                'filename'      => $fileName,
+                'mime_type'     => $mimeType,
+                'wamid'         => $res['wamid'] ?? null,
+                'api_response'  => $res
+            ];
+
+            $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json) VALUES ('OUTBOUND', ?, ?, ?, ?, 'sent', ?)");
+            $stmtLog->execute([$phone, $msgType, $logBody, $res['wamid'] ?? null, json_encode($rawLogData)]);
+
+            echo json_encode([
+                'success'   => true,
+                'message'   => 'File sent successfully via WhatsApp!',
+                'media_url' => $relativeUrl
+            ]);
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         }
         exit;
 

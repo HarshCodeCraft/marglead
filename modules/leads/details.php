@@ -146,6 +146,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
+// 5. Process Client Directory details save
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_client_directory_details') {
+    $leadId = trim($_POST['lead_id'] ?? '');
+    
+    if ($db_connected && $pdo && !empty($leadId)) {
+        try {
+            $customer_id = trim($_POST['customer_id'] ?? $leadId);
+            $party_name = trim($_POST['party_name'] ?? '');
+            $company_using = trim($_POST['company_using'] ?? '');
+            $mobile = trim($_POST['mobile'] ?? '');
+            $email = trim($_POST['email'] ?? '');
+            $contact_person = trim($_POST['contact_person'] ?? '');
+            $sw_type = trim($_POST['sw_type'] ?? '');
+            $software_type = trim($_POST['software_type'] ?? '');
+            $user_type = trim($_POST['user_type'] ?? '');
+            $no_of_users = intval($_POST['no_of_users'] ?? 1);
+            $subpartner_code = trim($_POST['subpartner_code'] ?? '');
+            $subpartner_name = trim($_POST['subpartner_name'] ?? '');
+            $address = trim($_POST['address'] ?? '');
+            $city = trim($_POST['city'] ?? '');
+            $state = trim($_POST['state'] ?? '');
+            $online_zip_code = trim($_POST['online_zip_code'] ?? '');
+            $due_on = !empty($_POST['due_on']) ? $_POST['due_on'] : null;
+            $act_on = !empty($_POST['act_on']) ? $_POST['act_on'] : null;
+            $days = intval($_POST['days'] ?? 365);
+            $party_status = trim($_POST['party_status'] ?? 'Active');
+            $category = trim($_POST['category'] ?? '');
+            $software_trade = trim($_POST['software_trade'] ?? '');
+            $version = trim($_POST['version'] ?? '');
+            $total_amount = floatval($_POST['total_amount'] ?? 0);
+            $software_hit_date = !empty($_POST['software_hit_date']) ? $_POST['software_hit_date'] : null;
+            $wallet_id = trim($_POST['wallet_id'] ?? '');
+            $home_user = trim($_POST['home_user'] ?? 'No');
+            $transferred_party = trim($_POST['transferred_party'] ?? 'No');
+
+            // Check if record exists in client_directory by customer_id OR mobile
+            $chk = $pdo->prepare("SELECT id FROM client_directory WHERE customer_id = ? OR mobile = ? LIMIT 1");
+            $chk->execute([$customer_id, $mobile]);
+            $existing_client = $chk->fetch();
+
+            if ($existing_client) {
+                $updClient = $pdo->prepare("UPDATE client_directory SET 
+                    party_name = ?, company_using = ?, mobile = ?, email = ?, contact_person = ?,
+                    sw_type = ?, software_type = ?, user_type = ?, no_of_users = ?,
+                    subpartner_code = ?, subpartner_name = ?, address = ?, city = ?, state = ?, online_zip_code = ?,
+                    due_on = ?, act_on = ?, days = ?, party_status = ?, category = ?, software_trade = ?, version = ?,
+                    total_amount = ?, software_hit_date = ?, wallet_id = ?, home_user = ?, transferred_party = ?, updated_at = NOW()
+                    WHERE id = ?");
+                $updClient->execute([
+                    $party_name, $company_using, $mobile, $email, $contact_person,
+                    $sw_type, $software_type, $user_type, $no_of_users,
+                    $subpartner_code, $subpartner_name, $address, $city, $state, $online_zip_code,
+                    $due_on, $act_on, $days, $party_status, $category, $software_trade, $version,
+                    $total_amount, $software_hit_date, $wallet_id, $home_user, $transferred_party,
+                    $existing_client['id']
+                ]);
+            } else {
+                $insClient = $pdo->prepare("INSERT INTO client_directory (
+                    company_id, customer_id, party_name, company_using, mobile, email, contact_person,
+                    sw_type, software_type, user_type, no_of_users,
+                    subpartner_code, subpartner_name, address, city, state, online_zip_code,
+                    due_on, act_on, days, party_status, category, software_trade, version,
+                    total_amount, software_hit_date, wallet_id, home_user, transferred_party, created_at, updated_at
+                ) VALUES (
+                    1, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, NOW(), NOW()
+                )");
+                $insClient->execute([
+                    $customer_id, $party_name, $company_using, $mobile, $email, $contact_person,
+                    $sw_type, $software_type, $user_type, $no_of_users,
+                    $subpartner_code, $subpartner_name, $address, $city, $state, $online_zip_code,
+                    $due_on, $act_on, $days, $party_status, $category, $software_trade, $version,
+                    $total_amount, $software_hit_date, $wallet_id, $home_user, $transferred_party
+                ]);
+            }
+
+            // Log timeline
+            $logStmt = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, ?)");
+            $logStmt->execute([$leadId, $_SESSION['user_name'] ?? 'System User', "Updated Client Directory profile for party '{$party_name}'."]);
+
+            $_SESSION['flash_success'] = "Client Directory profile updated successfully!";
+        } catch (PDOException $e) {
+            $_SESSION['flash_error'] = "Database error: " . $e->getMessage();
+        }
+    }
+
+    header("Location: index.php?page=lead_details&id=" . $leadId . "&active_tab=client-details");
+    exit;
+}
+
 // 4. Process document deletion
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_lead_document') {
     $docId = intval($_POST['doc_id'] ?? 0);
@@ -212,6 +305,20 @@ if (!empty($lead['installation_status'])) {
         $install_status = [];
     }
 }
+
+// Fetch Client Directory record if lead matches customer_id or phone
+$client_dir_data = null;
+if ($db_connected && $pdo && $lead) {
+    try {
+        $cStmt = $pdo->prepare("SELECT * FROM client_directory WHERE customer_id = ? OR (mobile IS NOT NULL AND mobile != '' AND mobile = ?) LIMIT 1");
+        $cStmt->execute([$lead['id'], $lead['phone']]);
+        $client_dir_data = $cStmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {}
+}
+
+// Check if lead status is Closed Won / Won / Client / Converted
+$leadStatusNorm = strtolower(str_replace(['_', '-'], ' ', trim($lead['status'] ?? '')));
+$isClientWon = in_array($leadStatusNorm, ['closed won', 'won', 'client', 'converted', 'closed']) || !empty($client_dir_data);
 ?>
 
 <?php if (!$lead): ?>
@@ -402,7 +509,12 @@ if (!empty($lead['installation_status'])) {
                     <button class="tab-link" data-tab="tab-installation">Installation</button>
                     <button class="tab-link" data-tab="tab-training">Training</button>
                     <button class="tab-link" data-tab="tab-support">Support</button>
-                    <button class="tab-link" data-tab="tab-documents">Documents</button>
+                    <button class="tab-link <?php echo (isset($_GET['active_tab']) && $_GET['active_tab'] === 'client-details') ? 'active' : ''; ?>" data-tab="tab-documents">Documents</button>
+                    <?php if ($isClientWon): ?>
+                        <button class="tab-link <?php echo (isset($_GET['active_tab']) && $_GET['active_tab'] === 'client-details') ? 'active' : ''; ?>" data-tab="tab-client-details" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 700; border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <i data-lucide="award" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Client Details
+                        </button>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Tab Panels Contents -->
@@ -894,6 +1006,187 @@ if (!empty($lead['installation_status'])) {
                         </div>
                     <?php endif; ?>
                 </div>
+
+                <!-- TAB 11: Client Details (Enabled when Closed Won / Client) -->
+                <?php if ($isClientWon): ?>
+                    <div class="tab-pane <?php echo (isset($_GET['active_tab']) && $_GET['active_tab'] === 'client-details') ? 'active' : ''; ?>" id="tab-client-details">
+                        <div class="flex justify-between align-center mb-6">
+                            <div>
+                                <h3 class="text-base font-semibold mb-1" style="display: flex; align-items: center; gap: 8px;">
+                                    <i data-lucide="award" style="width: 20px; height: 20px; color: var(--success);"></i>
+                                    <span>Client Directory Record</span>
+                                </h3>
+                                <p class="text-xs text-muted">Manage license, software details, activation & party directory attributes stored in `client_directory` table.</p>
+                            </div>
+                            <span class="badge" style="--badge-bg: var(--success-light); --badge-color: var(--success); font-weight: 700; padding: 6px 12px;">
+                                <i data-lucide="check-circle" style="width: 13px; height: 13px; display: inline; margin-right: 4px;"></i> Active Client Account
+                            </span>
+                        </div>
+
+                        <form action="index.php?page=lead_details&id=<?php echo $lead['id']; ?>" method="POST" class="flex flex-col gap-6">
+                            <input type="hidden" name="action" value="save_client_directory_details">
+                            <input type="hidden" name="lead_id" value="<?php echo $lead['id']; ?>">
+
+                            <!-- Section 1: Business & Software License Info -->
+                            <div class="card p-5" style="border: 1px solid var(--border-color); background: var(--bg-hover);">
+                                <h4 class="text-xs font-bold text-muted mb-4" style="text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary);">
+                                    1. Software License & Party Basic Details
+                                </h4>
+                                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Marg Customer ID / Code</label>
+                                        <input type="text" name="customer_id" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['customer_id'] ?? $lead['id']); ?>" required placeholder="E.g. MARG-98721">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Party Name <span class="text-danger">*</span></label>
+                                        <input type="text" name="party_name" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['party_name'] ?? $lead['name']); ?>" required placeholder="Full Client / Party Name">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Company / Firm Using <span class="text-danger">*</span></label>
+                                        <input type="text" name="company_using" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['company_using'] ?? $lead['company']); ?>" required placeholder="Firm / Organization Name">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Software Type</label>
+                                        <input type="text" name="software_type" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['software_type'] ?? ($lead['products'] ?? 'Marg ERP 9+ Pro')); ?>" placeholder="E.g. Marg ERP 9+ Gold, Counter ERP">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Software Trade / Industry</label>
+                                        <input type="text" name="software_trade" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['software_trade'] ?? ''); ?>" placeholder="E.g. Pharma Wholesale, FMCG, Supermarket">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">User License Type</label>
+                                        <select name="user_type" class="form-control text-sm">
+                                            <?php $ut = $client_dir_data['user_type'] ?? 'Single User'; ?>
+                                            <option value="Single User" <?php echo $ut === 'Single User' ? 'selected' : ''; ?>>Single User</option>
+                                            <option value="Multi User" <?php echo $ut === 'Multi User' ? 'selected' : ''; ?>>Multi User</option>
+                                            <option value="Enterprise LAN" <?php echo $ut === 'Enterprise LAN' ? 'selected' : ''; ?>>Enterprise LAN</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">No. of Users</label>
+                                        <input type="number" name="no_of_users" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['no_of_users'] ?? 1); ?>" min="1">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Software Version</label>
+                                        <input type="text" name="version" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['version'] ?? '9.2.14'); ?>" placeholder="E.g. 9.2.14">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Section 2: Contact & Location Info -->
+                            <div class="card p-5" style="border: 1px solid var(--border-color); background: var(--bg-hover);">
+                                <h4 class="text-xs font-bold text-muted mb-4" style="text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary);">
+                                    2. Contact & Geographic Location
+                                </h4>
+                                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Contact Person</label>
+                                        <input type="text" name="contact_person" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['contact_person'] ?? ($lead['contact_person'] ?? $lead['name'])); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Mobile Number <span class="text-danger">*</span></label>
+                                        <input type="text" name="mobile" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['mobile'] ?? $lead['phone']); ?>" required>
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Email Address</label>
+                                        <input type="email" name="email" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['email'] ?? $lead['email']); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">City</label>
+                                        <input type="text" name="city" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['city'] ?? ($lead['city'] ?? '')); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">State</label>
+                                        <input type="text" name="state" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['state'] ?? ($lead['state'] ?? '')); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Online Zip / Pincode</label>
+                                        <input type="text" name="online_zip_code" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['online_zip_code'] ?? ''); ?>" placeholder="Pincode">
+                                    </div>
+                                    <div class="form-group m-0" style="grid-column: 1 / -1;">
+                                        <label class="form-label text-xs font-semibold">Complete Address</label>
+                                        <textarea name="address" class="form-control text-sm" rows="2"><?php echo htmlspecialchars($client_dir_data['address'] ?? ($lead['address'] ?? '')); ?></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Section 3: Subscription, Financials & Partner Info -->
+                            <div class="card p-5" style="border: 1px solid var(--border-color); background: var(--bg-hover);">
+                                <h4 class="text-xs font-bold text-muted mb-4" style="text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary);">
+                                    3. Subscription Validity, Partner & Financials
+                                </h4>
+                                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Subpartner Code</label>
+                                        <input type="text" name="subpartner_code" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['subpartner_code'] ?? ''); ?>" placeholder="E.g. SP-4092">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Subpartner Name</label>
+                                        <input type="text" name="subpartner_name" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['subpartner_name'] ?? ''); ?>" placeholder="Subpartner Name">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Activation Date (`act_on`)</label>
+                                        <input type="date" name="act_on" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['act_on'] ?? date('Y-m-d')); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Renewal Due Date (`due_on`)</label>
+                                        <input type="date" name="due_on" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['due_on'] ?? date('Y-m-d', strtotime('+1 year'))); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Validity Days</label>
+                                        <input type="number" name="days" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['days'] ?? 365); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Total Amount (₹)</label>
+                                        <input type="number" step="0.01" name="total_amount" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['total_amount'] ?? ($lead['budget'] ?? 0)); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Party Status</label>
+                                        <select name="party_status" class="form-control text-sm">
+                                            <?php $ps = $client_dir_data['party_status'] ?? 'Active'; ?>
+                                            <option value="Active" <?php echo $ps === 'Active' ? 'selected' : ''; ?>>Active</option>
+                                            <option value="Expiring Soon" <?php echo $ps === 'Expiring Soon' ? 'selected' : ''; ?>>Expiring Soon</option>
+                                            <option value="Expired" <?php echo $ps === 'Expired' ? 'selected' : ''; ?>>Expired</option>
+                                            <option value="Suspended" <?php echo $ps === 'Suspended' ? 'selected' : ''; ?>>Suspended</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Software Hit Date</label>
+                                        <input type="date" name="software_hit_date" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['software_hit_date'] ?? ''); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Wallet ID</label>
+                                        <input type="text" name="wallet_id" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['wallet_id'] ?? ''); ?>" placeholder="Wallet / Account ID">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Home User?</label>
+                                        <select name="home_user" class="form-control text-sm">
+                                            <?php $hu = $client_dir_data['home_user'] ?? 'No'; ?>
+                                            <option value="No" <?php echo $hu === 'No' ? 'selected' : ''; ?>>No</option>
+                                            <option value="Yes" <?php echo $hu === 'Yes' ? 'selected' : ''; ?>>Yes</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Transferred Party?</label>
+                                        <select name="transferred_party" class="form-control text-sm">
+                                            <?php $tp = $client_dir_data['transferred_party'] ?? 'No'; ?>
+                                            <option value="No" <?php echo $tp === 'No' ? 'selected' : ''; ?>>No</option>
+                                            <option value="Yes" <?php echo $tp === 'Yes' ? 'selected' : ''; ?>>Yes</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Submit Action Bar -->
+                            <div class="flex justify-end gap-3 pt-2">
+                                <button type="submit" class="btn btn-primary text-sm" style="background-color: var(--success); border-color: var(--success); padding: 0.75rem 1.75rem;">
+                                    <i data-lucide="save" style="width: 16px; height: 16px; margin-right: 4px; display: inline-block; vertical-align: middle;"></i>
+                                    <span>Save Client Directory Record</span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                <?php endif; ?>
 
             </div>
         </div>

@@ -79,6 +79,13 @@ try {
         }
     }
     
+    // Ensure MySQL session time_zone matches PHP Asia/Kolkata (IST)
+    if (!empty($pdo)) {
+        try {
+            $pdo->exec("SET time_zone = '+05:30'");
+        } catch (\Exception $e) {}
+    }
+
     // Schema auto-upgrade to support new Lead fields
     if (!empty($pdo)) {
         $columnsQuery = $pdo->query("SHOW COLUMNS FROM leads");
@@ -94,6 +101,9 @@ try {
     }
     if (!in_array('assigned_by', $columns)) {
         $pdo->exec("ALTER TABLE leads ADD COLUMN assigned_by VARCHAR(100) NULL AFTER assigned_to");
+    }
+    if (!in_array('group_stage', $columns)) {
+        $pdo->exec("ALTER TABLE leads ADD COLUMN group_stage VARCHAR(100) NULL AFTER status");
     }
     
     // Modify city/state to be nullable for bulk spreadsheet imports

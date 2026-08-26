@@ -69,7 +69,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'save_followup' && $_SERVER['R
     $lead_id = $_POST['lead_id'] ?? '';
     $group = $_POST['group_name'] ?? '';
     $not_required = isset($_POST['not_required']) ? 1 : 0;
-    $assigned_to = $_POST['assigned_to'] ?? '';
+    $assigned_to_raw = $_POST['assigned_to'] ?? '';
+    $assigned_to = is_array($assigned_to_raw) ? implode(', ', array_filter(array_map('trim', $assigned_to_raw))) : trim($assigned_to_raw);
     $tags = $_POST['tags'] ?? '';
     $reminder_date = $_POST['reminder_date'] ?? '';
     $reminder_time = $_POST['reminder_time'] ?? '';
@@ -128,7 +129,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
     $name = trim($_POST['name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $email = trim($_POST['email'] ?? '');
-    $assigned_to = $_POST['assigned_to'] ?? '';
+    $assigned_to_raw = $_POST['assigned_to'] ?? '';
+    $assigned_to = is_array($assigned_to_raw) ? implode(', ', array_filter(array_map('trim', $assigned_to_raw))) : trim($assigned_to_raw);
     $group_name = $_POST['group_name'] ?? '';
     $tags = $_POST['tags'] ?? '';
     $reminder_date = $_POST['reminder_date'] ?? '';
@@ -404,18 +406,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                 <span>Assignment & Classification</span>
             </h3>
             <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1.25rem;">
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Assign to Operator</label>
-                    <select name="assigned_to" class="form-control form-control-focus">
-                        <option value="">-- Choose Employee --</option>
-                        <?php foreach ($assigned_operators as $op): 
-                            $isSelected = (($editLead['assigned_to'] ?? '') === $op);
+                <div class="form-group m-0" style="grid-column: span 2;">
+                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Assign to Employee(s) (Select Multiple)</label>
+                    <div class="employee-select-grid mb-1" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.5rem; max-height: 140px; overflow-y: auto; padding: 0.6rem; background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);">
+                        <?php 
+                        $assigned_array = array_map('trim', explode(',', $editLead['assigned_to'] ?? ''));
+                        foreach ($assigned_operators as $op): 
+                            $isChecked = in_array($op, $assigned_array);
                         ?>
-                            <option value="<?php echo htmlspecialchars($op); ?>" <?php echo $isSelected ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($op); ?>
-                            </option>
+                            <label class="flex align-center gap-2 text-xs font-semibold pointer" style="padding: 0.35rem 0.6rem; border-radius: 4px; background: var(--bg-card); border: 1px solid var(--border-color); user-select: none;">
+                                <input type="checkbox" name="assigned_to[]" value="<?php echo htmlspecialchars($op); ?>" <?php echo $isChecked ? 'checked' : ''; ?> style="accent-color: var(--primary); width: 14px; height: 14px;">
+                                <span><?php echo htmlspecialchars($op); ?></span>
+                            </label>
                         <?php endforeach; ?>
-                    </select>
+                    </div>
+                    <span class="text-xs text-muted" style="font-size: 0.7rem;">Check one or more employees to work on this lead as a team.</span>
                 </div>
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-muted);">Assigned By (Read-Only)</label>

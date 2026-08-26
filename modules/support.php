@@ -172,6 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $status = trim($_POST['status']);
         $subject = trim($_POST['subject']);
         $problem = trim($_POST['problem']);
+        $resolution = trim($_POST['resolution'] ?? '');
         $assigned_to = trim($_POST['assigned_to'] ?? '');
         $due_date = empty($_POST['due_date']) ? null : $_POST['due_date'];
         $callback_number = trim($_POST['callback_number']);
@@ -218,8 +219,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         exit;
                     }
                     
-                    $stmt = $pdo->prepare("UPDATE support_tickets SET priority = ?, status = ?, subject = ?, problem = ?, assigned_to = ?, due_date = ?, callback_number = ?, lead_id = ?, customer_name = ?, phone = ?, email = ?, product = ?, renewal_date = ?, address = ? WHERE id = ?");
-                    $stmt->execute([$priority, $status, $subject, $problem, $assigned_to, $due_date, $callback_number, $lead_id, $customer_name, $phone, $email, $product, $renewal_date, $address, $ticketId]);
+                    $stmt = $pdo->prepare("UPDATE support_tickets SET priority = ?, status = ?, subject = ?, problem = ?, resolution = ?, assigned_to = ?, due_date = ?, callback_number = ?, lead_id = ?, customer_name = ?, phone = ?, email = ?, product = ?, renewal_date = ?, address = ? WHERE id = ?");
+                    $stmt->execute([$priority, $status, $subject, $problem, $resolution, $assigned_to, $due_date, $callback_number, $lead_id, $customer_name, $phone, $email, $product, $renewal_date, $address, $ticketId]);
 
                     // Also sync update to raw `tickets` table if exists
                     try {
@@ -297,7 +298,7 @@ $db_operators = [];
 if ($db_connected && $pdo) {
     try {
         // Fetch Client Directory Records (Old Client Database)
-        $stmt = $pdo->query("SELECT id, sno, customer_id, party_name, mobile, email, address, software_type, user_type, due_on, act_on, party_status, software_trade, total_amount, contact_person, city, state, online_zip_code FROM client_directory ORDER BY party_name ASC");
+        $stmt = $pdo->query("SELECT * FROM client_directory ORDER BY party_name ASC");
         $db_client_directory = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Fetch CRM Leads/Clients
@@ -321,7 +322,7 @@ foreach ($db_client_directory as $cd) {
     $p_name = !empty($cd['party_name']) ? $cd['party_name'] : 'Unknown Client';
     $mob = !empty($cd['mobile']) ? $cd['mobile'] : '';
     
-    $master_clients_list[] = [
+    $master_clients_list[] = array_merge($cd, [
         'source' => 'client_directory',
         'id' => $cust_id,
         'customer_id' => $cust_id,
@@ -335,7 +336,7 @@ foreach ($db_client_directory as $cd) {
         'software_trade' => $cd['software_trade'] ?? '',
         'total_amount' => $cd['total_amount'] ?? 0,
         'display_label' => $p_name . ($mob ? " ( {$mob} )" : "")
-    ];
+    ]);
 }
 
 // 2. Add records from leads table
@@ -401,7 +402,9 @@ if (!empty($search_query)) {
 
 if (!empty($status_filter)) {
     $stVal = strtolower($status_filter);
-    if ($stVal === 'resolved' || $stVal === 'closed') {
+    if ($stVal === 'all') {
+        // Show all tickets including resolved/closed
+    } elseif ($stVal === 'resolved' || $stVal === 'closed') {
         $where_conditions[] = "LOWER(status) IN ('resolved', 'closed')";
     } elseif ($stVal === 'pending' || $stVal === 'in_progress') {
         $where_conditions[] = "LOWER(status) IN ('in_progress', 'pending')";
@@ -409,6 +412,9 @@ if (!empty($status_filter)) {
         $where_conditions[] = "LOWER(status) = ?";
         $query_params[] = $stVal;
     }
+} else {
+    // Default view: Hide resolved/closed tickets, show only Open & Pending/In-Progress tickets
+    $where_conditions[] = "LOWER(status) NOT IN ('resolved', 'closed')";
 }
 
 if (!empty($product_filter)) {
@@ -469,23 +475,38 @@ if ($db_connected && $pdo) {
     } catch (Throwable $eClean) {}
 }
 
-// Calculate counters
+// Calculate counters directly from database for user scope
 $criticalCount = 0;
 $openCount = 0;
 $inProgressCount = 0;
 $resolvedCount = 0;
 
-foreach ($tickets as $t) {
-    if ($t['status'] === 'resolved') {
-        $resolvedCount++;
-    } elseif ($t['status'] === 'in_progress') {
-        $inProgressCount++;
-    } else {
-        $openCount++;
-    }
-    if ($t['priority'] === 'critical' && $t['status'] !== 'resolved') {
-        $criticalCount++;
-    }
+if ($db_connected && $pdo) {
+    try {
+        $cConds = [];
+        $cParams = [];
+        if (!$is_admin) {
+            $cConds[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
+            $cParams[] = $user_name;
+        }
+        $cSql = !empty($cConds) ? "WHERE " . implode(" AND ", $cConds) : "";
+        $cStmt = $pdo->prepare("SELECT status, priority FROM support_tickets {$cSql}");
+        $cStmt->execute($cParams);
+        $allT = $cStmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($allT as $ct) {
+            $cStat = strtolower($ct['status'] ?? '');
+            if ($cStat === 'resolved' || $cStat === 'closed') {
+                $resolvedCount++;
+            } elseif ($cStat === 'in_progress' || $cStat === 'pending') {
+                $inProgressCount++;
+            } else {
+                $openCount++;
+            }
+            if (strtolower($ct['priority'] ?? '') === 'critical' && $cStat !== 'resolved' && $cStat !== 'closed') {
+                $criticalCount++;
+            }
+        }
+    } catch (Throwable $eC) {}
 }
 ?>
 
@@ -506,10 +527,10 @@ foreach ($tickets as $t) {
         </div>
 
         <div class="flex gap-2 flex-wrap">
-            <button class="btn text-sm flex align-center gap-2" style="background: #25D366; color: #fff; border: none; font-weight: 700; box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);" onclick="window.openModal('whatsapp-simulator-modal'); startWhatsAppFlow();">
+            <!-- <button class="btn text-sm flex align-center gap-2" style="background: #25D366; color: #fff; border: none; font-weight: 700; box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);" onclick="window.openModal('whatsapp-simulator-modal'); startWhatsAppFlow();">
                 <i data-lucide="message-square" style="width: 16px; height: 16px;"></i>
                 <span>WhatsApp Bot Simulator</span>
-            </button>
+            </button> -->
             <?php if ($canCreate): ?>
                 <button class="btn btn-primary text-sm flex align-center gap-2" onclick="window.openModal('create-ticket-modal');">
                     <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
@@ -523,9 +544,9 @@ foreach ($tickets as $t) {
         </div>
     </div>
 
-    <!-- KPI Summary Row -->
-    <div class="grid grid-4 gap-4 mb-6">
-        <a href="index.php?page=support&status=open" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'open') ? 'var(--primary)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'open') ? 'translateY(-2px)' : 'none'; ?>;">
+    <!-- KPI Summary Row (4 Columns Side-by-Side) -->
+    <div class="mb-6" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+        <a href="index.php?page=support&status=open" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'open') ? 'var(--primary)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'open') ? 'translateY(-2px)' : 'none'; ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
             <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <i data-lucide="ticket" style="width: 24px; height: 24px;"></i>
             </div>
@@ -535,7 +556,7 @@ foreach ($tickets as $t) {
             </div>
         </a>
 
-        <a href="index.php?page=support&status=in_progress" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'var(--warning)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'translateY(-2px)' : 'none'; ?>;">
+        <a href="index.php?page=support&status=in_progress" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'var(--warning)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'translateY(-2px)' : 'none'; ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
             <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--warning-light); color: var(--warning); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <i data-lucide="clock" style="width: 24px; height: 24px;"></i>
             </div>
@@ -545,7 +566,7 @@ foreach ($tickets as $t) {
             </div>
         </a>
 
-        <a href="index.php?page=support&priority=critical" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($priority_filter === 'critical') ? 'var(--danger)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($priority_filter === 'critical') ? 'translateY(-2px)' : 'none'; ?>;">
+        <a href="index.php?page=support&priority=critical" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($priority_filter === 'critical') ? 'var(--danger)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($priority_filter === 'critical') ? 'translateY(-2px)' : 'none'; ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
             <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--danger-light); color: var(--danger); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <i data-lucide="alert-triangle" style="width: 24px; height: 24px;"></i>
             </div>
@@ -555,7 +576,7 @@ foreach ($tickets as $t) {
             </div>
         </a>
 
-        <a href="index.php?page=support&status=resolved" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'var(--success)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'translateY(-2px)' : 'none'; ?>;">
+        <a href="index.php?page=support&status=resolved" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'var(--success)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'translateY(-2px)' : 'none'; ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
             <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--success-light); color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <i data-lucide="check-circle-2" style="width: 24px; height: 24px;"></i>
             </div>
@@ -596,10 +617,11 @@ foreach ($tickets as $t) {
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold">Ticket Status</label>
                     <select name="status" class="form-control form-control-focus text-sm">
-                        <option value="">All Statuses</option>
-                        <option value="open" <?php echo ($status_filter === 'open') ? 'selected' : ''; ?>>Open</option>
-                        <option value="in_progress" <?php echo ($status_filter === 'in_progress') ? 'selected' : ''; ?>>In Progress</option>
-                        <option value="resolved" <?php echo ($status_filter === 'resolved') ? 'selected' : ''; ?>>Resolved / Closed</option>
+                        <option value="" <?php echo (empty($status_filter)) ? 'selected' : ''; ?>>Active (Open &amp; Pending)</option>
+                        <option value="open" <?php echo ($status_filter === 'open') ? 'selected' : ''; ?>>Open Only</option>
+                        <option value="in_progress" <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'selected' : ''; ?>>In Progress / Pending</option>
+                        <option value="resolved" <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'selected' : ''; ?>>Resolved / Closed</option>
+                        <option value="all" <?php echo ($status_filter === 'all') ? 'selected' : ''; ?>>All Tickets (Include Closed)</option>
                     </select>
                 </div>
 
@@ -698,11 +720,27 @@ foreach ($tickets as $t) {
                                     <strong class="text-main block text-sm"><?php echo htmlspecialchars($t['customer_name']); ?></strong>
                                     <span class="text-xs text-muted font-mono">ID: <?php echo htmlspecialchars($t['lead_id'] ?? 'NA'); ?></span>
                                 </td>
-                                <td class="font-mono text-xs text-muted"><?php echo htmlspecialchars($t['phone'] ?? '-'); ?></td>
+                                <td>
+                                    <?php 
+                                        $phoneNum = trim($t['phone'] ?? $t['callback_number'] ?? '');
+                                        $cleanPhone = preg_replace('/[^0-9+]/', '', $phoneNum);
+                                        $telPayload = 'tel:' . $cleanPhone;
+                                        $cNameEsc = htmlspecialchars(addslashes($t['customer_name'] ?? 'Client'), ENT_QUOTES, 'UTF-8');
+                                    ?>
+                                    <div class="flex align-center gap-1.5">
+                                        <span class="font-mono text-xs text-main font-semibold"><?php echo htmlspecialchars($phoneNum ?: '-'); ?></span>
+                                        <?php if (!empty($cleanPhone)): ?>
+                                            <button type="button" class="btn text-xs p-1" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; border-radius: 6px; padding: 2px 6px; cursor: pointer;" title="Scan QR to call on smartphone dial pad" onclick="openCallQrModal('<?php echo $cNameEsc; ?>', '<?php echo $cleanPhone; ?>', '<?php echo urlencode($telPayload); ?>')">
+                                                <i data-lucide="qr-code" style="width: 12px; height: 12px; vertical-align: middle;"></i>
+                                                <span style="font-size: 0.68rem; font-weight: 700;">QR</span>
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
                                 <td style="max-width: 250px;">
-                                    <strong class="text-xs text-main block"><?php echo htmlspecialchars(!empty($t['subject']) ? $t['subject'] : mb_strimwidth($t['problem'] ?? '', 0, 50, '...')); ?></strong>
+                                    <strong class="text-xs text-main block"><?php echo htmlspecialchars(!empty($t['problem']) ? $t['problem'] : ($t['subject'] ?? 'Technical Support')); ?></strong>
                                     <span class="text-xs text-muted" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                                        <?php echo htmlspecialchars($t['problem'] ?? ''); ?>
+                                        <?php echo htmlspecialchars(!empty($t['resolution']) ? ('Solution: ' . $t['resolution']) : ($t['subject'] ?? '')); ?>
                                     </span>
                                 </td>
                                 <td><span class="badge text-xs" style="--badge-bg: var(--accent-light); --badge-color: var(--accent);"><?php echo htmlspecialchars($t['product'] ?? 'Marg ERP'); ?></span></td>
@@ -919,126 +957,273 @@ foreach ($tickets as $t) {
     </div>
 </div>
 
-<!-- Modal 2: Edit / Transfer Support Ticket -->
+<!-- Modal 2: Edit / Transfer Support Ticket — Modern Professional Redesign -->
 <div id="edit-ticket-modal" class="modal-overlay">
-    <div class="modal-container" style="max-width: 600px; background: var(--bg-card); border-radius: 16px; border: 1px solid var(--border-color);">
-        <div class="modal-header" style="background-color: var(--border-card); border-bottom: 1px solid var(--border-color);">
-            <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 700; color: var(--text-main);">
-                Edit / Transfer Ticket: <span id="edit-ticket-id-display" class="text-primary font-bold"></span>
-            </h3>
-            <button class="btn-icon" onclick="window.closeModal('edit-ticket-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+    <div class="modal-container" style="max-width: 900px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-main); border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 32px 64px -12px rgba(0,0,0,0.6); overflow: hidden;">
+        
+        <!-- HEADER (Fixed Top) -->
+        <div style="flex-shrink: 0; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); padding: 1rem 1.5rem;" class="flex align-center justify-between">
+            <div class="flex align-center gap-3">
+                <div style="background: rgba(255,255,255,0.18); backdrop-filter: blur(8px); padding: 0.55rem; border-radius: 12px; display:flex; align-items:center; justify-content:center;">
+                    <i data-lucide="wrench" style="width:20px; height:20px; color:#fff;"></i>
+                </div>
+                <div>
+                    <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;">
+                        Edit / Transfer Ticket: <span id="edit-ticket-id-display" style="color: #93c5fd; font-family: monospace;"></span>
+                    </h3>
+                    <span style="font-size: 0.72rem; color: rgba(255,255,255,0.75);">Auto-fetch client directory details, set technician assignment, and update resolution notes.</span>
+                </div>
+            </div>
+            <button type="button" onclick="window.closeModal('edit-ticket-modal')" style="background: rgba(255,255,255,0.15); border: none; border-radius: 10px; width: 34px; height: 34px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+                <i data-lucide="x" style="width:18px; height:18px; color:#fff;"></i>
+            </button>
         </div>
-        <form class="modal-body p-6 flex flex-col gap-4" action="index.php?page=support" method="POST" style="max-height: 500px; overflow-y: auto;">
+
+        <form action="index.php?page=support" method="POST" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">
             <input type="hidden" name="action" value="update_ticket">
             <input type="hidden" name="ticket_id" id="edit-ticket-id-hidden">
 
-            <!-- Client Info Cards Section (Editable) -->
-            <div class="p-4" style="background-color: var(--bg-app); border-radius: var(--border-radius-md); border: 1px solid var(--border-color);">
-                <div class="flex justify-between align-center mb-3">
-                    <h4 class="text-xs text-muted font-bold uppercase m-0" style="letter-spacing: 0.05em;">Client Details (Editable)</h4>
-                    <button type="button" class="btn text-xs" style="background: var(--primary); color: #fff; border: none; padding: 2px 8px; font-weight: 600;" onclick="autoFetchClientDetails()">
-                        🔍 Auto-Fetch Client Info
-                    </button>
-                </div>
+            <div class="modal-body p-6 flex flex-col gap-5" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-app);">
                 
-                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 0.85rem;">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Client Name</label>
-                        <input type="text" name="customer_name" id="edit-ticket-client-name" class="form-control text-xs" style="background-color: var(--bg-card);">
+                <!-- SECTION 1: CLIENT DETAILS (COMPACT VIEW-ONLY SUMMARY CARD) -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.15rem;">
+                    <div class="flex justify-between align-center mb-3">
+                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); display:flex; align-items:center; gap: 6px;">
+                            <i data-lucide="id-card" style="width:14px; height:14px;"></i> Client Directory Profile (View-Only)
+                        </div>
+                        <div class="flex align-center gap-2">
+                            <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 600;">🔒 Non-Editable Profile</span>
+                            <button type="button" class="btn text-xs flex align-center gap-1 font-bold" style="background: var(--primary); color: #fff; border: none; padding: 0.25rem 0.65rem; border-radius: 6px;" onclick="autoFetchClientDetails()">
+                                <i data-lucide="search" style="width: 11px; height: 11px;"></i>
+                                <span>Auto-Fetch</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold text-primary">Client ID / License No.</label>
-                        <input type="text" name="lead_id" id="edit-ticket-client-id" class="form-control text-xs font-mono" style="background-color: var(--bg-card); border-color: var(--primary);" onblur="autoFetchClientDetails()">
+
+                    <!-- Hidden Form Inputs for POST data -->
+                    <input type="hidden" name="customer_name" id="edit-ticket-client-name">
+                    <input type="hidden" name="phone" id="edit-ticket-phone">
+                    <input type="hidden" name="email" id="edit-ticket-email">
+                    <input type="hidden" name="product" id="edit-ticket-product">
+                    <input type="hidden" name="renewal_date" id="edit-ticket-renewal">
+                    <input type="hidden" name="address" id="edit-ticket-address">
+
+                    <!-- Top Lookup Row: Client ID / License No -->
+                    <div class="flex align-center gap-3 mb-3 pb-2.5" style="border-bottom: 1px solid var(--border-color);">
+                        <label class="text-xs font-bold text-primary flex align-center gap-1" style="white-space: nowrap;">
+                            <i data-lucide="key" style="width: 13px; height: 13px;"></i> Client ID / License No.*:
+                        </label>
+                        <input type="text" name="lead_id" id="edit-ticket-client-id" class="form-control text-xs font-mono font-bold" style="max-width: 220px; height: 32px; border-radius: 7px; border-color: var(--primary);" onblur="autoFetchClientDetails()" placeholder="Enter License No.">
                     </div>
-                    
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Mobile No.</label>
-                        <input type="text" name="phone" id="edit-ticket-phone" class="form-control text-xs font-mono" style="background-color: var(--bg-card);">
-                    </div>
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Email ID</label>
-                        <input type="email" name="email" id="edit-ticket-email" class="form-control text-xs font-mono" style="background-color: var(--bg-card);">
-                    </div>
-                    
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Product</label>
-                        <input type="text" name="product" id="edit-ticket-product" class="form-control text-xs" style="background-color: var(--bg-card);">
-                    </div>
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Renewal Date</label>
-                        <input type="date" name="renewal_date" id="edit-ticket-renewal" class="form-control text-xs font-mono" style="background-color: var(--bg-card);">
-                    </div>
-                    
-                    <div class="form-group m-0" style="grid-column: span 2;">
-                        <label class="form-label text-xs">Address</label>
-                        <textarea name="address" id="edit-ticket-address" class="form-control text-xs" rows="2" style="background-color: var(--bg-card);"></textarea>
+
+                    <!-- High-Legibility Organized 3-Column Field Cards Grid -->
+                    <div style="background: var(--bg-app); border-radius: 12px; border: 1px solid var(--border-color); padding: 0.85rem;" class="grid" style="grid-template-columns: repeat(3, 1fr); gap: 0.65rem;">
+                        
+                        <!-- Item 1: Company Name -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Company Name</span>
+                            <strong id="edit-v-company" style="font-size: 0.82rem; color: var(--text-main); font-weight: 700; word-break: break-word;">-</strong>
+                        </div>
+
+                        <!-- Item 2: Contact Person -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Contact Person</span>
+                            <span id="edit-v-contact" style="font-size: 0.82rem; color: var(--text-main); font-weight: 700; word-break: break-word;">-</span>
+                        </div>
+
+                        <!-- Item 3: Reg Mobile -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <div class="flex justify-between align-center mb-1">
+                                <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em;">Reg Mobile</span>
+                                <button type="button" id="edit-v-mobile-qr-btn" class="btn text-xs" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; padding: 1px 5px; border-radius: 4px; display: none; cursor: pointer;" title="Scan QR to call" onclick="event.stopPropagation();">
+                                    <i data-lucide="qr-code" style="width: 10px; height: 10px;"></i>
+                                    <span style="font-size: 0.65rem; font-weight: 700;">QR</span>
+                                </button>
+                            </div>
+                            <span id="edit-v-mobile" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 700;">-</span>
+                        </div>
+
+                        <!-- Item 4: Reg Email (span 2) -->
+                        <div style="grid-column: span 2; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Reg Email ID</span>
+                            <span id="edit-v-email" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600; word-break: break-all;">-</span>
+                        </div>
+
+                        <!-- Item 5: Party Status -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Party Status</span>
+                            <span id="edit-v-status" class="badge text-xs" style="--badge-bg: rgba(16,185,129,0.12); --badge-color: #10b981; width: fit-content;">Running</span>
+                        </div>
+
+                        <!-- Item 6: Software Product -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Software Type</span>
+                            <span id="edit-v-product" class="badge text-xs" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); width: fit-content;">-</span>
+                        </div>
+
+                        <!-- Item 7: S/W Edition -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">S/W Edition</span>
+                            <span id="edit-v-swtype" class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-main); width: fit-content;">-</span>
+                        </div>
+
+                        <!-- Item 8: User Type / Users -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">User Type / Users</span>
+                            <span id="edit-v-usertype" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
+                        </div>
+
+                        <!-- Item 9: No. of Companies -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">No of Companies</span>
+                            <span id="edit-v-companies" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
+                        </div>
+
+                        <!-- Item 10: Software Trade -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Software Trade</span>
+                            <span id="edit-v-trade" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
+                        </div>
+
+                        <!-- Item 11: Home User -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Home User</span>
+                            <span id="edit-v-homeuser" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
+                        </div>
+
+                        <!-- Item 12: Renewal Date -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Renewal Date</span>
+                            <span id="edit-v-renewal" class="font-mono text-warning font-bold" style="font-size: 0.82rem;">-</span>
+                        </div>
+
+                        <!-- Item 13: Act On Date -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Act On Date</span>
+                            <span id="edit-v-acton" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
+                        </div>
+
+                        <!-- Item 14: Last Hit Date -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Last Hit Date</span>
+                            <span id="edit-v-lasthit" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
+                        </div>
+
+                        <!-- Item 15: Total Contract Value -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Total Contract Value</span>
+                            <strong id="edit-v-amount" class="text-success font-mono font-bold" style="font-size: 0.85rem;">₹0.00</strong>
+                        </div>
+
+                        <!-- Item 16: Sub Partner (span 2) -->
+                        <div style="grid-column: span 2; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Sub Partner Code / Name</span>
+                            <span id="edit-v-subpartner" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
+                        </div>
+
+                        <!-- Item 17: Registered Address (span 3 / Full Width) -->
+                        <div style="grid-column: span 3; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Registered Address</span>
+                            <span id="edit-v-fulladdress" style="font-size: 0.8rem; color: var(--text-main); font-weight: 600; line-height: 1.4;">-</span>
+                        </div>
                     </div>
                 </div>
+
+                <!-- SECTION 2: TICKET ISSUE & SOLUTION DETAILS -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
+                        <i data-lucide="file-text" style="width:14px; height:14px;"></i> Issue Summary &amp; Employee Resolution
+                    </div>
+
+                    <!-- Hidden input for subject preservation -->
+                    <input type="hidden" name="subject" id="edit-ticket-subject">
+
+                    <div class="grid grid-2 gap-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Problem Description * (Client Reported)</label>
+                            <textarea name="problem" id="edit-ticket-problem" required rows="3" class="form-control text-xs" style="border-radius: 8px; resize: vertical;" placeholder="Client's detailed query or issue notes..."></textarea>
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: #10b981;">Resolved Description / Solution (Employee Fill)</label>
+                            <textarea name="resolution" id="edit-ticket-resolution" rows="3" class="form-control text-xs" style="border-radius: 8px; resize: vertical; border-color: rgba(16,185,129,0.4);" placeholder="Enter solution details, technical steps taken, or resolution provided for client..."></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECTION 3: EDIT PARAMETERS & ASSIGNEE -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
+                        <i data-lucide="settings" style="width:14px; height:14px;"></i> Ticket Stage &amp; Technician Assignment
+                    </div>
+
+                    <div class="grid grid-3 gap-3 mb-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Priority *</label>
+                            <select name="priority" id="edit-ticket-priority" class="form-control text-xs" style="border-radius: 8px;" required>
+                                <option value="low">Low - Minor issue</option>
+                                <option value="medium">Medium - Normal setup</option>
+                                <option value="high">High - Core mismatch</option>
+                                <option value="critical">Critical - System crash</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Status / Stage *</label>
+                            <select name="status" id="edit-ticket-status" class="form-control text-xs" style="border-radius: 8px;" required <?php echo !$canClose ? 'disabled' : ''; ?>>
+                                <option value="open">Open</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="resolved">Closed/Resolved</option>
+                            </select>
+                            <?php if (!$canClose): ?>
+                                <input type="hidden" name="status" id="edit-ticket-status-hidden">
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Assign / Transfer Technician</label>
+                            <select name="assigned_to" id="edit-ticket-assigned" class="form-control text-xs" style="border-radius: 8px;" required <?php echo !$canAssign ? 'disabled' : ''; ?>>
+                                <option value="Unassigned">Unassigned</option>
+                                <?php foreach ($db_operators as $op): ?>
+                                    <option value="<?php echo htmlspecialchars($op['name']); ?>"><?php echo htmlspecialchars($op['name']) . " (" . htmlspecialchars($op['role']) . ")"; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <?php if (!$canAssign): ?>
+                                <input type="hidden" name="assigned_to" id="edit-ticket-assigned-hidden">
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-2 gap-3">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Target Due Date</label>
+                            <input type="date" name="due_date" id="edit-ticket-due-date" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <div class="flex justify-between align-center mb-1">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Call Back Number</label>
+                                <button type="button" class="btn text-xs flex align-center gap-1 font-bold" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; padding: 2px 6px; border-radius: 5px; cursor: pointer;" title="Scan QR to call on smartphone dial pad" onclick="triggerCallbackQrCall()">
+                                    <i data-lucide="qr-code" style="width: 11px; height: 11px;"></i>
+                                    <span>Scan QR Call</span>
+                                </button>
+                            </div>
+                            <input type="text" name="callback_number" id="edit-ticket-callback" class="form-control text-xs font-mono" style="border-radius: 8px;" placeholder="Contact number for update calls">
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
-            <!-- Ticket Info Settings (Editable) -->
-            <div class="p-4" style="background-color: var(--bg-app); border-radius: var(--border-radius-md); border: 1px solid var(--border-color);">
-                <h4 class="text-xs text-muted font-bold uppercase m-0 mb-3" style="letter-spacing: 0.05em;">Edit Parameters & Assignee</h4>
-                
-                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 0.85rem;">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Priority*</label>
-                        <select name="priority" id="edit-ticket-priority" class="form-control text-xs" required>
-                            <option value="low">Low - Minor issue</option>
-                            <option value="medium">Medium - Normal setup</option>
-                            <option value="high">High - Core mismatch</option>
-                            <option value="critical">Critical - System crash</option>
-                        </select>
-                    </div>
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Status / Stage*</label>
-                        <select name="status" id="edit-ticket-status" class="form-control text-xs" required <?php echo !$canClose ? 'disabled' : ''; ?>>
-                            <option value="open">Open</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="resolved">Closed/Resolved</option>
-                        </select>
-                        <?php if (!$canClose): ?>
-                            <input type="hidden" name="status" id="edit-ticket-status-hidden">
-                        <?php endif; ?>
-                    </div>
-                    
-                    <div class="form-group m-0" style="grid-column: span 2;">
-                        <label class="form-label text-xs">Ticket Subject Summary</label>
-                        <input type="text" name="subject" id="edit-ticket-subject" class="form-control text-xs" required>
-                    </div>
-                    
-                    <div class="form-group m-0" style="grid-column: span 2;">
-                        <label class="form-label text-xs">Problem Description*</label>
-                        <textarea name="problem" id="edit-ticket-problem" class="form-control text-xs" rows="3" required></textarea>
-                    </div>
-                    
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Assign / Transfer to technician</label>
-                        <select name="assigned_to" id="edit-ticket-assigned" class="form-control text-xs" required <?php echo !$canAssign ? 'disabled' : ''; ?>>
-                            <option value="Unassigned">Unassigned</option>
-                            <?php foreach ($db_operators as $op): ?>
-                                <option value="<?php echo htmlspecialchars($op['name']); ?>"><?php echo htmlspecialchars($op['name']) . " (" . htmlspecialchars($op['role']) . ")"; ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <?php if (!$canAssign): ?>
-                            <input type="hidden" name="assigned_to" id="edit-ticket-assigned-hidden">
-                        <?php endif; ?>
-                    </div>
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs">Target Due Date</label>
-                        <input type="date" name="due_date" id="edit-ticket-due-date" class="form-control text-xs">
-                    </div>
-                    
-                    <div class="form-group m-0" style="grid-column: span 2;">
-                        <label class="form-label text-xs">Call Back Number</label>
-                        <input type="text" name="callback_number" id="edit-ticket-callback" class="form-control text-xs">
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex justify-end gap-2 mt-2">
-                <button type="button" class="btn btn-secondary text-sm" onclick="window.closeModal('edit-ticket-modal')">Cancel</button>
-                <button type="submit" class="btn btn-primary text-sm font-bold">Save Ticket Changes</button>
+            <!-- FOOTER (ALWAYS FIXED AT BOTTOM) -->
+            <div style="flex-shrink: 0; padding: 0.85rem 1.5rem; background: var(--border-card); border-top: 1px solid var(--border-color); display:flex; justify-content:flex-end; gap: 0.75rem; align-items:center;">
+                <button type="button" onclick="window.closeModal('edit-ticket-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.25rem; font-size: 0.8rem;">
+                    <i data-lucide="x" style="width:14px; height:14px;"></i> Cancel
+                </button>
+                <button type="submit" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
+                    <i data-lucide="check-circle-2" style="width:15px; height:15px;"></i>
+                    <span>Save Ticket Changes</span>
+                </button>
             </div>
         </form>
     </div>
@@ -1088,7 +1273,101 @@ foreach ($tickets as $t) {
     </div>
 </div>
 
+<!-- Modal 4: Enlarged Scan-to-Call QR Code -->
+<div id="call-qr-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(8px); z-index: 99999; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.25s ease;">
+    <div class="modal-container" style="max-width: 380px; width: 90%; text-align: center; background: var(--bg-card); border-radius: 18px; border: 1px solid var(--border-color); box-shadow: 0 20px 50px rgba(0,0,0,0.4); overflow: hidden; transform: scale(0.95); transition: transform 0.25s ease;">
+        <div class="modal-header" style="background: var(--border-card); border-bottom: 1px solid var(--border-color); padding: 0.85rem 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+            <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 700; color: var(--text-main);" id="qr-modal-title">Scan to Call Client</h3>
+            <button type="button" class="btn-icon" onclick="closeCallQrModal()" style="border: none; background: transparent; cursor: pointer;"><i data-lucide="x" style="width: 18px; height: 18px; color: var(--text-muted);"></i></button>
+        </div>
+        <div class="modal-body flex flex-col align-center p-6 gap-4" style="background: var(--bg-app); padding: 1.5rem; display: flex; flex-direction: column; align-items: center;">
+            <div style="background: #ffffff; padding: 16px; border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 10px 25px rgba(0,0,0,0.15);">
+                <img id="qr-modal-img" src="" alt="Scan QR Code to Dial" style="width: 220px; height: 220px; border-radius: 8px; display: block; object-fit: contain;">
+            </div>
+            <div class="flex flex-col gap-1" style="margin-top: 0.75rem; text-align: center;">
+                <span class="text-base font-bold font-mono" id="qr-modal-phone" style="color: var(--primary); font-size: 1.1rem;"></span>
+                <span class="text-xs text-muted" style="line-height: 1.4; display: block; margin-top: 4px;">Point your smartphone camera at this QR code to load the phone number directly into your mobile dial pad.</span>
+            </div>
+        </div>
+        <div class="modal-footer p-4" style="background: var(--border-card); border-top: 1px solid var(--border-color); padding: 1rem;">
+            <a id="qr-modal-tel-link" href="#" class="btn btn-primary text-xs flex align-center justify-center gap-2" style="width: 100%; border-radius: 8px; padding: 0.65rem; font-weight: 700; display: flex; align-items: center; justify-content: center; text-decoration: none;">
+                <i data-lucide="phone-call" style="width: 15px; height: 15px;"></i>
+                <span>Direct Call Now</span>
+            </a>
+        </div>
+    </div>
+</div>
+
 <script>
+function openCallQrModal(name, phone, telEncoded) {
+    if (typeof event !== 'undefined' && event && event.stopPropagation) {
+        event.stopPropagation();
+    }
+    const modal = document.getElementById('call-qr-modal');
+    if (!modal) {
+        alert('QR Modal element not found');
+        return;
+    }
+    
+    const cleanPhone = phone ? String(phone).replace(/[^0-9+]/g, '') : '';
+    let payload = telEncoded ? decodeURIComponent(telEncoded) : ('tel:' + cleanPhone);
+    if (!payload.startsWith('tel:')) payload = 'tel:' + cleanPhone;
+    const encodedPayload = encodeURIComponent(payload);
+
+    const titleEl = document.getElementById('qr-modal-title'); if (titleEl) titleEl.textContent = 'Call ' + (name || 'Client');
+    const phoneEl = document.getElementById('qr-modal-phone'); if (phoneEl) phoneEl.textContent = cleanPhone || phone || '-';
+    const linkEl = document.getElementById('qr-modal-tel-link'); if (linkEl) linkEl.href = 'tel:' + cleanPhone;
+    
+    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=4&data=' + encodedPayload;
+    const fallbackUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=260x260&chl=' + encodedPayload;
+    
+    const qrImg = document.getElementById('qr-modal-img');
+    if (qrImg) {
+        qrImg.onerror = function() {
+            this.onerror = null;
+            this.src = fallbackUrl;
+        };
+        qrImg.src = qrUrl;
+    }
+    
+    modal.classList.add('open');
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    modal.style.opacity = '1';
+    modal.style.pointerEvents = 'auto';
+
+    const container = modal.querySelector('.modal-container');
+    if (container) container.style.transform = 'scale(1)';
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+window.openCallQrModal = openCallQrModal;
+
+function closeCallQrModal() {
+    const modal = document.getElementById('call-qr-modal');
+    if (modal) {
+        modal.classList.remove('open');
+        modal.style.display = 'none';
+        modal.style.opacity = '0';
+        modal.style.pointerEvents = 'none';
+        const container = modal.querySelector('.modal-container');
+        if (container) container.style.transform = 'scale(0.95)';
+    }
+}
+window.closeCallQrModal = closeCallQrModal;
+
+function triggerCallbackQrCall() {
+    const phoneInput = document.getElementById('edit-ticket-callback');
+    const nameInput = document.getElementById('edit-ticket-client-name');
+    if (!phoneInput || !phoneInput.value.trim()) {
+        alert('Please enter or fetch a call back number first.');
+        return;
+    }
+    const phone = phoneInput.value.trim();
+    const cleanPhone = phone.replace(/[^0-9+]/g, '');
+    const name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : 'Client';
+    openCallQrModal(name, cleanPhone, encodeURIComponent('tel:' + cleanPhone));
+}
 // Consolidated master clients data from client_directory & leads tables
 const masterClientsData = <?php echo json_encode($master_clients_list); ?>;
 let selectedClientObj = null;
@@ -1233,28 +1512,103 @@ document.addEventListener('click', function(e) {
     }
 });
 
+function updateClientCompactView(data) {
+    const pName = data.customer_name || data.party_name || '-';
+    const contact = data.contact_person || pName;
+    const mob = data.phone || data.mobile || '-';
+    const em = data.email || '-';
+    const prod = data.product || data.software_type || 'Marg ERP';
+    const swType = data.sw_type || 'Marg';
+    const uType = (data.user_type || 'Multi User') + ' (' + (data.no_of_users || 1) + ')';
+    const numComp = data.no_of_companies || 250;
+    const stat = data.party_status || 'Running';
+    const trade = data.software_trade || 'Business Services';
+    const homeUser = data.home_user || 'No';
+    const amt = '₹' + parseFloat(data.total_amount || 0).toFixed(2);
+    const ren = data.renewal_date || data.due_on || '-';
+    const actOn = data.act_on || '-';
+    const lastHit = data.last_hit_date || '-';
+    const subPartner = (data.sub_partner_code || '-') + ' / ' + (data.sub_partner_name || '-');
+    
+    // Full Address combination
+    let fullAddr = data.address || '';
+    if (data.address1) fullAddr = data.address1;
+    if (data.address2) fullAddr += (fullAddr ? ', ' : '') + data.address2;
+    if (data.address3) fullAddr += (fullAddr ? ', ' : '') + data.address3;
+    if (data.city) fullAddr += (fullAddr ? ', ' : '') + data.city;
+    if (data.state) fullAddr += (fullAddr ? ', ' : '') + data.state;
+    if (data.online_zip_code) fullAddr += ' - ' + data.online_zip_code;
+    if (!fullAddr) fullAddr = '-';
+
+    // Hidden inputs for POST form submit
+    const elName = document.getElementById('edit-ticket-client-name'); if (elName) elName.value = pName !== '-' ? pName : '';
+    const elPhone = document.getElementById('edit-ticket-phone'); if (elPhone) elPhone.value = mob !== '-' ? mob : '';
+    const elEmail = document.getElementById('edit-ticket-email'); if (elEmail) elEmail.value = em !== '-' ? em : '';
+    const elProd = document.getElementById('edit-ticket-product'); if (elProd) elProd.value = prod !== '-' ? prod : '';
+    const elRen = document.getElementById('edit-ticket-renewal'); if (elRen) elRen.value = ren !== '-' ? ren : '';
+    const elAddr = document.getElementById('edit-ticket-address'); if (elAddr) elAddr.value = fullAddr !== '-' ? fullAddr : '';
+
+    // Compact summary view labels
+    const vComp = document.getElementById('edit-v-company'); if (vComp) vComp.innerText = pName;
+    const vContact = document.getElementById('edit-v-contact'); if (vContact) vContact.innerText = contact;
+    const vMob = document.getElementById('edit-v-mobile'); if (vMob) vMob.innerText = mob;
+    
+    // Show QR call button on Reg Mobile card
+    const vMobQrBtn = document.getElementById('edit-v-mobile-qr-btn');
+    if (vMobQrBtn) {
+        if (mob && mob !== '-') {
+            const cleanM = String(mob).replace(/[^0-9+]/g, '');
+            vMobQrBtn.onclick = function(e) {
+                if (e) e.stopPropagation();
+                window.openCallQrModal(pName, cleanM, encodeURIComponent('tel:' + cleanM));
+            };
+            vMobQrBtn.style.display = 'inline-flex';
+        } else {
+            vMobQrBtn.style.display = 'none';
+        }
+    }
+
+    const vEm = document.getElementById('edit-v-email'); if (vEm) vEm.innerText = em;
+    const vProd = document.getElementById('edit-v-product'); if (vProd) vProd.innerText = prod;
+    const vSwType = document.getElementById('edit-v-swtype'); if (vSwType) vSwType.innerText = swType;
+    const vUType = document.getElementById('edit-v-usertype'); if (vUType) vUType.innerText = uType;
+    const vCompNum = document.getElementById('edit-v-companies'); if (vCompNum) vCompNum.innerText = numComp;
+    const vStat = document.getElementById('edit-v-status'); if (vStat) vStat.innerText = stat;
+    const vTrade = document.getElementById('edit-v-trade'); if (vTrade) vTrade.innerText = trade;
+    const vHome = document.getElementById('edit-v-homeuser'); if (vHome) vHome.innerText = homeUser;
+    const vAmt = document.getElementById('edit-v-amount'); if (vAmt) vAmt.innerText = amt;
+    const vRen = document.getElementById('edit-v-renewal'); if (vRen) vRen.innerText = ren;
+    const vActOn = document.getElementById('edit-v-acton'); if (vActOn) vActOn.innerText = actOn;
+    const vLastHit = document.getElementById('edit-v-lasthit'); if (vLastHit) vLastHit.innerText = lastHit;
+    const vSubPartner = document.getElementById('edit-v-subpartner'); if (vSubPartner) vSubPartner.innerText = subPartner;
+    const vAddr = document.getElementById('edit-v-fulladdress'); if (vAddr) vAddr.innerText = fullAddr;
+}
+
 function openEditTicketModal(ticket) {
     document.getElementById('edit-ticket-id-hidden').value = ticket.id;
     document.getElementById('edit-ticket-id-display').innerText = ticket.id;
-    
-    // Readonly values
-    document.getElementById('edit-ticket-client-name').value = ticket.customer_name || "";
     document.getElementById('edit-ticket-client-id').value = ticket.lead_id || "";
-    document.getElementById('edit-ticket-phone').value = ticket.phone || "";
-    document.getElementById('edit-ticket-email').value = ticket.email || "";
-    document.getElementById('edit-ticket-product').value = ticket.product || "";
-    document.getElementById('edit-ticket-renewal').value = ticket.renewal_date || "";
-    document.getElementById('edit-ticket-address').value = ticket.address || "";
+
+    // Set initial compact view from ticket fields
+    updateClientCompactView(ticket);
+
+    // Auto-fetch fresh Client Directory data if lead_id exists
+    if (ticket.lead_id) {
+        autoFetchClientDetails();
+    }
     
-    // Editable values
+    // Editable Ticket Parameters
     document.getElementById('edit-ticket-priority').value = ticket.priority || "medium";
     
-    // Populate Subject & Problem Summary
+    // Populate Subject, Problem Summary & Employee Resolution/Solution
     const subjElem = document.getElementById('edit-ticket-subject');
     if (subjElem) subjElem.value = ticket.subject || "";
     
     const probElem = document.getElementById('edit-ticket-problem');
     if (probElem) probElem.value = ticket.problem || "";
+
+    const resElem = document.getElementById('edit-ticket-resolution');
+    if (resElem) resElem.value = ticket.resolution || "";
     
     const statusSelect = document.getElementById('edit-ticket-status');
     if (statusSelect) {
@@ -1292,18 +1646,29 @@ function autoFetchClientDetails() {
     const licInput = document.getElementById('edit-ticket-client-id');
     if (!licInput || !licInput.value.trim()) return;
 
-    const query = licInput.value.trim();
-    fetch('api/lookup-client.php?query=' + encodeURIComponent(query))
+    const query = licInput.value.trim().toLowerCase();
+
+    // 1. Search local masterClientsData first
+    if (typeof masterClientsData !== 'undefined' && masterClientsData && masterClientsData.length > 0) {
+        let match = masterClientsData.find(c => {
+            const cid = String(c.customer_id || '').toLowerCase();
+            const mob = String(c.mobile || '').toLowerCase();
+            const pName = String(c.party_name || '').toLowerCase();
+            return cid === query || mob === query || pName.includes(query);
+        });
+
+        if (match) {
+            updateClientCompactView(match);
+            return;
+        }
+    }
+
+    // 2. Fallback to API lookup
+    fetch('api/lookup-client.php?query=' + encodeURIComponent(licInput.value.trim()))
         .then(res => res.json())
         .then(res => {
             if (res.success && res.found && res.data) {
-                const d = res.data;
-                if (d.customer_name) document.getElementById('edit-ticket-client-name').value = d.customer_name;
-                if (d.phone) document.getElementById('edit-ticket-phone').value = d.phone;
-                if (d.email) document.getElementById('edit-ticket-email').value = d.email;
-                if (d.product) document.getElementById('edit-ticket-product').value = d.product;
-                if (d.renewal_date) document.getElementById('edit-ticket-renewal').value = d.renewal_date;
-                if (d.address) document.getElementById('edit-ticket-address').value = d.address;
+                updateClientCompactView(res.data);
             }
         })
         .catch(err => console.error('Client lookup error:', err));

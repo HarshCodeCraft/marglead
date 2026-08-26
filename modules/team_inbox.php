@@ -580,6 +580,230 @@ require_once __DIR__ . '/../includes/db.php';
     background: #1d4ed8;
 }
 
+/* Media Card & Attachment Styles */
+.chat-media-card {
+    margin-top: 4px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.chat-media-img {
+    max-width: 260px;
+    max-height: 240px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: block;
+    object-fit: cover;
+    border: 1px solid rgba(0,0,0,0.08);
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.chat-media-img:hover {
+    transform: scale(1.015);
+    filter: brightness(0.95);
+}
+
+.chat-media-caption {
+    font-size: 0.76rem;
+    margin-top: 4px;
+    line-height: 1.3;
+}
+
+.doc-card {
+    background: rgba(37, 99, 235, 0.08);
+    border: 1px solid rgba(37, 99, 235, 0.22);
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 8px;
+    max-width: 310px;
+}
+
+.doc-badge-icon {
+    width: 36px;
+    height: 36px;
+    background: #ef4444;
+    color: white;
+    font-weight: 800;
+    font-size: 0.72rem;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.25);
+}
+
+.doc-details {
+    flex: 1;
+    overflow: hidden;
+}
+
+.doc-title {
+    font-weight: 700;
+    font-size: 0.78rem;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.doc-sub {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-top: 1px;
+}
+
+.doc-dl-btn {
+    background: #2563eb;
+    color: white !important;
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-decoration: none !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+}
+
+.doc-dl-btn:hover {
+    background: #1d4ed8;
+}
+
+.doc-view-btn {
+    background: #0284c7;
+    color: white !important;
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-decoration: none !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.doc-view-btn:hover {
+    background: #0369a1;
+}
+
+.chat-media-placeholder {
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.04);
+    border-radius: 6px;
+    font-size: 0.78rem;
+    border-left: 3px solid var(--primary);
+}
+
+/* PDF Viewer Modal */
+.pdf-viewer-modal {
+    display: none;
+    position: fixed;
+    z-index: 99999;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(4px);
+    align-items: center;
+    justify-content: center;
+}
+
+.pdf-viewer-card {
+    background: var(--bg-card, #ffffff);
+    width: 90vw;
+    height: 90vh;
+    max-width: 1050px;
+    max-height: 850px;
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+}
+
+.pdf-viewer-header {
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-app, #f8fafc);
+}
+
+.pdf-viewer-body {
+    flex: 1;
+    background: #525659;
+}
+
+.pdf-viewer-close {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--text-muted);
+    cursor: pointer;
+    margin-left: 8px;
+    line-height: 1;
+}
+
+/* Lightbox Modal */
+.media-lightbox-modal {
+    display: none;
+    position: fixed;
+    z-index: 99999;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(4px);
+    align-items: center;
+    justify-content: center;
+}
+
+.media-lightbox-content {
+    position: relative;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.media-lightbox-content img {
+    max-width: 85vw;
+    max-height: 78vh;
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    object-fit: contain;
+}
+
+.media-lightbox-close {
+    position: absolute;
+    top: -36px;
+    right: -10px;
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.media-lightbox-caption {
+    color: white;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    text-align: center;
+}
+
 /* Right Pane: Customer CRM Context (Hidden by default, shown when toggled) */
 .inbox-right-pane {
     border-left: none;
@@ -730,6 +954,10 @@ require_once __DIR__ . '/../includes/db.php';
                 </button>
             </div>
             <div class="composer-row" id="composerRow">
+                <input type="file" id="chatFileInput" accept="image/*,.pdf,.doc,.docx" style="display:none;" onchange="handleFileSelected(this)">
+                <button type="button" class="btn-pill btn-pill-outline text-xs" style="height: 42px; width: 42px; border-radius: 10px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;" onclick="triggerFilePicker()" title="Attach & Send Image or PDF Document">
+                    <i data-lucide="paperclip" style="width: 16px; height: 16px; color: #2563eb;"></i>
+                </button>
                 <textarea id="replyMessageInput" class="chat-textarea" placeholder="Type a message to reply on WhatsApp... (Ctrl+Enter to send)" onkeydown="handleKeyDown(event)"></textarea>
                 <button type="button" id="btnSendMsg" class="btn-send-msg" onclick="submitReplyMessage()">
                     <i data-lucide="send" style="width: 14px; height: 14px;"></i>
@@ -783,7 +1011,47 @@ require_once __DIR__ . '/../includes/db.php';
                     <i data-lucide="life-buoy" style="width: 12px; height: 12px;"></i>
                     Support Desk
                 </a>
+                <button type="button" class="btn-pill btn-pill-outline w-full text-xs mt-1 block text-center" onclick="runMediaCleanup()" style="padding: 3px 8px; color: #ef4444; border-color: rgba(239,68,68,0.3);" title="Auto-delete MP4 video & MP3 audio files older than 48 hours">
+                    <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                    Clean 48h Audio/Video
+                </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Media Lightbox Modal -->
+<div id="mediaLightboxModal" class="media-lightbox-modal" onclick="closeMediaModal(event)">
+    <div class="media-lightbox-content" onclick="event.stopPropagation()">
+        <span class="media-lightbox-close" onclick="closeMediaModal()">&times;</span>
+        <img id="lightboxImg" src="" alt="Full Attachment Preview">
+        <div id="lightboxCaption" class="media-lightbox-caption"></div>
+        <a id="lightboxDownloadBtn" href="" target="_blank" download class="btn-pill" style="background: #2563eb; color: white; margin-top: 12px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; padding: 6px 14px; font-weight: 600;">
+            <i data-lucide="download" style="width: 14px; height: 14px;"></i> Download Full Image
+        </a>
+    </div>
+</div>
+
+<!-- PDF Viewer Modal -->
+<div id="pdfViewerModal" class="pdf-viewer-modal" onclick="closePdfModal(event)">
+    <div class="pdf-viewer-card" onclick="event.stopPropagation()">
+        <div class="pdf-viewer-header">
+            <div class="flex align-center gap-2">
+                <span class="badge" style="background: #ef4444; color: white; font-weight: 800; padding: 2px 6px; font-size: 0.68rem;">PDF</span>
+                <span id="pdfModalTitle" style="font-weight: 700; font-size: 0.92rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px;">PDF Document</span>
+            </div>
+            <div class="flex align-center gap-2">
+                <a id="pdfModalNewTabBtn" href="" target="_blank" class="btn-pill btn-pill-outline text-xs" style="text-decoration: none; padding: 4px 10px; font-weight: 600;">
+                    <i data-lucide="external-link" style="width: 13px; height: 13px; display: inline-block; vertical-align: middle;"></i> New Tab
+                </a>
+                <a id="pdfModalDownloadBtn" href="" target="_blank" download class="btn-pill btn-pill-primary text-xs" style="text-decoration: none; padding: 4px 12px; font-weight: 700; background: #2563eb; color: white;">
+                    <i data-lucide="download" style="width: 13px; height: 13px; display: inline-block; vertical-align: middle;"></i> Download PDF
+                </a>
+                <span class="pdf-viewer-close" onclick="closePdfModal()">&times;</span>
+            </div>
+        </div>
+        <div class="pdf-viewer-body">
+            <iframe id="pdfFrame" src="" width="100%" height="100%" style="border: none;"></iframe>
         </div>
     </div>
 </div>
@@ -851,6 +1119,10 @@ function cleanPreviewText(text) {
     if (!text) return 'Media / Event';
     let clean = text.replace(/[\r\n]+/g, ' ').replace(/<br\s*\/?>/gi, ' ').trim();
     clean = clean.replace(/\s+/g, ' ');
+    if (clean.toLowerCase() === 'image') return '📷 Photo';
+    if (clean.toLowerCase() === 'document' || clean.toLowerCase() === 'pdf') return '📄 PDF Document';
+    if (clean.toLowerCase() === 'video') return '🎥 Video';
+    if (clean.toLowerCase() === 'audio' || clean.toLowerCase() === 'voice') return '🎵 Voice Note';
     if (clean.length > 55) {
         clean = clean.substring(0, 55) + '...';
     }
@@ -1002,9 +1274,69 @@ function renderMessages(messages, scrollBottom = false) {
                 ? `<div class="msg-sender-tag"><i data-lucide="bot" style="width: 11px; height: 11px;"></i> Support Team / Bot</div>`
                 : `<div class="msg-sender-tag"><i data-lucide="user" style="width: 11px; height: 11px;"></i> Customer</div>`;
 
-            let bodyText = escapeHtml(m.message_body || '');
-            if (m.message_type === 'flow_submission' || (m.message_body && m.message_body.includes('Ticket'))) {
-                bodyText += `<div class="flow-card-badge">📋 <strong>Support Form Received</strong></div>`;
+            let bodyText = '';
+            const msgType = m.media_type || m.message_type || 'text';
+            const mediaUrl = m.media_url || '';
+            const caption = m.media_caption || '';
+            const filename = m.media_filename || '';
+
+            if (msgType === 'image' || (mediaUrl && (mediaUrl.endsWith('.jpg') || mediaUrl.endsWith('.jpeg') || mediaUrl.endsWith('.png') || mediaUrl.endsWith('.webp')))) {
+                if (mediaUrl) {
+                    bodyText = `
+                    <div class="chat-media-card image-card">
+                        <img src="${mediaUrl}" alt="Attachment" class="chat-media-img" onclick="openMediaModal('${mediaUrl}', '${escapeHtml(caption || m.message_body || '')}')">
+                        ${caption ? `<div class="chat-media-caption">${escapeHtml(caption)}</div>` : ''}
+                    </div>`;
+                } else {
+                    bodyText = `<div class="chat-media-placeholder">📷 <strong>Photo Attachment</strong><div style="font-size: 0.72rem; opacity: 0.8; margin-top:2px;">${escapeHtml(m.message_body || 'Image')}</div></div>`;
+                }
+            } else if (msgType === 'document' || msgType === 'pdf' || (mediaUrl && mediaUrl.endsWith('.pdf'))) {
+                const displayName = filename || (m.message_body && !m.message_body.startsWith('📄') ? m.message_body : 'WhatsApp Document.pdf');
+                if (mediaUrl) {
+                    bodyText = `
+                    <div class="chat-media-card doc-card">
+                        <div class="doc-badge-icon" onclick="openPdfModal('${mediaUrl}', '${escapeHtml(displayName)}')" style="cursor: pointer;" title="Click to View PDF">PDF</div>
+                        <div class="doc-details" onclick="openPdfModal('${mediaUrl}', '${escapeHtml(displayName)}')" style="cursor: pointer;" title="Click to View PDF">
+                            <div class="doc-title">${escapeHtml(displayName)}</div>
+                            ${caption ? `<div class="doc-sub">${escapeHtml(caption)}</div>` : ''}
+                        </div>
+                        <div class="flex gap-1" style="flex-shrink: 0;">
+                            <button type="button" class="doc-view-btn" onclick="openPdfModal('${mediaUrl}', '${escapeHtml(displayName)}')" title="View PDF Document">
+                                <i data-lucide="eye" style="width: 12px; height: 12px;"></i> View
+                            </button>
+                            <a href="${mediaUrl}" target="_blank" download class="doc-dl-btn" title="Download PDF file">
+                                <i data-lucide="download" style="width: 12px; height: 12px;"></i> Download
+                            </a>
+                        </div>
+                    </div>`;
+                } else {
+                    bodyText = `<div class="chat-media-placeholder">📄 <strong>PDF Document</strong><div style="font-size: 0.72rem; opacity: 0.8; margin-top:2px;">${escapeHtml(displayName)}</div></div>`;
+                }
+            } else if (msgType === 'audio' || msgType === 'voice') {
+                if (mediaUrl) {
+                    bodyText = `
+                    <div class="chat-media-card audio-card">
+                        <div style="font-size: 0.72rem; font-weight: 600; margin-bottom: 3px; color: var(--text-muted);">🎵 Voice Note</div>
+                        <audio controls src="${mediaUrl}" style="max-width: 240px; height: 32px;"></audio>
+                    </div>`;
+                } else {
+                    bodyText = `<div class="chat-media-placeholder">🎵 <strong>Voice Note</strong></div>`;
+                }
+            } else if (msgType === 'video') {
+                if (mediaUrl) {
+                    bodyText = `
+                    <div class="chat-media-card video-card">
+                        <video controls src="${mediaUrl}" style="max-width: 260px; border-radius: 8px; max-height: 200px;"></video>
+                        ${caption ? `<div class="chat-media-caption">${escapeHtml(caption)}</div>` : ''}
+                    </div>`;
+                } else {
+                    bodyText = `<div class="chat-media-placeholder">🎥 <strong>Video Clip</strong></div>`;
+                }
+            } else {
+                bodyText = escapeHtml(m.message_body || '');
+                if (m.message_type === 'flow_submission' || (m.message_body && m.message_body.includes('Ticket'))) {
+                    bodyText += `<div class="flow-card-badge">📋 <strong>Support Form Received</strong></div>`;
+                }
             }
 
             const readReceipt = isOutbound ? `<span class="read-ticks" title="Delivered & Read">✓✓</span>` : '';
@@ -1358,6 +1690,136 @@ function sendQuickFlow() {
             alert('Error: ' + data.message);
         }
     });
+}
+
+function openMediaModal(url, caption = '') {
+    const modal = document.getElementById('mediaLightboxModal');
+    const img = document.getElementById('lightboxImg');
+    const cap = document.getElementById('lightboxCaption');
+    const btn = document.getElementById('lightboxDownloadBtn');
+    if (modal && img) {
+        img.src = url;
+        if (cap) cap.innerText = caption;
+        if (btn) btn.href = url;
+        modal.style.display = 'flex';
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+function closeMediaModal(e) {
+    const modal = document.getElementById('mediaLightboxModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function triggerFilePicker() {
+    if (currentChatStatus === 'closed') {
+        alert('🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending files.');
+        return;
+    }
+    const picker = document.getElementById('chatFileInput');
+    if (picker) picker.click();
+}
+
+function handleFileSelected(input) {
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    if (!currentActivePhone) {
+        alert('Please select a conversation first.');
+        input.value = '';
+        return;
+    }
+
+    const caption = prompt(`Send "${file.name}" via WhatsApp?\nAdd optional caption (or press OK to send):`, '') ?? null;
+    if (caption === null) {
+        input.value = '';
+        return; // Cancelled
+    }
+
+    const formData = new FormData();
+    formData.append('action', 'send_media');
+    formData.append('phone', currentActivePhone);
+    formData.append('file', file);
+    if (caption) {
+        formData.append('caption', caption);
+    }
+
+    const btnSend = document.getElementById('btnSendMsg');
+    if (btnSend) {
+        btnSend.disabled = true;
+        btnSend.innerHTML = `<i data-lucide="loader-2" class="refresh-spin" style="width:14px; height:14px;"></i> Sending...`;
+        if (window.lucide) lucide.createIcons();
+    }
+
+    fetch('api/inbox-api.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        input.value = '';
+        if (btnSend) {
+            btnSend.disabled = false;
+            btnSend.innerHTML = `<i data-lucide="send" style="width: 14px; height: 14px;"></i> <span>Send</span>`;
+            if (window.lucide) lucide.createIcons();
+        }
+        if (data.success) {
+            lastMessagesHash = '';
+            fetchMessages(currentActivePhone, true);
+        } else {
+            alert('Error sending file: ' + (data.message || 'Failed'));
+        }
+    })
+    .catch(err => {
+        input.value = '';
+        if (btnSend) {
+            btnSend.disabled = false;
+            btnSend.innerHTML = `<i data-lucide="send" style="width: 14px; height: 14px;"></i> <span>Send</span>`;
+            if (window.lucide) lucide.createIcons();
+        }
+        alert('Upload failed: ' + err.message);
+    });
+}
+
+function openPdfModal(url, title = 'PDF Document') {
+    const modal = document.getElementById('pdfViewerModal');
+    const titleElem = document.getElementById('pdfModalTitle');
+    const frame = document.getElementById('pdfFrame');
+    const newTabBtn = document.getElementById('pdfModalNewTabBtn');
+    const dlBtn = document.getElementById('pdfModalDownloadBtn');
+
+    if (modal && frame) {
+        if (titleElem) titleElem.innerText = title;
+        frame.src = url;
+        if (newTabBtn) newTabBtn.href = url;
+        if (dlBtn) dlBtn.href = url;
+
+        modal.style.display = 'flex';
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+function closePdfModal(e) {
+    const modal = document.getElementById('pdfViewerModal');
+    const frame = document.getElementById('pdfFrame');
+    if (modal) {
+        modal.style.display = 'none';
+        if (frame) frame.src = '';
+    }
+}
+
+function runMediaCleanup() {
+    if (!confirm('Auto-delete all MP4 (video) and MP3/OGG (voice note) media files older than 48 hours?\n\nNote: Images and PDF documents will NOT be deleted.')) {
+        return;
+    }
+    fetch('api/inbox-api.php?action=cleanup_media')
+    .then(res => res.json())
+    .then(data => {
+        alert(data.message || 'Media cleanup completed.');
+        if (currentActivePhone) {
+            fetchMessages(currentActivePhone, false);
+        }
+    })
+    .catch(err => alert('Cleanup failed: ' + err.message));
 }
 
 function escapeHtml(text) {

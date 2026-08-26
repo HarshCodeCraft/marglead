@@ -151,20 +151,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$user_role = $_SESSION['user_role'] ?? 'Admin';
+$user_name = $_SESSION['user_name'] ?? '';
+$is_admin = (in_array($user_role, ['Super Admin', 'Admin', 'Regional Manager', 'Team Leader']));
+
 // Fetch live Demos list from Database (merging demos table + followups table)
 $demos = [];
 if ($db_connected && $pdo) {
     try {
+        $where_demos = [];
+        $params_demos = [];
+        $where_fups = [];
+        $params_fups = [];
+
+        if (!$is_admin && !empty($user_name)) {
+            $where_demos[] = "(LOWER(TRIM(d.engineer)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(d.engineer, ', ', ','))) OR d.engineer LIKE ? OR LOWER(TRIM(l.assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(l.assigned_to, ', ', ','))) OR l.assigned_to LIKE ?)";
+            $params_demos = [$user_name, $user_name, '%' . $user_name . '%', $user_name, $user_name, '%' . $user_name . '%'];
+
+            $where_fups[] = "(LOWER(TRIM(f.assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(f.assigned_to, ', ', ','))) OR f.assigned_to LIKE ? OR LOWER(TRIM(l.assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(l.assigned_to, ', ', ','))) OR l.assigned_to LIKE ?)";
+            $params_fups = [$user_name, $user_name, '%' . $user_name . '%', $user_name, $user_name, '%' . $user_name . '%'];
+        }
+
+        $sql_where_demos = !empty($where_demos) ? "WHERE " . implode(" AND ", $where_demos) : "";
+        $sql_where_fups = !empty($where_fups) ? "WHERE " . implode(" AND ", $where_fups) : "";
+
         // Query 1: Direct demos table
-        $stmt1 = $pdo->query("
+        $stmt1 = $pdo->prepare("
             SELECT d.id, d.lead_id, d.scheduled_at, d.mode, d.engineer, d.status, d.rating, d.feedback, d.cancel_reason, l.name as lead_name, l.company, l.phone, l.email 
             FROM demos d 
             LEFT JOIN leads l ON d.lead_id = l.id 
+            {$sql_where_demos}
         ");
+        $stmt1->execute($params_demos);
         $list1 = $stmt1->fetchAll(PDO::FETCH_ASSOC);
 
         // Query 2: All followups table records
-        $stmt2 = $pdo->query("
+        $stmt2 = $pdo->prepare("
             SELECT CONCAT('FUP-', f.id) as id, f.lead_id, f.scheduled_at, COALESCE(NULLIF(f.action_type, ''), 'Follow-up') as mode, f.assigned_to as engineer,
                 CASE 
                     WHEN f.status = 'pending' THEN 'scheduled'
@@ -175,7 +197,9 @@ if ($db_connected && $pdo) {
                 l.name as lead_name, l.company, l.phone, l.email
             FROM followups f
             LEFT JOIN leads l ON f.lead_id = l.id
+            {$sql_where_fups}
         ");
+        $stmt2->execute($params_fups);
         $list2 = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
         // Merge deduplicating by lead_id + scheduled_at
@@ -249,23 +273,47 @@ if (!empty($active_filter) && !empty($active_day)) {
     foreach ($all_demos as $dm) {
         $dm_timestamp = strtotime($dm['scheduled_at']);
         $dm_date = date('Y-m-d', $dm_timestamp);
+        $is_demo_record = (strpos($dm['id'], 'DM-') === 0) || (preg_match('/demo|trail|trial|demonstration/i', ($dm['mode'] ?? '') . ' ' . ($dm['feedback'] ?? '')));
+
         if ($active_filter === 'demo_scheduled') {
-            if ($active_day === 'all' || $active_day === 'total') {
-                if (($dm['status'] ?? '') === 'scheduled') $filtered_demos[] = $dm;
-            } elseif (($dm['status'] ?? '') === 'scheduled' && $dm_timestamp >= time() && $dm_date === $target_date) {
-                $filtered_demos[] = $dm;
+            if ($is_demo_record && ($dm['status'] ?? '') === 'scheduled') {
+                if ($active_day === 'all' || $active_day === 'total') {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'today' && $dm_date <= $today_str) {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'tomorrow' && $dm_date === $tomorrow_str) {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'next_day' && $dm_date === $nextday_str) {
+                    $filtered_demos[] = $dm;
+                }
             }
         } elseif ($active_filter === 'expired') {
-            if ($active_day === 'all' || $active_day === 'total') {
-                if (($dm['status'] ?? '') === 'cancelled' || $dm_timestamp < time()) $filtered_demos[] = $dm;
-            } elseif ((($dm['status'] ?? '') === 'cancelled' || $dm_timestamp < time()) && $dm_date === $target_date) {
-                $filtered_demos[] = $dm;
+            $is_expiry_type = (preg_match('/expiry|renewal|trail|trial|expir|renew/i', ($dm['mode'] ?? '') . ' ' . ($dm['feedback'] ?? '')));
+            $is_overdue_type = ($dm_date < $today_str) || (($dm['status'] ?? '') === 'missed') || (($dm['status'] ?? '') === 'cancelled');
+            $is_expired_item = $is_expiry_type || $is_overdue_type;
+
+            if ($is_expired_item) {
+                if ($active_day === 'all' || $active_day === 'total') {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'today' && $dm_date <= $today_str) {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'tomorrow' && $dm_date === $tomorrow_str) {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'next_day' && $dm_date === $nextday_str) {
+                    $filtered_demos[] = $dm;
+                }
             }
         } elseif ($active_filter === 'callback') {
-            if ($active_day === 'all' || $active_day === 'total') {
-                $filtered_demos[] = $dm;
-            } elseif ($dm_date === $target_date) {
-                $filtered_demos[] = $dm;
+            if (($dm['status'] ?? '') === 'scheduled') {
+                if ($active_day === 'all' || $active_day === 'total') {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'today' && $dm_date <= $today_str) {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'tomorrow' && $dm_date === $tomorrow_str) {
+                    $filtered_demos[] = $dm;
+                } elseif ($active_day === 'next_day' && $dm_date === $nextday_str) {
+                    $filtered_demos[] = $dm;
+                }
             }
         }
     }
@@ -285,6 +333,36 @@ if (!empty($active_filter) && !empty($active_day)) {
         }
     }
     $demos = $filtered_demos;
+}
+
+// Pagination handling for Demos list
+$total_demos = count($demos);
+$limit_raw = $_GET['limit'] ?? '25';
+$limit = ($limit_raw === 'all') ? 'all' : intval($limit_raw);
+if ($limit !== 'all' && $limit <= 0) {
+    $limit = 25;
+}
+
+$page_num = max(1, intval($_GET['p'] ?? 1));
+$total_pages = 1;
+$offset = 0;
+
+if ($limit !== 'all') {
+    $total_pages = ceil(max(1, $total_demos) / $limit);
+    if ($page_num > $total_pages) {
+        $page_num = max(1, $total_pages);
+    }
+    $offset = ($page_num - 1) * $limit;
+    $paginated_demos = array_slice($demos, $offset, $limit);
+} else {
+    $paginated_demos = $demos;
+}
+
+function getDemoPageUrl($p, $limitVal) {
+    $params = $_GET;
+    $params['p'] = $p;
+    $params['limit'] = $limitVal;
+    return 'index.php?' . http_build_query($params);
 }
 
 // Helper functions for card button URLs & active styling
@@ -462,7 +540,7 @@ if (empty($engineers)) {
         <div class="mb-4 p-3 flex justify-between align-center" style="background: rgba(0, 77, 64, 0.08); border: 1.5px dashed var(--primary); border-radius: var(--border-radius-sm); color: var(--primary);">
             <span class="text-sm font-semibold flex align-center gap-2">
                 <i data-lucide="filter" style="width: 16px; height: 16px;"></i>
-                <span>Showing list filtered by: <strong><?php echo htmlspecialchars($filter_label); ?></strong> (<?php echo count($demos); ?> matching record<?php echo count($demos) === 1 ? '' : 's'; ?>)</span>
+                <span>Showing list filtered by: <strong><?php echo htmlspecialchars($filter_label); ?></strong></span>
             </span>
             <a href="index.php?page=demo" class="btn btn-secondary text-xs flex align-center gap-1" style="padding: 0.35rem 0.85rem; background: var(--bg-card);">
                 <i data-lucide="x" style="width: 12px; height: 12px;"></i>
@@ -501,7 +579,7 @@ if (empty($engineers)) {
                             </td>
                         </tr>
                     <?php else: ?>
-                        <?php foreach ($demos as $dm): ?>
+                        <?php foreach ($paginated_demos as $dm): ?>
                             <tr>
                                 <td class="font-bold text-xs" style="vertical-align: middle;"><?php echo htmlspecialchars($dm['id']); ?></td>
                                 <td style="vertical-align: middle;">
@@ -586,6 +664,63 @@ if (empty($engineers)) {
                     <?php endif; ?>
                 </tbody>
             </table>
+        </div>
+
+        <!-- Table Pagination Info row -->
+        <?php
+        $start_num = $limit === 'all' ? 1 : (($page_num - 1) * $limit + 1);
+        $end_num = $limit === 'all' ? $total_demos : min($total_demos, $page_num * $limit);
+        if ($total_demos == 0) {
+            $start_num = 0;
+            $end_num = 0;
+        }
+        ?>
+        <div class="flex justify-between align-center p-4 border-top flex-wrap gap-4" style="border-top: 1px solid var(--border-color); background-color: var(--border-card);">
+            <div class="flex align-center gap-3">
+                <span class="text-xs text-muted">Showing <?php echo $start_num; ?> to <?php echo $end_num; ?> of <?php echo $total_demos; ?> demos</span>
+                <span class="text-xs text-muted">|</span>
+                <span class="text-xs text-muted">Show:</span>
+                <select class="form-control text-xs" style="width: auto; padding: 0.2rem 0.5rem; height: 28px;" onchange="window.location.href = this.value;">
+                    <option value="<?php echo getDemoPageUrl(1, 25); ?>" <?php echo $limit == 25 ? 'selected' : ''; ?>>25 per page</option>
+                    <option value="<?php echo getDemoPageUrl(1, 50); ?>" <?php echo $limit == 50 ? 'selected' : ''; ?>>50 per page</option>
+                    <option value="<?php echo getDemoPageUrl(1, 100); ?>" <?php echo $limit == 100 ? 'selected' : ''; ?>>100 per page</option>
+                    <option value="<?php echo getDemoPageUrl(1, 250); ?>" <?php echo $limit == 250 ? 'selected' : ''; ?>>250 per page</option>
+                    <option value="<?php echo getDemoPageUrl(1, 500); ?>" <?php echo $limit == 500 ? 'selected' : ''; ?>>500 per page</option>
+                    <option value="<?php echo getDemoPageUrl(1, 'all'); ?>" <?php echo $limit === 'all' ? 'selected' : ''; ?>>View All</option>
+                </select>
+            </div>
+            
+            <?php if ($limit !== 'all' && $total_pages > 1): 
+                $visible_pages = 5;
+                $half = floor($visible_pages / 2);
+                $start_page = max(1, $page_num - $half);
+                $end_page = min($total_pages, $start_page + $visible_pages - 1);
+                if ($end_page - $start_page + 1 < $visible_pages) {
+                    $start_page = max(1, $end_page - $visible_pages + 1);
+                }
+            ?>
+                <div class="flex align-center gap-1">
+                    <?php if ($page_num > 1): ?>
+                        <a href="<?php echo getDemoPageUrl($page_num - 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.4rem 0.8rem; text-decoration: none; display: inline-block;">Prev</a>
+                    <?php else: ?>
+                        <button class="btn btn-secondary text-xs" style="padding: 0.4rem 0.8rem;" disabled>Prev</button>
+                    <?php endif; ?>
+
+                    <?php for ($i = $start_page; $i <= $end_page; $i++): 
+                        $isCurrent = ($i === $page_num);
+                        $btnClass = $isCurrent ? 'btn-primary' : 'btn-secondary';
+                        $style = $isCurrent ? 'background-color: var(--primary);' : '';
+                    ?>
+                        <a href="<?php echo getDemoPageUrl($i, $limit); ?>" class="btn <?php echo $btnClass; ?> text-xs" style="padding: 0.4rem 0.8rem; text-decoration: none; display: inline-block; <?php echo $style; ?>"><?php echo $i; ?></a>
+                    <?php endfor; ?>
+
+                    <?php if ($page_num < $total_pages): ?>
+                        <a href="<?php echo getDemoPageUrl($page_num + 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.4rem 0.8rem; text-decoration: none; display: inline-block;">Next</a>
+                    <?php else: ?>
+                        <button class="btn btn-secondary text-xs" style="padding: 0.4rem 0.8rem;" disabled>Next</button>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>

@@ -47,6 +47,14 @@ $role = $_SESSION['user_role'];
                         </a>
                     </li>
                 <?php endif; ?>
+                <?php if (hasAccess('leads', $role) || hasAccess('clients', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('customer_kyc') ? 'active' : ''; ?>">
+                        <a href="index.php?page=customer_kyc">
+                            <i data-lucide="file-check" style="width: 18px; height: 18px;"></i>
+                            <span>Customer KYC Details</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
                 <?php if (hasAccess('pipeline', $role)): ?>
                     <li class="sidebar-item <?php echo isActivePage('pipeline'); ?>">
                         <a href="index.php?page=pipeline">

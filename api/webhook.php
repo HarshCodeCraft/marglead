@@ -116,6 +116,59 @@ foreach ($data['entry'][0]['changes'] as $change) {
         if ($pdo) {
             try {
                 $msgBodyLog = $msg['text']['body'] ?? ($msg['interactive']['button_reply']['title'] ?? $msgType);
+
+                // Enhanced Media extraction & auto-download (Image, PDF, Video, Audio)
+                if (in_array($msgType, ['image', 'document', 'video', 'audio', 'voice', 'sticker']) && isset($msg[$msgType])) {
+                    $mediaData = $msg[$msgType];
+                    $mediaId   = $mediaData['id'] ?? '';
+                    $caption   = $mediaData['caption'] ?? '';
+                    $filename  = $mediaData['filename'] ?? '';
+                    $mimeType  = $mediaData['mime_type'] ?? '';
+
+                    if ($msgType === 'image') {
+                        $msgBodyLog = !empty($caption) ? "📷 " . $caption : "📷 Image received";
+                    } elseif ($msgType === 'document') {
+                        $msgBodyLog = !empty($caption) ? "📄 " . $caption : (!empty($filename) ? "📄 Document: " . $filename : "📄 PDF Document received");
+                    } elseif ($msgType === 'video') {
+                        $msgBodyLog = !empty($caption) ? "🎥 " . $caption : "🎥 Video received";
+                    } elseif ($msgType === 'audio' || $msgType === 'voice') {
+                        $msgBodyLog = "🎵 Voice Note / Audio received";
+                    } elseif ($msgType === 'sticker') {
+                        $msgBodyLog = "🎨 Sticker received";
+                    }
+
+                    if (!empty($mediaId)) {
+                        $uploadDir = __DIR__ . '/../uploads/whatsapp/';
+                        if (!is_dir($uploadDir)) {
+                            @mkdir($uploadDir, 0755, true);
+                        }
+
+                        $ext = 'bin';
+                        if (!empty($filename) && str_contains($filename, '.')) {
+                            $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+                        } elseif (str_contains($mimeType, 'jpeg') || str_contains($mimeType, 'jpg')) {
+                            $ext = 'jpg';
+                        } elseif (str_contains($mimeType, 'png')) {
+                            $ext = 'png';
+                        } elseif (str_contains($mimeType, 'pdf')) {
+                            $ext = 'pdf';
+                        } elseif (str_contains($mimeType, 'mp4')) {
+                            $ext = 'mp4';
+                        } elseif (str_contains($mimeType, 'ogg')) {
+                            $ext = 'ogg';
+                        } elseif (str_contains($mimeType, 'webp')) {
+                            $ext = 'webp';
+                        }
+
+                        $cleanFile = !empty($filename) ? preg_replace('/[^a-zA-Z0-9_\.-]/', '_', $filename) : "media_{$mediaId}.{$ext}";
+                        $savePath  = $uploadDir . $mediaId . '_' . $cleanFile;
+                        
+                        if (!file_exists($savePath)) {
+                            $whatsapp->downloadMedia($mediaId, $savePath);
+                        }
+                    }
+                }
+
                 $stmtMLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json) VALUES ('INBOUND', ?, ?, ?, ?, 'received', ?)");
                 $stmtMLog->execute([$from, $msgType, $msgBodyLog, $wamid, json_encode($msg)]);
 

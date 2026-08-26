@@ -26,8 +26,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['settings_action'])) {
             
             $flash_msg = "Company profile details & tax parameters saved successfully.";
             $flash_type = "success";
-        } 
-        elseif ($action === 'save_branding_settings' && $isAdmin) {
+        }
+
+        if ($action === 'save_branding_settings' && $isAdmin) {
             setSystemSetting('default_theme', trim($_POST['default_theme'] ?? 'dark'));
             setSystemSetting('primary_color', trim($_POST['primary_color'] ?? '#3b82f6'));
             setSystemSetting('system_title', trim($_POST['system_title'] ?? 'MARG Lead CRM'));
@@ -47,8 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['settings_action'])) {
                 $flash_msg = "Branding theme, colors, and UI defaults updated successfully.";
                 $flash_type = "success";
             }
-        } 
-        elseif ($action === 'save_security_settings' && $isAdmin) {
+        }
+
+        if ($action === 'save_security_settings' && $isAdmin) {
             setSystemSetting('enforce_otp', isset($_POST['enforce_otp']) ? '1' : '0');
             setSystemSetting('session_timeout', intval($_POST['session_timeout'] ?? 30));
             setSystemSetting('password_policy', trim($_POST['password_policy'] ?? 'medium'));
@@ -56,54 +58,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['settings_action'])) {
             $flash_msg = "Security parameters and authentication options saved.";
             $flash_type = "success";
         }
-    }
-} 
-    elseif ($action === 'download_sql_backup' && $isAdmin) {
-        // Generate SQL Backup Download
-        if ($db_connected && $pdo) {
-            try {
-                $tables = [];
-                $stmt = $pdo->query("SHOW TABLES");
-                while ($row = $stmt->fetch(PDO::FETCH_NUM)) {
-                    $tables[] = $row[0];
-                }
-                
-                $sqlDump = "-- MARG Lead CRM Database Backup\n";
-                $sqlDump .= "-- Generated on " . date('Y-m-d H:i:s') . "\n";
-                $sqlDump .= "-- Database: marglead\n\n";
-                $sqlDump .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
-                
-                foreach ($tables as $t) {
-                    $sqlDump .= "-- --------------------------------------------------------\n";
-                    $sqlDump .= "-- Table structure for `$t`\n";
-                    $sqlDump .= "-- --------------------------------------------------------\n";
-                    $sqlDump .= "DROP TABLE IF EXISTS `$t`;\n";
-                    $stmtC = $pdo->query("SHOW CREATE TABLE `$t`");
-                    $createRow = $stmtC->fetch(PDO::FETCH_NUM);
-                    $sqlDump .= $createRow[1] . ";\n\n";
-                    
-                    $stmtD = $pdo->query("SELECT * FROM `$t`");
-                    while ($dataRow = $stmtD->fetch(PDO::FETCH_ASSOC)) {
-                        $keys = array_map(function($k){ return "`$k`"; }, array_keys($dataRow));
-                        $vals = array_map(function($v) use ($pdo) { 
-                            return $v === null ? "NULL" : $pdo->quote($v); 
-                        }, array_values($dataRow));
-                        $sqlDump .= "INSERT INTO `$t` (" . implode(', ', $keys) . ") VALUES (" . implode(', ', $vals) . ");\n";
+
+        if ($action === 'download_sql_backup' && $isAdmin) {
+            // Generate SQL Backup Download
+            if ($db_connected && $pdo) {
+                try {
+                    $tables = [];
+                    $stmt = $pdo->query("SHOW TABLES");
+                    while ($row = $stmt->fetch(PDO::FETCH_NUM)) {
+                        $tables[] = $row[0];
                     }
-                    $sqlDump .= "\n";
+                    
+                    $sqlDump = "-- MARG Lead CRM Database Backup\n";
+                    $sqlDump .= "-- Generated on " . date('Y-m-d H:i:s') . "\n";
+                    $sqlDump .= "-- Database: marglead\n\n";
+                    $sqlDump .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
+                    
+                    foreach ($tables as $t) {
+                        $sqlDump .= "-- --------------------------------------------------------\n";
+                        $sqlDump .= "-- Table structure for `$t`\n";
+                        $sqlDump .= "-- --------------------------------------------------------\n";
+                        $sqlDump .= "DROP TABLE IF EXISTS `$t`;\n";
+                        $stmtC = $pdo->query("SHOW CREATE TABLE `$t`");
+                        $createRow = $stmtC->fetch(PDO::FETCH_NUM);
+                        $sqlDump .= $createRow[1] . ";\n\n";
+                        
+                        $stmtD = $pdo->query("SELECT * FROM `$t`");
+                        while ($dataRow = $stmtD->fetch(PDO::FETCH_ASSOC)) {
+                            $keys = array_map(function($k){ return "`$k`"; }, array_keys($dataRow));
+                            $vals = array_map(function($v) use ($pdo) { 
+                                return $v === null ? "NULL" : $pdo->quote($v); 
+                            }, array_values($dataRow));
+                            $sqlDump .= "INSERT INTO `$t` (" . implode(', ', $keys) . ") VALUES (" . implode(', ', $vals) . ");\n";
+                        }
+                        $sqlDump .= "\n";
+                    }
+                    
+                    $sqlDump .= "SET FOREIGN_KEY_CHECKS=1;\n";
+                    
+                    ob_clean();
+                    header('Content-Type: application/sql');
+                    header('Content-Disposition: attachment; filename="marglead_backup_' . date('Y-m-d_H-i') . '.sql"');
+                    header('Content-Length: ' . strlen($sqlDump));
+                    echo $sqlDump;
+                    exit;
+                } catch (Exception $e) {
+                    $flash_msg = "Database export error: " . $e->getMessage();
+                    $flash_type = "danger";
                 }
-                
-                $sqlDump .= "SET FOREIGN_KEY_CHECKS=1;\n";
-                
-                ob_clean();
-                header('Content-Type: application/sql');
-                header('Content-Disposition: attachment; filename="marglead_backup_' . date('Y-m-d_H-i') . '.sql"');
-                header('Content-Length: ' . strlen($sqlDump));
-                echo $sqlDump;
-                exit;
-            } catch (Exception $e) {
-                $flash_msg = "Database export error: " . $e->getMessage();
-                $flash_type = "danger";
             }
         }
     }
