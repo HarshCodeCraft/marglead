@@ -30,62 +30,76 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
     }
     
     $dbName = 'marg_crm_' . $codeSlug;
+    $masterDbName = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
+    $finalDbName = $dbName;
+    $tenantPdo = null;
     
     try {
-        // A. Create new database in MySQL if allowed by host
+        // A. Attempt creating new isolated database in MySQL (if host permits)
         try {
             $masterPdo->exec("CREATE DATABASE IF NOT EXISTS `$dbName` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         } catch (PDOException $createEx) {
-            // Catch Error 1044 if database creation is restricted by hosting privileges
+            // Shared host restriction (Hostinger Error 1044)
         }
         
-        // B. Connect to new tenant DB
-        $tenantDsn = "mysql:host=$db_host;port=$db_port;dbname=$dbName;charset=utf8mb4";
-        $tenantPdo = new PDO($tenantDsn, $db_user, $db_pass, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-        ]);
+        // B. Connect to isolated database or fallback to master database on shared hosting
+        try {
+            $tenantDsn = "mysql:host=$db_host;port=$db_port;dbname=$dbName;charset=utf8mb4";
+            $tenantPdo = new PDO($tenantDsn, $db_user, $db_pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+            ]);
+        } catch (PDOException $connEx) {
+            // Hostinger Shared Hosting Fallback: Use master database when dynamic DB creation is restricted
+            $tenantDsn = "mysql:host=$db_host;port=$db_port;dbname=$masterDbName;charset=utf8mb4";
+            $tenantPdo = new PDO($tenantDsn, $db_user, $db_pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+            ]);
+            $finalDbName = $masterDbName;
+        }
         
-        // C. Load schema.sql statements safely into new tenant database
-        $schemaFile = __DIR__ . '/../../schema.sql';
-        if (file_exists($schemaFile)) {
-            $sql = file_get_contents($schemaFile);
-            $sql = preg_replace('/CREATE DATABASE IF NOT EXISTS (marg_crm|[a-zA-Z0-9_]+);/i', '', $sql);
-            $sql = preg_replace('/USE (marg_crm|[a-zA-Z0-9_]+);/i', '', $sql);
-            
-            $queries = explode(';', $sql);
-            foreach ($queries as $q) {
-                $q = trim($q);
-                if (!empty($q)) {
-                    if (stripos($q, 'INSERT INTO tenant_companies') !== false) {
-                        $q = str_replace('INSERT INTO tenant_companies', 'INSERT IGNORE INTO tenant_companies', $q);
-                    }
-                    try {
-                        $tenantPdo->exec($q);
-                    } catch (PDOException $ex) {
-                        // Ignore non-fatal warnings
+        // C. Load schema.sql statements if creating isolated database
+        if ($finalDbName !== $masterDbName) {
+            $schemaFile = __DIR__ . '/../../schema.sql';
+            if (file_exists($schemaFile)) {
+                $sql = file_get_contents($schemaFile);
+                $sql = preg_replace('/CREATE DATABASE IF NOT EXISTS (marg_crm|[a-zA-Z0-9_]+);/i', '', $sql);
+                $sql = preg_replace('/USE (marg_crm|[a-zA-Z0-9_]+);/i', '', $sql);
+                
+                $queries = explode(';', $sql);
+                foreach ($queries as $q) {
+                    $q = trim($q);
+                    if (!empty($q)) {
+                        if (stripos($q, 'INSERT INTO tenant_companies') !== false) {
+                            $q = str_replace('INSERT INTO tenant_companies', 'INSERT IGNORE INTO tenant_companies', $q);
+                        }
+                        try {
+                            $tenantPdo->exec($q);
+                        } catch (PDOException $ex) {}
                     }
                 }
             }
+            // Truncate default users only in isolated DB
+            $tenantPdo->exec("TRUNCATE TABLE users");
         }
         
-        // D. Truncate default master users in tenant DB and provision Client Owner
-        $tenantPdo->exec("TRUNCATE TABLE users");
+        // D. Provision Client Owner User Account
         $pwdHash = password_hash($passwordStr, PASSWORD_DEFAULT);
         $allPermissions = json_encode(["dashboard","leads","pipeline","followups","demo","quotation","payments","installation","training","support","renewals","reports","settings"]);
         
-        $stmtUser = $tenantPdo->prepare("INSERT INTO users (name, email, password, role, status, permissions) VALUES (?, ?, ?, 'Admin', 'Active', ?)");
+        $stmtUser = $tenantPdo->prepare("INSERT INTO users (name, email, password, role, status, permissions) VALUES (?, ?, ?, 'Admin', 'Active', ?) ON DUPLICATE KEY UPDATE name=VALUES(name), password=VALUES(password), role='Admin', status='Active'");
         $stmtUser->execute([$ownerName, $ownerEmail, $pwdHash, $allPermissions]);
         
         // E. Register in master tenant_companies table
         $expiryDate = date('Y-m-d', strtotime("+{$expiryMonths} months"));
-        $stmtMaster = $masterPdo->prepare("INSERT INTO tenant_companies (company_name, company_code, owner_name, owner_email, phone, db_name, plan, status, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?) ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), owner_name=VALUES(owner_name), owner_email=VALUES(owner_email), phone=VALUES(phone), plan=VALUES(plan), expiry_date=VALUES(expiry_date)");
-        $stmtMaster->execute([$companyName, $codeSlug, $ownerName, $ownerEmail, $phone, $dbName, $plan, $expiryDate]);
+        $stmtMaster = $masterPdo->prepare("INSERT INTO tenant_companies (company_name, company_code, owner_name, owner_email, phone, db_name, plan, status, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?) ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), owner_name=VALUES(owner_name), owner_email=VALUES(owner_email), phone=VALUES(phone), plan=VALUES(plan), db_name=VALUES(db_name), expiry_date=VALUES(expiry_date)");
+        $stmtMaster->execute([$companyName, $codeSlug, $ownerName, $ownerEmail, $phone, $finalDbName, $plan, $expiryDate]);
         
         return [
             'success' => true,
-            'message' => "CRM Client \"{$companyName}\" provisioned successfully with database \"{$dbName}\"!",
-            'db_name' => $dbName,
+            'message' => "CRM Client \"{$companyName}\" provisioned successfully!",
+            'db_name' => $finalDbName,
             'company_code' => $codeSlug
         ];
     } catch (PDOException $e) {
