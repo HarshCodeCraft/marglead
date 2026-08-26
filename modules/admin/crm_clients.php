@@ -228,14 +228,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $masterDb = defined('DB_NAME') ? DB_NAME : '';
                     $dbDropped = false;
 
-                    // Safely attempt to drop tenant database if different from main master database
+                    // Safely attempt to drop tenant database or table prefix tables
                     if (!empty($targetDb) && $targetDb !== $masterDb) {
-                        try {
-                            $pdo_master->exec("DROP DATABASE IF EXISTS `{$targetDb}`");
+                        if (strpos($targetDb, 't_') === 0) {
+                            // Drop isolated client tables t_code_... inside master DB
+                            $tablesToDrop = [
+                                'users', 'leads', 'timeline', 'followups', 'demos', 
+                                'quotations', 'payments', 'bank_accounts', 'installations', 
+                                'trainings', 'tickets', 'client_directory', 'message_logs', 
+                                'chat_conversations', 'merchant_waba_settings', 'bot_flows'
+                            ];
+                            foreach ($tablesToDrop as $tbl) {
+                                try {
+                                    $pdo_master->exec("DROP TABLE IF EXISTS `{$targetDb}{$tbl}`");
+                                } catch (PDOException $e) {}
+                            }
                             $dbDropped = true;
-                        } catch (PDOException $dropEx) {
-                            // Catch Error 1044 / Access denied gracefully on shared hosting (Hostinger)
-                            $dbDropped = false;
+                        } else {
+                            try {
+                                $pdo_master->exec("DROP DATABASE IF EXISTS `{$targetDb}`");
+                                $dbDropped = true;
+                            } catch (PDOException $dropEx) {
+                                // Catch Error 1044 / Access denied gracefully on shared hosting (Hostinger)
+                                $dbDropped = false;
+                            }
                         }
                     }
 
