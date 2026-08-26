@@ -94,6 +94,26 @@ app.get('/status', (req, res) => {
     });
 });
 
+app.post('/pairing-code', async (req, res) => {
+    const { phone } = req.body;
+    if (!phone) {
+        return res.status(400).json({ status: 'error', message: 'Phone number required.' });
+    }
+    const cleanPhone = phone.replace(/\D/g, '');
+    try {
+        if (sock && !sock.authState.creds.registered) {
+            const code = await sock.requestPairingCode(cleanPhone);
+            return res.json({ status: 'success', pairing_code: code });
+        } else if (connectionStatus === 'connected') {
+            return res.json({ status: 'connected', message: 'Already connected!', phone: pairedPhone });
+        } else {
+            return res.status(400).json({ status: 'error', message: 'Engine initializing, please retry.' });
+        }
+    } catch (e) {
+        return res.status(500).json({ status: 'error', message: e.message });
+    }
+});
+
 app.post('/send-message', async (req, res) => {
     const { recipient, message, pdf_url } = req.body;
     if (!recipient || !message) {
