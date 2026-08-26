@@ -16,14 +16,17 @@ if (isset($_GET['verified'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Clear any previous active session when submitting a new login form
-    unset($_SESSION['user_id']);
-    unset($_SESSION['user_role']);
-    unset($_SESSION['login_role']);
-    unset($_SESSION['user_email']);
-    unset($_SESSION['user_name']);
-    unset($_SESSION['user_permissions']);
-    unset($_SESSION['impersonate_tenant_db']);
+    // Destroy any previous logged-in session completely to prevent session leakage from previous user
+    $_SESSION = array();
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000,
+            $params["path"], $params["domain"],
+            $params["secure"], $params["httponly"]
+        );
+    }
+    @session_destroy();
+    @session_start();
 
     $email = strtolower(trim($_POST['email'] ?? ''));
     $password = $_POST['password'] ?? '';
