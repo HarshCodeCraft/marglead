@@ -30,8 +30,10 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
     }
     
     $dbName = 'marg_crm_' . $codeSlug;
+    $tablePrefix = "t_{$codeSlug}_";
     $masterDbName = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
     $finalDbName = $dbName;
+    $isIsolatedDb = true;
     $tenantPdo = null;
     
     try {
@@ -42,7 +44,7 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
             // Shared host restriction (Hostinger Error 1044)
         }
         
-        // B. Connect to isolated database or fallback to master database on shared hosting
+        // B. Connect to isolated database or fallback to Hostinger shared DB isolated table structure
         try {
             $tenantDsn = "mysql:host=$db_host;port=$db_port;dbname=$dbName;charset=utf8mb4";
             $tenantPdo = new PDO($tenantDsn, $db_user, $db_pass, [
@@ -50,17 +52,17 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
             ]);
         } catch (PDOException $connEx) {
-            // Hostinger Shared Hosting Fallback: Use master database when dynamic DB creation is restricted
-            $tenantDsn = "mysql:host=$db_host;port=$db_port;dbname=$masterDbName;charset=utf8mb4";
-            $tenantPdo = new PDO($tenantDsn, $db_user, $db_pass, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-            ]);
-            $finalDbName = $masterDbName;
+            // Hostinger Shared Hosting Fallback: Create isolated client tables (t_code_...) inside u978772385_friendlyaidata
+            $tenantPdo = $masterPdo;
+            $finalDbName = $tablePrefix;
+            $isIsolatedDb = false;
         }
         
-        // C. Load schema.sql statements if creating isolated database
-        if ($finalDbName !== $masterDbName) {
+        $pwdHash = password_hash($passwordStr, PASSWORD_DEFAULT);
+        $allPermissions = json_encode(["dashboard","leads","pipeline","followups","demo","quotation","payments","installation","training","support","renewals","reports","settings"]);
+
+        if ($isIsolatedDb && $tenantPdo) {
+            // Standalone Database Provisioning
             $schemaFile = __DIR__ . '/../../schema.sql';
             if (file_exists($schemaFile)) {
                 $sql = file_get_contents($schemaFile);
@@ -80,25 +82,35 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
                     }
                 }
             }
-            // Truncate default users only in isolated DB
             $tenantPdo->exec("TRUNCATE TABLE users");
+            $stmtUser = $tenantPdo->prepare("INSERT INTO users (name, email, password, role, status, permissions) VALUES (?, ?, ?, 'Admin', 'Active', ?)");
+            $stmtUser->execute([$ownerName, $ownerEmail, $pwdHash, $allPermissions]);
+        } else {
+            // Hostinger Shared DB Provisioning: Isolated Client Tables (e.g. t_poshak_users, t_poshak_leads, etc.)
+            $tablesToClone = [
+                'users', 'leads', 'timeline', 'followups', 'demos', 
+                'quotations', 'payments', 'bank_accounts', 'installations', 
+                'trainings', 'tickets', 'client_directory', 'message_logs', 
+                'chat_conversations', 'merchant_waba_settings', 'bot_flows'
+            ];
+            foreach ($tablesToClone as $tbl) {
+                try {
+                    $tenantPdo->exec("CREATE TABLE IF NOT EXISTS `{$tablePrefix}{$tbl}` LIKE `{$tbl}`");
+                } catch (PDOException $e) {}
+            }
+            // Insert Client Owner into dedicated client users table (e.g. t_poshak_users)
+            $stmtUser = $tenantPdo->prepare("INSERT INTO `{$tablePrefix}users` (name, email, password, role, status, permissions) VALUES (?, ?, ?, 'Admin', 'Active', ?) ON DUPLICATE KEY UPDATE name=VALUES(name), password=VALUES(password), role='Admin', status='Active'");
+            $stmtUser->execute([$ownerName, $ownerEmail, $pwdHash, $allPermissions]);
         }
         
-        // D. Provision Client Owner User Account
-        $pwdHash = password_hash($passwordStr, PASSWORD_DEFAULT);
-        $allPermissions = json_encode(["dashboard","leads","pipeline","followups","demo","quotation","payments","installation","training","support","renewals","reports","settings"]);
-        
-        $stmtUser = $tenantPdo->prepare("INSERT INTO users (name, email, password, role, status, permissions) VALUES (?, ?, ?, 'Admin', 'Active', ?) ON DUPLICATE KEY UPDATE name=VALUES(name), password=VALUES(password), role='Admin', status='Active'");
-        $stmtUser->execute([$ownerName, $ownerEmail, $pwdHash, $allPermissions]);
-        
-        // E. Register in master tenant_companies table
+        // C. Register in master tenant_companies table
         $expiryDate = date('Y-m-d', strtotime("+{$expiryMonths} months"));
         $stmtMaster = $masterPdo->prepare("INSERT INTO tenant_companies (company_name, company_code, owner_name, owner_email, phone, db_name, plan, status, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?) ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), owner_name=VALUES(owner_name), owner_email=VALUES(owner_email), phone=VALUES(phone), plan=VALUES(plan), db_name=VALUES(db_name), expiry_date=VALUES(expiry_date)");
         $stmtMaster->execute([$companyName, $codeSlug, $ownerName, $ownerEmail, $phone, $finalDbName, $plan, $expiryDate]);
         
         return [
             'success' => true,
-            'message' => "CRM Client \"{$companyName}\" provisioned successfully!",
+            'message' => "CRM Client \"{$companyName}\" provisioned successfully with isolated database structure \"{$finalDbName}\"!",
             'db_name' => $finalDbName,
             'company_code' => $codeSlug
         ];
