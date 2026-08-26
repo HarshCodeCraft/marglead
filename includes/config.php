@@ -478,10 +478,11 @@ function hasAccess($module, $role) {
         return true;
     }
 
-    // 2b. System Master Admin Modules bypass tenant package restrictions for Super Admin & Admin
+    // 3. Super Admin & Master System Owner ALWAYS get 100% full access to all pages on Master CRM
     $userEmail = strtolower($_SESSION['user_email'] ?? '');
-    $is_super_admin = ($role === 'Super Admin' || $role === 'Admin' || $userEmail === 'deepakawasthi587@gmail.com');
-    if ($is_super_admin && in_array($module, ['crm_clients', 'admin_users', 'admin_permissions', 'admin_reports', 'admin_reviews', 'settings'])) {
+    $isSuperAdmin = ($role === 'Super Admin' || $role === 'Admin' || $userEmail === 'deepakawasthi587@gmail.com' || !empty($_SESSION['is_super_admin']));
+    
+    if ($isSuperAdmin && empty($_SESSION['impersonate_tenant_db'])) {
         return true;
     }
 
