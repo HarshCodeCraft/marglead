@@ -71,7 +71,9 @@ try {
 
     if (!empty($active_tenant_db) && $active_tenant_db !== $db_name && !empty($pdo)) {
         // If active_tenant_db starts with 't_', it is a table prefix inside master DB, not a separate MySQL schema
-        if (strpos($active_tenant_db, 't_') !== 0) {
+        if (strpos($active_tenant_db, 't_') === 0) {
+            $pdo = TenantAwarePDO::createFromExisting($pdo_master, $active_tenant_db);
+        } else {
             try {
                 $tenant_dsn = "mysql:host=$db_host;port=$db_port;dbname=$active_tenant_db;charset=$db_charset";
                 $pdo = new PDO($tenant_dsn, $db_user, $db_pass, $options);
@@ -447,4 +449,85 @@ try {
     $db_connect_error = $e->getMessage();
     // Log exception for debugging (non-fatal)
     error_log("Database connection failure: " . $e->getMessage());
+}
+
+/**
+ * Multi-Tenant Table Rewriter PDO Proxy
+ * Automatically prefixes table names in SQL queries with active tenant prefix (e.g. t_poshak_)
+ */
+if (!class_exists('TenantAwarePDO')) {
+    class TenantAwarePDO extends PDO {
+        public function __construct() {}
+
+        public static function createFromExisting(PDO $masterPdo, string $prefix): TenantAwarePDO {
+            $instance = new class($masterPdo, $prefix) extends TenantAwarePDO {
+                private PDO $realPdo;
+                private string $prefixStr;
+
+                public function __construct(PDO $pdo, string $prefix) {
+                    $this->realPdo = $pdo;
+                    $this->prefixStr = $prefix;
+                }
+
+                public function rewriteSql(string $sql): string {
+                    if (empty($this->prefixStr)) return $sql;
+                    
+                    $tables = [
+                        'leads', 'timeline', 'followups', 'demos', 
+                        'quotations', 'payments', 'bank_accounts', 'installations', 
+                        'trainings', 'tickets', 'client_directory', 'message_logs', 
+                        'chat_conversations', 'merchant_waba_settings', 'bot_flows'
+                    ];
+
+                    foreach ($tables as $tbl) {
+                        if (strpos($sql, $this->prefixStr . $tbl) !== false) {
+                            continue;
+                        }
+                        $pattern = '/\b(FROM|JOIN|INTO|UPDATE|TABLE|TRUNCATE)\s+(`?' . $tbl . '`?)\b/i';
+                        $sql = preg_replace_callback($pattern, function($matches) use ($tbl) {
+                            return $matches[1] . ' `' . $this->prefixStr . trim($matches[2], '`') . '`';
+                        }, $sql);
+                    }
+                    return $sql;
+                }
+
+                public function prepare($query, $options = []): PDOStatement|false {
+                    return $this->realPdo->prepare($this->rewriteSql($query), $options ?: []);
+                }
+
+                public function query($query, $fetchMode = null, ...$fetchModeArgs): PDOStatement|false {
+                    $rewritten = $this->rewriteSql($query);
+                    if ($fetchMode !== null) {
+                        return $this->realPdo->query($rewritten, $fetchMode, ...$fetchModeArgs);
+                    }
+                    return $this->realPdo->query($rewritten);
+                }
+
+                public function exec($statement): int|false {
+                    return $this->realPdo->exec($this->rewriteSql($statement));
+                }
+
+                public function lastInsertId($name = null): string|false {
+                    return $this->realPdo->lastInsertId($name);
+                }
+
+                public function beginTransaction(): bool {
+                    return $this->realPdo->beginTransaction();
+                }
+
+                public function commit(): bool {
+                    return $this->realPdo->commit();
+                }
+
+                public function rollBack(): bool {
+                    return $this->realPdo->rollBack();
+                }
+
+                public function inTransaction(): bool {
+                    return $this->realPdo->inTransaction();
+                }
+            };
+            return $instance;
+        }
+    }
 }
