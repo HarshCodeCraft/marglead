@@ -548,7 +548,7 @@ function hasAccess($module, $role) {
     }
 
     $permissions = [
-        'Admin' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings', 'bot_flows', 'whatsapp_flows', 'team_inbox', 'broadcast_campaigns', 'merchant_waba_settings', 'whatsapp_settings', 'bulk_broadcast', 'clients', 'admin_users', 'admin_permissions', 'privacy_policy', 'terms_conditions', 'refund_policy'],
+        'Admin' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings', 'bot_flows', 'whatsapp_flows', 'team_inbox', 'broadcast_campaigns', 'merchant_waba_settings', 'whatsapp_settings', 'bulk_broadcast', 'clients', 'crm_clients', 'admin_users', 'admin_permissions', 'privacy_policy', 'terms_conditions', 'refund_policy'],
         'Client' => ['dashboard', 'quotation', 'payments', 'support', 'renewals', 'bot_flows', 'privacy_policy', 'terms_conditions', 'refund_policy'],
         'Sales Head' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
         'Technical Head' => ['dashboard', 'support', 'team_inbox', 'bot_flows', 'installation', 'training', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'support_create', 'support_edit', 'support_assign', 'support_close', 'manager'],

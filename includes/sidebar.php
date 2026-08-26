@@ -264,7 +264,7 @@ $role = $_SESSION['user_role'];
         <?php if (hasAccess('crm_clients', $role) || hasAccess('admin_users', $role) || hasAccess('admin_permissions', $role) || hasAccess('reports', $role) || hasAccess('admin_reviews', $role)): ?>
             <div class="menu-group-title">Management</div>
             <ul>
-                <?php if (($role === 'Super Admin' || $role === 'Admin') && (empty($_SESSION['tenant_db']) || $_SESSION['tenant_db'] === (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) && empty($_SESSION['impersonate_tenant_db'])): ?>
+                <?php if (($role === 'Super Admin' || $role === 'Admin') && empty($_SESSION['impersonate_tenant_db'])): ?>
                     <?php if (hasAccess('crm_clients', $role)): ?>
                         <li class="sidebar-item <?php echo isActivePage('crm_clients'); ?>">
                             <a href="index.php?page=crm_clients">
