@@ -37,8 +37,12 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
     $dbName = 'marg_crm_' . $codeSlug;
     
     try {
-        // A. Create new database in MySQL
-        $masterPdo->exec("CREATE DATABASE IF NOT EXISTS `$dbName` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        // A. Create new database in MySQL if allowed by host
+        try {
+            $masterPdo->exec("CREATE DATABASE IF NOT EXISTS `$dbName` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        } catch (PDOException $createEx) {
+            // Catch Error 1044 if database creation is restricted by hosting privileges
+        }
         
         // B. Connect to new tenant DB
         $tenantDsn = "mysql:host=$db_host;port=$db_port;dbname=$dbName;charset=utf8mb4";
@@ -199,12 +203,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmtGet->execute([$tenantId]);
                 $tRec = $stmtGet->fetch();
                 if ($tRec) {
-                    // Drop isolated DB
-                    $pdo_master->exec("DROP DATABASE IF EXISTS `{$tRec['db_name']}`");
-                    // Delete master record
+                    $targetDb = $tRec['db_name'];
+                    $masterDb = defined('DB_NAME') ? DB_NAME : '';
+                    $dbDropped = false;
+
+                    // Safely attempt to drop tenant database if different from main master database
+                    if (!empty($targetDb) && $targetDb !== $masterDb) {
+                        try {
+                            $pdo_master->exec("DROP DATABASE IF EXISTS `{$targetDb}`");
+                            $dbDropped = true;
+                        } catch (PDOException $dropEx) {
+                            // Catch Error 1044 / Access denied gracefully on shared hosting (Hostinger)
+                            $dbDropped = false;
+                        }
+                    }
+
+                    // Delete master tenant company record
                     $delStmt = $pdo_master->prepare("DELETE FROM tenant_companies WHERE id = ?");
                     $delStmt->execute([$tenantId]);
-                    $flash_msg = "CRM Client \"{$tRec['company_name']}\" and database \"{$tRec['db_name']}\" deleted permanently.";
+
+                    $flash_msg = "CRM Client \"{$tRec['company_name']}\" deleted permanently from CRM." . ($dbDropped ? " Database \"{$targetDb}\" dropped." : "");
                     $flash_type = "success";
                 }
             } catch (PDOException $e) {
