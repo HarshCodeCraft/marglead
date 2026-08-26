@@ -62,17 +62,16 @@ if ($action === 'get_qr') {
         exit;
     }
 
-    // Fallback: Generate authentic scannable session token string
-    $sessionRef = '2@' . bin2hex(random_bytes(16)) . ',' . time() . ',MARG-SELF-HOSTED-WEB-ENGINE-' . $user_id;
-    $qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' . urlencode($sessionRef);
+    // Return notice image when Node engine is starting or offline
+    $noticeImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' . urlencode('PLEASE_START_NODE_ENGINE');
 
     echo json_encode([
-        'status'     => 'success',
-        'qr_code'    => $sessionRef,
-        'qr_image'   => $qrImgUrl,
+        'status'     => 'waiting_engine',
+        'qr_code'    => null,
+        'qr_image'   => $noticeImgUrl,
         'source'     => 'self_hosted_php_bridge',
         'session_id' => 'session_user_' . $user_id,
-        'message'    => 'Scan QR code with WhatsApp Phone Camera'
+        'message'    => 'Run "npm start" inside whatsapp_engine folder on your server to generate live QR code'
     ], JSON_PRETTY_PRINT);
     exit;
 }
