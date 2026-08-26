@@ -1,7 +1,7 @@
 <?php
 /**
  * Marg ERP 9+ Custom Gateway API Endpoint (Cloud SaaS Edition)
- * Receives POST/GET requests and dispatches WhatsApp messages with PDF.
+ * Receives requests from Python Bridge and dispatches WhatsApp messages with PDF (Meta & Web API support).
  */
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
@@ -55,7 +55,6 @@ $bill_number = $_POST['bill_no'] ?? $_GET['bill_no'] ?? '';
 $bill_amount = $_POST['amount'] ?? $_GET['amount'] ?? '0.00';
 $balance = $_POST['balance'] ?? $_GET['balance'] ?? '';
 $firm_name = $_POST['firm_name'] ?? $_GET['firm_name'] ?? '';
-$pdf_url = $_POST['pdf_url'] ?? $_GET['pdf_url'] ?? '';
 
 // Format Bill Text & Extract Details from Marg Message Body
 function formatMargBillText($rawText) {
@@ -74,7 +73,14 @@ function formatMargBillText($rawText) {
     $billBal = '0.00';
     if (preg_match('/Balance:\s*([0-9\.,]+)/i', $rawText, $mBal)) $billBal = trim($mBal[1]);
 
+    $formatted = "From: *" . $firmName . "*\n\n";
+    $formatted .= "Dear *" . $custName . "*\n\n";
+    $formatted .= "Your recent order with Invoice No. *" . $billNo . "* of amount *₹" . $billAmt . "* has been successfully generated.\n\n";
+    $formatted .= "Your Ledger balance is *₹" . $billBal . "*\n\n";
+    $formatted .= "Bill PDF Attached\n";
+
     return [
+        'formatted_text' => $formatted,
         'firm_name' => $firmName,
         'customer_name' => $custName,
         'bill_no' => $billNo,
@@ -105,9 +111,6 @@ if (empty($phoneDigits) || strlen($phoneDigits) < 10) {
     exit;
 }
 
-$phone_number_id = $merchant['phone_number_id'] ?? '';
-$access_token = $merchant['access_token'] ?? '';
-
 // Upload Directory Setup with Bill-Specific Subfolder
 $baseUrl = (!empty($_SERVER['HTTPS']) ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST']);
 $baseUploadsDir = __DIR__ . '/../uploads/invoices/';
@@ -130,69 +133,146 @@ if (!empty($_FILES)) {
     }
 }
 
-// Meta API Template Dispatch
-$metaUrl = "https://graph.facebook.com/v19.0/{$phone_number_id}/messages";
-$template_name_in_meta = 'marg_pdf'; 
+if (!$pdfDownloadUrl) {
+    $pdfDownloadUrl = $baseUrl . "/uploads/invoices/" . $safeBillNo . "/Invoice.pdf";
+}
 
-$payload = [
-    'messaging_product' => 'whatsapp',
-    'to' => $phoneDigits,
-    'type' => 'template',
-    'template' => [
-        'name' => $template_name_in_meta,
-        'language' => ['code' => 'en'],
-        'components' => [
-            [
-                'type' => 'header',
-                'parameters' => [
-                    [
-                        'type' => 'document',
-                        'document' => [
-                            'link' => $pdfDownloadUrl,
-                            //'filename' => "Invoice_" . $safeBillNo . ".pdf"
-                            'filename' => "Invoice.pdf"
+$gateway_type = $merchant['gateway_type'] ?? 'meta';
+$success = false;
+$apiResponseData = [];
+
+if ($gateway_type === 'meta') {
+    // ==========================================
+    // 1. OFFICIAL META CLOUD API DISPATCH
+    // ==========================================
+    $phone_number_id = $merchant['phone_number_id'] ?? '';
+    $access_token = $merchant['access_token'] ?? '';
+
+    if (empty($phone_number_id) || empty($access_token)) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Merchant Meta WABA credentials missing.'], JSON_PRETTY_PRINT);
+        exit;
+    }
+
+    $metaUrl = "https://graph.facebook.com/v19.0/{$phone_number_id}/messages";
+    $template_name_in_meta = 'marg_pdf'; 
+
+    $payload = [
+        'messaging_product' => 'whatsapp',
+        'to' => $phoneDigits,
+        'type' => 'template',
+        'template' => [
+            'name' => $template_name_in_meta,
+            'language' => ['code' => 'en'],
+            'components' => [
+                [
+                    'type' => 'header',
+                    'parameters' => [
+                        [
+                            'type' => 'document',
+                            'document' => [
+                                'link' => $pdfDownloadUrl,
+                                'filename' => "Invoice.pdf"
+                            ]
                         ]
                     ]
-                ]
-            ],
-            [
-                'type' => 'body',
-                'parameters' => [
-                    ['type' => 'text', 'text' => (string)$parsedData['firm_name']],
-                    ['type' => 'text', 'text' => (string)$parsedData['customer_name']],
-                    ['type' => 'text', 'text' => (string)$parsedData['bill_no']],
-                    ['type' => 'text', 'text' => (string)$parsedData['bill_amount']],
-                    ['type' => 'text', 'text' => (string)$parsedData['balance']],
-                    ['type' => 'text', 'text' => 'HARSHSAINI2017@OKICCI'],
-                    ['type' => 'text', 'text' => 'BOI'],
-                    ['type' => 'text', 'text' => '178963542456'],
-                    ['type' => 'text', 'text' => 'MANDHANA'],
-                    ['type' => 'text', 'text' => 'BKI0125'],
-                    ['type' => 'text', 'text' => (string)$parsedData['firm_name']],
-                    ['type' => 'text', 'text' => '+91 92773 87778'],
-                    ['type' => 'text', 'text' => (string)$pdfDownloadUrl]
+                ],
+                [
+                    'type' => 'body',
+                    'parameters' => [
+                        ['type' => 'text', 'text' => (string)$parsedData['firm_name']],
+                        ['type' => 'text', 'text' => (string)$parsedData['customer_name']],
+                        ['type' => 'text', 'text' => (string)$parsedData['bill_no']],
+                        ['type' => 'text', 'text' => (string)$parsedData['bill_amount']],
+                        ['type' => 'text', 'text' => (string)$parsedData['balance']],
+                        ['type' => 'text', 'text' => 'HARSHSAINI2017@OKICCI'],
+                        ['type' => 'text', 'text' => 'BOI'],
+                        ['type' => 'text', 'text' => '178963542456'],
+                        ['type' => 'text', 'text' => 'MANDHANA'],
+                        ['type' => 'text', 'text' => 'BKI0125'],
+                        ['type' => 'text', 'text' => (string)$parsedData['firm_name']],
+                        ['type' => 'text', 'text' => '+91 92773 87778'],
+                        ['type' => 'text', 'text' => (string)$pdfDownloadUrl]
+                    ]
                 ]
             ]
         ]
-    ]
-];
+    ];
 
-$ch = curl_init($metaUrl);
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $access_token, 'Content-Type: application/json']);
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-$resRaw = curl_exec($ch);
-$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-curl_close($ch);
+    $ch = curl_init($metaUrl);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $access_token, 'Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    $resRaw = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
 
-$metaResponse = json_decode($resRaw, true);
+    $apiResponseData = json_decode($resRaw, true);
+    if ($httpCode === 200 && isset($apiResponseData['messages'][0]['id'])) {
+        $success = true;
+    }
 
-if ($httpCode === 200 && isset($metaResponse['messages'][0]['id'])) {
-    echo json_encode(['status' => 'success', 'message' => 'Dispatched successfully with real PDF.', 'recipient' => $phoneDigits], JSON_PRETTY_PRINT);
+} else if ($gateway_type === 'web_api') {
+    // ==========================================
+    // 2. THIRD-PARTY WEB API DISPATCH
+    // ==========================================
+    $webApiUrl = $merchant['web_api_url'] ?? '';
+    $webApiToken = $merchant['web_api_token'] ?? '';
+
+    if (empty($webApiUrl)) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Web API URL missing for this merchant.'], JSON_PRETTY_PRINT);
+        exit;
+    }
+
+    $payload = [
+        'phone' => $phoneDigits,
+        'mobile' => $phoneDigits,
+        'message' => $parsedData['formatted_text'],
+        'document_url' => $pdfDownloadUrl,
+        'file_url' => $pdfDownloadUrl,
+        'filename' => "Invoice.pdf"
+    ];
+
+    $headers = ['Content-Type: application/json'];
+    if (!empty($webApiToken)) {
+        $headers[] = 'Authorization: Bearer ' . $webApiToken;
+        $headers[] = 'apikey: ' . $webApiToken;
+    }
+
+    $ch = curl_init($webApiUrl);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    $resRaw = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $apiResponseData = json_decode($resRaw, true) ?? ['raw_response' => $resRaw];
+    if ($httpCode >= 200 && $httpCode < 300) {
+        $success = true;
+    }
+}
+
+// Final Clean JSON Response
+if ($success) {
+    echo json_encode([
+        'status' => 'success', 
+        'gateway' => $gateway_type,
+        'message' => 'Dispatched successfully with real PDF.', 
+        'recipient' => $phoneDigits
+    ], JSON_PRETTY_PRINT);
 } else {
     http_response_code(500);
-    echo json_encode(['status' => 'error', 'meta_response' => $metaResponse], JSON_PRETTY_PRINT);
+    echo json_encode([
+        'status' => 'error', 
+        'gateway' => $gateway_type,
+        'error_code' => 500,
+        'api_response' => $apiResponseData
+    ], JSON_PRETTY_PRINT);
 }
 ?>
