@@ -141,13 +141,17 @@ try {
         $pdo->exec("ALTER TABLE users ADD COLUMN reset_ip VARCHAR(50) NULL");
     }
 
-    // Schema auto-upgrade to support tenant_companies password column
+    // Schema auto-upgrade to support tenant_companies password column & default allowed_modules
     try {
         $tenantCompQuery = $pdo->query("SHOW COLUMNS FROM tenant_companies");
         $tenantCompColumns = $tenantCompQuery->fetchAll(PDO::FETCH_COLUMN);
         if (!in_array('password', $tenantCompColumns)) {
             $pdo->exec("ALTER TABLE tenant_companies ADD COLUMN password VARCHAR(255) NULL AFTER phone");
         }
+        
+        // Auto-fix empty allowed_modules for existing SaaS clients
+        $defaultModulesJson = json_encode(["dashboard","leads","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","reports","settings","bot_flows","whatsapp_flows","team_inbox","broadcast_campaigns","merchant_waba_settings","whatsapp_settings","bulk_broadcast","clients"]);
+        $pdo->exec("UPDATE tenant_companies SET allowed_modules = '{$defaultModulesJson}' WHERE allowed_modules IS NULL OR allowed_modules = '' OR allowed_modules = 'null'");
     } catch (\Exception $e) {}
     if (!in_array('reset_user_agent', $userColumns)) {
         $pdo->exec("ALTER TABLE users ADD COLUMN reset_user_agent TEXT NULL");
