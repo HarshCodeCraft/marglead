@@ -181,36 +181,9 @@ if ($db_connected && $pdo) {
     }
 }
 
-// Fallback initial accounts if database returns empty
+// If database returns empty, keep bank_accounts empty
 if (empty($bank_accounts)) {
-    $bank_accounts = [
-        [
-            'id' => 1,
-            'account_name' => 'Marg Soft Solutions Pvt Ltd',
-            'bank_name' => 'HDFC Bank Ltd.',
-            'account_number' => '50200045091234',
-            'ifsc_code' => 'HDFC0000123',
-            'branch' => 'Okhla Industrial Area Phase 3, New Delhi',
-            'account_type' => 'Current Account',
-            'upi_id' => 'margsoft@okicici',
-            'qr_code_image' => null,
-            'is_primary' => 1,
-            'status' => 'Active'
-        ],
-        [
-            'id' => 2,
-            'account_name' => 'Marg Soft Solutions Pvt Ltd',
-            'bank_name' => 'ICICI Bank Ltd.',
-            'account_number' => '000705012398',
-            'ifsc_code' => 'ICIC0000007',
-            'branch' => 'Connaught Place, New Delhi',
-            'account_type' => 'Current Account',
-            'upi_id' => 'margsoftpay@icici',
-            'qr_code_image' => null,
-            'is_primary' => 0,
-            'status' => 'Active'
-        ]
-    ];
+    $bank_accounts = [];
 }
 
 $primary_account = null;

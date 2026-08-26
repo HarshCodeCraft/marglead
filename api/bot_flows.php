@@ -5,8 +5,9 @@
  */
 
 header('Content-Type: application/json');
-require_once __DIR__ . '/../includes/config.php';
-require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/cors.php';
+
+$auth = requireApiAuth();
 
 // Helper function to auto-create bot_flows table if it does not exist yet
 function ensureBotFlowsTable($pdo) {
@@ -23,32 +24,6 @@ function ensureBotFlowsTable($pdo) {
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
         $pdo->exec($sql);
-
-        // Seed initial flows if empty
-        $stmtCount = $pdo->query("SELECT COUNT(*) FROM bot_flows");
-        if ($stmtCount->fetchColumn() == 0) {
-            $defaultScreens = json_encode([
-                [
-                    "id" => "screen_1",
-                    "name" => "Welcome to Marg Soft",
-                    "title" => "Welcome to Marg Soft",
-                    "body" => "Please Provide Your Info and Problem Here..",
-                    "components" => [
-                        ["id" => "c1", "type" => "Short Answer", "label" => "License Number", "helper" => "Client Id", "required" => true],
-                        ["id" => "c2", "type" => "Dropdown", "label" => "Bill Format Issue", "helper" => "", "options" => ["Bill Format Issue", "GST Error", "Printer Setup"], "required" => false],
-                        ["id" => "c3", "type" => "Text Area", "label" => "Problem", "helper" => "Describe issue", "required" => true],
-                        ["id" => "c4", "type" => "Short Answer", "label" => "Call Back Number", "helper" => "Call Back Number", "required" => true]
-                    ],
-                    "footer_label" => "Submit",
-                    "footer_action" => "Complete"
-                ]
-            ]);
-
-            $stmtSeed = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status, screens_json) VALUES (?, ?, ?, ?, ?)");
-            $stmtSeed->execute(['1838065533836150', 'Ticket', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
-            $stmtSeed->execute(['36230192503294106', 'Service', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
-            $stmtSeed->execute(['1303139711243346', 'Bot', 'SIGN IN', 'PUBLISHED', $defaultScreens]);
-        }
     } catch (PDOException $e) {}
 }
 
@@ -117,6 +92,69 @@ switch ($action) {
                 echo json_encode(['success' => false, 'message' => 'Flow not found']);
             }
         } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'sync_meta_flows':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        
+        try {
+            $stmtW = $pdo->prepare("SELECT waba_id, access_token FROM merchant_waba_settings WHERE user_id = ? OR waba_id != '' LIMIT 1");
+            $stmtW->execute([$_SESSION['user_id'] ?? 1]);
+            $waba = $stmtW->fetch(PDO::FETCH_ASSOC);
+
+            if (!$waba || empty($waba['waba_id']) || empty($waba['access_token'])) {
+                echo json_encode(['success' => false, 'message' => 'Please configure WABA ID and Access Token in Marg ERP WABA Setup first!']);
+                exit;
+            }
+
+            $url = "https://graph.facebook.com/v20.0/{$waba['waba_id']}/flows?fields=id,name,status,categories,validation_errors";
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $waba['access_token']]);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            $res = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            $metaData = json_decode($res, true);
+
+            if ($httpCode >= 200 && $httpCode < 300 && !empty($metaData['data'])) {
+                $synced = 0;
+                foreach ($metaData['data'] as $mf) {
+                    $flowId = $mf['id'];
+                    $name = ucwords($mf['name']);
+                    $status = strtoupper($mf['status'] ?? 'PUBLISHED');
+                    $catArr = $mf['categories'] ?? ['SIGN IN'];
+                    $category = !empty($catArr[0]) ? strtoupper(str_replace('_', ' ', $catArr[0])) : 'SIGN IN';
+
+                    $stmtChk = $pdo->prepare("SELECT id FROM bot_flows WHERE flow_id = ?");
+                    $stmtChk->execute([$flowId]);
+                    $existingId = $stmtChk->fetchColumn();
+
+                    if ($existingId) {
+                        $stmtUp = $pdo->prepare("UPDATE bot_flows SET name = ?, category = ?, status = ? WHERE id = ?");
+                        $stmtUp->execute([$name, $category, $status, $existingId]);
+                    } else {
+                        $stmtIns = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status) VALUES (?, ?, ?, ?)");
+                        $stmtIns->execute([$flowId, $name, $category, $status]);
+                    }
+                    $synced++;
+                }
+
+                echo json_encode([
+                    'success' => true,
+                    'message' => "Successfully synced $synced official Meta WhatsApp Flow(s) directly from Meta WhatsApp Manager!",
+                    'count' => $synced
+                ]);
+            } else {
+                $errMsg = $metaData['error']['message'] ?? 'Failed to fetch flows from Meta Graph API';
+                echo json_encode(['success' => false, 'message' => $errMsg]);
+            }
+        } catch (Exception $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         }
         exit;
@@ -328,6 +366,78 @@ switch ($action) {
                 $stmtIns->execute([$flow_id, $flow_name, $category, $screensJson, $rawJson]);
                 echo json_encode(['success' => true, 'message' => 'Flow JSON imported successfully!', 'flow_id' => $flow_id]);
             }
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    // ---------------------------------------------------------
+    // KEYWORD TRIGGERS MANAGEMENT ACTIONS
+    // ---------------------------------------------------------
+    case 'get_triggers':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        try {
+            // Seed initial default keyword triggers if empty
+            $stmtCount = $pdo->query("SELECT COUNT(*) FROM whatsapp_keyword_triggers");
+            if ($stmtCount && intval($stmtCount->fetchColumn()) === 0) {
+                $defaults = [
+                    ['keyword' => 'TICKET', 'match_type' => 'exact', 'reply_type' => 'flow', 'reply_payload' => 'Ticket Flow (1838065533836150)', 'flow_id' => '1838065533836150'],
+                    ['keyword' => 'SERVICE', 'match_type' => 'exact', 'reply_type' => 'flow', 'reply_payload' => 'Service Flow (36230192503294106)', 'flow_id' => '36230192503294106'],
+                    ['keyword' => 'BOT', 'match_type' => 'exact', 'reply_type' => 'flow', 'reply_payload' => 'Bot Flow (1303139711243346)', 'flow_id' => '1303139711243346'],
+                    ['keyword' => 'AMC', 'match_type' => 'contains', 'reply_type' => 'text', 'reply_payload' => '⏰ Marg ERP AMC Renewal Notice: Call 7523830026 for renewal assistance.', 'flow_id' => null]
+                ];
+                $stmtIns = $pdo->prepare("INSERT INTO whatsapp_keyword_triggers (keyword, match_type, reply_type, reply_payload, flow_id) VALUES (?, ?, ?, ?, ?)");
+                foreach ($defaults as $d) {
+                    $stmtIns->execute([$d['keyword'], $d['match_type'], $d['reply_type'], $d['reply_payload'], $d['flow_id']]);
+                }
+            }
+
+            $stmtT = $pdo->query("SELECT * FROM whatsapp_keyword_triggers ORDER BY id ASC");
+            $triggers = $stmtT ? $stmtT->fetchAll(PDO::FETCH_ASSOC) : [];
+            echo json_encode(['success' => true, 'triggers' => $triggers]);
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'save_trigger':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        $keyword = strtoupper(trim($_POST['keyword'] ?? ''));
+        $matchType = trim($_POST['match_type'] ?? 'exact');
+        $replyType = trim($_POST['reply_type'] ?? 'text');
+        $replyPayload = trim($_POST['reply_payload'] ?? '');
+        $flowId = trim($_POST['flow_id'] ?? '');
+
+        if (empty($keyword) || empty($replyPayload)) {
+            echo json_encode(['success' => false, 'message' => 'Keyword and Reply Response are required']);
+            exit;
+        }
+
+        try {
+            $stmtIns = $pdo->prepare("INSERT INTO whatsapp_keyword_triggers (keyword, match_type, reply_type, reply_payload, flow_id) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE match_type = VALUES(match_type), reply_type = VALUES(reply_type), reply_payload = VALUES(reply_payload), flow_id = VALUES(flow_id)");
+            $stmtIns->execute([$keyword, $matchType, $replyType, $replyPayload, $flowId]);
+            echo json_encode(['success' => true, 'message' => 'Keyword trigger rule saved successfully!']);
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'delete_trigger':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        $id = intval($_POST['id'] ?? 0);
+        try {
+            $stmt = $pdo->prepare("DELETE FROM whatsapp_keyword_triggers WHERE id = ?");
+            $stmt->execute([$id]);
+            echo json_encode(['success' => true, 'message' => 'Keyword trigger rule deleted']);
         } catch (PDOException $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         }

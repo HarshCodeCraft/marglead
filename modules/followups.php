@@ -95,6 +95,7 @@ if ($db_connected && $pdo) {
                 'lead_phone' => $f['lead_phone'] ?? '',
                 'lead_email' => $f['lead_email'] ?? '',
                 'lead_priority' => ucfirst($f['lead_priority'] ?? 'Warm'),
+                'priority' => ucfirst($f['lead_priority'] ?? 'Warm'),
                 'action_type' => $f['action_type'],
                 'scheduled_at' => $f['scheduled_at'],
                 'date_formatted' => date('D, d M Y', $scheduled),
@@ -388,13 +389,13 @@ if (!function_exists('getFilterStyle')) {
                         <?php foreach ($today_agenda as $item): 
                             $jsonItem = htmlspecialchars(json_encode($item), ENT_QUOTES, 'UTF-8');
                         ?>
-                            <div class="agenda-item agenda-item-clickable p-3 pointer" data-fup-json='<?php echo $jsonItem; ?>' style="background-color: var(--<?php echo $item['priority_class']; ?>-light); border-left: 3px solid var(--<?php echo $item['priority_class']; ?>); border-radius: var(--border-radius-sm); margin-bottom: 0.5rem; cursor: pointer; transition: transform 0.15s ease;" title="Click to view follow-up details">
+                            <div class="agenda-item agenda-item-clickable p-3 pointer" data-fup-json='<?php echo $jsonItem; ?>' style="background-color: var(--<?php echo $item['priority_class'] ?? 'info'; ?>-light); border-left: 3px solid var(--<?php echo $item['priority_class'] ?? 'info'; ?>); border-radius: var(--border-radius-sm); margin-bottom: 0.5rem; cursor: pointer; transition: transform 0.15s ease;" title="Click to view follow-up details">
                                 <div class="flex justify-between align-center mb-1">
-                                    <span class="text-xs font-semibold"><?php echo htmlspecialchars($item['time']); ?></span>
-                                    <span class="badge text-xs" style="--badge-bg: var(--<?php echo $item['priority_class']; ?>-light); --badge-color: var(--<?php echo $item['priority_class']; ?>);"><?php echo htmlspecialchars($item['priority']); ?></span>
+                                    <span class="text-xs font-semibold"><?php echo htmlspecialchars($item['time'] ?? ''); ?></span>
+                                    <span class="badge text-xs" style="--badge-bg: var(--<?php echo $item['priority_class'] ?? 'info'; ?>-light); --badge-color: var(--<?php echo $item['priority_class'] ?? 'info'; ?>);"><?php echo htmlspecialchars($item['priority'] ?? $item['lead_priority'] ?? 'Warm'); ?></span>
                                 </div>
-                                <h5 class="text-sm font-semibold mb-1"><?php echo htmlspecialchars($item['company']); ?></h5>
-                                <p class="text-xs text-muted"><?php echo htmlspecialchars($item['remarks']); ?></p>
+                                <h5 class="text-sm font-semibold mb-1"><?php echo htmlspecialchars($item['company'] ?? ''); ?></h5>
+                                <p class="text-xs text-muted"><?php echo htmlspecialchars($item['remarks'] ?? ''); ?></p>
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -773,7 +774,10 @@ if (!function_exists('getFilterStyle')) {
                     if (document.getElementById('qf-modal-title')) document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name || ''}</strong> ( ${lead.phone || ''} )`;
                     if (document.getElementById('qf-company')) document.getElementById('qf-company').value = lead.company || '';
                     if (document.getElementById('qf-status')) document.getElementById('qf-status').value = lead.status || 'new';
-                    if (document.getElementById('qf-assigned-to')) document.getElementById('qf-assigned-to').value = lead.assigned || '';
+                    const assignedList = (lead.assigned || '').split(',').map(s => s.trim().toLowerCase());
+                    document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
+                        cb.checked = assignedList.includes(cb.value.trim().toLowerCase());
+                    });
                     if (document.getElementById('qf-tags')) document.getElementById('qf-tags').value = lead.tags || '';
                     if (document.getElementById('qf-address')) document.getElementById('qf-address').value = lead.address || '';
                     if (document.getElementById('qf-source')) document.getElementById('qf-source').value = lead.source || 'Website';
@@ -972,14 +976,16 @@ if (!function_exists('getFilterStyle')) {
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Assign to</label>
-                            <select name="assigned_to" id="qf-assigned-to" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
-                                <option value="">-- Choose Operator --</option>
+                        <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Assign to Employee(s) (Select Multiple)</label>
+                            <div class="employee-select-grid" style="display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 100px; overflow-y: auto; padding: 0.4rem; background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);">
                                 <?php foreach ($operators as $op): ?>
-                                    <option value="<?php echo htmlspecialchars($op); ?>"><?php echo htmlspecialchars($op); ?></option>
+                                    <label class="flex align-center gap-15 text-xs pointer" style="padding: 0.25rem 0.5rem; border-radius: 4px; background: var(--bg-card); border: 1px solid var(--border-color); user-select: none;">
+                                        <input type="checkbox" name="assigned_to[]" class="qf-assigned-cb" value="<?php echo htmlspecialchars($op); ?>" style="accent-color: var(--primary); width: 13px; height: 13px;">
+                                        <span><?php echo htmlspecialchars($op); ?></span>
+                                    </label>
                                 <?php endforeach; ?>
-                            </select>
+                            </div>
                         </div>
                     </div>
                     

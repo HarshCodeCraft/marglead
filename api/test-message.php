@@ -10,7 +10,7 @@ header('Content-Type: text/html; charset=utf-8');
 
 $phone = trim($_POST['phone'] ?? $_GET['phone'] ?? '');
 $msgType = trim($_POST['msg_type'] ?? $_GET['msg_type'] ?? 'buttons');
-$customText = trim($_POST['custom_text'] ?? 'Welcome to Marg Soft Solution Support! How can we help you?');
+$customText = trim($_POST['custom_text'] ?? "Welcome To Marg Soft Solution\nIndian business management and accounting software designed for small and medium businesses. It helps companies manage daily operations such as billing, accounting, inventory, GST compliance, sales, purchases, and reporting from a single platform.");
 
 $response = null;
 
@@ -53,7 +53,7 @@ if (!empty($phone)) {
     <div class="card">
         <h2>WhatsApp Live Message & Flow Tester</h2>
         <div class="info-box">
-            Connected Phone Number ID: <strong>1360878153768577</strong><br>
+            Connected Phone Number ID: <strong><?php echo htmlspecialchars(PHONE_NUMBER_ID); ?></strong><br>
             Use this tool to test sending live <strong>Text Messages</strong>, <strong>Interactive Reply Buttons</strong>, or <strong>WhatsApp Flows</strong> directly to your phone.
         </div>
 

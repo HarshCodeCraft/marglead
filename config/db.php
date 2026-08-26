@@ -27,17 +27,36 @@ try {
     try {
         $pdo = new PDO($dsn, $db_user, $db_pass, $options);
     } catch (PDOException $e) {
-        // Fallback to standard MySQL 3306 port if 3307 connection fails
         $fallback_port = ($db_port === '3307') ? '3306' : '3307';
         $dsn_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$db_name;charset=$db_charset";
-        $pdo = new PDO($dsn_fallback, $db_user, $db_pass, $options);
+        try {
+            $pdo = new PDO($dsn_fallback, $db_user, $db_pass, $options);
+        } catch (PDOException $e2) {
+            $alt_db_name = ($db_name === 'marg_crm') ? 'u978772385_friendlyaidata' : 'marg_crm';
+            $dsn_alt = "mysql:host=$db_host;port=$db_port;dbname=$alt_db_name;charset=$db_charset";
+            try {
+                $pdo = new PDO($dsn_alt, $db_user, $db_pass, $options);
+            } catch (PDOException $e3) {
+                $dsn_alt_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$alt_db_name;charset=$db_charset";
+                try {
+                    $pdo = new PDO($dsn_alt_fallback, $db_user, $db_pass, $options);
+                } catch (PDOException $e4) {
+                    $pdo = null;
+                }
+            }
+        }
     }
-    
-    $db_connected = true;
 
-    // -------------------------------------------------------------
-    // Auto Database Schema Migration for WhatsApp Support Ticket System
-    // -------------------------------------------------------------
+    if ($pdo) {
+        $db_connected = true;
+    } else {
+        $db_connected = false;
+    }
+
+    if ($pdo) {
+        // -------------------------------------------------------------
+        // Auto Database Schema Migration for WhatsApp Support Ticket System
+        // -------------------------------------------------------------
 
     // 1. Users Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS users (
@@ -213,6 +232,27 @@ try {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+    // 8. WhatsApp Saved Templates Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS whatsapp_templates (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(150) NOT NULL,
+        slug VARCHAR(100) NOT NULL UNIQUE,
+        category VARCHAR(50) DEFAULT 'General',
+        header_type VARCHAR(30) DEFAULT 'none',
+        header_text VARCHAR(255) NULL,
+        header_content VARCHAR(255) NULL,
+        body_text TEXT NOT NULL,
+        footer_text VARCHAR(255) NULL,
+        buttons_json TEXT NULL,
+        created_by VARCHAR(100) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    try { $pdo->exec("ALTER TABLE whatsapp_templates ADD COLUMN header_type VARCHAR(30) DEFAULT 'none'"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE whatsapp_templates ADD COLUMN header_content VARCHAR(255) NULL"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE whatsapp_templates ADD COLUMN buttons_json TEXT NULL"); } catch (PDOException $e) {}
+
     // 8. Attachments Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS attachments (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -225,18 +265,28 @@ try {
         INDEX idx_ticket_id (ticket_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-    // -------------------------------------------------------------
-    // Seed Sample Customers for Dynamic License Lookup Testing
-    // -------------------------------------------------------------
-    $checkCustomer = $pdo->query("SELECT COUNT(*) FROM customers WHERE license_no IS NOT NULL AND license_no != ''")->fetchColumn();
-    if ($checkCustomer == 0) {
-        $stmtCust = $pdo->prepare("INSERT INTO customers (license_no, customer_name, firm_name, mobile, email, amc_expiry) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmtCust->execute(['LIC-1001', 'Gantavya Pharmacy', 'Gantavya Pharmacy Pvt Ltd', '9340000000', 'sishospitalniramay@gmail.com', '2026-12-31']);
-        $stmtCust->execute(['1352947', 'Rajesh Sharma', 'Marg Soft Solution', '9876543210', 'rajesh@margsoft.com', '2027-06-30']);
-        $stmtCust->execute(['LIC-9021', 'Amit Sharma', 'Apex Pharma Solutions', '9876543210', 'amit.sharma@apexpharma.com', '2026-08-15']);
+    // 9. WhatsApp Keyword Auto-Responder Triggers Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS whatsapp_keyword_triggers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        keyword VARCHAR(100) NOT NULL UNIQUE,
+        match_type VARCHAR(30) DEFAULT 'exact',
+        reply_type VARCHAR(30) DEFAULT 'text',
+        reply_payload TEXT NOT NULL,
+        flow_id VARCHAR(50) NULL,
+        is_active TINYINT(1) DEFAULT 1,
+        created_by VARCHAR(100) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // 10. System Control Settings Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS system_settings (
+        setting_key VARCHAR(100) PRIMARY KEY,
+        setting_value TEXT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
 
-} catch (PDOException $e) {
+} catch (Throwable $e) {
     $db_connected = false;
     $db_error = $e->getMessage();
     error_log("Database connection failed in config/db.php: " . $e->getMessage());

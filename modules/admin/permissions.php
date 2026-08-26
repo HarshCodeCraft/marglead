@@ -1,4 +1,9 @@
 <?php
+/**
+ * Marg Soft Solution - Employee Access Permissions Matrix Workspace
+ * Clean 2-Column Responsive Matrix Interface (No Overflow Modals)
+ */
+
 require_once __DIR__ . '/../../includes/config.php';
 require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../includes/mailer.php';
@@ -75,52 +80,84 @@ $ACTION_PERMISSIONS = [
     ]
 ];
 
-// All Available Workspace Modules
-$WORKSPACE_MODULES = [
-    'dashboard' => 'Dashboard & Analytics',
-    'leads' => 'Leads Directory',
-    'pipeline' => 'Pipeline Kanban',
-    'followups' => 'Follow-up Schedules',
-    'demo' => 'Product Demos & Feedback',
-    'quotation' => 'Quotations & Proposals',
-    'payments' => 'Payments & Invoices',
-    'bank_accounts' => 'Bank & QR Payment Details',
-    'installation' => 'Technical Installations',
-    'training' => 'Client Training',
-    'support' => 'Support Desk & Tickets',
-    'renewals' => 'Software Support Renewals',
-    'reports' => 'Business Reports',
-    'settings' => 'Control Settings'
+// Workspace Modules Categorized for Clean UI Grid
+$MODULE_CATEGORIES = [
+    'Core CRM Workspaces' => [
+        'dashboard' => ['label' => 'Dashboard & Analytics Workspace', 'icon' => 'layout-dashboard', 'color' => '#6366f1'],
+        'leads' => ['label' => 'Leads Directory & Contacts', 'icon' => 'users', 'color' => '#3b82f6'],
+        'pipeline' => ['label' => 'Kanban Pipeline & Stages', 'icon' => 'git-commit', 'color' => '#8b5cf6'],
+        'followups' => ['label' => 'Follow-up Schedules & Reminders', 'icon' => 'calendar-clock', 'color' => '#ec4899'],
+        'demo' => ['label' => 'Product Demos & Feedback', 'icon' => 'presentation', 'color' => '#f59e0b'],
+        'quotation' => ['label' => 'Quotations & Billing Proposals', 'icon' => 'file-text', 'color' => '#10b981'],
+        'payments' => ['label' => 'Payments, Invoices & Receipts', 'icon' => 'credit-card', 'color' => '#06b6d4'],
+        'bank_accounts' => ['label' => 'Bank & QR Payment Details', 'icon' => 'landmark', 'color' => '#14b8a6'],
+        'installation' => ['label' => 'Technical Installations Checklist', 'icon' => 'wrench', 'color' => '#f97316'],
+        'training' => ['label' => 'Client Operator Training', 'icon' => 'graduation-cap', 'color' => '#84cc16'],
+        'support' => ['label' => 'Support Desk & Helpdesk Tickets', 'icon' => 'life-buoy', 'color' => '#ef4444'],
+        'renewals' => ['label' => 'Software Support Renewals (AMC)', 'icon' => 'refresh-cw', 'color' => '#0284c7'],
+        'reports' => ['label' => 'Business Performance Reports', 'icon' => 'bar-chart-3', 'color' => '#a855f7'],
+        'clients' => ['label' => 'Client Directory & Marg Customers', 'icon' => 'user-check', 'color' => '#06b6d4']
+    ],
+    'WhatsApp Marketing & Automation Add-ons' => [
+        'team_inbox' => ['label' => 'Team Inbox & Live WhatsApp Chat', 'icon' => 'message-square', 'color' => '#10b981'],
+        'broadcast_campaigns' => ['label' => 'WhatsApp Broadcast & Template Hub', 'icon' => 'send', 'color' => '#2563eb'],
+        'bulk_broadcast' => ['label' => 'Bulk Marketing Broadcast Engine', 'icon' => 'upload-cloud', 'color' => '#8b5cf6'],
+        'bot_flows' => ['label' => 'WhatsApp Bots & Auto-Responders', 'icon' => 'bot', 'color' => '#f59e0b'],
+        'merchant_waba_settings' => ['label' => 'WhatsApp WABA Cloud API Setup', 'icon' => 'qr-code', 'color' => '#ec4899']
+    ],
+    'Admin & System Controls' => [
+        'admin_users' => ['label' => 'User Management & Operators', 'icon' => 'shield-check', 'color' => '#6366f1'],
+        'admin_permissions' => ['label' => 'Employee Permissions Matrix', 'icon' => 'lock', 'color' => '#ef4444'],
+        'settings' => ['label' => 'System Control Settings', 'icon' => 'sliders', 'color' => '#64748b']
+    ],
+    'Legal & Compliance Policies' => [
+        'privacy_policy' => ['label' => 'Privacy Policy Document', 'icon' => 'file-text', 'color' => '#10b981'],
+        'terms_conditions' => ['label' => 'Terms & Conditions Agreement', 'icon' => 'file-check', 'color' => '#3b82f6'],
+        'refund_policy' => ['label' => 'Refund & Cancellation Policy', 'icon' => 'rotate-ccw', 'color' => '#f59e0b']
+    ]
 ];
+
+// Flat list of all modules
+$WORKSPACE_MODULES = [];
+foreach ($MODULE_CATEGORIES as $cat => $mods) {
+    foreach ($mods as $mKey => $mMeta) {
+        $WORKSPACE_MODULES[$mKey] = $mMeta['label'];
+    }
+}
 
 // Process POST Save Granular Permissions Request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_employee_permissions') {
-    $target_user_id = intval($_POST['user_id'] ?? 0);
-    $selected_actions = isset($_POST['actions']) && is_array($_POST['actions']) ? $_POST['actions'] : [];
-    $selected_modules = isset($_POST['modules']) && is_array($_POST['modules']) ? $_POST['modules'] : [];
+    if (!verifyCsrfToken()) {
+        $message = "Security Error: Invalid or missing CSRF token. Action blocked.";
+        $message_type = "danger";
+    } else {
+        $target_user_id = intval($_POST['user_id'] ?? 0);
+        $selected_actions = isset($_POST['actions']) && is_array($_POST['actions']) ? $_POST['actions'] : [];
+        $selected_modules = isset($_POST['modules']) && is_array($_POST['modules']) ? $_POST['modules'] : [];
 
-    if ($target_user_id > 0 && $db_connected && $pdo) {
-        try {
-            // Auto-synchronize shared permission mappings
-            syncPermissionMappings($selected_modules, $selected_actions);
+        if ($target_user_id > 0 && $db_connected && $pdo) {
+            try {
+                // Auto-synchronize shared permission mappings
+                syncPermissionMappings($selected_modules, $selected_actions);
 
-            $actions_json = json_encode($selected_actions);
-            $modules_json = json_encode($selected_modules);
+                $actions_json = json_encode($selected_actions);
+                $modules_json = json_encode($selected_modules);
 
-            $stmt = $pdo->prepare("UPDATE users SET action_permissions = ?, permissions = ? WHERE id = ?");
-            $stmt->execute([$actions_json, $modules_json, $target_user_id]);
+                $stmt = $pdo->prepare("UPDATE users SET action_permissions = ?, permissions = ? WHERE id = ?");
+                $stmt->execute([$actions_json, $modules_json, $target_user_id]);
 
-            // If current logged in user permissions were modified, update session
-            if ($target_user_id === $user_id) {
-                $_SESSION['user_permissions'] = $selected_modules;
-                $_SESSION['user_action_permissions'] = $selected_actions;
+                // If current logged in user permissions were modified, update session
+                if (isset($_SESSION['user_id']) && $_SESSION['user_id'] == $target_user_id) {
+                    $_SESSION['user_permissions'] = $selected_modules;
+                    $_SESSION['user_action_permissions'] = $selected_actions;
+                }
+
+                $message = "Employee permissions saved and synchronized successfully!";
+                $message_type = "success";
+            } catch (PDOException $e) {
+                $message = "Error updating permissions: " . $e->getMessage();
+                $message_type = "danger";
             }
-
-            $message = "Employee permissions matrix updated and synchronized successfully across all modules.";
-            $message_type = "success";
-        } catch (PDOException $e) {
-            $message = "Error updating permissions: " . $e->getMessage();
-            $message_type = "danger";
         }
     }
 }
@@ -182,406 +219,393 @@ if (empty($users_list)) {
     ];
 }
 
-// Calculate permission metrics
-$custom_override_count = 0;
-foreach ($users_list as $u) {
-    if (!empty($u['action_permissions']) || !empty($u['permissions'])) {
-        $custom_override_count++;
+// Determine selected user
+$selected_user_id = isset($_GET['user_id']) ? intval($_GET['user_id']) : null;
+$selected_user = null;
+
+if ($selected_user_id) {
+    foreach ($users_list as $u) {
+        if (intval($u['id']) === $selected_user_id) {
+            $selected_user = $u;
+            break;
+        }
     }
 }
+
+if (!$selected_user && !empty($users_list)) {
+    $selected_user = $users_list[0];
+    $selected_user_id = intval($selected_user['id']);
+}
+
+// Parse selected user permissions
+$sel_act_perms = $selected_user ? getUserActionPermissions($selected_user) : array_keys($ACTION_PERMISSIONS);
+$sel_mod_perms = $selected_user ? getUserPermissions($selected_user) : array_keys($WORKSPACE_MODULES);
 ?>
 
-<div class="permissions-module-container" style="max-width: 1200px; margin: 0 auto; padding-bottom: 4rem;">
-    <!-- Page Header & Action Controls -->
+<style>
+/* Clean 2-Column Workspace Layout */
+.permissions-layout-grid {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+    margin-bottom: 4rem;
+}
+@media (max-width: 992px) {
+    .permissions-layout-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Sidebar Employee Cards */
+.emp-list-container {
+    max-height: 720px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding-right: 4px;
+}
+.emp-select-card {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.emp-select-card:hover {
+    border-color: var(--primary, #10b981);
+    transform: translateX(3px);
+}
+.emp-select-card.active {
+    background: rgba(16, 185, 129, 0.08);
+    border-color: var(--primary, #10b981);
+    border-left: 4px solid var(--primary, #10b981);
+}
+
+/* Header Profile Card */
+.emp-profile-header {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 14px;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+/* Preset Action Pills */
+.preset-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.preset-pill {
+    background: var(--bg-body, #f3f4f6);
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 20px;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-main, #374151);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.preset-pill:hover {
+    background: var(--primary, #10b981);
+    color: white;
+    border-color: var(--primary, #10b981);
+}
+
+/* Matrix Section Cards */
+.matrix-section-card {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 14px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* Sticky Action Footer */
+.permissions-sticky-footer {
+    position: sticky;
+    bottom: 1rem;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 14px;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    z-index: 99;
+}
+</style>
+
+<div class="permissions-module-container" style="max-width: 1280px; margin: 0 auto;">
+    
+    <!-- Top Bar -->
     <div class="flex justify-between align-center mb-6 flex-wrap gap-4">
         <div>
-            <h2 style="font-family: var(--font-heading); font-size: 1.85rem; font-weight: 800; color: var(--text-main);" class="mb-1 flex align-center gap-2">
-                <i data-lucide="shield-check" style="width: 30px; height: 30px; color: var(--primary);"></i>
-                <span>Employee Access Permission Matrix</span>
+            <h2 style="font-family: var(--font-heading); font-size: 1.75rem; font-weight: 800; color: var(--text-main);" class="mb-1 flex align-center gap-2">
+                <i data-lucide="shield-check" style="width: 28px; height: 28px; color: var(--primary);"></i>
+                <span>Employee Access Permissions Matrix</span>
             </h2>
             <p class="text-muted text-sm m-0">
-                Configure granular action privileges (Edit, Delete, Update, Share, Bulk Upload, Export) and module access per employee.
+                Configure granular action privileges and workspace access per employee with real-time sidebar synchronization.
             </p>
         </div>
     </div>
 
     <?php if (!empty($message)): ?>
         <div class="badge mb-6" style="--badge-bg: var(--<?php echo $message_type; ?>-light); --badge-color: var(--<?php echo $message_type; ?>); padding: 0.9rem 1.25rem; width: 100%; display: flex; font-size: 0.875rem; border-radius: 12px; border: 1px solid rgba(var(--primary-h), var(--primary-s), var(--primary-l), 0.2);">
-            <i data-lucide="info" style="width: 18px; height: 18px; margin-right: 0.6rem; flex-shrink: 0;"></i>
+            <i data-lucide="check-circle" style="width: 18px; height: 18px; margin-right: 0.6rem; flex-shrink: 0;"></i>
             <span><?php echo htmlspecialchars($message); ?></span>
         </div>
     <?php endif; ?>
 
-    <!-- Summary Stats Banner -->
-    <div class="card p-6 mb-8 overflow-hidden" style="border: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(var(--primary-h), var(--primary-s), var(--primary-l), 0.08) 0%, rgba(var(--primary-h), var(--primary-s), var(--primary-l), 0.02) 100%); border-radius: 16px;">
-        <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; align-items: center;">
-            <div class="flex align-center gap-4">
-                <div style="width: 50px; height: 50px; border-radius: 14px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-md); flex-shrink: 0;">
-                    <i data-lucide="users" style="width: 24px; height: 24px;"></i>
-                </div>
-                <div>
-                    <span class="text-xs text-muted block uppercase font-bold" style="letter-spacing: 0.05em;">Total Employees</span>
-                    <span class="font-bold text-main" style="font-size: 1.4rem; font-family: var(--font-heading);"><?php echo count($users_list); ?> Operators</span>
-                </div>
-            </div>
-
-            <div class="flex align-center gap-4">
-                <div style="width: 50px; height: 50px; border-radius: 14px; background: linear-gradient(135deg, #10b981, #059669); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-md); flex-shrink: 0;">
-                    <i data-lucide="sliders" style="width: 24px; height: 24px;"></i>
-                </div>
-                <div>
-                    <span class="text-xs text-muted block uppercase font-bold" style="letter-spacing: 0.05em;">Custom Overrides</span>
-                    <span class="font-bold text-main" style="font-size: 1.4rem; font-family: var(--font-heading);"><?php echo $custom_override_count; ?> Configured</span>
-                </div>
-            </div>
-
-            <div class="flex align-center gap-4">
-                <div style="width: 50px; height: 50px; border-radius: 14px; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-md); flex-shrink: 0;">
-                    <i data-lucide="lock" style="width: 24px; height: 24px;"></i>
-                </div>
-                <div>
-                    <span class="text-xs text-muted block uppercase font-bold" style="letter-spacing: 0.05em;">Granular Protection</span>
-                    <span class="text-xs text-success block font-semibold mt-1">✓ Active System-Wide</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Search & Role Filter Toolbar -->
-    <div class="flex justify-between align-center mb-6 flex-wrap gap-4 p-4 card" style="border: 1px solid var(--border-color); border-radius: 12px; background-color: var(--bg-card);">
-        <div class="flex align-center gap-2 flex-1" style="max-width: 450px;">
-            <i data-lucide="search" style="width: 18px; height: 18px; color: var(--text-muted);"></i>
-            <input type="text" id="user-perm-search" class="form-control text-sm" placeholder="Search employee name (e.g. Harsh), email, or operator ID..." oninput="filterUserCards()" style="border: none; background: transparent; padding: 0.35rem 0.5rem;">
-        </div>
-
-        <div class="flex align-center gap-3">
-            <span class="text-xs text-muted font-semibold">Filter Role:</span>
-            <select id="role-filter-select" class="form-control text-sm" onchange="filterUserCards()" style="padding: 0.35rem 0.75rem; width: 180px; height: 36px;">
-                <option value="">All Roles & Teams</option>
-                <?php 
-                $filter_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') ? $EMPLOYEE_ROLES : $ROLES;
-                foreach ($filter_roles as $rName => $rDesc): 
-                ?>
-                    <option value="<?php echo $rName; ?>"><?php echo $rName; ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-    </div>
-
-    <!-- Employee Permission Cards Directory Grid -->
-    <div class="user-perm-grid" id="user-perm-grid">
-        <?php foreach ($users_list as $user): ?>
-            <?php 
-            $user_act_perms = getUserActionPermissions($user);
-            $user_mod_perms = getUserPermissions($user);
+    <!-- MAIN 2-COLUMN GRID -->
+    <div class="permissions-layout-grid">
+        
+        <!-- COLUMN 1: EMPLOYEE SELECTOR SIDEBAR -->
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
             
-            $avatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&h=256&fit=crop";
-            if (!empty($user['profile_photo']) && file_exists(__DIR__ . '/../../' . ltrim($user['profile_photo'], '/\\'))) {
-                $avatar = ltrim($user['profile_photo'], '/\\');
-            }
-            ?>
-            <div class="user-perm-card card p-6" data-name="<?php echo htmlspecialchars(strtolower($user['name'])); ?>" data-email="<?php echo htmlspecialchars(strtolower($user['email'])); ?>" data-role="<?php echo htmlspecialchars(strtolower($user['role'])); ?>" data-id="emp-<?php echo str_pad($user['id'], 4, '0', STR_PAD_LEFT); ?>">
-                
-                <!-- User Header Badge -->
-                <div class="flex justify-between align-start mb-4">
-                    <div class="flex align-center gap-3">
-                        <img src="<?php echo htmlspecialchars($avatar); ?>" alt="<?php echo htmlspecialchars($user['name']); ?>" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-color); box-shadow: var(--shadow-xs);">
-                        <div>
-                            <h3 class="text-base font-bold m-0 user-card-name" style="color: var(--text-main); line-height: 1.2;">
-                                <?php echo htmlspecialchars($user['name']); ?>
-                            </h3>
-                            <span class="text-xs text-muted font-mono block mt-1">EMP-<?php echo str_pad($user['id'], 4, '0', STR_PAD_LEFT); ?> • <?php echo htmlspecialchars($user['email']); ?></span>
-                        </div>
-                    </div>
-                    <span class="badge" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-size: 0.7rem; font-weight: 600;">
-                        <?php echo htmlspecialchars($user['role']); ?>
-                    </span>
+            <div class="card p-4" style="border: 1px solid var(--border-color); border-radius: 14px;">
+                <div class="flex align-center gap-2 mb-3">
+                    <i data-lucide="search" style="width: 16px; height: 16px; color: var(--text-muted);"></i>
+                    <input type="text" id="empSearchInput" class="form-control text-xs" placeholder="Search employee by name..." onkeyup="filterEmpList()">
                 </div>
 
-                <hr style="border: none; border-top: 1px solid var(--border-color); margin: 0.75rem 0 1rem 0;">
-
-                <!-- Active Granular Action Privileges Badges -->
-                <div class="mb-4">
-                    <span class="text-xs text-muted block uppercase font-bold mb-2" style="letter-spacing: 0.05em;">Granted Action Permissions</span>
-                    <div class="flex flex-wrap gap-1">
-                        <?php 
-                        foreach ($ACTION_PERMISSIONS as $actKey => $actMeta):
-                            $has_act = in_array($actKey, $user_act_perms);
-                            if ($has_act):
-                        ?>
-                            <span class="badge" style="--badge-bg: <?php echo $actMeta['color']; ?>15; --badge-color: <?php echo $actMeta['color']; ?>; font-size: 0.68rem; padding: 0.2rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                                <i data-lucide="<?php echo $actMeta['icon']; ?>" style="width: 11px; height: 11px;"></i>
-                                <span><?php echo htmlspecialchars($actMeta['label']); ?></span>
-                            </span>
-                        <?php 
-                            endif;
-                        endforeach; 
-                        ?>
-                    </div>
+                <div class="flex align-center justify-between text-xs text-muted mb-2 font-semibold">
+                    <span>OPERATOR SYSTEM DIRECTORY</span>
+                    <span><?php echo count($users_list); ?> EMPLOYEES</span>
                 </div>
 
-                <!-- Active Modules Count Badge -->
-                <div class="flex justify-between align-center p-3 mb-4" style="background-color: var(--border-card); border-radius: 8px; border: 1px solid var(--border-color);">
-                    <span class="text-xs text-muted font-semibold">Accessible Modules:</span>
-                    <span class="font-bold text-xs text-main"><?php echo count($user_mod_perms); ?> / <?php echo count($WORKSPACE_MODULES); ?> Modules Enabled</span>
-                </div>
-
-                <!-- Footer Action Button -->
-                <button type="button" class="btn btn-primary text-xs w-100 flex align-center justify-center gap-2" onclick="openConfigurePermissionsModal(<?php echo htmlspecialchars(json_encode($user)); ?>)" style="padding: 0.6rem; font-weight: 700;">
-                    <i data-lucide="sliders" style="width: 14px; height: 14px;"></i>
-                    <span>Configure Employee Permissions</span>
-                </button>
-            </div>
-        <?php endforeach; ?>
-    </div>
-</div>
-
-<!-- CONFIGURE GRANULAR PERMISSIONS MODAL -->
-<div class="modal-overlay" id="configure-perm-modal">
-    <div class="modal-content" style="max-width: 800px; width: 94%;">
-        <div class="modal-header">
-            <h3 class="modal-title">Configure Employee Permissions Matrix</h3>
-            <button class="modal-close" onclick="closeModal('configure-perm-modal')">&times;</button>
-        </div>
-        <form action="index.php?page=admin_permissions" method="POST" id="perm-matrix-form">
-            <input type="hidden" name="action" value="save_employee_permissions">
-            <input type="hidden" name="user_id" id="perm-modal-user-id" value="0">
-
-            <div class="modal-body p-6">
-                <!-- User Profile Summary Header in Modal -->
-                <div class="flex align-center gap-4 p-4 mb-6" style="background-color: var(--border-card); border-radius: 12px; border: 1px solid var(--border-color);">
-                    <img id="perm-modal-avatar" src="" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary);">
-                    <div>
-                        <h4 class="text-base font-bold m-0" id="perm-modal-user-name" style="color: var(--text-main);">User Name</h4>
-                        <div class="flex align-center gap-2 mt-1">
-                            <span class="badge" id="perm-modal-user-role" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-size: 0.7rem;">Role</span>
-                            <span class="text-xs text-muted font-mono" id="perm-modal-user-email">email@domain.com</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Department Presets Bar -->
-                <div class="mb-6">
-                    <span class="text-xs text-muted block uppercase font-bold mb-2" style="letter-spacing: 0.05em;">Quick Role Presets:</span>
-                    <div class="flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-secondary text-xs" onclick="applyRolePreset('sales_exec')">Sales Executive Standard</button>
-                        <button type="button" class="btn btn-secondary text-xs" onclick="applyRolePreset('sales_power')">Sales Executive (With Bulk Upload)</button>
-                        <button type="button" class="btn btn-secondary text-xs" onclick="applyRolePreset('manager')">Manager / Team Lead</button>
-                        <button type="button" class="btn btn-secondary text-xs" onclick="applyRolePreset('tech')">Tech / Support Team</button>
-                        <button type="button" class="btn btn-secondary text-xs" onclick="applyRolePreset('full_admin')">Full Admin Access</button>
-                    </div>
-                </div>
-
-                <!-- SECTION 1: Granular Action Permissions (Toggles) -->
-                <div class="mb-6 pt-4" style="border-top: 1px solid var(--border-color);">
-                    <h4 class="text-sm font-bold text-main uppercase mb-3" style="letter-spacing: 0.05em; color: var(--primary);">
-                        1. Action-Level Privilege Controls
-                    </h4>
-                    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
-                        <?php foreach ($ACTION_PERMISSIONS as $actKey => $actMeta): ?>
-                            <div class="action-perm-box p-3" style="background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px;">
-                                <label class="flex align-start gap-3 cursor-pointer" style="margin: 0;">
-                                    <input type="checkbox" name="actions[]" value="<?php echo $actKey; ?>" class="act-checkbox" id="chk-act-<?php echo $actKey; ?>" style="width: 18px; height: 18px; margin-top: 2px; accent-color: <?php echo $actMeta['color']; ?>;">
-                                    <div>
-                                        <span class="font-bold text-xs text-main flex align-center gap-1">
-                                            <i data-lucide="<?php echo $actMeta['icon']; ?>" style="width: 13px; height: 13px; color: <?php echo $actMeta['color']; ?>;"></i>
-                                            <span><?php echo htmlspecialchars($actMeta['label']); ?></span>
-                                        </span>
-                                        <span class="text-xs text-muted block mt-1" style="font-size: 0.725rem; line-height: 1.3;"><?php echo htmlspecialchars($actMeta['desc']); ?></span>
+                <div class="emp-list-container" id="empListContainer">
+                    <?php foreach ($users_list as $u): 
+                        $isSelected = ($selected_user_id === intval($u['id']));
+                        $userAvatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&h=256&fit=crop";
+                        if (!empty($u['profile_photo']) && file_exists(__DIR__ . '/../../' . ltrim($u['profile_photo'], '/\\'))) {
+                            $userAvatar = ltrim($u['profile_photo'], '/\\');
+                        }
+                    ?>
+                        <a href="index.php?page=admin_permissions&user_id=<?php echo $u['id']; ?>" class="emp-select-card <?php echo $isSelected ? 'active' : ''; ?>" data-search="<?php echo htmlspecialchars(strtolower($u['name'] . ' ' . $u['email'] . ' ' . $u['role'])); ?>">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <img src="<?php echo htmlspecialchars($userAvatar); ?>" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+                                <div>
+                                    <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-main); line-height: 1.2;">
+                                        <?php echo htmlspecialchars($u['name']); ?>
                                     </div>
-                                </label>
+                                    <div class="text-xs text-muted" style="font-size: 0.725rem;">
+                                        <?php echo htmlspecialchars($u['email']); ?>
+                                    </div>
+                                </div>
                             </div>
-                        <?php endforeach; ?>
-                    </div>
+                            <span class="badge" style="background: rgba(59,130,246,0.1); color: #2563eb; font-size: 0.68rem; font-weight: 600;">
+                                <?php echo htmlspecialchars($u['role']); ?>
+                            </span>
+                        </a>
+                    <?php endforeach; ?>
                 </div>
+            </div>
+        </div>
 
-                <!-- SECTION 2: Accessible Workspace Modules (Checkboxes) -->
-                <div class="pt-4" style="border-top: 1px solid var(--border-color);">
-                    <div class="flex justify-between align-center mb-3">
-                        <h4 class="text-sm font-bold text-main uppercase m-0" style="letter-spacing: 0.05em; color: var(--primary);">
-                            2. Accessible Workspace Modules
-                        </h4>
-                        <div class="flex gap-2">
-                            <button type="button" class="text-xs text-primary cursor-pointer border-none bg-transparent" onclick="selectAllModules(true)">Select All</button>
-                            <span class="text-muted text-xs">•</span>
-                            <button type="button" class="text-xs text-muted cursor-pointer border-none bg-transparent" onclick="selectAllModules(false)">Deselect All</button>
+        <!-- COLUMN 2: PERMISSION MATRIX FORM WORKSPACE -->
+        <form action="index.php?page=admin_permissions" method="POST" id="permMatrixForm" style="display: flex; flex-direction: column; gap: 1.25rem;">
+            <?php echo renderCsrfInput(); ?>
+            <input type="hidden" name="action" value="save_employee_permissions">
+            <input type="hidden" name="user_id" value="<?php echo $selected_user_id; ?>">
+
+            <!-- 1. Selected Employee Profile Bar -->
+            <?php if ($selected_user): 
+                $selAvatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&h=256&fit=crop";
+                if (!empty($selected_user['profile_photo']) && file_exists(__DIR__ . '/../../' . ltrim($selected_user['profile_photo'], '/\\'))) {
+                    $selAvatar = ltrim($selected_user['profile_photo'], '/\\');
+                }
+            ?>
+                <div class="emp-profile-header">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <img src="<?php echo htmlspecialchars($selAvatar); ?>" style="width: 52px; height: 52px; border-radius: 50%; object-fit: cover; border: 3px solid var(--primary);">
+                        <div>
+                            <div style="font-size: 1.15rem; font-weight: 800; color: var(--text-main);">
+                                <?php echo htmlspecialchars($selected_user['name']); ?>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 2px;">
+                                <span class="badge" style="background: rgba(16,185,129,0.15); color: #047857; font-weight: 700; font-size: 0.725rem;">
+                                    <?php echo htmlspecialchars($selected_user['role']); ?>
+                                </span>
+                                <span class="font-mono text-xs text-muted">EMP-<?php echo str_pad($selected_user['id'], 4, '0', STR_PAD_LEFT); ?></span>
+                                <span class="text-xs text-muted">• <?php echo htmlspecialchars($selected_user['email']); ?></span>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
-                        <?php foreach ($WORKSPACE_MODULES as $modKey => $modLabel): ?>
-                            <div class="module-perm-box p-3" style="background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px;">
-                                <label class="flex align-center gap-2 cursor-pointer" style="margin: 0;">
-                                    <input type="checkbox" name="modules[]" value="<?php echo $modKey; ?>" class="mod-checkbox" id="chk-mod-<?php echo $modKey; ?>" style="width: 16px; height: 16px; accent-color: var(--primary);">
-                                    <span class="text-xs font-semibold text-main"><?php echo htmlspecialchars($modLabel); ?></span>
-                                </label>
-                            </div>
-                        <?php endforeach; ?>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <button type="submit" class="btn btn-primary text-xs font-bold" style="padding: 0.65rem 1.25rem;">
+                            💾 Save Permissions
+                        </button>
                     </div>
+                </div>
+            <?php endif; ?>
+
+            <!-- 2. Quick Preset Buttons Bar -->
+            <div class="matrix-section-card">
+                <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); uppercase; letter-spacing: 0.05em;">
+                    ⚡ 1-CLICK ROLE PRESETS
+                </div>
+                <div class="preset-bar">
+                    <button type="button" class="preset-pill" onclick="applyRolePreset('sales_exec')">Sales Executive Standard</button>
+                    <button type="button" class="preset-pill" onclick="applyRolePreset('sales_power')">Sales Executive (Bulk Upload)</button>
+                    <button type="button" class="preset-pill" onclick="applyRolePreset('manager')">Manager / Team Lead</button>
+                    <button type="button" class="preset-pill" onclick="applyRolePreset('tech')">Tech / Support Team</button>
+                    <button type="button" class="preset-pill" onclick="applyRolePreset('full_admin')">Full Admin Access</button>
+                    <button type="button" class="preset-pill" style="background: rgba(239,68,68,0.1); color: #ef4444;" onclick="applyRolePreset('clear')">Revoke All</button>
                 </div>
             </div>
 
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary text-xs" onclick="closeModal('configure-perm-modal')">Cancel</button>
-                <button type="submit" class="btn btn-primary text-xs font-bold" style="padding: 0.6rem 1.5rem;">Save Employee Permissions</button>
+            <!-- 3. SECTION 1: Action-Level Privilege Controls -->
+            <div class="matrix-section-card">
+                <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+                    <div style="font-size: 0.95rem; font-weight: 800; color: var(--primary);">
+                        1. Action-Level Privilege Controls (9 Granular Actions)
+                    </div>
+                    <div class="text-xs text-muted">Controls operations like edit, delete, export, & share</div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.85rem;">
+                    <?php foreach ($ACTION_PERMISSIONS as $actKey => $actMeta): 
+                        $isChecked = in_array($actKey, $sel_act_perms);
+                    ?>
+                        <label style="background: var(--bg-body, #fafafa); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.85rem; display: flex; align-items: flex-start; gap: 0.75rem; cursor: pointer;">
+                            <input type="checkbox" name="actions[]" value="<?php echo $actKey; ?>" class="act-checkbox" id="chk-act-<?php echo $actKey; ?>" <?php echo $isChecked ? 'checked' : ''; ?> style="width: 18px; height: 18px; margin-top: 2px; accent-color: <?php echo $actMeta['color']; ?>;">
+                            <div>
+                                <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                                    <i data-lucide="<?php echo $actMeta['icon']; ?>" style="width: 14px; height: 14px; color: <?php echo $actMeta['color']; ?>;"></i>
+                                    <span><?php echo htmlspecialchars($actMeta['label']); ?></span>
+                                </div>
+                                <div style="font-size: 0.725rem; color: var(--text-muted); margin-top: 3px; line-height: 1.3;">
+                                    <?php echo htmlspecialchars($actMeta['desc']); ?>
+                                </div>
+                            </div>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
             </div>
+
+            <!-- 4. SECTION 2: Accessible Workspace Modules Categorized Grid -->
+            <?php foreach ($MODULE_CATEGORIES as $catName => $catModules): ?>
+                <div class="matrix-section-card">
+                    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 0.6rem;">
+                        <div style="font-size: 0.9rem; font-weight: 800; color: var(--text-main);">
+                            <?php echo htmlspecialchars($catName); ?>
+                        </div>
+                        <div style="display: flex; gap: 0.75rem;">
+                            <button type="button" class="text-xs text-primary font-bold border-none bg-transparent cursor-pointer" onclick="toggleCategoryModules('<?php echo md5($catName); ?>', true)">Select Category</button>
+                            <span class="text-muted text-xs">•</span>
+                            <button type="button" class="text-xs text-muted font-bold border-none bg-transparent cursor-pointer" onclick="toggleCategoryModules('<?php echo md5($catName); ?>', false)">Deselect</button>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem;" class="cat-group-<?php echo md5($catName); ?>">
+                        <?php foreach ($catModules as $mKey => $mMeta): 
+                            $isCheckedMod = in_array($mKey, $sel_mod_perms);
+                        ?>
+                            <label style="background: var(--bg-body, #fafafa); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.75rem 0.85rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer;">
+                                <input type="checkbox" name="modules[]" value="<?php echo $mKey; ?>" class="mod-checkbox" id="chk-mod-<?php echo $mKey; ?>" <?php echo $isCheckedMod ? 'checked' : ''; ?> style="width: 17px; height: 17px; accent-color: var(--primary);">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i data-lucide="<?php echo $mMeta['icon']; ?>" style="width: 16px; height: 16px; color: <?php echo $mMeta['color']; ?>;"></i>
+                                    <span style="font-weight: 700; font-size: 0.83rem; color: var(--text-main);">
+                                        <?php echo htmlspecialchars($mMeta['label']); ?>
+                                    </span>
+                                </div>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+
+            <!-- STICKY ACTION FOOTER -->
+            <div class="permissions-sticky-footer">
+                <div class="text-xs text-muted font-semibold">
+                    Changes apply immediately to sidebar navigation and page route access.
+                </div>
+                <div style="display: flex; gap: 0.75rem;">
+                    <a href="index.php?page=admin_permissions&user_id=<?php echo $selected_user_id; ?>" class="btn btn-secondary text-xs">Reset Changes</a>
+                    <button type="submit" class="btn btn-primary text-xs font-bold" style="padding: 0.65rem 1.5rem;">💾 Save Employee Permissions</button>
+                </div>
+            </div>
+
         </form>
     </div>
 </div>
 
-<style>
-.user-perm-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-    gap: 1.5rem;
-}
-
-.user-perm-card {
-    border: 1px solid var(--border-color);
-    background-color: var(--bg-card);
-    border-radius: 16px;
-    box-shadow: var(--shadow-sm);
-    transition: transform 0.25s ease, box-shadow 0.25s ease;
-}
-
-.user-perm-card:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-md);
-}
-
-.action-perm-box, .module-perm-box {
-    transition: border-color 0.2s ease, background-color 0.2s ease;
-}
-
-.action-perm-box:hover, .module-perm-box:hover {
-    border-color: rgba(var(--primary-h), var(--primary-s), var(--primary-l), 0.4) !important;
-}
-
-@media (max-width: 768px) {
-    .user-perm-grid {
-        grid-template-columns: 1fr;
-    }
-}
-</style>
-
 <script>
-    function filterUserCards() {
-        const query = document.getElementById('user-perm-search').value.toLowerCase().trim();
-        const roleFilter = document.getElementById('role-filter-select').value.toLowerCase().trim();
-        const cards = document.querySelectorAll('.user-perm-card');
+function filterEmpList() {
+    const query = document.getElementById('empSearchInput').value.toLowerCase().trim();
+    const cards = document.querySelectorAll('.emp-select-card');
+    cards.forEach(c => {
+        const searchData = c.getAttribute('data-search') || '';
+        c.style.display = searchData.includes(query) ? '' : 'none';
+    });
+}
 
-        cards.forEach(card => {
-            const name = card.getAttribute('data-name') || '';
-            const email = card.getAttribute('data-email') || '';
-            const id = card.getAttribute('data-id') || '';
-            const role = card.getAttribute('data-role') || '';
+function toggleCategoryModules(catMd5, select) {
+    document.querySelectorAll('.cat-group-' + catMd5 + ' .mod-checkbox').forEach(cb => cb.checked = select);
+}
 
-            const matchesSearch = !query || name.includes(query) || email.includes(query) || id.includes(query);
-            const matchesRole = !roleFilter || role === roleFilter;
-
-            card.style.display = (matchesSearch && matchesRole) ? '' : 'none';
-        });
-    }
-
-    function openConfigurePermissionsModal(user) {
-        document.getElementById('perm-modal-user-id').value = user.id;
-        document.getElementById('perm-modal-user-name').textContent = user.name;
-        document.getElementById('perm-modal-user-role').textContent = user.role;
-        document.getElementById('perm-modal-user-email').textContent = user.email;
-
-        // Set avatar image
-        const avatarImg = document.getElementById('perm-modal-avatar');
-        let avatarSrc = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&h=256&fit=crop";
-        if (user.profile_photo) {
-            avatarSrc = user.profile_photo;
-        }
-        avatarImg.src = avatarSrc;
-
-        // Reset all checkboxes
+function applyRolePreset(presetType) {
+    if (presetType === 'clear') {
         document.querySelectorAll('.act-checkbox').forEach(cb => cb.checked = false);
         document.querySelectorAll('.mod-checkbox').forEach(cb => cb.checked = false);
+        return;
+    }
 
-        // Parse user active action permissions
-        let actPerms = [];
-        if (user.action_permissions) {
-            try { actPerms = JSON.parse(user.action_permissions); } catch(e){}
-        }
-        if (!Array.isArray(actPerms) || actPerms.length === 0) {
-            // Default based on role
-            actPerms = getDefaultActionsByRole(user.role);
-        }
+    document.querySelectorAll('.act-checkbox').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.mod-checkbox').forEach(cb => cb.checked = false);
 
-        actPerms.forEach(act => {
-            const cb = document.getElementById('chk-act-' + act);
-            if (cb) cb.checked = true;
+    if (presetType === 'sales_exec') {
+        ['can_view', 'can_create', 'can_edit', 'can_update_status', 'can_share'].forEach(a => {
+            const cb = document.getElementById('chk-act-' + a); if (cb) cb.checked = true;
         });
-
-        // Parse user active module permissions
-        let modPerms = [];
-        if (user.permissions) {
-            try { modPerms = JSON.parse(user.permissions); } catch(e){}
-        }
-        if (!Array.isArray(modPerms) || modPerms.length === 0) {
-            modPerms = ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation'];
-        }
-
-        modPerms.forEach(mod => {
-            const cb = document.getElementById('chk-mod-' + mod);
-            if (cb) cb.checked = true;
+        ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'privacy_policy', 'terms_conditions', 'refund_policy'].forEach(m => {
+            const cb = document.getElementById('chk-mod-' + m); if (cb) cb.checked = true;
         });
-
-        openModal('configure-perm-modal');
+    } else if (presetType === 'sales_power') {
+        ['can_view', 'can_create', 'can_edit', 'can_update_status', 'can_share', 'can_bulk_upload'].forEach(a => {
+            const cb = document.getElementById('chk-act-' + a); if (cb) cb.checked = true;
+        });
+        ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'privacy_policy', 'terms_conditions', 'refund_policy'].forEach(m => {
+            const cb = document.getElementById('chk-mod-' + m); if (cb) cb.checked = true;
+        });
+    } else if (presetType === 'manager') {
+        ['can_view', 'can_create', 'can_edit', 'can_update_status', 'can_share', 'can_bulk_upload', 'can_export', 'can_assign'].forEach(a => {
+            const cb = document.getElementById('chk-act-' + a); if (cb) cb.checked = true;
+        });
+        ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'renewals', 'reports', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'privacy_policy', 'terms_conditions', 'refund_policy'].forEach(m => {
+            const cb = document.getElementById('chk-mod-' + m); if (cb) cb.checked = true;
+        });
+    } else if (presetType === 'tech') {
+        ['can_view', 'can_edit', 'can_update_status', 'can_share'].forEach(a => {
+            const cb = document.getElementById('chk-act-' + a); if (cb) cb.checked = true;
+        });
+        ['dashboard', 'installation', 'training', 'support', 'team_inbox', 'bot_flows', 'privacy_policy', 'terms_conditions', 'refund_policy'].forEach(m => {
+            const cb = document.getElementById('chk-mod-' + m); if (cb) cb.checked = true;
+        });
+    } else if (presetType === 'full_admin') {
+        document.querySelectorAll('.act-checkbox').forEach(cb => cb.checked = true);
+        document.querySelectorAll('.mod-checkbox').forEach(cb => cb.checked = true);
     }
-
-    function getDefaultActionsByRole(role) {
-        if (role === 'Super Admin' || role === 'Admin') {
-            return ['can_view', 'can_create', 'can_edit', 'can_delete', 'can_update_status', 'can_share', 'can_bulk_upload', 'can_export', 'can_assign'];
-        }
-        if (role === 'Regional Manager' || role === 'Team Leader') {
-            return ['can_view', 'can_create', 'can_edit', 'can_update_status', 'can_share', 'can_bulk_upload', 'can_export', 'can_assign'];
-        }
-        return ['can_view', 'can_create', 'can_edit', 'can_update_status', 'can_share'];
-    }
-
-    function selectAllModules(select) {
-        document.querySelectorAll('.mod-checkbox').forEach(cb => cb.checked = select);
-    }
-
-    function applyRolePreset(presetType) {
-        document.querySelectorAll('.act-checkbox').forEach(cb => cb.checked = false);
-        document.querySelectorAll('.mod-checkbox').forEach(cb => cb.checked = false);
-
-        if (presetType === 'sales_exec') {
-            ['can_view', 'can_create', 'can_edit', 'can_update_status', 'can_share'].forEach(a => {
-                const cb = document.getElementById('chk-act-' + a); if (cb) cb.checked = true;
-            });
-            ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments'].forEach(m => {
-                const cb = document.getElementById('chk-mod-' + m); if (cb) cb.checked = true;
-            });
-        } else if (presetType === 'sales_power') {
-            ['can_view', 'can_create', 'can_edit', 'can_update_status', 'can_share', 'can_bulk_upload'].forEach(a => {
-                const cb = document.getElementById('chk-act-' + a); if (cb) cb.checked = true;
-            });
-            ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments'].forEach(m => {
-                const cb = document.getElementById('chk-mod-' + m); if (cb) cb.checked = true;
-            });
-        } else if (presetType === 'manager') {
-            ['can_view', 'can_create', 'can_edit', 'can_update_status', 'can_share', 'can_bulk_upload', 'can_export', 'can_assign'].forEach(a => {
-                const cb = document.getElementById('chk-act-' + a); if (cb) cb.checked = true;
-            });
-            ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'renewals', 'reports'].forEach(m => {
-                const cb = document.getElementById('chk-mod-' + m); if (cb) cb.checked = true;
-            });
-        } else if (presetType === 'tech') {
-            ['can_view', 'can_edit', 'can_update_status', 'can_share'].forEach(a => {
-                const cb = document.getElementById('chk-act-' + a); if (cb) cb.checked = true;
-            });
-            ['dashboard', 'installation', 'training', 'support'].forEach(m => {
-                const cb = document.getElementById('chk-mod-' + m); if (cb) cb.checked = true;
-            });
-        } else if (presetType === 'full_admin') {
-            document.querySelectorAll('.act-checkbox').forEach(cb => cb.checked = true);
-            document.querySelectorAll('.mod-checkbox').forEach(cb => cb.checked = true);
-        }
-    }
+}
 </script>

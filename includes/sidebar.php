@@ -39,11 +39,19 @@ $role = $_SESSION['user_role'];
                         </a>
                     </li>
                 <?php endif; ?>
-                <?php if ($role === 'Super Admin' || $role === 'Admin'): ?>
+                <?php if (hasAccess('clients', $role)): ?>
                     <li class="sidebar-item <?php echo isActivePage('clients') ? 'active' : ''; ?>">
                         <a href="index.php?page=clients">
                             <i data-lucide="building-2" style="width: 18px; height: 18px;"></i>
                             <span>Clients Directory</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if (hasAccess('leads', $role) || hasAccess('clients', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('customer_kyc') ? 'active' : ''; ?>">
+                        <a href="index.php?page=customer_kyc">
+                            <i data-lucide="file-check" style="width: 18px; height: 18px;"></i>
+                            <span>Customer KYC Details</span>
                         </a>
                     </li>
                 <?php endif; ?>
@@ -67,7 +75,7 @@ $role = $_SESSION['user_role'];
         <?php endif; ?>
 
         <!-- Conversions & Processes -->
-        <?php if (hasAccess('demo', $role) || hasAccess('quotation', $role) || hasAccess('payments', $role)): ?>
+        <?php if (hasAccess('demo', $role) || hasAccess('quotation', $role) || hasAccess('payments', $role) || hasAccess('bank_accounts', $role)): ?>
             <div class="menu-group-title">Sales Process</div>
             <ul>
                 <?php if (hasAccess('demo', $role)): ?>
@@ -93,6 +101,8 @@ $role = $_SESSION['user_role'];
                             <span>Payments & Invoices</span>
                         </a>
                     </li>
+                <?php endif; ?>
+                <?php if (hasAccess('bank_accounts', $role)): ?>
                     <li class="sidebar-item <?php echo isActivePage('bank_accounts'); ?>">
                         <a href="index.php?page=bank_accounts">
                             <i data-lucide="qr-code" style="width: 18px; height: 18px;"></i>
@@ -139,7 +149,14 @@ $role = $_SESSION['user_role'];
                         </a>
                     </li>
                 <?php endif; ?>
-                <?php if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Regional Manager' || $role === 'Sales Executive' || $role === 'Support Executive'): ?>
+            </ul>
+        <?php endif; ?>
+
+        <!-- WhatsApp & Automation -->
+        <?php if (hasAccess('team_inbox', $role) || hasAccess('broadcast_campaigns', $role) || hasAccess('merchant_waba_settings', $role) || hasAccess('whatsapp_settings', $role) || hasAccess('bulk_broadcast', $role) || hasAccess('bot_flows', $role) || hasAccess('whatsapp_flows', $role)): ?>
+            <div class="menu-group-title">WhatsApp & Messaging</div>
+            <ul>
+                <?php if (hasAccess('team_inbox', $role)): ?>
                     <li class="sidebar-item <?php echo isActivePage('team_inbox'); ?>">
                         <a href="index.php?page=team_inbox">
                             <i data-lucide="message-square" style="width: 18px; height: 18px;"></i>
@@ -147,6 +164,9 @@ $role = $_SESSION['user_role'];
                             <span class="badge" style="margin-left: auto; background: #10b981; color: white; font-size: 0.65rem;">LIVE</span>
                         </a>
                     </li>
+                <?php endif; ?>
+
+                <?php if (hasAccess('broadcast_campaigns', $role)): ?>
                     <li class="sidebar-item <?php echo isActivePage('broadcast_campaigns'); ?>">
                         <a href="index.php?page=broadcast_campaigns">
                             <i data-lucide="send" style="width: 18px; height: 18px;"></i>
@@ -155,7 +175,28 @@ $role = $_SESSION['user_role'];
                         </a>
                     </li>
                 <?php endif; ?>
-                <?php if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Regional Manager'): ?>
+
+                <?php if (hasAccess('merchant_waba_settings', $role) || hasAccess('whatsapp_settings', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('merchant_waba_settings'); ?>">
+                        <a href="index.php?page=merchant_waba_settings">
+                            <i data-lucide="qr-code" style="width: 18px; height: 18px;"></i>
+                            <span>Marg ERP WABA Setup</span>
+                            <span class="badge" style="margin-left: auto; background: #10b981; color: white; font-size: 0.65rem;">ADD-ON</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <?php if (hasAccess('bulk_broadcast', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('bulk_broadcast'); ?>">
+                        <a href="index.php?page=bulk_broadcast">
+                            <i data-lucide="upload-cloud" style="width: 18px; height: 18px;"></i>
+                            <span>Bulk Marketing Broadcast</span>
+                            <span class="badge" style="margin-left: auto; background: #06b6d4; color: white; font-size: 0.65rem;">ADD-ON</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <?php if (hasAccess('bot_flows', $role) || hasAccess('whatsapp_flows', $role)): ?>
                     <?php 
                     $is_bot_active = isActivePage('bot_flows') || isActivePage('bot_flow_builder');
                     $current_tab = strtolower($_GET['tab'] ?? 'flows');
@@ -190,7 +231,7 @@ $role = $_SESSION['user_role'];
                             <li class="sidebar-subitem <?php echo ($is_bot_active && ($current_tab === 'triggers' || $current_tab === 'inggers')) ? 'active' : ''; ?>">
                                 <a href="index.php?page=bot_flows&tab=triggers">
                                     <i data-lucide="zap" style="width: 14px; height: 14px;"></i>
-                                    <span>Inggers</span>
+                                    <span>Triggers</span>
                                 </a>
                             </li>
                             <li class="sidebar-subitem <?php echo ($is_bot_active && $current_tab === 're-engagement') ? 'active' : ''; ?>">
@@ -205,12 +246,14 @@ $role = $_SESSION['user_role'];
                                     <span>Reports</span>
                                 </a>
                             </li>
-                            <li class="sidebar-subitem">
-                                <a href="admin/dashboard.php">
-                                    <i data-lucide="ticket" style="width: 14px; height: 14px;"></i>
-                                    <span>WhatsApp Tickets</span>
-                                </a>
-                            </li>
+                            <?php if (hasAccess('whatsapp_settings', $role) || hasAccess('merchant_waba_settings', $role)): ?>
+                                <li class="sidebar-subitem <?php echo isActivePage('whatsapp_settings'); ?>">
+                                    <a href="index.php?page=whatsapp_settings">
+                                        <i data-lucide="key" style="width: 14px; height: 14px; color: #25D366;"></i>
+                                        <span>Cloud API Setup</span>
+                                    </a>
+                                </li>
+                            <?php endif; ?>
                         </ul>
                     </li>
                 <?php endif; ?>
@@ -218,40 +261,55 @@ $role = $_SESSION['user_role'];
         <?php endif; ?>
 
         <!-- Managerial & Admin Controls -->
-        <?php if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Regional Manager' || $role === 'Team Leader'): ?>
+        <?php $isSuperAdminUser = isSystemAdminRole($role); ?>
+        <?php if ($isSuperAdminUser || hasAccess('crm_clients', $role) || hasAccess('admin_users', $role) || hasAccess('admin_permissions', $role) || hasAccess('reports', $role) || hasAccess('admin_reviews', $role)): ?>
             <div class="menu-group-title">Management</div>
             <ul>
-                <?php if ($role === 'Super Admin' && (empty($_SESSION['tenant_db']) || $_SESSION['tenant_db'] === 'marg_crm') && empty($_SESSION['impersonate_tenant_db'])): ?>
+                <?php if ($isSuperAdminUser && empty($_SESSION['impersonate_tenant_db'])): ?>
                     <li class="sidebar-item <?php echo isActivePage('crm_clients'); ?>">
-                        <!-- <a href="index.php?page=crm_clients">
+                        <a href="index.php?page=crm_clients">
                             <i data-lucide="building" style="width: 18px; height: 18px; color: var(--primary);"></i>
                             <span>CRM Clients</span>
-                        </a> -->
+                        </a>
                     </li>
                 <?php endif; ?>
-                <li class="sidebar-item <?php echo isActivePage('admin_users'); ?>">
-                    <a href="index.php?page=admin_users">
-                        <i data-lucide="users-round" style="width: 18px; height: 18px;"></i>
-                        <span>Manage Users</span>
-                    </a>
-                </li>
-                <li class="sidebar-item <?php echo isActivePage('admin_permissions'); ?>">
-                    <a href="index.php?page=admin_permissions">
-                        <i data-lucide="shield-check" style="width: 18px; height: 18px;"></i>
-                        <span>Employee Permissions</span>
-                    </a>
-                </li>
-                <li class="sidebar-item <?php echo isActivePage('admin_reports'); ?>">
-                    <a href="index.php?page=admin_reports">
-                        <i data-lucide="bar-chart-3" style="width: 18px; height: 18px;"></i>
-                        <span>Business Reports</span>
-                    </a>
-                </li>
+                <?php if (hasAccess('admin_users', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('admin_users'); ?>">
+                        <a href="index.php?page=admin_users">
+                            <i data-lucide="users-round" style="width: 18px; height: 18px;"></i>
+                            <span>Manage Users</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if (hasAccess('admin_permissions', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('admin_permissions'); ?>">
+                        <a href="index.php?page=admin_permissions">
+                            <i data-lucide="shield-check" style="width: 18px; height: 18px;"></i>
+                            <span>Employee Permissions</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if (hasAccess('reports', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('admin_reports'); ?>">
+                        <a href="index.php?page=admin_reports">
+                            <i data-lucide="bar-chart-3" style="width: 18px; height: 18px;"></i>
+                            <span>Business Reports</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if (hasAccess('admin_reviews', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('admin_reviews'); ?>">
+                        <a href="index.php?page=admin_reviews">
+                            <i data-lucide="star" style="width: 18px; height: 18px; color: #f59e0b;"></i>
+                            <span>Customer Ratings</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
             </ul>
         <?php endif; ?>
 
         <!-- Settings & System Group -->
-        <?php if ($role === 'Super Admin' || $role === 'Admin'): ?>
+        <?php if (hasAccess('settings', $role)): ?>
             <div class="menu-group-title">System</div>
             <ul>
                 <li class="sidebar-item <?php echo isActivePage('settings'); ?>">

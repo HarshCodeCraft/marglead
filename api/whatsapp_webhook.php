@@ -45,6 +45,15 @@ $customer_name = 'WhatsApp Customer';
 // Parse Meta WhatsApp Cloud API structure
 if (isset($data['entry'][0]['changes'][0]['value'])) {
     $value = $data['entry'][0]['changes'][0]['value'];
+    $incoming_phone_id = $value['metadata']['phone_number_id'] ?? '';
+    
+    // Dynamic Multi-Tenant Tenant Configuration Lookup
+    $tenantConfig = null;
+    if (!empty($incoming_phone_id) && isset($pdo) && $pdo) {
+        $tenantStmt = $pdo->prepare("SELECT * FROM tenant_whatsapp_configs WHERE phone_number_id = ? AND status = 'active' LIMIT 1");
+        $tenantStmt->execute([$incoming_phone_id]);
+        $tenantConfig = $tenantStmt->fetch(PDO::FETCH_ASSOC);
+    }
     
     // Extract customer phone number
     if (isset($value['contacts'][0]['wa_id'])) {
@@ -135,6 +144,10 @@ try {
         $assigned_to = $uName;
     }
 
+    if (empty($subject) || $subject === 'General Technical Support') {
+        $subject = mb_strimwidth($problem, 0, 70, '...');
+    }
+
     $product = 'Marg ERP 9+';
     $priority = 'high';
     $status = 'open';
@@ -142,8 +155,8 @@ try {
 
     // Save Real Ticket to Database (support_tickets table)
     $stmt = $pdo->prepare("INSERT INTO support_tickets 
-        (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, address, problem, due_date, callback_number) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, address, problem, due_date, callback_number, date_created) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
     
     $stmt->execute([
         $ticketId,

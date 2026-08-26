@@ -7,52 +7,66 @@ $message = '';
 $message_type = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $name = trim($_POST['name']);
-    $email = trim($_POST['email']);
-    $password = $_POST['password'];
+    $name = trim($_POST['name'] ?? '');
+    $email = strtolower(trim($_POST['email'] ?? ''));
+    $password = $_POST['password'] ?? '';
     $role = 'Telecaller'; // Default signup role, admin can switch role in Permissions Matrix
 
-    if ($db_connected && $pdo) {
-        try {
-            // Check if email already registered
-            $check = $pdo->prepare("SELECT id, status FROM users WHERE email = ?");
-            $check->execute([$email]);
-            $existingUser = $check->fetch();
-
-            if ($existingUser && $existingUser['status'] !== 'Unverified') {
-                $message = "Email address is already registered. Please sign in.";
-                $message_type = "danger";
-            } else {
-                // Generate 6-digit OTP code & 10-minute expiry
-                $otp = sprintf("%06d", mt_rand(100000, 999999));
-                $otp_expires_at = date('Y-m-d H:i:s', strtotime('+10 minutes'));
-                $hash = password_hash($password, PASSWORD_DEFAULT);
-
-                if ($existingUser && $existingUser['status'] === 'Unverified') {
-                    // Update existing unverified profile
-                    $stmt = $pdo->prepare("UPDATE users SET name = ?, password = ?, role = ?, otp_code = ?, otp_expires_at = ? WHERE id = ?");
-                    $stmt->execute([$name, $hash, $role, $otp, $otp_expires_at, $existingUser['id']]);
-                } else {
-                    // Insert as Unverified
-                    $stmt = $pdo->prepare("INSERT INTO users (name, email, password, role, status, otp_code, otp_expires_at) VALUES (?, ?, ?, ?, 'Unverified', ?, ?)");
-                    $stmt->execute([$name, $email, $hash, $role, $otp, $otp_expires_at]);
-                }
-                
-                // Trigger OTP mailer
-                Mailer::sendEmailVerificationOTP($email, $name, $otp);
-                
-                // Redirect to OTP Verification page
-                header("Location: verify-otp.php?email=" . urlencode($email) . "&msg=sent");
-                exit;
-            }
-        } catch (PDOException $e) {
-            $message = "Database execution failure: " . $e->getMessage();
-            $message_type = "danger";
-        }
+    if (empty($name) || strlen($name) < 2) {
+        $message = "Please enter a valid full name (minimum 2 characters).";
+        $message_type = "danger";
+    } elseif (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $message = "Please enter a valid email address.";
+        $message_type = "danger";
+    } elseif (function_exists('isDisposableEmail') && isDisposableEmail($email)) {
+        $message = "Temporary or disposable email addresses are not permitted. Please use a valid personal or business email.";
+        $message_type = "danger";
+    } elseif (strlen($password) < 6) {
+        $message = "Password must be at least 6 characters long.";
+        $message_type = "danger";
     } else {
-        // Fallback for offline prototype
-        $message = "Database connection offline. Account simulated as [Pending Verification].";
-        $message_type = "warning";
+        if ($db_connected && $pdo) {
+            try {
+                // Check if email already registered with PDO Prepared Statement (100% SQL Injection Safe)
+                $check = $pdo->prepare("SELECT id, status FROM users WHERE LOWER(email) = ?");
+                $check->execute([$email]);
+                $existingUser = $check->fetch();
+
+                if ($existingUser && $existingUser['status'] !== 'Unverified') {
+                    $message = "Email address is already registered. Please sign in.";
+                    $message_type = "danger";
+                } else {
+                    // Generate 6-digit OTP code & 10-minute expiry
+                    $otp = sprintf("%06d", mt_rand(100000, 999999));
+                    $otp_expires_at = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+                    $hash = password_hash($password, PASSWORD_DEFAULT);
+
+                    if ($existingUser && $existingUser['status'] === 'Unverified') {
+                        // Update existing unverified profile
+                        $stmt = $pdo->prepare("UPDATE users SET name = ?, password = ?, role = ?, otp_code = ?, otp_expires_at = ? WHERE id = ?");
+                        $stmt->execute([$name, $hash, $role, $otp, $otp_expires_at, $existingUser['id']]);
+                    } else {
+                        // Insert as Unverified
+                        $stmt = $pdo->prepare("INSERT INTO users (name, email, password, role, status, otp_code, otp_expires_at) VALUES (?, ?, ?, ?, 'Unverified', ?, ?)");
+                        $stmt->execute([$name, $email, $hash, $role, $otp, $otp_expires_at]);
+                    }
+                    
+                    // Trigger OTP mailer
+                    Mailer::sendEmailVerificationOTP($email, $name, $otp);
+                    
+                    // Redirect to OTP Verification page
+                    header("Location: verify-otp.php?email=" . urlencode($email) . "&msg=sent");
+                    exit;
+                }
+            } catch (PDOException $e) {
+                $message = "Database execution failure: " . $e->getMessage();
+                $message_type = "danger";
+            }
+        } else {
+            // Fallback for offline prototype
+            $message = "Database connection offline. Account simulated as [Pending Verification].";
+            $message_type = "warning";
+        }
     }
 }
 ?>

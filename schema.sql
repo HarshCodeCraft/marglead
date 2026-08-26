@@ -1,8 +1,8 @@
 -- Marg ERP CRM & Lead Management System Database Schema
--- Target Database: marg_crm
+-- Target Database: u978772385_friendlyaidata
 
-CREATE DATABASE IF NOT EXISTS marg_crm;
-USE marg_crm;
+CREATE DATABASE IF NOT EXISTS u978772385_friendlyaidata;
+USE u978772385_friendlyaidata;
 
 -- 1. Users & Roles Table
 CREATE TABLE IF NOT EXISTS users (
@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS users (
     otp_expires_at DATETIME NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed Initial Admin & Staff Accounts
+INSERT IGNORE INTO users (id, name, email, password, role, status) VALUES
+(1, 'DEEPAK AWASTHI', 'harshsaini20172018@gmail.com', '$2y$10$JlTS8/uEuAq8.HabxsPVk.qsITO7CangZnoZuPWPkR0cngDOyphRK', 'Super Admin', 'Active'),
+(2, 'System Admin', 'admin@marglead.com', '$2y$10$JlTS8/uEuAq8.HabxsPVk.qsITO7CangZnoZuPWPkR0cngDOyphRK', 'Admin', 'Active'),
+(3, 'MOIN KHAN', 'moin@marglead.com', '$2y$10$JlTS8/uEuAq8.HabxsPVk.qsITO7CangZnoZuPWPkR0cngDOyphRK', 'Support Executive', 'Active');
 
 -- 2. Leads Table
 CREATE TABLE IF NOT EXISTS leads (
@@ -390,7 +396,62 @@ CREATE TABLE IF NOT EXISTS tenant_companies (
 
 -- Seed Default Master Tenant (Marg Soft Solutions Owner CRM)
 INSERT INTO tenant_companies (id, company_name, company_code, owner_name, owner_email, phone, db_name, plan, status, expiry_date) VALUES
-(1, 'Marg Soft Solutions (Primary)', 'master', 'DEEPAK AWASTHI', 'admin@marglead.com', '+91 98765 43210', 'marg_crm', 'Enterprise', 'Active', '2030-12-31')
+(1, 'Marg Soft Solutions (Primary)', 'master', 'DEEPAK AWASTHI', 'harshsaini20172018@gmail.com', '+91 98765 43210', 'u978772385_friendlyaidata', 'Enterprise', 'Active', '2030-12-31')
 ON DUPLICATE KEY UPDATE company_name = VALUES(company_name);
 
+-- 16. Multi-Tenant WhatsApp Cloud API Configuration & Embedded Signup Table
+CREATE TABLE IF NOT EXISTS tenant_whatsapp_configs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    firm_name VARCHAR(150) DEFAULT NULL,
+    marg_license_no VARCHAR(50) DEFAULT NULL,
+    waba_id VARCHAR(100) DEFAULT NULL,
+    phone_number_id VARCHAR(100) DEFAULT NULL,
+    display_phone_number VARCHAR(50) DEFAULT NULL,
+    verified_name VARCHAR(150) DEFAULT NULL,
+    access_token TEXT DEFAULT NULL,
+    signup_method ENUM('embedded', 'manual', 'central') DEFAULT 'embedded',
+    status ENUM('pending', 'active', 'failed', 'disabled') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX (user_id),
+    INDEX (phone_number_id),
+    INDEX (marg_license_no)
+);
 
+-- 17. Customer KYC Details & Govt Verification Table
+CREATE TABLE IF NOT EXISTS customer_kyc_details (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    lead_id VARCHAR(20) NULL,
+    full_name VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    firm_name VARCHAR(200) NOT NULL,
+    registration_type ENUM('registered', 'unregistered') NOT NULL DEFAULT 'registered',
+    pan_number VARCHAR(10) NOT NULL,
+    pan_doc_path VARCHAR(255) NOT NULL,
+    pan_verified TINYINT(1) DEFAULT 0,
+    pan_api_response TEXT NULL,
+    aadhaar_number VARCHAR(12) NOT NULL,
+    aadhaar_doc_path VARCHAR(255) NOT NULL,
+    aadhaar_verified TINYINT(1) DEFAULT 0,
+    aadhaar_api_response TEXT NULL,
+    udyam_number VARCHAR(30) NOT NULL,
+    udyam_doc_path VARCHAR(255) NOT NULL,
+    udyam_verified TINYINT(1) DEFAULT 0,
+    udyam_api_response TEXT NULL,
+    gstin_number VARCHAR(15) NULL,
+    gstin_doc_path VARCHAR(255) NULL,
+    gstin_verified TINYINT(1) DEFAULT 0,
+    gstin_api_response TEXT NULL,
+    kyc_status ENUM('Pending', 'Verified', 'Rejected') DEFAULT 'Pending',
+    rejection_reason TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_email (email),
+    INDEX idx_phone (phone),
+    INDEX idx_pan (pan_number),
+    INDEX idx_gstin (gstin_number),
+    INDEX idx_udyam (udyam_number),
+    INDEX idx_kyc_status (kyc_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

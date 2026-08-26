@@ -4,9 +4,49 @@ require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/mailer.php';
 
-// Enforce authentication
+// Check authentication and routing for public landing vs authenticated dashboard
+$requested_page = $_GET['page'] ?? '';
+
+// Public Standalone Pages routing
+if (in_array($requested_page, ['privacy', 'privacy_policy'])) {
+    require_once __DIR__ . '/privacy.php';
+    exit;
+}
+if (in_array($requested_page, ['terms', 'terms_of_service'])) {
+    require_once __DIR__ . '/terms.php';
+    exit;
+}
+if (in_array($requested_page, ['refund', 'refund_policy'])) {
+    require_once __DIR__ . '/refund.php';
+    exit;
+}
+if ($requested_page === 'contact') {
+    require_once __DIR__ . '/contact.php';
+    exit;
+}
+if (in_array($requested_page, ['kyc', 'customer_kyc_form'])) {
+    require_once __DIR__ . '/customer_kyc_form.php';
+    exit;
+}
+
+// Unauthenticated users see the Public Landing / Home page first
 if (!isset($_SESSION['user_id'])) {
-    header("Location: auth/login.php");
+    if ($requested_page === 'login') {
+        header("Location: auth/login.php");
+        exit;
+    }
+    if ($requested_page === 'register') {
+        header("Location: auth/register.php");
+        exit;
+    }
+    // Render stunning Public Landing Page
+    require_once __DIR__ . '/landing.php';
+    exit;
+}
+
+// Logged-in users visiting home / landing page explicitly
+if (in_array($requested_page, ['home', 'landing', 'public'])) {
+    require_once __DIR__ . '/landing.php';
     exit;
 }
 
@@ -294,13 +334,18 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_lead_json') {
 
 // Quick Follow-up Data Save AJAX receiver
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'quick_followup_save') {
+    while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json');
     if ($db_connected && $pdo) {
         try {
-            $lead_id = $_POST['lead_id'];
+            $lead_id = $_POST['lead_id'] ?? '';
             $company = $_POST['company'] ?? '';
             $status = $_POST['status'] ?? '';
-            $assigned_to = $_POST['assigned_to'] ?? '';
+            $assigned_to_raw = $_POST['assigned_to'] ?? '';
+            $assigned_to = is_array($assigned_to_raw) ? implode(', ', array_filter(array_map('trim', $assigned_to_raw))) : trim($assigned_to_raw);
+            if (strlen($assigned_to) > 250) {
+                $assigned_to = substr($assigned_to, 0, 247) . '...';
+            }
             $tags = $_POST['tags'] ?? '';
             $address = $_POST['address'] ?? '';
             $source = $_POST['source'] ?? '';
@@ -391,13 +436,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle profile updates
 if (isset($_GET['action']) && $_GET['action'] === 'update_profile' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verifyCsrfToken()) {
+        $_SESSION['flash_error'] = "Security Violation: Invalid or missing CSRF token. Request denied.";
+        header('Location: index.php?page=settings');
+        exit;
+    }
+
     $name = trim($_POST['name']);
     $email = trim($_POST['email']);
     $new_password = $_POST['new_password'];
     
     $user_id = $_SESSION['user_id'] ?? 1;
     
-    // Handle avatar upload
+    // Handle avatar upload securely
     $photo_path = $_SESSION['user_photo'] ?? null;
     if ($db_connected && $pdo) {
         try {
@@ -411,19 +462,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'update_profile' && $_SERVER['
     }
     
     if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
-        $tmp_name = $_FILES['profile_photo']['tmp_name'];
-        $file_name = preg_replace("/[^a-zA-Z0-9\._-]/", "", basename($_FILES['profile_photo']['name']));
-        if (empty($file_name)) {
-            $file_name = 'avatar.jpg';
-        }
-        $upload_dir = __DIR__ . '/uploads/avatars/';
-        if (!is_dir($upload_dir)) {
-            @mkdir($upload_dir, 0777, true);
-        }
-        $unique_name = time() . '_' . rand(1000, 9999) . '_' . $file_name;
-        $target_file = $upload_dir . $unique_name;
-        if (move_uploaded_file($tmp_name, $target_file)) {
-            $photo_path = 'uploads/avatars/' . $unique_name;
+        $uploadResult = secureFileUpload($_FILES['profile_photo'], 'avatars', ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'], ['jpg', 'jpeg', 'png', 'webp', 'gif']);
+        if ($uploadResult['success']) {
+            $photo_path = $uploadResult['file_path'];
+        } else {
+            $_SESSION['flash_error'] = $uploadResult['error'];
         }
     }
     
@@ -652,6 +695,9 @@ switch ($page) {
     case 'admin_reports':
         $module_path = __DIR__ . '/modules/admin/reports.php';
         break;
+    case 'admin_reviews':
+        $module_path = __DIR__ . '/modules/admin/reviews.php';
+        break;
     case 'bot_flows':
         $module_path = __DIR__ . '/modules/bot_flows.php';
         break;
@@ -663,6 +709,15 @@ switch ($page) {
         break;
     case 'broadcast_campaigns':
         $module_path = __DIR__ . '/modules/broadcast_campaigns.php';
+        break;
+    case 'whatsapp_settings':
+        $module_path = __DIR__ . '/modules/whatsapp_settings.php';
+        break;
+    case 'merchant_waba_settings':
+        $module_path = __DIR__ . '/modules/merchant_waba_settings.php';
+        break;
+    case 'bulk_broadcast':
+        $module_path = __DIR__ . '/modules/bulk_broadcast.php';
         break;
     case 'settings':
         $module_path = __DIR__ . '/modules/admin/settings.php';
@@ -676,9 +731,83 @@ switch ($page) {
     case 'refund_policy':
         $module_path = __DIR__ . '/modules/refund_policy.php';
         break;
+    case 'customer_kyc':
+    case 'customer_kyc_admin':
+        $module_path = __DIR__ . '/modules/customer_kyc_admin.php';
+        break;
     default:
         $module_path = __DIR__ . '/modules/dashboard.php';
         break;
+}
+
+// Tenant Power Permissions & Module Access Guard
+$is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) || !empty($_SESSION['impersonate_tenant_db']);
+if ($is_tenant_session) {
+    $active_tenant_db_name = $_SESSION['impersonate_tenant_db'] ?? $_SESSION['tenant_db'];
+    
+    // Normalize page keys to module keys
+    $page_mod_map = [
+        'dashboard' => 'dashboard',
+        'leads' => 'leads',
+        'pipeline' => 'pipeline',
+        'followups' => 'followups',
+        'demo' => 'demo',
+        'quotation' => 'quotation',
+        'quotation_create' => 'quotation',
+        'quotation_view' => 'quotation',
+        'payments' => 'payments',
+        'installation' => 'installation',
+        'training' => 'training',
+        'support' => 'support',
+        'renewals' => 'renewals',
+        'whatsapp_settings' => 'whatsapp_settings',
+        'merchant_waba_settings' => 'whatsapp_settings',
+        'broadcast_campaigns' => 'whatsapp_settings',
+        'bulk_broadcast' => 'whatsapp_settings',
+        'team_inbox' => 'whatsapp_settings',
+        'bot_flows' => 'whatsapp_flows',
+        'bot_flow_builder' => 'whatsapp_flows',
+        'admin_reports' => 'reports',
+        'settings' => 'settings'
+    ];
+
+    $check_mod_key = $page_mod_map[$page] ?? null;
+
+    if ($check_mod_key && isset($pdo_master)) {
+        try {
+            $stmtGuard = $pdo_master->prepare("SELECT allowed_modules FROM tenant_companies WHERE db_name = ?");
+            $stmtGuard->execute([$active_tenant_db_name]);
+            $tenant_allowed_json = $stmtGuard->fetchColumn();
+
+            if (!empty($tenant_allowed_json)) {
+                $tenant_allowed_arr = json_decode($tenant_allowed_json, true);
+                if (is_array($tenant_allowed_arr)) {
+                    $is_allowed = in_array($check_mod_key, $tenant_allowed_arr);
+                    if (!$is_allowed && $check_mod_key === 'whatsapp_settings') {
+                        $is_allowed = in_array('merchant_waba_settings', $tenant_allowed_arr);
+                    }
+                    if (!$is_allowed && $check_mod_key === 'whatsapp_flows') {
+                        $is_allowed = in_array('bot_flows', $tenant_allowed_arr);
+                    }
+
+                    if (!$is_allowed) {
+                        include_once __DIR__ . '/includes/header.php';
+                        echo '
+                        <div class="card p-6 text-center" style="max-width: 520px; margin: 4rem auto; border: 1px solid var(--danger); background: var(--bg-card);">
+                            <i data-lucide="shield-off" style="width: 54px; height: 54px; color: var(--danger); margin: 0 auto 1.25rem auto;"></i>
+                            <h2 class="mb-2" style="font-family: var(--font-heading); color: var(--danger);">Module Access Restricted</h2>
+                            <p class="text-muted text-sm mb-4">Access to the <strong>' . htmlspecialchars($page) . '</strong> workspace module has been disabled for your subscription by the Administrator.</p>
+                            <a href="index.php?page=dashboard" class="btn btn-primary text-xs">Return to Workspace Dashboard</a>
+                        </div>';
+                        include_once __DIR__ . '/includes/footer.php';
+                        return;
+                    }
+                }
+            }
+        } catch (\PDOException $gEx) {
+            // Ignore guard errors
+        }
+    }
 }
 
 if (file_exists($module_path)) {

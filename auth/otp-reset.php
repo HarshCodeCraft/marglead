@@ -1,19 +1,113 @@
 <?php
+session_start();
+require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/mailer.php';
 
-$email = isset($_GET['email']) ? trim($_GET['email']) : '';
+$email = isset($_REQUEST['email']) ? strtolower(trim($_REQUEST['email'])) : ($_SESSION['reset_email'] ?? '');
+$message = '';
+$message_type = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Concatenate code cells inputs from form POST
+if (isset($_GET['msg']) && $_GET['msg'] === 'sent') {
+    $message = "A 6-digit OTP verification code has been dispatched to your email address.";
+    $message_type = "info";
+}
+
+if (empty($email)) {
+    header("Location: forgot-password.php");
+    exit;
+}
+
+// 1. Resend OTP handler
+if (isset($_POST['action']) && $_POST['action'] === 'resend') {
+    if ($db_connected && $pdo) {
+        try {
+            $stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE LOWER(email) = ?");
+            $stmt->execute([$email]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($user) {
+                $new_otp = sprintf("%06d", mt_rand(100000, 999999));
+                $new_expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+
+                $updateStmt = $pdo->prepare("UPDATE users SET otp_code = ?, otp_expires_at = ? WHERE id = ?");
+                $updateStmt->execute([$new_otp, $new_expiry, $user['id']]);
+
+                Mailer::sendEmailVerificationOTP($email, $user['name'], $new_otp);
+
+                $message = "A fresh 6-digit verification code has been sent to " . htmlspecialchars($email) . ".";
+                $message_type = "success";
+            }
+        } catch (PDOException $e) {
+            $message = "Failed to resend code: " . $e->getMessage();
+            $message_type = "danger";
+        }
+    }
+}
+// 2. OTP Verification Submission handler
+elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $digits = isset($_POST['otp']) ? $_POST['otp'] : [];
-    $code = implode('', $digits);
-    
-    // For demo purposes, we accept any 6-digit number
-    if (strlen($code) === 6 && preg_match('/^\d+$/', $code)) {
-        header("Location: change-password.php?email=" . urlencode($email));
-        exit;
+    $code = is_array($digits) ? implode('', $digits) : trim($digits);
+    $user_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+
+    if (strlen($code) === 6 && preg_match('/^\d{6}$/', $code)) {
+        if ($db_connected && $pdo) {
+            try {
+                $stmt = $pdo->prepare("SELECT * FROM users WHERE LOWER(email) = ?");
+                $stmt->execute([$email]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$user) {
+                    $message = "No account found matching email address.";
+                    $message_type = "danger";
+                } elseif (!empty($user['reset_ip']) && $user['reset_ip'] !== $user_ip) {
+                    $message = "Security Violation: Verification attempt from an unrecognized device/IP address. Access denied.";
+                    $message_type = "danger";
+                } else {
+                    $db_otp = $user['otp_code'];
+                    $expires_at = $user['otp_expires_at'] ? strtotime($user['otp_expires_at']) : 0;
+
+                    if (empty($db_otp) || $db_otp !== $code) {
+                        $message = "Incorrect verification code. Please check your email and try again.";
+                        $message_type = "danger";
+                    } elseif (time() > $expires_at) {
+                        $message = "This verification code has expired. Please click 'Resend Code' below.";
+                        $message_type = "warning";
+                    } else {
+                        // OTP VERIFIED SUCCESSFULLY! Generate single-use secure reset token & bind to device & browser cookie
+                        $reset_token = bin2hex(random_bytes(32));
+                        $cookie_secret = bin2hex(random_bytes(32));
+                        $secret_hash = hash('sha256', $cookie_secret);
+                        $token_expires = date('Y-m-d H:i:s', strtotime('+15 minutes'));
+
+                        $updStmt = $pdo->prepare("UPDATE users SET otp_code = NULL, otp_expires_at = NULL, reset_token = ?, reset_token_expires_at = ?, reset_ip = ?, reset_user_agent = ?, reset_session_secret = ? WHERE id = ?");
+                        $updStmt->execute([$reset_token, $token_expires, $user_ip, $user_agent, $secret_hash, $user['id']]);
+
+                        setcookie('reset_cookie_secret', $cookie_secret, time() + 900, '/', '', false, true);
+                        $_SESSION['reset_token'] = $reset_token;
+                        $_SESSION['reset_cookie_secret'] = $cookie_secret;
+                        $_SESSION['reset_authorized_email'] = $user['email'];
+                        $_SESSION['reset_device_ip'] = $user_ip;
+
+                        header("Location: change-password.php?token=" . urlencode($reset_token));
+                        exit;
+                    }
+                }
+            } catch (PDOException $e) {
+                $message = "Verification failed: " . $e->getMessage();
+                $message_type = "danger";
+            }
+        } else {
+            // Fallback for offline mode
+            $reset_token = bin2hex(random_bytes(32));
+            $_SESSION['reset_token'] = $reset_token;
+            $_SESSION['reset_authorized_email'] = $email;
+            header("Location: change-password.php?token=" . urlencode($reset_token));
+            exit;
+        }
     } else {
-        $message = "Please enter a valid 6-digit verification code.";
+        $message = "Please enter a valid 6-digit numerical verification code.";
         $message_type = "danger";
     }
 }

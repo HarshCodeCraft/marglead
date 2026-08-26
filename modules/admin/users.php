@@ -271,6 +271,17 @@ $modules_meta = [
     'support_close' => ['label' => 'Helpdesk: Close Tickets', 'icon' => 'check-circle-2', 'color' => '#6366f1'],
     'renewals' => ['label' => 'Renewals Manager', 'icon' => 'refresh-cw', 'color' => '#0284c7'],
     'reports' => ['label' => 'Reports & Audits', 'icon' => 'bar-chart-3', 'color' => '#a855f7'],
+    'team_inbox' => ['label' => 'Team Inbox & Live Chat', 'icon' => 'message-square', 'color' => '#10b981'],
+    'broadcast_campaigns' => ['label' => 'WhatsApp Broadcast & Templates', 'icon' => 'send', 'color' => '#2563eb'],
+    'bulk_broadcast' => ['label' => 'Bulk Marketing Broadcast Engine', 'icon' => 'upload-cloud', 'color' => '#8b5cf6'],
+    'bot_flows' => ['label' => 'WhatsApp Bots & Auto-Responders', 'icon' => 'bot', 'color' => '#f59e0b'],
+    'merchant_waba_settings' => ['label' => 'WhatsApp Cloud WABA Setup', 'icon' => 'qr-code', 'color' => '#ec4899'],
+    'clients' => ['label' => 'Client Directory & Marg Customers', 'icon' => 'user-check', 'color' => '#06b6d4'],
+    'admin_users' => ['label' => 'User Management & Operators', 'icon' => 'shield-check', 'color' => '#6366f1'],
+    'admin_permissions' => ['label' => 'Employee Permissions Matrix', 'icon' => 'lock', 'color' => '#ef4444'],
+    'privacy_policy' => ['label' => 'Privacy Policy Document', 'icon' => 'file-text', 'color' => '#10b981'],
+    'terms_conditions' => ['label' => 'Terms & Conditions Agreement', 'icon' => 'file-check', 'color' => '#3b82f6'],
+    'refund_policy' => ['label' => 'Refund & Cancellation Policy', 'icon' => 'rotate-ccw', 'color' => '#f59e0b'],
     'settings' => ['label' => 'Control Settings', 'icon' => 'sliders', 'color' => '#64748b']
 ];
 
@@ -401,7 +412,7 @@ $actions_meta = [
                                 <label class="form-label text-xs">Access Role</label>
                                 <select name="role" class="form-control text-xs font-semibold" style="height: 38px;" required>
                                     <?php 
-                                    $available_edit_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') ? $EMPLOYEE_ROLES : $ROLES;
+                                    $available_edit_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) ? $EMPLOYEE_ROLES : $ROLES;
                                     if ($selected_user['role'] === 'Super Admin' && !isset($available_edit_roles['Super Admin'])) {
                                         $available_edit_roles = array_merge(['Super Admin' => 'Master Super Admin'], $available_edit_roles);
                                     }
@@ -670,7 +681,7 @@ $actions_meta = [
                 <label class="form-label text-xs">Access Role</label>
                 <select name="role" class="form-control" style="height: 38px;">
                     <?php 
-                    $available_create_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') ? $EMPLOYEE_ROLES : $ROLES;
+                    $available_create_roles = (isset($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) ? $EMPLOYEE_ROLES : $ROLES;
                     foreach ($available_create_roles as $roleName => $desc): 
                     ?>
                         <option value="<?php echo $roleName; ?>"><?php echo $roleName; ?></option>

@@ -1,0 +1,14 @@
+# Marg ERP CRM - Root Security & Custom 404/403 Error Handlers
+
+ErrorDocument 404 /MARGLEAD/404.php
+ErrorDocument 403 /MARGLEAD/404.php
+
+# Prevent Directory Browsing
+Options -Indexes
+
+# Security Headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>

@@ -33,6 +33,11 @@ $closedWon = 0;
 $closedLost = 0;
 $renewalsDue = 0;
 
+$totalTickets = 0;
+$openTickets = 0;
+$pendingTickets = 0;
+$resolvedTickets = 0;
+
 // Default chart baselines (fallbacks)
 $leads_baseline = array_fill(0, 12, 0);
 $sales_baseline = array_fill(0, 12, 0);
@@ -78,6 +83,11 @@ if ($db_connected && $pdo) {
             $closedWon = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(status) IN ('won', 'closed_won', 'install_pending', 'payment_pending')")->fetchColumn();
             $closedLost = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(status) IN ('lost', 'closed_lost')")->fetchColumn();
             $renewalsDue = $pdo->query("SELECT COUNT(*) FROM renewals WHERE expiry_date <= DATE_ADD(CURRENT_DATE(), INTERVAL 30 DAY)")->fetchColumn();
+
+            $totalTickets = $pdo->query("SELECT COUNT(*) FROM support_tickets")->fetchColumn();
+            $openTickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE LOWER(status) = 'open'")->fetchColumn();
+            $pendingTickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE LOWER(status) IN ('in_progress', 'pending')")->fetchColumn();
+            $resolvedTickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE LOWER(status) IN ('resolved', 'closed')")->fetchColumn();
         } else {
             // Filter queries for employee users (assigned leads only)
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE assigned_to = ?");
@@ -159,6 +169,22 @@ if ($db_connected && $pdo) {
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM renewals WHERE lead_id IN (SELECT id FROM leads WHERE assigned_to = ?) AND expiry_date <= DATE_ADD(CURRENT_DATE(), INTERVAL 30 DAY)");
             $stmt->execute([$user_name]);
             $renewalsDue = $stmt->fetchColumn();
+
+            $stmtT = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))");
+            $stmtT->execute([$user_name]);
+            $totalTickets = $stmtT->fetchColumn();
+
+            $stmtT = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) AND LOWER(status) = 'open'");
+            $stmtT->execute([$user_name]);
+            $openTickets = $stmtT->fetchColumn();
+
+            $stmtT = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) AND LOWER(status) IN ('in_progress', 'pending')");
+            $stmtT->execute([$user_name]);
+            $pendingTickets = $stmtT->fetchColumn();
+
+            $stmtT = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) AND LOWER(status) IN ('resolved', 'closed')");
+            $stmtT->execute([$user_name]);
+            $resolvedTickets = $stmtT->fetchColumn();
         }
 
         $leadTrend = ($lastMonthLeads > 0) ? '+' . round((($thisMonthLeads - $lastMonthLeads) / $lastMonthLeads) * 100, 1) . '% this month' : '+10% this month';
@@ -416,6 +442,50 @@ $kpi_cards = [
         'bg' => 'var(--warning-light)',
         'color' => 'var(--warning)',
         'link' => 'index.php?page=renewals'
+    ],
+    [
+        'title' => 'Total Tickets',
+        'value' => number_format($totalTickets),
+        'icon' => 'life-buoy',
+        'trend' => 'All helpdesk tickets',
+        'trend_class' => 'neutral',
+        'border' => 'var(--primary)',
+        'bg' => 'var(--primary-light)',
+        'color' => 'var(--primary)',
+        'link' => 'index.php?page=support'
+    ],
+    [
+        'title' => 'Open Tickets',
+        'value' => number_format($openTickets),
+        'icon' => 'ticket',
+        'trend' => 'Awaiting technician',
+        'trend_class' => 'negative',
+        'border' => 'var(--warning)',
+        'bg' => 'var(--warning-light)',
+        'color' => 'var(--warning)',
+        'link' => 'index.php?page=support&status=open'
+    ],
+    [
+        'title' => 'Pending Tickets',
+        'value' => number_format($pendingTickets),
+        'icon' => 'clock',
+        'trend' => 'In-progress resolution',
+        'trend_class' => 'neutral',
+        'border' => 'var(--info)',
+        'bg' => 'var(--info-light)',
+        'color' => 'var(--info)',
+        'link' => 'index.php?page=support&status=in_progress'
+    ],
+    [
+        'title' => 'Closed Tickets',
+        'value' => number_format($resolvedTickets),
+        'icon' => 'check-circle-2',
+        'trend' => 'Resolved client issues',
+        'trend_class' => 'positive',
+        'border' => 'var(--success)',
+        'bg' => 'var(--success-light)',
+        'color' => 'var(--success)',
+        'link' => 'index.php?page=support&status=resolved'
     ]
 ];
 ?>
@@ -529,3 +599,47 @@ window.dashboardChartData = {
         </div>
     </div>
 </div>
+
+<?php
+// Check if current user WABA settings are unconfigured
+$showWabaModal = false;
+if ($db_connected && $pdo) {
+    $uid = $_SESSION['user_id'] ?? 1;
+    $stmtWabaChk = $pdo->prepare("SELECT phone_number_id, access_token FROM merchant_waba_settings WHERE user_id = ?");
+    $stmtWabaChk->execute([$uid]);
+    $wabaRow = $stmtWabaChk->fetch(PDO::FETCH_ASSOC);
+    if (!$wabaRow || empty($wabaRow['phone_number_id']) || empty($wabaRow['access_token'])) {
+        $showWabaModal = true;
+    }
+}
+?>
+
+<?php if ($showWabaModal): ?>
+<!-- Post-Login Meta Embedded Signup Onboarding Modal -->
+<div id="meta-waba-onboarding-modal" class="modal-overlay active" style="display: flex; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);">
+    <div class="modal-container" style="max-width: 580px; background: #0f172a; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); padding: 28px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="width: 64px; height: 64px; border-radius: 20px; background: rgba(59, 130, 246, 0.15); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 12px; border: 1px solid rgba(59, 130, 246, 0.3);">
+                <i data-lucide="qr-code" style="width: 34px; height: 34px; color: #3b82f6;"></i>
+            </div>
+            <h2 style="font-size: 1.4rem; font-weight: 700; color: #ffffff; margin-bottom: 6px;">Connect Your WhatsApp Business Account</h2>
+            <p style="color: #94a3b8; font-size: 0.875rem; margin: 0;">Connect Meta WABA in 1-Click to dispatch Marg ERP Bills & Marketing Broadcasts from your OWN WhatsApp Number.</p>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-size: 0.85rem; color: #cbd5e1; line-height: 1.6;">
+            💡 <strong>No Meta App Creation Required!</strong><br>
+            Aapko Meta Developer portal me App banane ki zaroorat nahi hai. Humare <strong>Official Meta Tech Provider Solution</strong> dwara bas Meta account se log in karein — aapka WhatsApp number 30 second me connect ho jayega!
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+            <a href="index.php?page=merchant_waba_settings" class="btn btn-primary" style="padding: 12px; border-radius: 12px; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 8px; background: #3b82f6; border: none; text-decoration: none; color: white;">
+                <i data-lucide="zap" style="width: 20px; height: 20px;"></i>
+                Connect WhatsApp WABA Now
+            </a>
+            <button type="button" onclick="document.getElementById('meta-waba-onboarding-modal').style.display='none'" class="btn btn-secondary text-xs" style="background: transparent; border: none; color: #64748b; padding: 6px;">
+                Remind Me Later
+            </button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>

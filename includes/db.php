@@ -1,21 +1,24 @@
 <?php
 /**
  * Marg ERP CRM - Database Connection Helper
- * Configured for standard XAMPP local host environments.
+ * Configured for Hostinger Production & Localhost environments.
  */
 
-$db_host = 'localhost';
-$db_name = 'marg_crm';
-$db_user = 'root';
-$db_pass = ''; // Standard XAMPP default password is empty
-$db_port = '3307';
-$db_charset = 'utf8mb4';
+require_once __DIR__ . '/../config/config.php';
+
+$db_host = defined('DB_HOST') ? DB_HOST : 'localhost';
+$db_name = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
+$db_user = defined('DB_USER') ? DB_USER : 'u978772385_friendlyaidata';
+$db_pass = defined('DB_PASS') ? DB_PASS : 'Liahshsrahinahs%$#@12345';
+$db_port = defined('DB_PORT') ? DB_PORT : '3307';
+$db_charset = defined('DB_CHARSET') ? DB_CHARSET : 'utf8mb4';
 
 $dsn = "mysql:host=$db_host;port=$db_port;dbname=$db_name;charset=$db_charset";
 $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
+    PDO::ATTR_TIMEOUT            => 3,
 ];
 
 try {
@@ -24,21 +27,49 @@ try {
     } catch (\PDOException $e) {
         $fallback_port = ($db_port === '3307') ? '3306' : '3307';
         $dsn_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$db_name;charset=$db_charset";
-        $pdo_master = new PDO($dsn_fallback, $db_user, $db_pass, $options);
-        $db_port = $fallback_port;
+        try {
+            $pdo_master = new PDO($dsn_fallback, $db_user, $db_pass, $options);
+            $db_port = $fallback_port;
+        } catch (\PDOException $e2) {
+            // Additional fallback: test alternative DB name (marg_crm vs u978772385_friendlyaidata)
+            $alt_db_name = ($db_name === 'marg_crm') ? 'u978772385_friendlyaidata' : 'marg_crm';
+            $dsn_alt = "mysql:host=$db_host;port=$db_port;dbname=$alt_db_name;charset=$db_charset";
+            try {
+                $pdo_master = new PDO($dsn_alt, $db_user, $db_pass, $options);
+                $db_name = $alt_db_name;
+            } catch (\PDOException $e3) {
+                try {
+                    $dsn_alt_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$alt_db_name;charset=$db_charset";
+                    $pdo_master = new PDO($dsn_alt_fallback, $db_user, $db_pass, $options);
+                    $db_name = $alt_db_name;
+                    $db_port = $fallback_port;
+                } catch (\PDOException $e4) {
+                    // Fallback to local XAMPP MySQL if remote connection fails locally
+                    try {
+                        $pdo_master = new PDO("mysql:host=localhost;port=3307;dbname=marg_crm;charset=utf8mb4", "root", "", $options);
+                    } catch (\PDOException $e5) {
+                        try {
+                            $pdo_master = new PDO("mysql:host=localhost;port=3306;dbname=marg_crm;charset=utf8mb4", "root", "", $options);
+                        } catch (\PDOException $e6) {
+                            $pdo_master = null;
+                        }
+                    }
+                }
+            }
+        }
     }
     $pdo = $pdo_master;
-    $db_connected = true;
+    $db_connected = !empty($pdo);
 
     // Multi-tenant Dynamic Database Router
     $active_tenant_db = null;
     if (isset($_SESSION['impersonate_tenant_db']) && !empty($_SESSION['impersonate_tenant_db'])) {
         $active_tenant_db = $_SESSION['impersonate_tenant_db'];
-    } elseif (isset($_SESSION['tenant_db']) && !empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') {
+    } elseif (isset($_SESSION['tenant_db']) && !empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== $db_name) {
         $active_tenant_db = $_SESSION['tenant_db'];
     }
 
-    if (!empty($active_tenant_db) && $active_tenant_db !== $db_name) {
+    if (!empty($active_tenant_db) && $active_tenant_db !== $db_name && !empty($pdo)) {
         try {
             $tenant_dsn = "mysql:host=$db_host;port=$db_port;dbname=$active_tenant_db;charset=$db_charset";
             $pdo = new PDO($tenant_dsn, $db_user, $db_pass, $options);
@@ -48,8 +79,16 @@ try {
         }
     }
     
+    // Ensure MySQL session time_zone matches PHP Asia/Kolkata (IST)
+    if (!empty($pdo)) {
+        try {
+            $pdo->exec("SET time_zone = '+05:30'");
+        } catch (\Exception $e) {}
+    }
+
     // Schema auto-upgrade to support new Lead fields
-    $columnsQuery = $pdo->query("SHOW COLUMNS FROM leads");
+    if (!empty($pdo)) {
+        $columnsQuery = $pdo->query("SHOW COLUMNS FROM leads");
     $columns = $columnsQuery->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('tags', $columns)) {
         $pdo->exec("ALTER TABLE leads ADD COLUMN tags VARCHAR(255) NULL AFTER priority");
@@ -63,12 +102,15 @@ try {
     if (!in_array('assigned_by', $columns)) {
         $pdo->exec("ALTER TABLE leads ADD COLUMN assigned_by VARCHAR(100) NULL AFTER assigned_to");
     }
+    if (!in_array('group_stage', $columns)) {
+        $pdo->exec("ALTER TABLE leads ADD COLUMN group_stage VARCHAR(100) NULL AFTER status");
+    }
     
     // Modify city/state to be nullable for bulk spreadsheet imports
     $pdo->exec("ALTER TABLE leads MODIFY COLUMN city VARCHAR(50) NULL");
     $pdo->exec("ALTER TABLE leads MODIFY COLUMN state VARCHAR(50) NULL");
 
-    // Schema auto-upgrade to support user-specific permissions
+    // Schema auto-upgrade to support user-specific permissions & OTP reset security
     $userColumnsQuery = $pdo->query("SHOW COLUMNS FROM users");
     $userColumns = $userColumnsQuery->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('permissions', $userColumns)) {
@@ -80,12 +122,111 @@ try {
     if (!in_array('action_permissions', $userColumns)) {
         $pdo->exec("ALTER TABLE users ADD COLUMN action_permissions TEXT NULL");
     }
+    if (!in_array('otp_code', $userColumns)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN otp_code VARCHAR(10) NULL");
+    }
+    if (!in_array('otp_expires_at', $userColumns)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN otp_expires_at DATETIME NULL");
+    }
+    if (!in_array('reset_token', $userColumns)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN reset_token VARCHAR(255) NULL");
+    }
+    if (!in_array('reset_token_expires_at', $userColumns)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN reset_token_expires_at DATETIME NULL");
+    }
+    if (!in_array('reset_ip', $userColumns)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN reset_ip VARCHAR(50) NULL");
+    }
+    if (!in_array('reset_user_agent', $userColumns)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN reset_user_agent TEXT NULL");
+    }
+    if (!in_array('reset_session_secret', $userColumns)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN reset_session_secret VARCHAR(255) NULL");
+    }
 
     // Schema auto-upgrade to support lead installation checklist status
     $leadColumnsQuery = $pdo->query("SHOW COLUMNS FROM leads");
     $leadColumns = $leadColumnsQuery->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('installation_status', $leadColumns)) {
         $pdo->exec("ALTER TABLE leads ADD COLUMN installation_status VARCHAR(255) NULL");
+    }
+
+    // Schema auto-upgrade to support Client Directory Category
+    try {
+        $cdCheck = $pdo->query("SHOW TABLES LIKE 'client_directory'");
+        if ($cdCheck && $cdCheck->rowCount() > 0) {
+            $cdCols = $pdo->query("SHOW COLUMNS FROM client_directory")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('category', $cdCols)) {
+                $pdo->exec("ALTER TABLE client_directory ADD COLUMN category VARCHAR(50) NULL DEFAULT 'Category A' AFTER party_status");
+            }
+        }
+        $custCheck = $pdo->query("SHOW TABLES LIKE 'customers'");
+        if ($custCheck && $custCheck->rowCount() > 0) {
+            $custCols = $pdo->query("SHOW COLUMNS FROM customers")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('category', $custCols)) {
+                $pdo->exec("ALTER TABLE customers ADD COLUMN category VARCHAR(50) NULL DEFAULT 'Category A' AFTER status");
+            }
+        }
+    } catch (\PDOException $catEx) {}
+
+    // Schema auto-upgrade for SaaS tenant_companies allowed_modules
+    try {
+        $tenantCompColsQuery = $pdo_master->query("SHOW COLUMNS FROM tenant_companies");
+        $tenantCompCols = $tenantCompColsQuery->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('allowed_modules', $tenantCompCols)) {
+            $pdo_master->exec("ALTER TABLE tenant_companies ADD COLUMN allowed_modules TEXT NULL");
+        }
+    } catch (\PDOException $tce) {
+        // Ignore if tenant_companies table doesn't exist yet
+    }
+
+    // Schema auto-upgrade to support customer reviews and ratings
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS customer_reviews (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            company VARCHAR(100) DEFAULT NULL,
+            city VARCHAR(100) DEFAULT NULL,
+            rating DECIMAL(2, 1) DEFAULT 5.0,
+            review_text TEXT NOT NULL,
+            service_name VARCHAR(100) DEFAULT 'Marg ERP 9+',
+            source VARCHAR(50) DEFAULT 'Google Verified',
+            status ENUM('Approved', 'Pending', 'Hidden') DEFAULT 'Approved',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (\PDOException $rEx) {
+        // Ignore review table creation error
+    }
+
+    // Schema auto-upgrade for Enterprise Security (login_attempts & activity_logs)
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS login_attempts (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ip_address VARCHAR(45) NOT NULL,
+            email VARCHAR(150) NOT NULL,
+            attempt_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX (ip_address),
+            INDEX (email),
+            INDEX (attempt_time)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS activity_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT DEFAULT NULL,
+            user_name VARCHAR(100) DEFAULT 'System',
+            user_role VARCHAR(50) DEFAULT 'Guest',
+            action VARCHAR(100) NOT NULL,
+            module VARCHAR(100) NOT NULL,
+            details TEXT DEFAULT NULL,
+            ip_address VARCHAR(45) DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX (user_id),
+            INDEX (action),
+            INDEX (module),
+            INDEX (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (\PDOException $secEx) {
+        // Ignore security table creation error
     }
 
     // Schema auto-upgrade to support email archiving
@@ -220,11 +361,6 @@ try {
             status VARCHAR(20) DEFAULT 'Active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        // Seed default primary corporate account
-        $pdo->exec("INSERT INTO bank_accounts (account_name, bank_name, account_number, ifsc_code, branch, account_type, upi_id, is_primary, status) VALUES 
-        ('Marg Soft Solutions Pvt Ltd', 'HDFC Bank Ltd.', '50200045091234', 'HDFC0000123', 'Okhla Phase 3, New Delhi', 'Current Account', 'margsoft@okicici', 1, 'Active'),
-        ('Marg Soft Solutions Pvt Ltd', 'ICICI Bank Ltd.', '000705012398', 'ICIC0000007', 'Connaught Place, New Delhi', 'Current Account', 'margsoftpay@icici', 0, 'Active')");
     }
 
     // Schema auto-upgrade to ensure training_sessions table exists
@@ -250,9 +386,49 @@ try {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
+
+    // Schema auto-upgrade to ensure merchant_waba_settings table exists
+    $wabaCheck = $pdo->query("SHOW TABLES LIKE 'merchant_waba_settings'");
+    if ($wabaCheck->rowCount() === 0) {
+        $pdo->exec("CREATE TABLE merchant_waba_settings (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL UNIQUE,
+            waba_id VARCHAR(100) NULL,
+            phone_number_id VARCHAR(100) NULL,
+            access_token TEXT NULL,
+            business_phone VARCHAR(20) NULL,
+            tenant_api_key VARCHAR(100) NOT NULL UNIQUE,
+            webhook_verify_token VARCHAR(100) NULL,
+            status VARCHAR(20) DEFAULT 'Active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    // Schema auto-upgrade to ensure marg_erp_logs table exists
+    $erpLogCheck = $pdo->query("SHOW TABLES LIKE 'marg_erp_logs'");
+    if ($erpLogCheck->rowCount() === 0) {
+        $pdo->exec("CREATE TABLE marg_erp_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            tenant_api_key VARCHAR(100) NOT NULL,
+            recipient_phone VARCHAR(20) NOT NULL,
+            event_type VARCHAR(50) DEFAULT 'Invoice',
+            bill_number VARCHAR(100) NULL,
+            bill_amount DECIMAL(12,2) DEFAULT 0.00,
+            template_name VARCHAR(100) NULL,
+            status VARCHAR(20) DEFAULT 'Sent',
+            meta_message_id VARCHAR(150) NULL,
+            error_message TEXT NULL,
+            payload_json LONGTEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+}
 } catch (\PDOException $e) {
     $pdo = null;
     $db_connected = false;
+    $db_connect_error = $e->getMessage();
     // Log exception for debugging (non-fatal)
     error_log("Database connection failure: " . $e->getMessage());
 }

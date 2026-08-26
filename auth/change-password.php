@@ -1,31 +1,106 @@
 <?php
+session_start();
+require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
 
-$email = isset($_GET['email']) ? trim($_GET['email']) : '';
-
+$token = isset($_GET['token']) ? trim($_GET['token']) : ($_SESSION['reset_token'] ?? '');
 $message = '';
 $message_type = '';
+$valid_user = null;
+
+// STRICT SECURITY GUARD: Reject any direct access attempts via plain email URL or missing token
+if (empty($token)) {
+    header("Location: forgot-password.php?error=unauthorized");
+    exit;
+}
+
+if ($db_connected && $pdo) {
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE reset_token = ? AND reset_token IS NOT NULL");
+        $stmt->execute([$token]);
+        $valid_user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$valid_user) {
+            header("Location: forgot-password.php?error=invalid_token");
+            exit;
+        }
+
+        $token_expires = $valid_user['reset_token_expires_at'] ? strtotime($valid_user['reset_token_expires_at']) : 0;
+        if (time() > $token_expires) {
+            header("Location: forgot-password.php?error=expired_token");
+            exit;
+        }
+
+        // STRICT DEVICE & BROWSER COOKIE BINDING: Ensure request IP, User-Agent, & HTTP-Only Cookie match original browser
+        $user_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+        $cookie_secret = $_COOKIE['reset_cookie_secret'] ?? ($_SESSION['reset_cookie_secret'] ?? '');
+
+        if (!empty($valid_user['reset_ip']) && $valid_user['reset_ip'] !== $user_ip) {
+            header("Location: forgot-password.php?error=device_mismatch");
+            exit;
+        }
+
+        if (!empty($valid_user['reset_user_agent']) && $valid_user['reset_user_agent'] !== $user_agent) {
+            header("Location: forgot-password.php?error=device_mismatch");
+            exit;
+        }
+
+        if (!empty($valid_user['reset_session_secret'])) {
+            $incoming_hash = hash('sha256', $cookie_secret);
+            if (!hash_equals($valid_user['reset_session_secret'], $incoming_hash)) {
+                header("Location: forgot-password.php?error=cookie_mismatch");
+                exit;
+            }
+        }
+    } catch (PDOException $e) {
+        $message = "Security validation error: " . $e->getMessage();
+        $message_type = "danger";
+    }
+} else {
+    // Fallback for offline mode if session authorized email exists
+    if (!isset($_SESSION['reset_authorized_email'])) {
+        header("Location: forgot-password.php?error=unauthorized");
+        exit;
+    }
+}
+
+$email = $valid_user ? $valid_user['email'] : ($_SESSION['reset_authorized_email'] ?? 'Account User');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $new_pass = $_POST['new-password'];
+    $new_pass = $_POST['new-password'] ?? '';
     
-    if ($db_connected && $pdo) {
-        try {
-            $hash = password_hash($new_pass, PASSWORD_DEFAULT);
-            $stmt = $pdo->prepare("UPDATE users SET password = ? WHERE email = ?");
-            $stmt->execute([$hash, $email]);
-            
-            // Redirect to login with success indicator
+    if (empty($new_pass) || strlen($new_pass) < 6) {
+        $message = "Password must be at least 6 characters long.";
+        $message_type = "danger";
+    } else {
+        if ($db_connected && $pdo && $valid_user) {
+            try {
+                $hash = password_hash($new_pass, PASSWORD_DEFAULT);
+                // Update password AND immediately invalidate reset_token, reset_ip, reset_session_secret & OTP code to prevent reuse
+                $stmt = $pdo->prepare("UPDATE users SET password = ?, reset_token = NULL, reset_token_expires_at = NULL, otp_code = NULL, otp_expires_at = NULL, reset_ip = NULL, reset_user_agent = NULL, reset_session_secret = NULL WHERE id = ?");
+                $stmt->execute([$hash, $valid_user['id']]);
+
+                setcookie('reset_cookie_secret', '', time() - 3600, '/', '', false, true);
+                unset($_SESSION['reset_token']);
+                unset($_SESSION['reset_cookie_secret']);
+                unset($_SESSION['reset_authorized_email']);
+                unset($_SESSION['reset_email']);
+                unset($_SESSION['reset_device_ip']);
+
+                header("Location: login.php?reset=success");
+                exit;
+            } catch (PDOException $e) {
+                $message = "Database execution failure: " . $e->getMessage();
+                $message_type = "danger";
+            }
+        } else {
+            // Fallback for offline prototype
+            unset($_SESSION['reset_token']);
+            unset($_SESSION['reset_authorized_email']);
             header("Location: login.php?reset=success");
             exit;
-        } catch (PDOException $e) {
-            $message = "Database execution failure: " . $e->getMessage();
-            $message_type = "danger";
         }
-    } else {
-        // Fallback for offline prototype
-        header("Location: login.php?reset=success");
-        exit;
     }
 }
 ?>
@@ -90,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             <?php endif; ?>
             
-            <form action="change-password.php?email=<?php echo urlencode($email); ?>" method="POST" id="change-pass-form" class="flex flex-col gap-4">
+            <form action="change-password.php?token=<?php echo urlencode($token); ?>" method="POST" id="change-pass-form" class="flex flex-col gap-4">
                 <div class="form-group m-0">
                     <label for="new-password" class="form-label text-sm">New Password</label>
                     <div class="input-icon-wrapper">

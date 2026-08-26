@@ -7,6 +7,8 @@
 
 require_once __DIR__ . '/cors.php';
 
+$auth = requireApiAuth();
+
 header('Content-Type: application/json; charset=utf-8');
 
 if (!$db_connected || !$pdo) {
@@ -31,16 +33,16 @@ try {
             'success' => true,
             'found' => true,
             'source' => 'client_directory',
-            'data' => [
+            'data' => array_merge($cd, [
                 'license_no'    => $cd['customer_id'],
-                'customer_name' => !empty($cd['contact_person']) ? $cd['contact_person'] : $cd['party_name'],
+                'customer_name' => !empty($cd['party_name']) ? $cd['party_name'] : $cd['contact_person'],
                 'firm_name'     => !empty($cd['party_name']) ? $cd['party_name'] : $cd['company_using'],
                 'phone'         => $cd['mobile'] ?? '',
                 'email'         => $cd['email'] ?? '',
                 'product'       => $cd['software_type'] ?? 'Marg ERP',
                 'renewal_date'  => $cd['due_on'] ?? null,
                 'address'       => trim(($cd['address'] ?? '') . ' ' . ($cd['city'] ?? '') . ' ' . ($cd['state'] ?? ''))
-            ]
+            ])
         ]);
     }
 

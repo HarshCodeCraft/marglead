@@ -130,3 +130,80 @@ function verify_meta_signature(string $payload, string $secret, ?string $header_
     $expected_signature = 'sha256=' . hash_hmac('sha256', $payload, $secret);
     return hash_equals($expected_signature, $header_signature);
 }
+
+/**
+ * Automatically delete MP4 video and MP3/OGG/Voice note audio files older than 48 hours (172800 seconds).
+ * NEVER deletes images (.jpg, .png, .webp) or document files (.pdf).
+ *
+ * @param string|null $mediaDir Directory path to clean up. Defaults to uploads/whatsapp/.
+ * @param int $maxAgeSeconds Max age in seconds (48h = 48 * 3600 = 172800 seconds).
+ * @return array Cleanup stats ['deleted_files' => count, 'freed_bytes' => total, 'kept_files' => count]
+ */
+function cleanup_48h_audio_video_media(?string $mediaDir = null, int $maxAgeSeconds = 172800): array {
+    if ($mediaDir === null) {
+        $mediaDir = __DIR__ . '/../uploads/whatsapp/';
+    }
+
+    $deletedCount = 0;
+    $freedBytes   = 0;
+    $keptCount    = 0;
+
+    if (!is_dir($mediaDir)) {
+        return ['deleted_files' => 0, 'freed_bytes' => 0, 'kept_files' => 0];
+    }
+
+    // Allowed extensions ONLY to delete after 48 hours (videos & audios/voice notes)
+    $avExtensions = ['mp4', 'mp3', 'ogg', 'wav', 'm4a', 'aac', 'opus', '3gp', 'avi', 'mov', 'webm'];
+    
+    $now = time();
+    $files = @scandir($mediaDir);
+
+    if ($files && is_array($files)) {
+        foreach ($files as $f) {
+            if ($f === '.' || $f === '..') continue;
+            
+            $filePath = rtrim($mediaDir, '/\\') . DIRECTORY_SEPARATOR . $f;
+            if (!is_file($filePath)) continue;
+
+            $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+
+            // ONLY check audio and video extensions! (Images & PDFs are excluded and protected!)
+            if (in_array($ext, $avExtensions)) {
+                $fileMtime = @filemtime($filePath);
+                if ($fileMtime && ($now - $fileMtime) >= $maxAgeSeconds) {
+                    $size = @filesize($filePath);
+                    if (@unlink($filePath)) {
+                        $deletedCount++;
+                        $freedBytes += ($size ?: 0);
+                    }
+                } else {
+                    $keptCount++;
+                }
+            } else {
+                $keptCount++;
+            }
+        }
+    }
+
+    return [
+        'deleted_files' => $deletedCount,
+        'freed_bytes'   => $freedBytes,
+        'kept_files'    => $keptCount
+    ];
+}
+
+/**
+ * Throttled background trigger for 48h MP4/MP3 auto-cleanup (runs at most once every hour).
+ */
+function auto_trigger_48h_media_cleanup(): void {
+    $lockFile = sys_get_temp_dir() . '/marg_48h_media_cleanup.lock';
+    $now = time();
+    if (file_exists($lockFile)) {
+        $lastRun = (int)@file_get_contents($lockFile);
+        if (($now - $lastRun) < 3600) {
+            return;
+        }
+    }
+    @file_put_contents($lockFile, (string)$now);
+    cleanup_48h_audio_video_media();
+}

@@ -6,10 +6,10 @@ Complete step-by-step production guide for setting up **WhatsApp Cloud API**, **
 
 ## 1. Prerequisites & Environment Configuration
 
-### Base & Endpoint URLs (Configured via ngrok)
-- **Base URL**: `https://ladder-giver-splendid.ngrok-free.dev/marglead/`
-- **Webhook Endpoint URL**: `https://ladder-giver-splendid.ngrok-free.dev/marglead/api/webhook.php`
-- **Flow Data Endpoint URL**: `https://ladder-giver-splendid.ngrok-free.dev/marglead/api/flow-endpoint.php`
+### Base & Endpoint URLs (Live Production)
+- **Base URL**: `https://friendlyaisolution.com/`
+- **Webhook Endpoint URL**: `https://friendlyaisolution.com/api/webhook.php`
+- **Flow Data Endpoint URL**: `https://friendlyaisolution.com/api/flow-endpoint.php`
 
 ### Project Configuration File
 All API tokens and credentials are kept in `config/config.php`:
