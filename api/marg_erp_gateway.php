@@ -216,9 +216,10 @@ if ($gateway_type === 'meta') {
 
 } else if ($gateway_type === 'web_api') {
     // ==========================================
-    // 2. THIRD-PARTY WEB API / QR INSTANCE DISPATCH
+    // 2. SELF-HOSTED WHATSAPP WEB ENGINE DISPATCH
     // ==========================================
-    $webApiUrl = !empty($merchant['web_api_url']) ? rtrim($merchant['web_api_url'], '/') : 'https://wa.whtapi.com';
+    $defaultSelfHosted = (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://friendlyaisolution.com') . '/api/whatsapp_web_engine.php';
+    $webApiUrl = !empty($merchant['web_api_url']) ? rtrim($merchant['web_api_url'], '/') : $defaultSelfHosted;
     $webApiToken = $merchant['web_api_token'] ?? '';
     $webApiInstance = $merchant['web_api_instance_id'] ?? '';
 
@@ -228,7 +229,9 @@ if ($gateway_type === 'meta') {
         exit;
     }
 
-    $dispatchEndpoint = (strpos($webApiUrl, '/send') !== false) ? $webApiUrl : ($webApiUrl . '/send-message');
+    $dispatchEndpoint = (strpos($webApiUrl, 'action=') !== false) 
+        ? $webApiUrl . '&action=send_message' 
+        : ((strpos($webApiUrl, '.php') !== false) ? ($webApiUrl . '?action=send_message') : (rtrim($webApiUrl, '/') . '/send-message'));
 
     $payload = [
         'recipient'    => $phoneDigits,
