@@ -478,6 +478,13 @@ function hasAccess($module, $role) {
         return true;
     }
 
+    // 2b. System Master Admin Modules bypass tenant package restrictions for Super Admin & Admin
+    $userEmail = strtolower($_SESSION['user_email'] ?? '');
+    $is_super_admin = ($role === 'Super Admin' || $role === 'Admin' || $userEmail === 'deepakawasthi587@gmail.com');
+    if ($is_super_admin && in_array($module, ['crm_clients', 'admin_users', 'admin_permissions', 'admin_reports', 'admin_reviews', 'settings'])) {
+        return true;
+    }
+
     // 3. Check Tenant Company Power Permissions (CRM Client allowed_modules block)
     $is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') || !empty($_SESSION['impersonate_tenant_db']);
     if ($is_tenant_session) {
