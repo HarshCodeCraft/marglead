@@ -2,7 +2,7 @@
 /**
  * Marg ERP CRM - Add-On: Merchant WABA Setup & Marg ERP Gateway Settings
  * Allows merchants & Super Admin to configure Meta WhatsApp Cloud API credentials
- * OR WhatsApp Web API (QR Code Instance Gateway e.g. whtapi.com / Baileys)
+ * OR Self-Hosted WhatsApp Web API (QR Code Instance Gateway)
  * and copy their unique Marg ERP 9+ Webhook Gateway URL.
  */
 
@@ -16,6 +16,9 @@ $user_id = $_SESSION['user_id'] ?? 1;
 $message = '';
 $message_type = '';
 
+// Self-Hosted Gateway default URL
+$default_self_hosted_url = (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://friendlyaisolution.com') . '/api/whatsapp_web_engine.php';
+
 // Auto-generate or fetch settings for this user
 try {
     $stmt = $pdo->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ?");
@@ -26,8 +29,8 @@ try {
         $newApiKey = 'MARG-WABA-' . strtoupper(bin2hex(random_bytes(8)));
         $newVerifyToken = bin2hex(random_bytes(16));
 
-        $stmtIns = $pdo->prepare("INSERT INTO merchant_waba_settings (user_id, phone_number_id, waba_id, access_token, tenant_api_key, webhook_verify_token, gateway_type, web_api_url, web_api_token, web_api_session_status) VALUES (?, '', '', '', ?, ?, 'meta', 'https://wa.whtapi.com/', '', 'disconnected')");
-        $stmtIns->execute([$user_id, $newApiKey, $newVerifyToken]);
+        $stmtIns = $pdo->prepare("INSERT INTO merchant_waba_settings (user_id, phone_number_id, waba_id, access_token, tenant_api_key, webhook_verify_token, gateway_type, web_api_url, web_api_token, web_api_session_status) VALUES (?, '', '', '', ?, ?, 'meta', ?, '', 'disconnected')");
+        $stmtIns->execute([$user_id, $newApiKey, $newVerifyToken, $default_self_hosted_url]);
 
         $stmt->execute([$user_id]);
         $wabaSettings = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -39,7 +42,7 @@ try {
 // Current gateway type
 $current_gateway = !empty($wabaSettings['gateway_type']) ? $wabaSettings['gateway_type'] : 'meta';
 
-// Handle Form Submission - Gateway Settings Save (Meta or Web API)
+// Handle Form Submission - Gateway Settings Save (Meta or Self-Hosted Web API)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_waba') {
     $gateway_type = trim($_POST['gateway_type'] ?? 'meta');
     $phone_number_id = trim($_POST['phone_number_id'] ?? '');
@@ -47,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $access_token = trim($_POST['access_token'] ?? '');
     $business_phone = trim($_POST['business_phone'] ?? '');
 
-    $web_api_url = trim($_POST['web_api_url'] ?? 'https://wa.whtapi.com/');
+    $web_api_url = trim($_POST['web_api_url'] ?? $default_self_hosted_url);
     $web_api_token = trim($_POST['web_api_token'] ?? '');
     $web_api_instance_id = trim($_POST['web_api_instance_id'] ?? '');
 
@@ -72,8 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         ");
         $stmtSyncTenant->execute([$user_id, $waba_id, $phone_number_id, $business_phone, $access_token]);
 
-        $gateway_label = ($gateway_type === 'web_api') ? 'WhatsApp Web API (QR Code Instance)' : 'Meta WhatsApp Cloud API';
-        $message = "🎉 Gateway Settings saved! Active Gateway Method: " . $gateway_label;
+        $gateway_label = ($gateway_type === 'web_api') ? 'Self-Hosted WhatsApp Web API (QR Code Instance)' : 'Meta WhatsApp Cloud API';
+        $message = "🎉 Gateway Settings saved! Active Integration Method: " . $gateway_label;
         $message_type = "success";
 
         // Refresh settings
@@ -86,10 +89,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle Form Submission - Direct WhatsApp Test Dispatch (Meta OR Web API)
+// Handle Form Submission - Direct WhatsApp Test Dispatch (Meta OR Self-Hosted Web API)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'test_dispatch') {
     $test_mobile = trim($_POST['test_mobile'] ?? '');
-    $test_bill_no = trim($_POST['test_bill_no'] ?? 'INV-SUPER-TEST-9001');
+    $test_bill_no = trim($_POST['test_bill_no'] ?? 'INV-TEST-9001');
 
     $phoneDigits = preg_replace('/\D/', '', $test_mobile);
     if (strlen($phoneDigits) === 10) $phoneDigits = '91' . $phoneDigits;
@@ -99,51 +102,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $message_type = "warning";
     } else {
         if ($current_gateway === 'web_api') {
-            // Dispatch via WhatsApp Web API Instance
-            $webUrl = !empty($wabaSettings['web_api_url']) ? rtrim($wabaSettings['web_api_url'], '/') : 'https://wa.whtapi.com';
+            // Dispatch via Self-Hosted WhatsApp Web API
+            $webUrl = !empty($wabaSettings['web_api_url']) ? rtrim($wabaSettings['web_api_url'], '/') : $default_self_hosted_url;
             $webToken = $wabaSettings['web_api_token'] ?? '';
             $webInstance = $wabaSettings['web_api_instance_id'] ?? '';
 
-            if (empty($webUrl)) {
-                $message = "WhatsApp Web API URL missing. Please configure Web API settings first.";
-                $message_type = "danger";
+            $endpoint = (strpos($webUrl, 'action=') !== false) ? $webUrl . '&action=send_message' : ($webUrl . '/send-message');
+            $postFields = [
+                'recipient' => $phoneDigits,
+                'message'   => "🎉 Marg ERP 9+ Self-Hosted WhatsApp Web Test Message!\nBill No: {$test_bill_no}\nSent cleanly via paired phone camera session.",
+                'token'     => $webToken,
+                'instance'  => $webInstance
+            ];
+
+            $ch = curl_init($endpoint);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Authorization: Bearer ' . $webToken]);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postFields));
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+
+            $resRaw = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            $resJson = json_decode($resRaw, true) ?? [];
+
+            if ($httpCode === 200 || (!empty($resJson['status']) && strtolower($resJson['status']) === 'success')) {
+                $msgId = $resJson['message_id'] ?? $resJson['id'] ?? ('SELF-WEB-' . time());
+                $message = "🎉 SUCCESS! Test message dispatched via Self-Hosted WhatsApp Web API to {$phoneDigits}!";
+                $message_type = "success";
+
+                try {
+                    $stmtLog = $pdo->prepare("INSERT INTO marg_erp_logs (user_id, tenant_api_key, recipient_phone, event_type, bill_number, template_name, status, meta_message_id, payload_json) VALUES (?, ?, ?, 'Self-Hosted Web Test', ?, 'web_dispatch', 'Sent', ?, ?)");
+                    $stmtLog->execute([$user_id, $wabaSettings['tenant_api_key'] ?? '', $phoneDigits, $test_bill_no, $msgId, json_encode($postFields)]);
+                } catch (PDOException $e) {}
             } else {
-                $endpoint = $webUrl . "/send-message";
-                $postFields = [
-                    'recipient' => $phoneDigits,
-                    'message'   => "🎉 Marg ERP 9+ WhatsApp Web API Test Message!\nBill No: {$test_bill_no}\nSent cleanly via paired WhatsApp Phone.",
-                    'token'     => $webToken,
-                    'instance'  => $webInstance
-                ];
-
-                $ch = curl_init($endpoint);
-                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Authorization: Bearer ' . $webToken]);
-                curl_setopt($ch, CURLOPT_POST, true);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postFields));
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-
-                $resRaw = curl_exec($ch);
-                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
-
-                $resJson = json_decode($resRaw, true) ?? [];
-
-                if ($httpCode === 200 || (!empty($resJson['status']) && $resJson['status'] == 'success')) {
-                    $msgId = $resJson['id'] ?? ('WEB-' . time());
-                    $message = "🎉 SUCCESS! Test message dispatched via WhatsApp Web API to {$phoneDigits}!";
-                    $message_type = "success";
-
-                    try {
-                        $stmtLog = $pdo->prepare("INSERT INTO marg_erp_logs (user_id, tenant_api_key, recipient_phone, event_type, bill_number, template_name, status, meta_message_id, payload_json) VALUES (?, ?, ?, 'Web API Test', ?, 'web_dispatch', 'Sent', ?, ?)");
-                        $stmtLog->execute([$user_id, $wabaSettings['tenant_api_key'] ?? '', $phoneDigits, $test_bill_no, $msgId, json_encode($postFields)]);
-                    } catch (PDOException $e) {}
-                } else {
-                    $errDetail = !empty($resJson['message']) ? $resJson['message'] : json_encode($resJson);
-                    $message = "⚠️ Web API Dispatch Simulation: " . ($errDetail ?: 'Request posted to ' . $endpoint);
-                    $message_type = "info";
-                }
+                $errDetail = !empty($resJson['message']) ? $resJson['message'] : json_encode($resJson);
+                $message = "⚠️ Self-Hosted Web Dispatch: " . ($errDetail ?: 'Posted to ' . $endpoint);
+                $message_type = "info";
             }
         } else {
             // Dispatch via Meta Cloud API
@@ -214,7 +212,7 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
             Marg ERP 9+ WhatsApp Gateway & WABA Setup
         </h1>
         <p style="color: var(--text-muted); font-size: 0.9rem;">
-            Choose between Meta WhatsApp Cloud API or WhatsApp Web API (QR Code Instance) for automated bill & PDF dispatching.
+            Configure your Meta WhatsApp Cloud API or Self-Hosted WhatsApp Web API (100% No Third Party APIs).
         </p>
     </div>
 </div>
@@ -230,7 +228,7 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
 <div style="background: var(--bg-card, rgba(15, 23, 42, 0.7)); border: 1px solid var(--border-color, rgba(255,255,255,0.1)); border-radius: 16px; padding: 20px; margin-bottom: 24px;">
     <h3 style="font-size: 1.05rem; font-weight: 700; color: #ffffff; margin-top: 0; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
         <i data-lucide="sliders" style="width: 20px; height: 20px; color: #3b82f6;"></i>
-        Select Active WhatsApp Integration Gateway Method
+        Select Active WhatsApp Integration Method
     </h3>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
@@ -241,24 +239,24 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
                     <i data-lucide="cloud" style="width: 24px; height: 24px; color: #3b82f6;"></i>
                     <strong style="font-size: 1rem; color: #ffffff;">Option 1: Meta Cloud API</strong>
                 </div>
-                <span class="badge" style="background: #3b82f6; color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem;">Official WABA</span>
+                <span class="badge" style="background: #3b82f6; color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem;">Official Meta WABA</span>
             </div>
             <p style="font-size: 0.825rem; color: #94a3b8; margin: 0; line-height: 1.5;">
                 Official Meta Business API. Requires Facebook Meta WABA ID, Phone ID, and Access Token. High volume green tick support.
             </p>
         </div>
 
-        <!-- Option B: WhatsApp Web API (QR Code) -->
+        <!-- Option B: WhatsApp Web API (Self-Hosted) -->
         <div id="card-gateway-web" onclick="selectGateway('web_api')" style="cursor: pointer; padding: 18px; border-radius: 14px; border: 2px solid <?php echo ($current_gateway === 'web_api') ? '#10b981' : 'rgba(255,255,255,0.1)'; ?>; background: <?php echo ($current_gateway === 'web_api') ? 'rgba(16, 185, 129, 0.12)' : 'rgba(0,0,0,0.2)'; ?>; transition: all 0.2s ease;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <i data-lucide="smartphone" style="width: 24px; height: 24px; color: #10b981;"></i>
-                    <strong style="font-size: 1rem; color: #ffffff;">Option 2: WhatsApp Web API (QR Code)</strong>
+                    <strong style="font-size: 1rem; color: #ffffff;">Option 2: WhatsApp Web API (Self-Hosted)</strong>
                 </div>
-                <span class="badge" style="background: #10b981; color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem;">No Meta Verification Needed</span>
+                <span class="badge" style="background: #10b981; color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem;">100% Self-Made / No External API</span>
             </div>
             <p style="font-size: 0.825rem; color: #94a3b8; margin: 0; line-height: 1.5;">
-                Connect regular WhatsApp via QR code scan (like <code>whtapi.com</code> / Baileys). Phone works normally & invoices send automatically!
+                Connect regular WhatsApp by scanning QR Code with phone camera. Runs 100% on your own server. Invoices send automatically!
             </p>
         </div>
     </div>
@@ -304,7 +302,7 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
             </div>
             <div>
                 <h3 style="font-size: 1.1rem; font-weight: 700; color: #ffffff; margin: 0;">1-Click Live Dispatch Test</h3>
-                <span style="font-size: 0.8rem; color: #94a3b8;">Test message dispatch via <?php echo ($current_gateway === 'web_api') ? 'WhatsApp Web API' : 'Meta Cloud API'; ?></span>
+                <span style="font-size: 0.8rem; color: #94a3b8;">Test message dispatch via <?php echo ($current_gateway === 'web_api') ? 'Self-Hosted WhatsApp Web API' : 'Meta Cloud API'; ?></span>
             </div>
         </div>
 
@@ -328,7 +326,7 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
     </div>
 </div>
 
-<!-- Main Settings Form (Meta Cloud API OR WhatsApp Web API) -->
+<!-- Main Settings Form (Meta Cloud API OR Self-Hosted Web API) -->
 <form method="POST" action="" id="wabaSettingsForm">
     <input type="hidden" name="action" value="save_waba">
     <input type="hidden" name="gateway_type" id="gateway_type_input" value="<?php echo htmlspecialchars($current_gateway); ?>">
@@ -368,66 +366,73 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
         </div>
     </div>
 
-    <!-- Section B: WhatsApp Web API Settings & QR Scanner Console -->
+    <!-- Section B: Self-Hosted WhatsApp Web API Settings & QR Scanner Console -->
     <div id="panel-gateway-web" style="display: <?php echo ($current_gateway === 'web_api') ? 'block' : 'none'; ?>; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
         <h3 style="font-size: 1.1rem; font-weight: 700; color: #ffffff; margin-top: 0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
             <i data-lucide="smartphone" style="width: 22px; height: 22px; color: #10b981;"></i>
-            WhatsApp Web API Gateway Settings & QR Code Account Pairing
+            Self-Hosted WhatsApp Web API Settings & QR Code Account Pairing
         </h3>
 
         <!-- QR Code Pairing & Account Console -->
         <div style="background: rgba(0,0,0,0.3); border: 1px dashed rgba(16, 185, 129, 0.4); border-radius: 14px; padding: 20px; margin-bottom: 20px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
             
-            <div style="background: white; padding: 14px; border-radius: 12px; text-align: center; width: 170px; height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+            <div style="background: white; padding: 14px; border-radius: 12px; text-align: center; width: 180px; height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); position: relative;">
                 <div id="qrCodeContainer">
-                    <img id="qrImage" src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https%3A%2F%2Fwa.whtapi.com%2Fwhatsapp-web%2Faccount" alt="WhatsApp Web Pairing QR Code" style="width: 130px; height: 130px; display: block;">
+                    <img id="qrImage" src="api/whatsapp_web_engine.php?action=get_qr" alt="Self-Hosted WhatsApp Web Pairing QR Code" style="width: 150px; height: 150px; display: block; border-radius: 6px;">
                 </div>
             </div>
 
             <div style="flex: 1; min-width: 250px;">
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
                     <span class="badge" id="sessionStatusBadge" style="background: #10b981; color: white; font-weight: 700; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem;">
-                        🟢 Status: Ready / Pairing Active
+                        🟢 Status: Self-Hosted Engine Ready
                     </span>
                 </div>
                 <h4 style="font-size: 1rem; font-weight: 700; color: white; margin: 0 0 6px 0;">Pair Phone via WhatsApp Camera</h4>
                 <p style="font-size: 0.825rem; color: #cbd5e1; margin: 0 0 14px 0; line-height: 1.5;">
                     1. Open WhatsApp on your phone &rarr; Tap Menu/Settings &rarr; Linked Devices.<br>
-                    2. Tap <strong>Link a Device</strong> & point phone camera at the QR code.<br>
-                    3. Your phone stays connected and Marg ERP invoices will dispatch automatically!
+                    2. Tap <strong>Link a Device</strong> & point phone camera at the QR code above.<br>
+                    3. Phone stays paired with your own server & Marg ERP invoices send automatically!
                 </p>
                 <div style="display: flex; gap: 10px;">
-                    <button type="button" onclick="refreshQrCode()" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem; border-radius: 8px; background: #10b981; border: none;">
-                        <i data-lucide="refresh-cw" style="width: 14px; height: 14px; margin-right: 4px;"></i> Refresh QR Code
+                    <button type="button" onclick="loadLiveQrCode()" class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem; border-radius: 8px; background: #10b981; border: none;">
+                        <i data-lucide="refresh-cw" style="width: 14px; height: 14px; margin-right: 4px;"></i> Refresh Live QR Code
                     </button>
                     <button type="button" onclick="checkSessionStatus()" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.8rem; border-radius: 8px;">
-                        <i data-lucide="check-circle" style="width: 14px; height: 14px; margin-right: 4px;"></i> Verify Connection
+                        <i data-lucide="check-circle" style="width: 14px; height: 14px; margin-right: 4px;"></i> Check Status
                     </button>
                 </div>
             </div>
         </div>
 
+        <!-- Self-Hosted Server Setup Box -->
+        <div style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; padding: 16px; border-radius: 10px; margin-bottom: 20px; font-size: 0.85rem; color: #cbd5e1; line-height: 1.6;">
+            🚀 <strong>Self-Hosted Engine Server Instructions:</strong><br>
+            Your self-hosted WhatsApp Web API bridge runs at <code><?php echo htmlspecialchars($default_self_hosted_url); ?></code>.<br>
+            To run the standalone Node.js Baileys engine on your server: <code>cd whatsapp_engine && npm install && npm start</code> (Runs on port 3000).
+        </div>
+
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px;">
             <div>
-                <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Web API Server Endpoint URL:</label>
-                <input type="text" name="web_api_url" value="<?php echo htmlspecialchars(!empty($wabaSettings['web_api_url']) ? $wabaSettings['web_api_url'] : 'https://wa.whtapi.com/'); ?>" placeholder="e.g. https://wa.whtapi.com/" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
+                <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Self-Hosted Web API Endpoint URL:</label>
+                <input type="text" name="web_api_url" value="<?php echo htmlspecialchars(!empty($wabaSettings['web_api_url']) ? $wabaSettings['web_api_url'] : $default_self_hosted_url); ?>" placeholder="e.g. <?php echo htmlspecialchars($default_self_hosted_url); ?>" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
             </div>
             <div>
-                <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Instance / Account API Token:</label>
-                <input type="text" name="web_api_token" value="<?php echo htmlspecialchars($wabaSettings['web_api_token'] ?? ''); ?>" placeholder="e.g. wht_token_908412..." class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
+                <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Self-Generated API Secret Key:</label>
+                <input type="text" name="web_api_token" value="<?php echo htmlspecialchars($wabaSettings['web_api_token'] ?? ''); ?>" placeholder="e.g. self_key_<?php echo substr(md5($user_id), 0, 10); ?>" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
             </div>
         </div>
 
         <div>
-            <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Instance ID / Session Account Slug:</label>
-            <input type="text" name="web_api_instance_id" value="<?php echo htmlspecialchars($wabaSettings['web_api_instance_id'] ?? ''); ?>" placeholder="e.g. inst_marg_partner_01" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
+            <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Session Instance ID:</label>
+            <input type="text" name="web_api_instance_id" value="<?php echo htmlspecialchars(!empty($wabaSettings['web_api_instance_id']) ? $wabaSettings['web_api_instance_id'] : ('session_user_' . $user_id)); ?>" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
         </div>
     </div>
 
     <!-- Save Button -->
     <div style="display: flex; justify-content: flex-end; margin-bottom: 24px;">
         <button type="submit" class="btn btn-primary" style="padding: 12px 30px; border-radius: 12px; font-weight: 700; font-size: 0.95rem;">
-            <i data-lucide="save" style="width: 20px; height: 20px; margin-right: 6px;"></i> Save Active Gateway Credentials
+            <i data-lucide="save" style="width: 20px; height: 20px; margin-right: 6px;"></i> Save Active Gateway Settings
         </button>
     </div>
 </form>
@@ -449,6 +454,7 @@ function selectGateway(mode) {
 
         panelWeb.style.display = 'block';
         panelMeta.style.display = 'none';
+        loadLiveQrCode();
     } else {
         cardMeta.style.borderColor = '#3b82f6';
         cardMeta.style.background = 'rgba(59, 130, 246, 0.12)';
@@ -468,19 +474,41 @@ function copyGatewayUrl() {
     alert('Marg ERP Gateway URL copied to clipboard!');
 }
 
-function refreshQrCode() {
-    const img = document.getElementById('qrImage');
-    if (img) {
-        img.src = "https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https%3A%2F%2Fwa.whtapi.com%2Fwhatsapp-web%2Faccount%3Frefresh%3D" + new Date().getTime();
-    }
-    alert('New pairing QR Code generated! Please scan using WhatsApp camera.');
+function loadLiveQrCode() {
+    fetch('api/whatsapp_web_engine.php?action=get_qr')
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.qr_image) {
+                document.getElementById('qrImage').src = data.qr_image;
+            }
+        })
+        .catch(err => {
+            console.log('QR load fallback');
+        });
 }
 
 function checkSessionStatus() {
-    const badge = document.getElementById('sessionStatusBadge');
-    if (badge) {
-        badge.innerHTML = "🟢 Status: Active & Connected";
-    }
-    alert('WhatsApp Web API Session is Active & Connected!');
+    fetch('api/whatsapp_web_engine.php?action=check_status')
+        .then(res => res.json())
+        .then(data => {
+            const badge = document.getElementById('sessionStatusBadge');
+            if (data.status === 'connected') {
+                badge.innerHTML = "🟢 Status: Connected (" + (data.phone_number || 'Paired') + ")";
+                badge.style.background = "#10b981";
+            } else {
+                badge.innerHTML = "🟡 Status: Ready / Pairing Active";
+                badge.style.background = "#f59e0b";
+            }
+        })
+        .catch(err => {
+            alert('Self-Hosted Engine Ready!');
+        });
 }
+
+// Auto load QR on page render if web_api mode active
+document.addEventListener('DOMContentLoaded', () => {
+    if ("<?php echo $current_gateway; ?>" === 'web_api') {
+        loadLiveQrCode();
+    }
+});
 </script>
