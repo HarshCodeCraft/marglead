@@ -140,6 +140,15 @@ try {
     if (!in_array('reset_ip', $userColumns)) {
         $pdo->exec("ALTER TABLE users ADD COLUMN reset_ip VARCHAR(50) NULL");
     }
+
+    // Schema auto-upgrade to support tenant_companies password column
+    try {
+        $tenantCompQuery = $pdo->query("SHOW COLUMNS FROM tenant_companies");
+        $tenantCompColumns = $tenantCompQuery->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('password', $tenantCompColumns)) {
+            $pdo->exec("ALTER TABLE tenant_companies ADD COLUMN password VARCHAR(255) NULL AFTER phone");
+        }
+    } catch (\Exception $e) {}
     if (!in_array('reset_user_agent', $userColumns)) {
         $pdo->exec("ALTER TABLE users ADD COLUMN reset_user_agent TEXT NULL");
     }

@@ -86,9 +86,9 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
             $stmtUser = $tenantPdo->prepare("INSERT INTO users (name, email, password, role, status, permissions) VALUES (?, ?, ?, 'Admin', 'Active', ?)");
             $stmtUser->execute([$ownerName, $ownerEmail, $pwdHash, $allPermissions]);
         } else {
-            // Hostinger Shared DB Provisioning: Isolated Client Tables (e.g. t_poshak_users, t_poshak_leads, etc.)
+            // Hostinger Shared DB Provisioning: Isolated Client Operational Tables (leads, quotations, etc.)
             $tablesToClone = [
-                'users', 'leads', 'timeline', 'followups', 'demos', 
+                'leads', 'timeline', 'followups', 'demos', 
                 'quotations', 'payments', 'bank_accounts', 'installations', 
                 'trainings', 'tickets', 'client_directory', 'message_logs', 
                 'chat_conversations', 'merchant_waba_settings', 'bot_flows'
@@ -98,19 +98,16 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
                     $tenantPdo->exec("CREATE TABLE IF NOT EXISTS `{$tablePrefix}{$tbl}` LIKE `{$tbl}`");
                 } catch (PDOException $e) {}
             }
-            // Insert Client Owner into dedicated client users table (e.g. t_poshak_users)
-            $stmtUser = $tenantPdo->prepare("INSERT INTO `{$tablePrefix}users` (name, email, password, role, status, permissions) VALUES (?, ?, ?, 'Admin', 'Active', ?) ON DUPLICATE KEY UPDATE name=VALUES(name), password=VALUES(password), role='Admin', status='Active'");
-            $stmtUser->execute([$ownerName, $ownerEmail, $pwdHash, $allPermissions]);
         }
         
-        // C. Register in master tenant_companies table
+        // C. Register in master tenant_companies table (Includes Password directly)
         $expiryDate = date('Y-m-d', strtotime("+{$expiryMonths} months"));
-        $stmtMaster = $masterPdo->prepare("INSERT INTO tenant_companies (company_name, company_code, owner_name, owner_email, phone, db_name, plan, status, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?) ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), owner_name=VALUES(owner_name), owner_email=VALUES(owner_email), phone=VALUES(phone), plan=VALUES(plan), db_name=VALUES(db_name), expiry_date=VALUES(expiry_date)");
-        $stmtMaster->execute([$companyName, $codeSlug, $ownerName, $ownerEmail, $phone, $finalDbName, $plan, $expiryDate]);
+        $stmtMaster = $masterPdo->prepare("INSERT INTO tenant_companies (company_name, company_code, owner_name, owner_email, phone, password, db_name, plan, status, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?) ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), owner_name=VALUES(owner_name), owner_email=VALUES(owner_email), phone=VALUES(phone), password=VALUES(password), plan=VALUES(plan), db_name=VALUES(db_name), expiry_date=VALUES(expiry_date)");
+        $stmtMaster->execute([$companyName, $codeSlug, $ownerName, $ownerEmail, $phone, $pwdHash, $finalDbName, $plan, $expiryDate]);
         
         return [
             'success' => true,
-            'message' => "CRM Client \"{$companyName}\" provisioned successfully with isolated database structure \"{$finalDbName}\"!",
+            'message' => "CRM Client \"{$companyName}\" provisioned successfully with database structure \"{$finalDbName}\"!",
             'db_name' => $finalDbName,
             'company_code' => $codeSlug
         ];
