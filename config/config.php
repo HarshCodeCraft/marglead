@@ -31,7 +31,7 @@ $is_local_env = ($http_host === 'localhost' || strpos($http_host, '127.0.0.1') !
 if ($is_ngrok) {
     define('BASE_URL', 'https://' . $http_host . '/marglead/');
     define('NGROK_URL', 'https://ladder-giver-splendid.ngrok-free.dev/marglead');
-    define('DB_HOST', getenv('DB_HOST') ?: 'srv2214.hstgr.io');
+    define('DB_HOST', getenv('DB_HOST') ?: '31.97.2.36');
     define('DB_PORT', getenv('DB_PORT') ?: '3306');
     define('DB_NAME', getenv('DB_NAME') ?: 'u978772385_friendlyaidata');
     define('DB_USER', getenv('DB_USER') ?: 'u978772385_friendlyaidata');
@@ -39,7 +39,7 @@ if ($is_ngrok) {
 } elseif ($is_local_env) {
     define('BASE_URL', $scheme . $http_host . '/marglead/');
     define('NGROK_URL', 'https://ladder-giver-splendid.ngrok-free.dev/marglead');
-    define('DB_HOST', getenv('DB_HOST') ?: 'srv2214.hstgr.io');
+    define('DB_HOST', getenv('DB_HOST') ?: '31.97.2.36');
     define('DB_PORT', getenv('DB_PORT') ?: '3306');
     define('DB_NAME', getenv('DB_NAME') ?: 'u978772385_friendlyaidata');
     define('DB_USER', getenv('DB_USER') ?: 'u978772385_friendlyaidata');
