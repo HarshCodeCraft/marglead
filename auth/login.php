@@ -53,10 +53,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         
                         if ($tenantComp && !empty($tenantComp['db_name'])) {
                             $tenant_db_target = $tenantComp['db_name'];
-                            $tenantPdo = new PDO("mysql:host=$db_host;port=$db_port;dbname={$tenant_db_target};charset=$db_charset", $db_user, $db_pass, $options);
-                            $stmtTU = $tenantPdo->prepare("SELECT * FROM users WHERE LOWER(email) = ?");
-                            $stmtTU->execute([$email]);
-                            $user = $stmtTU->fetch();
+                            if (strpos($tenant_db_target, 't_') === 0) {
+                                $tenantPdo = $effective_pdo;
+                                $targetUsersTbl = "{$tenant_db_target}users";
+                                try {
+                                    $stmtTU = $tenantPdo->prepare("SELECT * FROM `{$targetUsersTbl}` WHERE LOWER(email) = ?");
+                                    $stmtTU->execute([$email]);
+                                    $user = $stmtTU->fetch();
+                                } catch (\PDOException $ex) {}
+                            } else {
+                                try {
+                                    $tenantPdo = new PDO("mysql:host=$db_host;port=$db_port;dbname={$tenant_db_target};charset=$db_charset", $db_user, $db_pass, $options);
+                                    $stmtTU = $tenantPdo->prepare("SELECT * FROM users WHERE LOWER(email) = ?");
+                                    $stmtTU->execute([$email]);
+                                    $user = $stmtTU->fetch();
+                                } catch (\PDOException $ex) {
+                                    $tenantPdo = $effective_pdo;
+                                    $stmtTU = $tenantPdo->prepare("SELECT * FROM users WHERE LOWER(email) = ?");
+                                    $stmtTU->execute([$email]);
+                                    $user = $stmtTU->fetch();
+                                }
+                            }
                         }
                     }
 

@@ -70,12 +70,15 @@ try {
     }
 
     if (!empty($active_tenant_db) && $active_tenant_db !== $db_name && !empty($pdo)) {
-        try {
-            $tenant_dsn = "mysql:host=$db_host;port=$db_port;dbname=$active_tenant_db;charset=$db_charset";
-            $pdo = new PDO($tenant_dsn, $db_user, $db_pass, $options);
-        } catch (\PDOException $te) {
-            // Fallback to master DB if tenant DB connection fails
-            $pdo = $pdo_master;
+        // If active_tenant_db starts with 't_', it is a table prefix inside master DB, not a separate MySQL schema
+        if (strpos($active_tenant_db, 't_') !== 0) {
+            try {
+                $tenant_dsn = "mysql:host=$db_host;port=$db_port;dbname=$active_tenant_db;charset=$db_charset";
+                $pdo = new PDO($tenant_dsn, $db_user, $db_pass, $options);
+            } catch (\PDOException $te) {
+                // Fallback to master DB if tenant DB connection fails
+                $pdo = $pdo_master;
+            }
         }
     }
     
