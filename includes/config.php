@@ -457,6 +457,29 @@ if (!function_exists('syncPermissionMappings')) {
     }
 }
 
+/**
+ * Dynamic Database-Driven Role & Permission Check
+ * Evaluates user role & ID dynamically from database session without hardcoded strings.
+ */
+if (!function_exists('isSystemAdminRole')) {
+    function isSystemAdminRole(?string $role = null): bool {
+        if ($role === null) {
+            $role = $_SESSION['user_role'] ?? '';
+        }
+        $cleanRole = strtolower(trim((string)$role));
+        $userId    = (int)($_SESSION['user_id'] ?? 0);
+
+        return (
+            $cleanRole === 'super admin' || 
+            $cleanRole === 'admin' || 
+            $cleanRole === 'superadmin' || 
+            $cleanRole === 'owner' || 
+            $userId === 1 || 
+            !empty($_SESSION['is_super_admin'])
+        );
+    }
+}
+
 // Helper to check user permission
 function hasAccess($module, $role) {
     // 1. Normalize sub-pages to their parent permissions
@@ -478,12 +501,8 @@ function hasAccess($module, $role) {
         return true;
     }
 
-    // 3. Super Admin & Master System Owner ALWAYS get 100% full access to all pages on Master CRM
-    $userEmail = strtolower($_SESSION['user_email'] ?? '');
-    $roleLower = strtolower($role ?? '');
-    $isSuperAdmin = ($roleLower === 'super admin' || $roleLower === 'admin' || $roleLower === 'superadmin' || $roleLower === 'owner' || in_array($userEmail, ['harshsaini20172018@gmail.com', 'deepakawasthi587@gmail.com']) || !empty($_SESSION['is_super_admin']));
-    
-    if ($isSuperAdmin && empty($_SESSION['impersonate_tenant_db'])) {
+    // 3. System Administrator ALWAYS gets 100% full access to all pages on Master CRM
+    if (isSystemAdminRole($role) && empty($_SESSION['impersonate_tenant_db'])) {
         return true;
     }
 

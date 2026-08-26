@@ -261,11 +261,7 @@ $role = $_SESSION['user_role'];
         <?php endif; ?>
 
         <!-- Managerial & Admin Controls -->
-        <?php 
-        $userEmail = strtolower($_SESSION['user_email'] ?? '');
-        $userRoleLower = strtolower($role ?? '');
-        $isSuperAdminUser = ($userRoleLower === 'super admin' || $userRoleLower === 'admin' || $userRoleLower === 'superadmin' || $userRoleLower === 'owner' || in_array($userEmail, ['harshsaini20172018@gmail.com', 'deepakawasthi587@gmail.com']) || !empty($_SESSION['is_super_admin']));
-        ?>
+        <?php $isSuperAdminUser = isSystemAdminRole($role); ?>
         <?php if ($isSuperAdminUser || hasAccess('crm_clients', $role) || hasAccess('admin_users', $role) || hasAccess('admin_permissions', $role) || hasAccess('reports', $role) || hasAccess('admin_reviews', $role)): ?>
             <div class="menu-group-title">Management</div>
             <ul>
