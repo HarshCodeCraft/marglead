@@ -160,6 +160,13 @@ if (!$pdfDownloadUrl) {
 }
 
 $gateway_type = $merchant['gateway_type'] ?? 'meta';
+// Auto-route through Self-Hosted WhatsApp Web if web session is connected or if explicitly chosen
+if (!empty($merchant['web_api_session_status']) && $merchant['web_api_session_status'] === 'connected') {
+    if ($gateway_type === 'web_api' || empty($merchant['phone_number_id']) || empty($merchant['access_token'])) {
+        $gateway_type = 'web_api';
+    }
+}
+
 $success = false;
 $apiResponseData = [];
 
@@ -169,6 +176,7 @@ if ($gateway_type === 'meta') {
     // ==========================================
     $phone_number_id = $merchant['phone_number_id'] ?? '';
     $access_token = $merchant['access_token'] ?? '';
+    $merchant_helpline = !empty($merchant['business_phone']) ? $merchant['business_phone'] : '+91 92773 87778';
 
     if (empty($phone_number_id) || empty($access_token)) {
         http_response_code(400);
@@ -213,7 +221,7 @@ if ($gateway_type === 'meta') {
                         ['type' => 'text', 'text' => 'MANDHANA'],
                         ['type' => 'text', 'text' => 'BKI0125'],
                         ['type' => 'text', 'text' => (string)$parsedData['firm_name']],
-                        ['type' => 'text', 'text' => '+91 92773 87778'],
+                        ['type' => 'text', 'text' => (string)$merchant_helpline],
                         ['type' => 'text', 'text' => (string)$pdfDownloadUrl]
                     ]
                 ]
