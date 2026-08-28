@@ -554,10 +554,14 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
     </div>
 
     <!-- Section B: Self-Hosted WhatsApp Web API Settings & Pairing Console (Visible only when Web API is chosen) -->
+    <?php
+    $is_web_connected = (!empty($wabaSettings['web_api_session_status']) && $wabaSettings['web_api_session_status'] === 'connected');
+    $web_display_phone = !empty($wabaSettings['business_phone']) ? $wabaSettings['business_phone'] : (!empty($tenantWaba['display_phone_number']) ? $tenantWaba['display_phone_number'] : '');
+    ?>
     <div id="panel-gateway-web" style="display: <?php echo ($current_gateway === 'web_api') ? 'block' : 'none'; ?>; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
         <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--text-main); margin-top: 0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
             <i data-lucide="smartphone" style="width: 22px; height: 22px; color: #10b981;"></i>
-            Self-Hosted WhatsApp Web API Settings & Phone Pairing Console
+            Self-Hosted WhatsApp Web API Settings &amp; Phone Pairing Console
         </h3>
 
         <!-- QR Code Pairing & Account Console -->
@@ -567,28 +571,42 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
                 <div id="qrCodeContainer">
                     <img id="qrImage" src="" alt="Live QR Code" style="width: 150px; height: 150px; display: none; border-radius: 6px;">
                     <div id="qrPlaceholder" style="color: #64748b; font-size: 0.8rem; line-height: 1.4; padding: 10px;">
-                        ⚡ <strong>Node Engine Status</strong><br>
-                        Connecting to WhatsApp instance...
+                        <?php if ($is_web_connected): ?>
+                            <div style="text-align: center;">
+                                <i data-lucide="check-circle-2" style="width: 36px; height: 36px; color: #10b981; margin-bottom: 6px;"></i><br>
+                                <strong style="color: #10b981; font-size: 0.9rem;">Connected</strong><br>
+                                <span style="font-size: 0.75rem; color: #64748b; font-family: monospace;"><?php echo htmlspecialchars($web_display_phone ?: 'Paired'); ?></span>
+                            </div>
+                        <?php else: ?>
+                            ⚡ <strong>Node Engine Status</strong><br>
+                            Connecting to WhatsApp instance...
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
 
             <div style="flex: 1; min-width: 250px;">
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                    <span class="badge" id="sessionStatusBadge" style="background: #f59e0b; color: white; font-weight: 700; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem;">
-                        🟡 Status: Ready / Select Pairing Method
-                    </span>
+                    <?php if ($is_web_connected): ?>
+                        <span class="badge" id="sessionStatusBadge" style="background: #10b981; color: white; font-weight: 700; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem;">
+                            🟢 Status: Connected (<?php echo htmlspecialchars($web_display_phone ?: 'Paired'); ?>)
+                        </span>
+                    <?php else: ?>
+                        <span class="badge" id="sessionStatusBadge" style="background: #f59e0b; color: white; font-weight: 700; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem;">
+                            🟡 Status: Ready / Select Pairing Method
+                        </span>
+                    <?php endif; ?>
                 </div>
                 
                 <!-- Connected State Message & Logout Button -->
-                <div id="boxConnectedState" style="display: none; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
+                <div id="boxConnectedState" style="display: <?php echo $is_web_connected ? 'block' : 'none'; ?>; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
                     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
                         <div>
                             <span style="font-size: 0.85rem; color: #10b981; font-weight: 700; display: block; margin-bottom: 2px;">
-                                🎉 WhatsApp Account Linked & Active!
+                                🎉 WhatsApp Account Linked &amp; Active!
                             </span>
                             <span style="font-size: 0.775rem; color: var(--text-muted);">
-                                Paired Phone: <strong id="connectedPhoneDisplay" style="color: var(--text-main);">+917860510928</strong> &bull; Marg ERP Invoices will send automatically.
+                                Paired Phone: <strong id="connectedPhoneDisplay" style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars($web_display_phone ?: 'Connected'); ?></strong> &bull; Marg ERP Invoices will send automatically.
                             </span>
                         </div>
                         <button type="button" onclick="logoutWhatsAppSession()" class="btn btn-outline-danger btn-sm" style="padding: 6px 14px; font-size: 0.8rem; border: 1px solid #ef4444; color: #ef4444; border-radius: 8px; font-weight: 600; background: rgba(239, 68, 68, 0.08);">
@@ -598,7 +616,7 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
                 </div>
 
                 <!-- Method Selector Tabs: QR Code vs Phone Pairing Code -->
-                <div id="pairMethodTabs" style="display: flex; gap: 10px; margin-bottom: 12px;">
+                <div id="pairMethodTabs" style="display: <?php echo $is_web_connected ? 'none' : 'flex'; ?>; gap: 10px; margin-bottom: 12px;">
                     <button type="button" onclick="switchPairMethod('qr')" id="btnPairQr" class="btn btn-primary font-bold text-xs" style="padding: 6px 14px; border-radius: 8px; background: #10b981; border: none;">
                         <i data-lucide="qr-code" style="width: 14px; height: 14px; margin-right: 4px;"></i> Scan QR Code
                     </button>
@@ -608,10 +626,10 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
                 </div>
 
                 <!-- Box 1: QR Instructions -->
-                <div id="boxPairQr" style="font-size: 0.825rem; color: var(--text-muted); line-height: 1.5;">
+                <div id="boxPairQr" style="display: <?php echo $is_web_connected ? 'none' : 'block'; ?>; font-size: 0.825rem; color: var(--text-muted); line-height: 1.5;">
                     1. Open WhatsApp on your phone &rarr; Tap Menu/Settings &rarr; Linked Devices.<br>
-                    2. Tap <strong>Link a Device</strong> & point phone camera at the QR code on screen.<br>
-                    3. Your phone stays paired with your own server & Marg ERP invoices send automatically!
+                    2. Tap <strong>Link a Device</strong> &amp; point phone camera at the QR code on screen.<br>
+                    3. Your phone stays paired with your own server &amp; Marg ERP invoices send automatically!
                 </div>
 
                 <!-- Box 2: 8-Digit Phone Pairing Code Request -->
@@ -732,63 +750,89 @@ function copyExeConfigJson() {
     alert('Clean config.json copied to clipboard:\n\n' + jsonStr);
 }
 
+function updateWebSessionUI(data) {
+    const img = document.getElementById('qrImage');
+    const ph = document.getElementById('qrPlaceholder');
+    const badge = document.getElementById('sessionStatusBadge');
+    const connectedBox = document.getElementById('boxConnectedState');
+    const pairTabs = document.getElementById('pairMethodTabs');
+    const pairQrBox = document.getElementById('boxPairQr');
+    const pairCodeBox = document.getElementById('boxPairCode');
+
+    const rawPhone = data.phone || data.phone_number || '';
+    const formattedPhone = rawPhone ? (rawPhone.startsWith('+') ? rawPhone : ('+' + rawPhone)) : 'Paired Device';
+
+    if (data && data.status === 'connected') {
+        if (img) img.style.display = 'none';
+        if (ph) {
+            ph.style.display = 'block';
+            ph.innerHTML = "<div style='text-align:center;'><i data-lucide='check-circle-2' style='width:36px;height:36px;color:#10b981;margin-bottom:6px;'></i><br><strong style='color:#10b981;font-size:0.9rem;'>Connected</strong><br><span style='font-size:0.75rem;color:#64748b;font-family:monospace;'>" + formattedPhone + "</span></div>";
+        }
+        if (badge) {
+            badge.innerHTML = "🟢 Status: Connected (" + formattedPhone + ")";
+            badge.style.background = "#10b981";
+        }
+        if (connectedBox) {
+            connectedBox.style.display = 'block';
+            const phoneElem = document.getElementById('connectedPhoneDisplay');
+            if (phoneElem) phoneElem.innerText = formattedPhone;
+        }
+        if (pairTabs) pairTabs.style.display = 'none';
+        if (pairQrBox) pairQrBox.style.display = 'none';
+        if (pairCodeBox) pairCodeBox.style.display = 'none';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } else if (data && (data.status === 'scan_qr' || data.status === 'success') && data.qr_image) {
+        if (img) {
+            img.src = data.qr_image;
+            img.style.display = 'block';
+        }
+        if (ph) ph.style.display = 'none';
+        if (badge) {
+            badge.innerHTML = "🟡 Status: Ready / Scan QR Code";
+            badge.style.background = "#f59e0b";
+        }
+        if (connectedBox) connectedBox.style.display = 'none';
+        if (pairTabs) pairTabs.style.display = 'flex';
+        if (pairQrBox) pairQrBox.style.display = 'block';
+    } else {
+        if (img) img.style.display = 'none';
+        if (ph) {
+            ph.style.display = 'block';
+            if (data && data.message) {
+                ph.innerHTML = "⚡ <strong>Node Engine Status</strong><br>" + data.message;
+            } else {
+                ph.innerHTML = "⚡ <strong>Node Engine Ready</strong><br>Click 'Refresh Status' or scan QR.";
+            }
+        }
+        if (badge) {
+            badge.innerHTML = "🟡 Status: Ready / Select Pairing Method";
+            badge.style.background = "#f59e0b";
+        }
+        if (connectedBox) connectedBox.style.display = 'none';
+        if (pairTabs) pairTabs.style.display = 'flex';
+        if (pairQrBox) pairQrBox.style.display = 'block';
+    }
+}
+
 function loadLiveQrCode() {
     fetch('api/whatsapp_web_engine.php?action=get_qr')
         .then(res => res.json())
         .then(data => {
-            const img = document.getElementById('qrImage');
-            const ph = document.getElementById('qrPlaceholder');
-            const badge = document.getElementById('sessionStatusBadge');
-            const connectedBox = document.getElementById('boxConnectedState');
-            const pairTabs = document.getElementById('pairMethodTabs');
-            const pairQrBox = document.getElementById('boxPairQr');
-            const pairCodeBox = document.getElementById('boxPairCode');
-
-            if (data && data.status === 'connected') {
-                img.style.display = 'none';
-                ph.style.display = 'block';
-                ph.innerHTML = "<div style='text-align:center;'><i data-lucide='check-circle-2' style='width:36px;height:36px;color:#10b981;margin-bottom:6px;'></i><br><strong style='color:#10b981;font-size:0.9rem;'>Connected</strong><br><span style='font-size:0.75rem;color:#94a3b8;'>+" + (data.phone || 'Paired') + "</span></div>";
-                if (badge) {
-                    badge.innerHTML = "🟢 Status: Connected (+" + (data.phone || 'Paired') + ")";
-                    badge.style.background = "#10b981";
-                }
-                if (connectedBox) {
-                    connectedBox.style.display = 'block';
-                    const phoneElem = document.getElementById('connectedPhoneDisplay');
-                    if (phoneElem) phoneElem.innerText = '+' + (data.phone || 'Paired');
-                }
-                if (pairTabs) pairTabs.style.display = 'none';
-                if (pairQrBox) pairQrBox.style.display = 'none';
-                if (pairCodeBox) pairCodeBox.style.display = 'none';
-                if (typeof lucide !== 'undefined') lucide.createIcons();
-            } else if (data && (data.status === 'scan_qr' || data.status === 'success') && data.qr_image) {
-                img.src = data.qr_image;
-                img.style.display = 'block';
-                ph.style.display = 'none';
-                if (badge) {
-                    badge.innerHTML = "🟡 Status: Ready / Scan QR Code";
-                    badge.style.background = "#f59e0b";
-                }
-                if (connectedBox) connectedBox.style.display = 'none';
-                if (pairTabs) pairTabs.style.display = 'flex';
-                if (pairQrBox) pairQrBox.style.display = 'block';
-            } else {
-                img.style.display = 'none';
-                ph.style.display = 'block';
-                if (data && data.message) {
-                    ph.innerHTML = "⚡ <strong>Node Engine Status</strong><br>" + data.message;
-                }
-                if (badge) {
-                    badge.innerHTML = "🔴 Status: Engine Offline / Disconnected";
-                    badge.style.background = "#ef4444";
-                }
-                if (connectedBox) connectedBox.style.display = 'none';
-                if (pairTabs) pairTabs.style.display = 'flex';
-                if (pairQrBox) pairQrBox.style.display = 'block';
-            }
+            updateWebSessionUI(data);
         })
         .catch(err => {
-            console.log('QR load error');
+            console.log('QR load error', err);
+        });
+}
+
+function checkSessionStatus() {
+    fetch('api/whatsapp_web_engine.php?action=check_status')
+        .then(res => res.json())
+        .then(data => {
+            updateWebSessionUI(data);
+        })
+        .catch(err => {
+            console.log('Status check error', err);
         });
 }
 
@@ -798,7 +842,7 @@ function logoutWhatsAppSession() {
         .then(res => res.json())
         .then(data => {
             alert("WhatsApp account disconnected successfully!");
-            loadLiveQrCode();
+            location.reload();
         })
         .catch(err => {
             alert("Session cleared.");
@@ -828,28 +872,10 @@ function generatePhonePairingCode() {
         });
 }
 
-function checkSessionStatus() {
-    fetch('api/whatsapp_web_engine.php?action=check_status')
-        .then(res => res.json())
-        .then(data => {
-            const badge = document.getElementById('sessionStatusBadge');
-            if (data.status === 'connected') {
-                badge.innerHTML = "🟢 Status: Connected (" + (data.phone_number || 'Paired') + ")";
-                badge.style.background = "#10b981";
-            } else {
-                badge.innerHTML = "🟡 Status: Ready / Select Pairing Method";
-                badge.style.background = "#f59e0b";
-            }
-        })
-        .catch(err => {
-            alert('Self-Hosted Engine Ready!');
-        });
-}
-
-// Auto load QR on page render if web_api mode active
+// Auto load status / QR on page render if web_api mode active
 document.addEventListener('DOMContentLoaded', () => {
     if ("<?php echo $current_gateway; ?>" === 'web_api') {
-        loadLiveQrCode();
+        checkSessionStatus();
     }
 });
 </script>
