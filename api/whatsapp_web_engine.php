@@ -49,21 +49,55 @@ curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 }
 
 if ($action === 'get_qr') {
-    // Attempt fetching live QR from Node Baileys engine if running
+    // Attempt fetching live QR or status from Node Baileys engine
     $nodeRes = callLocalNodeEngine('/qr?user_id=' . $user_id);
-    if ($nodeRes && !empty($nodeRes['qr'])) {
-        echo json_encode([
-            'status'     => 'scan_qr',
-            'qr_code'    => $nodeRes['qr'],
-            'qr_image'   => $nodeRes['qr_image'] ?? ('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' . urlencode($nodeRes['qr'])),
-            'source'     => 'self_hosted_node_engine',
-            'session_id' => 'session_user_' . $user_id
-        ], JSON_PRETTY_PRINT);
-        exit;
+    if ($nodeRes) {
+        if (!empty($nodeRes['status']) && $nodeRes['status'] === 'connected') {
+            $phone = $nodeRes['phone'] ?? $nodeRes['phone_number'] ?? '';
+            if (isset($pdo) && $pdo && !empty($phone)) {
+                try {
+                    $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'connected', business_phone = ? WHERE user_id = ?");
+                    $stmtSync->execute(['+' . ltrim($phone, '+'), $user_id]);
+                } catch (PDOException $e) {}
+            }
+            echo json_encode([
+                'status'       => 'connected',
+                'phone'        => $phone,
+                'phone_number' => $phone,
+                'session_id'   => 'session_user_' . $user_id
+            ], JSON_PRETTY_PRINT);
+            exit;
+        }
+
+        if (!empty($nodeRes['qr'])) {
+            echo json_encode([
+                'status'     => 'scan_qr',
+                'qr_code'    => $nodeRes['qr'],
+                'qr_image'   => $nodeRes['qr_image'] ?? ('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' . urlencode($nodeRes['qr'])),
+                'source'     => 'self_hosted_node_engine',
+                'session_id' => 'session_user_' . $user_id
+            ], JSON_PRETTY_PRINT);
+            exit;
+        }
     }
 
-    // Return notice image when Node engine is starting or offline
-    $noticeImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' . urlencode('PLEASE_START_NODE_ENGINE');
+    // Check if user is marked as connected in database
+    if (isset($pdo) && $pdo) {
+        try {
+            $stmtChk = $pdo->prepare("SELECT web_api_session_status, business_phone FROM merchant_waba_settings WHERE user_id = ?");
+            $stmtChk->execute([$user_id]);
+            $row = $stmtChk->fetch(PDO::FETCH_ASSOC);
+            if ($row && $row['web_api_session_status'] === 'connected') {
+                echo json_encode([
+                    'status'       => 'connected',
+                    'phone'        => ltrim($row['business_phone'] ?? '', '+'),
+                    'phone_number' => ltrim($row['business_phone'] ?? '', '+'),
+                    'session_id'   => 'session_user_' . $user_id
+                ], JSON_PRETTY_PRINT);
+                exit;
+            }
+        } catch (PDOException $e) {}
+    }
 
     echo json_encode([
         'status'     => 'waiting_engine',
@@ -102,11 +136,50 @@ if ($action === 'get_pairing_code') {
 if ($action === 'check_status') {
     $nodeRes = callLocalNodeEngine('/status?user_id=' . $user_id);
     if ($nodeRes) {
-        echo json_encode($nodeRes, JSON_PRETTY_PRINT);
+        $status = $nodeRes['status'] ?? 'disconnected';
+        $phone = $nodeRes['phone_number'] ?? $nodeRes['phone'] ?? '';
+
+        if ($status === 'connected' && !empty($phone) && isset($pdo) && $pdo) {
+            try {
+                $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'connected', business_phone = ? WHERE user_id = ?");
+                $stmtSync->execute(['+' . ltrim($phone, '+'), $user_id]);
+            } catch (PDOException $e) {}
+        } else if ($status === 'disconnected' && isset($pdo) && $pdo) {
+            try {
+                $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected' WHERE user_id = ?");
+                $stmtSync->execute([$user_id]);
+            } catch (PDOException $e) {}
+        }
+
+        echo json_encode([
+            'status'       => $status,
+            'phone'        => $phone,
+            'phone_number' => $phone,
+            'engine'       => $nodeRes['engine'] ?? 'Self-Hosted Baileys Engine',
+            'uptime'       => $nodeRes['uptime'] ?? 0
+        ], JSON_PRETTY_PRINT);
         exit;
     }
 
-    // Default status if Node engine is starting or running via PHP proxy
+    // Check DB status fallback
+    if (isset($pdo) && $pdo) {
+        try {
+            $stmtChk = $pdo->prepare("SELECT web_api_session_status, business_phone FROM merchant_waba_settings WHERE user_id = ?");
+            $stmtChk->execute([$user_id]);
+            $row = $stmtChk->fetch(PDO::FETCH_ASSOC);
+            if ($row && $row['web_api_session_status'] === 'connected') {
+                echo json_encode([
+                    'status'       => 'connected',
+                    'phone'        => ltrim($row['business_phone'] ?? '', '+'),
+                    'phone_number' => ltrim($row['business_phone'] ?? '', '+'),
+                    'engine'       => 'Self-Hosted Marg ERP Engine v1.0',
+                    'last_ping'    => date('Y-m-d H:i:s')
+                ], JSON_PRETTY_PRINT);
+                exit;
+            }
+        } catch (PDOException $e) {}
+    }
+
     echo json_encode([
         'status'       => 'scan_qr',
         'session'      => 'ready',
