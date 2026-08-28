@@ -56,7 +56,7 @@ if ($action === 'get_qr') {
             $phone = $nodeRes['phone'] ?? $nodeRes['phone_number'] ?? '';
             if (isset($pdo) && $pdo && !empty($phone)) {
                 try {
-                    $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'connected', business_phone = ? WHERE user_id = ?");
+                    $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET gateway_type = 'web_api', web_api_session_status = 'connected', business_phone = ? WHERE user_id = ?");
                     $stmtSync->execute(['+' . ltrim($phone, '+'), $user_id]);
                 } catch (PDOException $e) {}
             }
@@ -141,7 +141,7 @@ if ($action === 'check_status') {
 
         if ($status === 'connected' && !empty($phone) && isset($pdo) && $pdo) {
             try {
-                $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'connected', business_phone = ? WHERE user_id = ?");
+                $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET gateway_type = 'web_api', web_api_session_status = 'connected', business_phone = ? WHERE user_id = ?");
                 $stmtSync->execute(['+' . ltrim($phone, '+'), $user_id]);
             } catch (PDOException $e) {}
         } else if ($status === 'disconnected' && isset($pdo) && $pdo) {
