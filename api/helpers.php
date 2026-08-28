@@ -91,6 +91,32 @@ function generate_ticket_number(PDO $pdo): string {
 }
 
 /**
+ * Generate Next Lead ID in format: LD-YYYY-XXXX (e.g. LD-2026-0001)
+ */
+function generate_lead_number(PDO $pdo): string {
+    $year = date('Y');
+    $prefix = "LD-{$year}-";
+
+    try {
+        $stmt = $pdo->prepare("SELECT id FROM leads WHERE id LIKE ? ORDER BY created_at DESC, id DESC LIMIT 1");
+        $stmt->execute([$prefix . '%']);
+        $lastLead = $stmt->fetchColumn();
+
+        if ($lastLead) {
+            $numPart = (int) substr($lastLead, strlen($prefix));
+            $nextNum = $numPart + 1;
+        } else {
+            $nextNum = 1;
+        }
+
+        return $prefix . str_pad($nextNum, 4, '0', STR_PAD_LEFT);
+    } catch (PDOException $e) {
+        write_log('error', "Failed generating lead number: " . $e->getMessage());
+        return $prefix . str_pad(mt_rand(1000, 9999), 4, '0', STR_PAD_LEFT);
+    }
+}
+
+/**
  * Format phone number to clean WhatsApp format (country code + digits).
  * E.g., "+91 98765-43210" -> "919876543210"
  */

@@ -12,7 +12,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3005;
 let qrCodeData = '';
 let connectionStatus = 'disconnected'; // 'connected', 'scan_qr', 'disconnected'
 let pairedPhone = '';
@@ -24,7 +24,6 @@ async function connectToWhatsApp() {
         
         sock = makeWASocket({
             auth: state,
-            printQRInTerminal: true,
             browser: Browsers.ubuntu("Chrome")
         });
 
@@ -40,11 +39,19 @@ async function connectToWhatsApp() {
             }
 
             if (connection === 'close') {
-                const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-                console.log('Connection closed due to ', lastDisconnect?.error, ', reconnecting: ', shouldReconnect);
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                const isLoggedOut = (statusCode === DisconnectReason.loggedOut || statusCode === 401);
+                console.log('Connection closed due to ', lastDisconnect?.error, ', statusCode:', statusCode);
                 connectionStatus = 'disconnected';
-                if (shouldReconnect) {
-                    connectToWhatsApp();
+                
+                if (isLoggedOut) {
+                    console.log('⚠️ Session logged out (401). Clearing auth_info_baileys for fresh QR code generation...');
+                    const fs = require('fs');
+                    try { fs.rmSync('auth_info_baileys', { recursive: true, force: true }); } catch(e){}
+                    qrCodeData = '';
+                    setTimeout(connectToWhatsApp, 2000);
+                } else {
+                    setTimeout(connectToWhatsApp, 3000);
                 }
             } else if (connection === 'open') {
                 console.log('🎉 SUCCESS: WhatsApp Web Connected & Authenticated Successfully!');
@@ -123,6 +130,7 @@ app.post('/send-message', async (req, res) => {
     let jid = recipient.replace(/\D/g, '') + '@s.whatsapp.net';
 
     try {
+        console.log(`Attempting to send message to ${jid}, connectionStatus: ${connectionStatus}`);
         if (sock && connectionStatus === 'connected') {
             let result;
             if (pdf_url) {
@@ -135,12 +143,14 @@ app.post('/send-message', async (req, res) => {
             } else {
                 result = await sock.sendMessage(jid, { text: message });
             }
-
-            return res.json({ status: 'success', success: true, message_id: result.key.id });
+            console.log(`Message sent successfully to ${jid}, ID: ${result?.key?.id}`);
+            return res.json({ status: 'success', success: true, message_id: result?.key?.id });
         } else {
-            return res.status(503).json({ status: 'error', message: 'WhatsApp Web Session not connected. Scan QR code first.' });
+            console.log(`Failed to send message: connectionStatus is ${connectionStatus}`);
+            return res.status(503).json({ status: 'error', message: `WhatsApp Web Session is currently ${connectionStatus}. Please wait 10 seconds for initial sync to finish.` });
         }
     } catch (err) {
+        console.error(`Error sending message to ${jid}:`, err);
         return res.status(500).json({ status: 'error', message: err.message });
     }
 });

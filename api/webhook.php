@@ -47,7 +47,7 @@ if ($reqMethod === 'GET') {
 }
 
 // -------------------------------------------------------------
-// 2. POST Request Handling (Meta Webhook Events)
+// 2. POST Request Handling (Meta Webhook Events & Flow Endpoint Requests)
 // -------------------------------------------------------------
 if ($reqMethod !== 'POST') {
     http_response_code(405);
@@ -56,6 +56,15 @@ if ($reqMethod !== 'POST') {
 }
 
 $rawPayload = file_get_contents('php://input');
+$data = json_decode($rawPayload, true) ?? [];
+
+// Check if incoming request is a WhatsApp Flow Endpoint Request (Encrypted or Ping)
+$isFlowRequest = isset($data['encrypted_aes_key']) || isset($data['encrypted_flow_data']) || isset($data['action']) || (isset($_GET['action']) && in_array($_GET['action'], ['ping', 'INIT', 'data_exchange', 'complete']));
+
+if ($isFlowRequest) {
+    require __DIR__ . '/flow-endpoint.php';
+    exit;
+}
 
 // Verify HMAC SHA-256 Signature (if HTTP_X_HUB_SIGNATURE_256 header present & real secret configured)
 $sigHeader = $_SERVER['HTTP_X_HUB_SIGNATURE_256'] ?? $_SERVER['HTTP_X_HUB_SIGNATURE'] ?? null;
@@ -82,8 +91,6 @@ if ($pdo) {
         // Continue execution if DB logging fails
     }
 }
-
-$data = json_decode($rawPayload, true);
 
 // Fast return 200 OK to Meta so it does not retry the webhook
 http_response_code(200);
@@ -233,8 +240,13 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
             // Option A: Sales Clicked
             if ($buttonId === 'btn_sales' || $buttonTitle === 'sales') {
-                $salesResponse = "We have received your enquiry for Sales.\n\nOur sales representative will contact you shortly.\n\nFor an immediate discussion, you can also call:\n\n7523830026\n\nThank you for contacting us.\n\n🙏";
-                $whatsapp->sendText($from, $salesResponse);
+                if (defined('SALES_FLOW_ID') && !empty(SALES_FLOW_ID)) {
+                    // Send Sales WhatsApp Flow Form
+                    $whatsapp->sendFlow($from, SALES_FLOW_ID, "Enquire Now", "Please provide your details and requirement below", 'SALES_SCREEN', null, "Marg Soft Solution - Sales", "Sales & Licensing Inquiry");
+                } else {
+                    $salesResponse = "We have received your enquiry for Sales.\n\nOur sales representative will contact you shortly.\n\nFor an immediate discussion, you can also call:\n\n7523830026\n\nThank you for contacting us.\n\n🙏";
+                    $whatsapp->sendText($from, $salesResponse);
+                }
             }
 
             // Option B: Support Clicked
@@ -280,11 +292,69 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
             write_log('flow', "Received Flow Submission Payload via Webhook", $flowData);
 
-            $licenseNo    = $flowData['license_number'] ?? $flowData['c1'] ?? 'N/A';
+            // Check if this is a Sales Flow Submission (Lead Creation)
+            $isSalesFlow = isset($flowData['requirement']) || (isset($flowData['flow_type']) && $flowData['flow_type'] === 'sales') || (!isset($flowData['license_number']) && !isset($flowData['problem']) && !isset($flowData['c1']));
+
+            if ($isSalesFlow && (isset($flowData['customer_name']) || isset($flowData['requirement']) || isset($flowData['phone_number']))) {
+                // =========================================================
+                // PROCESS SALES FLOW -> LEAD GENERATION
+                // =========================================================
+                $leadName    = trim($flowData['customer_name'] ?? $flowData['name'] ?? $flowData['contact_person'] ?? 'WhatsApp Lead');
+                $leadPhone   = trim($flowData['phone_number'] ?? $flowData['phone'] ?? $flowData['callback_number'] ?? $flowData['mobile_number'] ?? $from);
+                $requirement = trim($flowData['requirement'] ?? $flowData['message'] ?? $flowData['notes'] ?? 'General Sales Inquiry');
+                $companyName = trim($flowData['company'] ?? $flowData['firm_name'] ?? $leadName);
+
+                $leadId = generate_lead_number($pdo);
+
+                if ($pdo) {
+                    try {
+                        $stmtLead = $pdo->prepare("INSERT INTO leads (id, name, contact_person, company, phone, enq_for, remarks, source, status, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'WhatsApp Flow', 'new', 'warm', NOW())");
+                        $stmtLead->execute([
+                            $leadId,
+                            $leadName,
+                            $leadName,
+                            $companyName,
+                            $leadPhone,
+                            $requirement,
+                            $requirement
+                        ]);
+
+                        // Timeline entry
+                        try {
+                            $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, 'WhatsApp Bot', 'New Lead captured via WhatsApp Sales Flow')");
+                            $stmtTime->execute([$leadId]);
+                        } catch (Throwable $eT) {}
+
+                        // Notification for Admin
+                        try {
+                            $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', 'New WhatsApp Sales Lead', ?, 'index.php?page=leads', 'info')");
+                            $stmtNotif->execute(["New Lead {$leadId} ({$leadName}) received via WhatsApp Sales Flow"]);
+                        } catch (Throwable $eN) {}
+
+                        // Send Confirmation Message to Customer
+                        $confirmMsg = "✅ *Sales Enquiry Received Successfully*\n\n" .
+                                      "Dear *{$leadName}*,\n" .
+                                      "Thank you for contacting Marg Soft Solution.\n\n" .
+                                      "📋 *Enquiry Ref:* {$leadId}\n" .
+                                      "Our sales representative will call you on *{$leadPhone}* shortly.\n\n" .
+                                      "For instant assistance, you can call us at: *7523830026*\n\n" .
+                                      "Thank you! 🙏";
+
+                        $whatsapp->sendText($from, $confirmMsg);
+
+                    } catch (Throwable $eLead) {
+                        write_log('error', "Failed saving sales lead from webhook: " . $eLead->getMessage());
+                    }
+                }
+                exit;
+            }
+
+            $licenseNo    = $flowData['license_number'] ?? $flowData['license_no'] ?? $flowData['client_id'] ?? $flowData['c1'] ?? 'N/A';
             $customerName = $flowData['customer_name'] ?? $flowData['contact_person'] ?? 'Valued Customer';
             $firmName     = $flowData['firm_name'] ?? $flowData['company'] ?? 'N/A';
-            $mobile       = $flowData['mobile_number'] ?? $flowData['call_back_number'] ?? $flowData['c4'] ?? $from;
-            $email        = $flowData['email_address'] ?? 'N/A';
+            $callbackNo   = trim($flowData['callback_number'] ?? $flowData['callback_no'] ?? $flowData['call_back_number'] ?? $flowData['mobile_number'] ?? $flowData['mobile'] ?? $flowData['phone_number'] ?? $flowData['phone'] ?? $flowData['c4'] ?? '');
+            $mobile       = !empty($callbackNo) ? $callbackNo : $from;
+            $email        = $flowData['email_address'] ?? $flowData['email'] ?? 'N/A';
             $category     = $flowData['issue_category'] ?? $flowData['subject'] ?? $flowData['c2'] ?? 'Technical Support';
             $priority     = $flowData['priority'] ?? 'Medium';
             $description  = $flowData['description'] ?? $flowData['problem'] ?? $flowData['c3'] ?? 'No description provided';
@@ -361,7 +431,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
                             $customerName,
                             $category . ($firmName !== 'N/A' && !empty($firmName) ? " - " . $firmName : ""),
                             strtolower($priority),
-                            $mobile,
+                            $from,
                             ($email !== 'N/A' ? $email : ''),
                             $description,
                             $mobile,

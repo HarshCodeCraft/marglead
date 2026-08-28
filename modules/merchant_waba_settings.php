@@ -28,15 +28,37 @@ try {
     if (!$wabaSettings) {
         $newApiKey = 'MARG-WABA-' . strtoupper(bin2hex(random_bytes(8)));
         $newVerifyToken = bin2hex(random_bytes(16));
+        $newWebToken = 'self_key_' . bin2hex(random_bytes(6));
+        $newInstanceId = 'session_user_' . $user_id;
 
-        $stmtIns = $pdo->prepare("INSERT INTO merchant_waba_settings (user_id, phone_number_id, waba_id, access_token, tenant_api_key, webhook_verify_token, gateway_type, web_api_url, web_api_token, web_api_session_status) VALUES (?, '', '', '', ?, ?, 'meta', ?, '', 'disconnected')");
-        $stmtIns->execute([$user_id, $newApiKey, $newVerifyToken, $default_self_hosted_url]);
+        $stmtIns = $pdo->prepare("INSERT INTO merchant_waba_settings (user_id, phone_number_id, waba_id, access_token, tenant_api_key, webhook_verify_token, gateway_type, web_api_url, web_api_token, web_api_instance_id, web_api_session_status) VALUES (?, '', '', '', ?, ?, 'meta', ?, ?, ?, 'disconnected')");
+        $stmtIns->execute([$user_id, $newApiKey, $newVerifyToken, $default_self_hosted_url, $newWebToken, $newInstanceId]);
 
         $stmt->execute([$user_id]);
         $wabaSettings = $stmt->fetch(PDO::FETCH_ASSOC);
+    } else if (empty($wabaSettings['web_api_token']) || empty($wabaSettings['web_api_instance_id'])) {
+        $newWebToken = !empty($wabaSettings['web_api_token']) ? $wabaSettings['web_api_token'] : ('self_key_' . bin2hex(random_bytes(6)));
+        $newInstanceId = !empty($wabaSettings['web_api_instance_id']) ? $wabaSettings['web_api_instance_id'] : ('session_user_' . $user_id);
+        
+        $stmtUpToken = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_token = ?, web_api_instance_id = ? WHERE user_id = ?");
+        $stmtUpToken->execute([$newWebToken, $newInstanceId, $user_id]);
+        
+        $wabaSettings['web_api_token'] = $newWebToken;
+        $wabaSettings['web_api_instance_id'] = $newInstanceId;
     }
 } catch (PDOException $e) {
     $wabaSettings = [];
+}
+
+// Fallback to central system config constants if DB settings are blank
+if (empty($wabaSettings['phone_number_id']) && defined('PHONE_NUMBER_ID')) {
+    $wabaSettings['phone_number_id'] = PHONE_NUMBER_ID;
+}
+if (empty($wabaSettings['waba_id']) && defined('BUSINESS_ACCOUNT_ID')) {
+    $wabaSettings['waba_id'] = BUSINESS_ACCOUNT_ID;
+}
+if (empty($wabaSettings['access_token']) && defined('ACCESS_TOKEN')) {
+    $wabaSettings['access_token'] = ACCESS_TOKEN;
 }
 
 // Current gateway type
@@ -45,14 +67,26 @@ $current_gateway = !empty($wabaSettings['gateway_type']) ? $wabaSettings['gatewa
 // Handle Form Submission - Gateway Settings Save (Meta or Self-Hosted Web API)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_waba') {
     $gateway_type = trim($_POST['gateway_type'] ?? 'meta');
-    $phone_number_id = trim($_POST['phone_number_id'] ?? '');
-    $waba_id = trim($_POST['waba_id'] ?? '');
-    $access_token = trim($_POST['access_token'] ?? '');
-    $business_phone = trim($_POST['business_phone'] ?? '');
+    
+    // Preserve existing Meta credentials if submitted value is empty
+    $submitted_phone_id = trim($_POST['phone_number_id'] ?? '');
+    $submitted_waba_id = trim($_POST['waba_id'] ?? '');
+    $submitted_token = trim($_POST['access_token'] ?? '');
+    $submitted_biz_phone = trim($_POST['business_phone'] ?? '');
 
-    $web_api_url = trim($_POST['web_api_url'] ?? $default_self_hosted_url);
-    $web_api_token = trim($_POST['web_api_token'] ?? '');
-    $web_api_instance_id = trim($_POST['web_api_instance_id'] ?? '');
+    $phone_number_id = !empty($submitted_phone_id) ? $submitted_phone_id : (!empty($wabaSettings['phone_number_id']) ? $wabaSettings['phone_number_id'] : (defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : ''));
+    $waba_id = !empty($submitted_waba_id) ? $submitted_waba_id : (!empty($wabaSettings['waba_id']) ? $wabaSettings['waba_id'] : (defined('BUSINESS_ACCOUNT_ID') ? BUSINESS_ACCOUNT_ID : ''));
+    $access_token = !empty($submitted_token) ? $submitted_token : (!empty($wabaSettings['access_token']) ? $wabaSettings['access_token'] : (defined('ACCESS_TOKEN') ? ACCESS_TOKEN : ''));
+    $business_phone = !empty($submitted_biz_phone) ? $submitted_biz_phone : ($wabaSettings['business_phone'] ?? '');
+
+    // Preserve existing Web API credentials if submitted value is empty
+    $submitted_web_url = trim($_POST['web_api_url'] ?? '');
+    $submitted_web_token = trim($_POST['web_api_token'] ?? '');
+    $submitted_web_instance = trim($_POST['web_api_instance_id'] ?? '');
+
+    $web_api_url = !empty($submitted_web_url) ? $submitted_web_url : (!empty($wabaSettings['web_api_url']) ? $wabaSettings['web_api_url'] : $default_self_hosted_url);
+    $web_api_token = !empty($submitted_web_token) ? $submitted_web_token : ($wabaSettings['web_api_token'] ?? ('self_key_' . bin2hex(random_bytes(6))));
+    $web_api_instance_id = !empty($submitted_web_instance) ? $submitted_web_instance : ($wabaSettings['web_api_instance_id'] ?? ('session_user_' . $user_id));
 
     try {
         $stmtUp = $pdo->prepare("
@@ -62,18 +96,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         ");
         $stmtUp->execute([$gateway_type, $phone_number_id, $waba_id, $access_token, $business_phone, $web_api_url, $web_api_token, $web_api_instance_id, $user_id]);
 
-        // Auto-sync into tenant_whatsapp_configs for complete UI consistency
-        $stmtSyncTenant = $pdo->prepare("
-            INSERT INTO tenant_whatsapp_configs (user_id, firm_name, marg_license_no, waba_id, phone_number_id, display_phone_number, verified_name, access_token, signup_method, status)
-            VALUES (?, 'Marg Partner', '1352947', ?, ?, ?, 'Marg ERP Partner', ?, 'manual', 'active')
-            ON DUPLICATE KEY UPDATE 
-                waba_id = VALUES(waba_id),
-                phone_number_id = VALUES(phone_number_id),
-                display_phone_number = VALUES(display_phone_number),
-                access_token = VALUES(access_token),
-                status = 'active'
-        ");
-        $stmtSyncTenant->execute([$user_id, $waba_id, $phone_number_id, $business_phone, $access_token]);
+        // Auto-sync into tenant_whatsapp_configs only if Meta credentials exist
+        if (!empty($phone_number_id) || !empty($waba_id)) {
+            $stmtSyncTenant = $pdo->prepare("
+                INSERT INTO tenant_whatsapp_configs (user_id, firm_name, marg_license_no, waba_id, phone_number_id, display_phone_number, verified_name, access_token, signup_method, status)
+                VALUES (?, 'Marg Partner', '1352947', ?, ?, ?, 'Marg ERP Partner', ?, 'manual', 'active')
+                ON DUPLICATE KEY UPDATE 
+                    waba_id = IF(VALUES(waba_id) != '', VALUES(waba_id), waba_id),
+                    phone_number_id = IF(VALUES(phone_number_id) != '', VALUES(phone_number_id), phone_number_id),
+                    display_phone_number = IF(VALUES(display_phone_number) != '', VALUES(display_phone_number), display_phone_number),
+                    access_token = IF(VALUES(access_token) != '', VALUES(access_token), access_token),
+                    status = 'active'
+            ");
+            $stmtSyncTenant->execute([$user_id, $waba_id, $phone_number_id, $business_phone, $access_token]);
+        }
 
         $gateway_label = ($gateway_type === 'web_api') ? 'Self-Hosted WhatsApp Web API (QR Code Instance)' : 'Meta WhatsApp Cloud API';
         $message = "🎉 Gateway Settings saved! Active Integration Method: " . $gateway_label;
@@ -107,8 +143,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $webToken = $wabaSettings['web_api_token'] ?? '';
             $webInstance = $wabaSettings['web_api_instance_id'] ?? '';
 
-            $endpoint = (strpos($webUrl, 'action=') !== false) ? $webUrl . '&action=send_message' : ($webUrl . '/send-message');
+            $endpoint = (strpos($webUrl, 'action=') !== false) 
+                ? $webUrl . '&action=send_message' 
+                : ((strpos($webUrl, '.php') !== false) ? ($webUrl . '?action=send_message') : (rtrim($webUrl, '/') . '/send-message'));
+
             $postFields = [
+                'action'    => 'send_message',
                 'recipient' => $phoneDigits,
                 'message'   => "🎉 Marg ERP 9+ Self-Hosted WhatsApp Web Test Message!\nBill No: {$test_bill_no}\nSent cleanly via paired phone camera session.",
                 'token'     => $webToken,
@@ -152,14 +192,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $message = "Meta WhatsApp credentials missing. Please save Phone Number ID and Access Token first.";
                 $message_type = "danger";
             } else {
-                $metaUrl = "https://graph.facebook.com/v19.0/{$phone_number_id}/messages";
+                $samplePdf = (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://friendlyaisolution.com') . '/uploads/invoices/sample.pdf';
+                $metaUrl = "https://graph.facebook.com/v20.0/{$phone_number_id}/messages";
                 $payload = [
                     'messaging_product' => 'whatsapp',
                     'to'                => $phoneDigits,
                     'type'              => 'template',
                     'template'          => [
-                        'name'     => 'hello_world',
-                        'language' => ['code' => 'en_US']
+                        'name'     => 'marg_bill',
+                        'language' => ['code' => 'en'],
+                        'components' => [
+                            [
+                                'type' => 'header',
+                                'parameters' => [
+                                    [
+                                        'type' => 'document',
+                                        'document' => [
+                                            'link' => $samplePdf,
+                                            'filename' => "Invoice.pdf"
+                                        ]
+                                    ]
+                                ]
+                            ],
+                            [
+                                'type' => 'body',
+                                'parameters' => [
+                                    ['type' => 'text', 'text' => 'Marg Soft Solution'],
+                                    ['type' => 'text', 'text' => 'Valued Customer'],
+                                    ['type' => 'text', 'text' => $test_bill_no],
+                                    ['type' => 'text', 'text' => '14500.00'],
+                                    ['type' => 'text', 'text' => '0.00'],
+                                    ['type' => 'text', 'text' => 'HARSHSAINI2017@OKICCI'],
+                                    ['type' => 'text', 'text' => 'BOI'],
+                                    ['type' => 'text', 'text' => '178963542456'],
+                                    ['type' => 'text', 'text' => 'MANDHANA'],
+                                    ['type' => 'text', 'text' => 'BKI0125'],
+                                    ['type' => 'text', 'text' => 'Marg Soft Solution'],
+                                    ['type' => 'text', 'text' => '+91 92773 87778'],
+                                    ['type' => 'text', 'text' => $samplePdf]
+                                ]
+                            ]
+                        ]
                     ]
                 ];
 
@@ -285,12 +358,43 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
             </div>
         </div>
 
-        <div style="background: rgba(59, 130, 246, 0.08); border-left: 3px solid #3b82f6; padding: 16px; border-radius: 8px; font-size: 0.825rem; color: #94a3b8; line-height: 1.6;">
+        <div style="background: rgba(59, 130, 246, 0.08); border-left: 3px solid #3b82f6; padding: 16px; border-radius: 8px; font-size: 0.825rem; color: #94a3b8; line-height: 1.6; margin-bottom: 14px;">
             💡 <strong>How to Setup in Marg ERP 9+:</strong><br>
             1. Open Marg ERP Software &rarr; Press <code>Ctrl + F10</code> (Control Room).<br>
             2. Search for <strong>"SMS / WhatsApp Setup"</strong> &rarr; Choose <strong>HTTP API</strong>.<br>
             3. Paste the <strong>Gateway URL</strong> above into the <strong>WhatsApp HTTP API URL</strong> field.<br>
             4. Marg ERP bills & PDF invoices will automatically route using your active gateway choice (<?php echo strtoupper($current_gateway); ?>)!
+        </div>
+
+        <!-- Desktop .exe Application Helper Box -->
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px dashed rgba(16, 185, 129, 0.3); padding: 14px; border-radius: 10px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <strong style="font-size: 0.85rem; color: #34d399; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="cpu" style="width: 16px; height: 16px;"></i>
+                    Marg ERP Desktop .exe Credentials (config.json)
+                </strong>
+                <span class="badge" style="background: #10b981; color: white; font-size: 0.7rem; padding: 2px 8px; border-radius: 4px;">Auto-Generated</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                <div>
+                    <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 2px;">Tenant API Key:</span>
+                    <input type="text" id="tenantApiKeyInput" readonly value="<?php echo htmlspecialchars($wabaSettings['tenant_api_key'] ?? ''); ?>" class="form-control" style="background: rgba(0,0,0,0.4); border-color: rgba(16, 185, 129, 0.3); color: #34d399; font-family: monospace; font-size: 0.8rem;">
+                </div>
+                <div>
+                    <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 2px;">API Secret Key:</span>
+                    <input type="text" id="secretKeyInput" readonly value="<?php echo htmlspecialchars($wabaSettings['web_api_token'] ?? ''); ?>" class="form-control" style="background: rgba(0,0,0,0.4); border-color: rgba(16, 185, 129, 0.3); color: #34d399; font-family: monospace; font-size: 0.8rem;">
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+                <button type="button" onclick="copyTenantApiKey()" class="btn btn-secondary" style="flex: 1; padding: 6px 10px; font-size: 0.75rem; border-radius: 8px;">
+                    <i data-lucide="key" style="width: 13px; height: 13px; margin-right: 4px;"></i> Copy Tenant API Key
+                </button>
+                <button type="button" onclick="copyExeConfigJson()" class="btn btn-success" style="flex: 1; padding: 6px 10px; font-size: 0.75rem; border-radius: 8px; background: #10b981; border: none;">
+                    <i data-lucide="file-code" style="width: 13px; height: 13px; margin-right: 4px;"></i> Copy Full config.json for .exe
+                </button>
+            </div>
         </div>
     </div>
 
@@ -346,18 +450,18 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px;">
             <div>
                 <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">WhatsApp Phone Number ID:</label>
-                <input type="text" name="phone_number_id" value="<?php echo htmlspecialchars($wabaSettings['phone_number_id'] ?? ''); ?>" placeholder="e.g. 104928473829102" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
+                <input type="text" name="phone_number_id" value="<?php echo htmlspecialchars(!empty($wabaSettings['phone_number_id']) ? $wabaSettings['phone_number_id'] : (defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : '1361533150369205')); ?>" placeholder="1361533150369205" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
             </div>
             <div>
                 <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">WhatsApp Business Account ID (WABA ID):</label>
-                <input type="text" name="waba_id" value="<?php echo htmlspecialchars($wabaSettings['waba_id'] ?? ''); ?>" placeholder="e.g. 104928473829102" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
+                <input type="text" name="waba_id" value="<?php echo htmlspecialchars(!empty($wabaSettings['waba_id']) ? $wabaSettings['waba_id'] : (defined('BUSINESS_ACCOUNT_ID') ? BUSINESS_ACCOUNT_ID : '28958809240386414')); ?>" placeholder="28958809240386414" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
             </div>
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
             <div>
                 <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Your Business WhatsApp Phone Number:</label>
-                <input type="text" name="business_phone" value="<?php echo htmlspecialchars($wabaSettings['business_phone'] ?? ''); ?>" placeholder="e.g. +91 98765 43210" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
+                <input type="text" name="business_phone" value="<?php echo htmlspecialchars(!empty($wabaSettings['business_phone']) ? $wabaSettings['business_phone'] : '+91 92773 87778'); ?>" placeholder="+91 92773 87778" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
             </div>
             <div>
                 <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Permanent Meta Access Token:</label>
@@ -393,8 +497,25 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
                     </span>
                 </div>
                 
+                <!-- Connected State Message & Logout Button -->
+                <div id="boxConnectedState" style="display: none; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <span style="font-size: 0.85rem; color: #34d399; font-weight: 700; display: block; margin-bottom: 2px;">
+                                🎉 WhatsApp Account Linked & Active!
+                            </span>
+                            <span style="font-size: 0.775rem; color: #cbd5e1;">
+                                Paired Phone: <strong id="connectedPhoneDisplay" style="color: #ffffff;">+917860510928</strong> &bull; Marg ERP Invoices will send automatically.
+                            </span>
+                        </div>
+                        <button type="button" onclick="logoutWhatsAppSession()" class="btn btn-outline-danger btn-sm" style="padding: 6px 14px; font-size: 0.8rem; border: 1px solid #ef4444; color: #ef4444; border-radius: 8px; font-weight: 600; background: rgba(239, 68, 68, 0.1);">
+                            <i data-lucide="power" style="width: 14px; height: 14px; margin-right: 4px;"></i> Logout / Disconnect Device
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Method Selector Tabs: QR Code vs Phone Pairing Code -->
-                <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                <div id="pairMethodTabs" style="display: flex; gap: 10px; margin-bottom: 12px;">
                     <button type="button" onclick="switchPairMethod('qr')" id="btnPairQr" class="btn btn-primary" style="padding: 5px 12px; font-size: 0.8rem; border-radius: 6px; background: #10b981; border: none;">
                         <i data-lucide="qr-code" style="width: 14px; height: 14px; margin-right: 4px;"></i> Scan QR Code
                     </button>
@@ -449,14 +570,18 @@ $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' 
                 <input type="text" name="web_api_url" value="<?php echo htmlspecialchars(!empty($wabaSettings['web_api_url']) ? $wabaSettings['web_api_url'] : $default_self_hosted_url); ?>" placeholder="e.g. <?php echo htmlspecialchars($default_self_hosted_url); ?>" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
             </div>
             <div>
-                <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Self-Generated API Secret Key:</label>
-                <input type="text" name="web_api_token" value="<?php echo htmlspecialchars($wabaSettings['web_api_token'] ?? ''); ?>" placeholder="e.g. self_key_<?php echo substr(md5($user_id), 0, 10); ?>" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
+                <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">
+                    Self-Generated API Secret Key <span style="font-size:0.7rem; color:#10b981; font-weight:400;">(Auto-Generated Permanent Key)</span>:
+                </label>
+                <input type="text" name="web_api_token" value="<?php echo htmlspecialchars($wabaSettings['web_api_token'] ?? ('self_key_' . bin2hex(random_bytes(6)))); ?>" readonly class="form-control" style="background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.3); color: #34d399; font-family: monospace; font-weight: 600;">
             </div>
         </div>
 
         <div>
-            <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">Session Instance ID:</label>
-            <input type="text" name="web_api_instance_id" value="<?php echo htmlspecialchars(!empty($wabaSettings['web_api_instance_id']) ? $wabaSettings['web_api_instance_id'] : ('session_user_' . $user_id)); ?>" class="form-control" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.12); color: #fff;">
+            <label style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">
+                Session Instance ID <span style="font-size:0.7rem; color:#94a3b8; font-weight:400;">(Auto Assigned)</span>:
+            </label>
+            <input type="text" name="web_api_instance_id" value="<?php echo htmlspecialchars(!empty($wabaSettings['web_api_instance_id']) ? $wabaSettings['web_api_instance_id'] : ('session_user_' . $user_id)); ?>" readonly class="form-control" style="background: rgba(0,0,0,0.4); border-color: rgba(255,255,255,0.12); color: #94a3b8; font-family: monospace;">
         </div>
     </div>
 
@@ -524,27 +649,96 @@ function copyGatewayUrl() {
     alert('Marg ERP Gateway URL copied to clipboard!');
 }
 
+function copyTenantApiKey() {
+    const input = document.getElementById('tenantApiKeyInput');
+    input.select();
+    navigator.clipboard.writeText(input.value);
+    alert('Tenant API Key copied to clipboard!');
+}
+
+function copyExeConfigJson() {
+    const configObj = {
+        gateway_url: "<?php echo htmlspecialchars($gateway_url); ?>",
+        tenant_api_key: "<?php echo htmlspecialchars($wabaSettings['tenant_api_key'] ?? ''); ?>",
+        secret_key: "<?php echo htmlspecialchars($wabaSettings['web_api_token'] ?? ''); ?>",
+        instance_id: "<?php echo htmlspecialchars($wabaSettings['web_api_instance_id'] ?? ('session_user_' . $user_id)); ?>"
+    };
+    const jsonStr = JSON.stringify(configObj, null, 4);
+    navigator.clipboard.writeText(jsonStr);
+    alert('Full config.json copied to clipboard! Paste this into your Marg ERP Desktop .exe folder.');
+}
+
 function loadLiveQrCode() {
     fetch('api/whatsapp_web_engine.php?action=get_qr')
         .then(res => res.json())
         .then(data => {
             const img = document.getElementById('qrImage');
             const ph = document.getElementById('qrPlaceholder');
+            const badge = document.getElementById('sessionStatusBadge');
+            const connectedBox = document.getElementById('boxConnectedState');
+            const pairTabs = document.getElementById('pairMethodTabs');
+            const pairQrBox = document.getElementById('boxPairQr');
+            const pairCodeBox = document.getElementById('boxPairCode');
 
-            if (data && data.status === 'scan_qr' && data.qr_image) {
+            if (data && data.status === 'connected') {
+                img.style.display = 'none';
+                ph.style.display = 'block';
+                ph.innerHTML = "<div style='text-align:center;'><i data-lucide='check-circle-2' style='width:36px;height:36px;color:#10b981;margin-bottom:6px;'></i><br><strong style='color:#10b981;font-size:0.9rem;'>Connected</strong><br><span style='font-size:0.75rem;color:#94a3b8;'>+" + (data.phone || 'Paired') + "</span></div>";
+                if (badge) {
+                    badge.innerHTML = "🟢 Status: Connected (+" + (data.phone || 'Paired') + ")";
+                    badge.style.background = "#10b981";
+                }
+                if (connectedBox) {
+                    connectedBox.style.display = 'block';
+                    const phoneElem = document.getElementById('connectedPhoneDisplay');
+                    if (phoneElem) phoneElem.innerText = '+' + (data.phone || 'Paired');
+                }
+                if (pairTabs) pairTabs.style.display = 'none';
+                if (pairQrBox) pairQrBox.style.display = 'none';
+                if (pairCodeBox) pairCodeBox.style.display = 'none';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            } else if (data && (data.status === 'scan_qr' || data.status === 'success') && data.qr_image) {
                 img.src = data.qr_image;
                 img.style.display = 'block';
                 ph.style.display = 'none';
+                if (badge) {
+                    badge.innerHTML = "🟡 Status: Ready / Scan QR Code";
+                    badge.style.background = "#f59e0b";
+                }
+                if (connectedBox) connectedBox.style.display = 'none';
+                if (pairTabs) pairTabs.style.display = 'flex';
+                if (pairQrBox) pairQrBox.style.display = 'block';
             } else {
                 img.style.display = 'none';
                 ph.style.display = 'block';
                 if (data && data.message) {
                     ph.innerHTML = "⚡ <strong>Node Engine Status</strong><br>" + data.message;
                 }
+                if (badge) {
+                    badge.innerHTML = "🔴 Status: Engine Offline / Disconnected";
+                    badge.style.background = "#ef4444";
+                }
+                if (connectedBox) connectedBox.style.display = 'none';
+                if (pairTabs) pairTabs.style.display = 'flex';
+                if (pairQrBox) pairQrBox.style.display = 'block';
             }
         })
         .catch(err => {
             console.log('QR load error');
+        });
+}
+
+function logoutWhatsAppSession() {
+    if (!confirm("Are you sure you want to disconnect & logout this WhatsApp account?")) return;
+    fetch('api/whatsapp_web_engine.php?action=logout')
+        .then(res => res.json())
+        .then(data => {
+            alert("WhatsApp account disconnected successfully!");
+            loadLiveQrCode();
+        })
+        .catch(err => {
+            alert("Session cleared.");
+            location.reload();
         });
 }
 
