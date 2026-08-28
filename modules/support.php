@@ -1031,16 +1031,28 @@ if ($db_connected && $pdo) {
                             <span id="edit-v-contact" style="font-size: 0.82rem; color: var(--text-main); font-weight: 700; word-break: break-word;">-</span>
                         </div>
 
-                        <!-- Item 3: Reg Mobile -->
+                        <!-- Item 3: Reg Mobile & Call Back No. -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <div class="flex justify-between align-center mb-1">
                                 <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em;">Reg Mobile</span>
-                                <button type="button" id="edit-v-mobile-qr-btn" class="btn text-xs" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; padding: 1px 5px; border-radius: 4px; display: none; cursor: pointer;" title="Scan QR to call" onclick="event.stopPropagation();">
+                                <button type="button" id="edit-v-mobile-qr-btn" class="btn text-xs" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; padding: 1px 5px; border-radius: 4px; display: none; cursor: pointer;" title="Scan QR to call Reg Mobile" onclick="event.stopPropagation();">
                                     <i data-lucide="qr-code" style="width: 10px; height: 10px;"></i>
                                     <span style="font-size: 0.65rem; font-weight: 700;">QR</span>
                                 </button>
                             </div>
                             <span id="edit-v-mobile" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 700;">-</span>
+
+                            <!-- Call Back No. Row below Reg Mobile -->
+                            <div id="edit-v-callback-box" style="margin-top: 5px; padding-top: 4px; border-top: 1px dashed var(--border-color); display: flex; flex-direction: column;">
+                                <div class="flex justify-between align-center mb-0.5">
+                                    <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--primary); letter-spacing: 0.04em;">Call Back No.</span>
+                                    <button type="button" id="edit-v-callback-qr-btn" class="btn text-xs" style="background: rgba(16,185,129,0.1); color: #10b981; border: none; padding: 1px 5px; border-radius: 4px; display: none; cursor: pointer;" title="Scan QR to call Callback Number" onclick="event.stopPropagation();">
+                                        <i data-lucide="qr-code" style="width: 10px; height: 10px;"></i>
+                                        <span style="font-size: 0.65rem; font-weight: 700;">QR</span>
+                                    </button>
+                                </div>
+                                <span id="edit-v-callback" class="font-mono font-bold text-primary" style="font-size: 0.82rem;">-</span>
+                            </div>
                         </div>
 
                         <!-- Item 4: Reg Email (span 2) -->
@@ -1299,6 +1311,17 @@ if ($db_connected && $pdo) {
 </div>
 
 <script>
+function normalizePhoneForDialing(phone) {
+    if (!phone) return '';
+    let digits = String(phone).replace(/[^0-9+]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('+')) return digits;
+    if (digits.length === 10) return '+91' + digits;
+    if (digits.length === 12 && digits.startsWith('91')) return '+' + digits;
+    if (digits.length === 11 && digits.startsWith('0')) return '+91' + digits.substring(1);
+    return '+91' + digits;
+}
+
 function openCallQrModal(name, phone, telEncoded) {
     if (typeof event !== 'undefined' && event && event.stopPropagation) {
         event.stopPropagation();
@@ -1309,14 +1332,13 @@ function openCallQrModal(name, phone, telEncoded) {
         return;
     }
     
-    const cleanPhone = phone ? String(phone).replace(/[^0-9+]/g, '') : '';
-    let payload = telEncoded ? decodeURIComponent(telEncoded) : ('tel:' + cleanPhone);
-    if (!payload.startsWith('tel:')) payload = 'tel:' + cleanPhone;
-    const encodedPayload = encodeURIComponent(payload);
+    const formattedPhone = normalizePhoneForDialing(phone);
+    const telPayload = 'tel:' + formattedPhone;
+    const encodedPayload = encodeURIComponent(telPayload);
 
     const titleEl = document.getElementById('qr-modal-title'); if (titleEl) titleEl.textContent = 'Call ' + (name || 'Client');
-    const phoneEl = document.getElementById('qr-modal-phone'); if (phoneEl) phoneEl.textContent = cleanPhone || phone || '-';
-    const linkEl = document.getElementById('qr-modal-tel-link'); if (linkEl) linkEl.href = 'tel:' + cleanPhone;
+    const phoneEl = document.getElementById('qr-modal-phone'); if (phoneEl) phoneEl.textContent = formattedPhone || '-';
+    const linkEl = document.getElementById('qr-modal-tel-link'); if (linkEl) linkEl.href = telPayload;
     
     const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=4&data=' + encodedPayload;
     const fallbackUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=260x260&chl=' + encodedPayload;
@@ -1557,14 +1579,29 @@ function updateClientCompactView(data) {
     const vMobQrBtn = document.getElementById('edit-v-mobile-qr-btn');
     if (vMobQrBtn) {
         if (mob && mob !== '-') {
-            const cleanM = String(mob).replace(/[^0-9+]/g, '');
             vMobQrBtn.onclick = function(e) {
                 if (e) e.stopPropagation();
-                window.openCallQrModal(pName, cleanM, encodeURIComponent('tel:' + cleanM));
+                window.openCallQrModal(pName, mob, '');
             };
             vMobQrBtn.style.display = 'inline-flex';
         } else {
             vMobQrBtn.style.display = 'none';
+        }
+    }
+
+    // Populate Call Back No. below Reg Mobile
+    const cbNum = data.callback_number || data.callback_no || data.call_back_number || mob || '-';
+    const vCb = document.getElementById('edit-v-callback'); if (vCb) vCb.innerText = cbNum;
+    const vCbQrBtn = document.getElementById('edit-v-callback-qr-btn');
+    if (vCbQrBtn) {
+        if (cbNum && cbNum !== '-') {
+            vCbQrBtn.onclick = function(e) {
+                if (e) e.stopPropagation();
+                window.openCallQrModal(pName, cbNum, '');
+            };
+            vCbQrBtn.style.display = 'inline-flex';
+        } else {
+            vCbQrBtn.style.display = 'none';
         }
     }
 

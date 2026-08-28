@@ -14,12 +14,16 @@ $user_role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_name = $_SESSION['user_name'] ?? '';
 $is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
 
-// Access Security Check: Restricted strictly to Super Admin and Admin
-if (!$is_admin) {
+// Access Security Check: Verify user has permission to view Clients module
+$can_view_client = $is_admin || hasAccess('clients', $user_role);
+if (!$can_view_client) {
     $_GET['requested'] = 'clients';
     include_once __DIR__ . '/access_denied.php';
     return;
 }
+
+// Client Edit Permission: Strictly restricted to Super Admin, Admin, or users with explicit clients_edit privilege
+$can_edit_client = $is_admin || hasAccess('clients_edit', $user_role) || in_array('clients_edit', $_SESSION['user_permissions'] ?? []);
 
 // --------------------------------------------------------------------------
 // 0. Action Handlers: Template Download & Directory CSV Export
@@ -539,6 +543,7 @@ $active_tab = $_GET['tab'] ?? 'directory';
 $search_query = trim($_GET['search'] ?? '');
 $status_filter = trim($_GET['status'] ?? '');
 $category_filter = trim($_GET['category'] ?? '');
+$sort_filter = trim($_GET['sort'] ?? 'id_desc');
 $trade_filter = trim($_GET['trade'] ?? '');
 $product_filter = trim($_GET['product'] ?? '');
 $operator_filter = trim($_GET['operator'] ?? '');
@@ -588,13 +593,65 @@ if ($db_connected && $pdo) {
         }
 
         if (!empty($category_filter)) {
-            $dir_where[] = "LOWER(category) = ?";
-            $dir_params[] = strtolower($category_filter);
+            if (strcasecmp($category_filter, 'A') === 0 || strcasecmp($category_filter, 'Category A') === 0 || strcasecmp($category_filter, 'Premium') === 0) {
+                $dir_where[] = "(category = 'A' OR category = 'Category A' OR category LIKE 'A - %' OR category LIKE '%Premium%')";
+            } elseif (strcasecmp($category_filter, 'B') === 0 || strcasecmp($category_filter, 'Category B') === 0 || strcasecmp($category_filter, 'Standard') === 0) {
+                $dir_where[] = "(category = 'B' OR category = 'Category B' OR category LIKE 'B - %' OR category LIKE '%Standard%')";
+            } elseif (strcasecmp($category_filter, 'C') === 0 || strcasecmp($category_filter, 'Category C') === 0 || strcasecmp($category_filter, 'General') === 0) {
+                $dir_where[] = "(category = 'C' OR category = 'Category C' OR category LIKE 'C - %' OR category LIKE '%General%')";
+            } else {
+                $dir_where[] = "LOWER(category) = ?";
+                $dir_params[] = strtolower($category_filter);
+            }
         }
 
         if (!empty($trade_filter)) {
             $dir_where[] = "software_trade = ?";
             $dir_params[] = $trade_filter;
+        }
+
+        // Sorting Order mapping
+        $sort_order = "id DESC";
+        switch ($sort_filter) {
+            case 'name_asc':
+                $sort_order = "party_name ASC";
+                break;
+            case 'name_desc':
+                $sort_order = "party_name DESC";
+                break;
+            case 'id_asc':
+                $sort_order = "CAST(customer_id AS UNSIGNED) ASC, customer_id ASC";
+                break;
+            case 'id_desc':
+                $sort_order = "CAST(customer_id AS UNSIGNED) DESC, customer_id DESC";
+                break;
+            case 'amount_asc':
+                $sort_order = "total_amount ASC";
+                break;
+            case 'amount_desc':
+                $sort_order = "total_amount DESC";
+                break;
+            case 'due_asc':
+                $sort_order = "due_on IS NULL, due_on ASC";
+                break;
+            case 'due_desc':
+                $sort_order = "due_on DESC";
+                break;
+            case 'sno_asc':
+                $sort_order = "sno ASC";
+                break;
+            case 'sno_desc':
+                $sort_order = "sno DESC";
+                break;
+            case 'category_asc':
+                $sort_order = "category ASC, party_name ASC";
+                break;
+            case 'category_desc':
+                $sort_order = "category DESC, party_name ASC";
+                break;
+            default:
+                $sort_order = "id DESC";
+                break;
         }
 
         $where_dir_sql = !empty($dir_where) ? "WHERE " . implode(" AND ", $dir_where) : "";
@@ -611,11 +668,11 @@ if ($db_connected && $pdo) {
         }
 
         if ($limit === 'all') {
-            $fetchSql = "SELECT * FROM client_directory {$where_dir_sql} ORDER BY id DESC";
+            $fetchSql = "SELECT * FROM client_directory {$where_dir_sql} ORDER BY {$sort_order}";
             $stmt = $pdo->prepare($fetchSql);
             $stmt->execute($dir_params);
         } else {
-            $fetchSql = "SELECT * FROM client_directory {$where_dir_sql} ORDER BY id DESC LIMIT ? OFFSET ?";
+            $fetchSql = "SELECT * FROM client_directory {$where_dir_sql} ORDER BY {$sort_order} LIMIT ? OFFSET ?";
             $stmt = $pdo->prepare($fetchSql);
             $idx = 1;
             foreach ($dir_params as $pVal) {
@@ -856,32 +913,40 @@ function getClientsPageUrl($tab, $p, $limit) {
                     <?php endif; ?>
                 </div>
 
-                <div class="grid" style="grid-template-columns: 2.2fr 1fr 1fr 1fr 1.1fr; gap: 1rem; align-items: end;">
+                <div class="grid" style="grid-template-columns: 2fr 1.1fr 1.2fr 1fr 1fr 1fr; gap: 0.75rem; align-items: end;">
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Search Client Directory</label>
                         <div style="display: flex; align-items: center; width: 100%; height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); overflow: hidden; transition: border-color 0.2s, box-shadow 0.2s;" onfocusin="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 3px rgba(37, 99, 235, 0.15)';" onfocusout="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none';">
                             <div style="padding-left: 14px; padding-right: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary);">
                                 <i data-lucide="search" style="width: 16px; height: 16px;"></i>
                             </div>
-                            <input type="text" name="search" placeholder="Party Name, Customer ID, Mobile, Email, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="border: none !important; outline: none !important; background: transparent !important; height: 100%; width: 100%; padding: 0 14px 0 0 !important; color: var(--text-main); font-size: 0.85rem; box-shadow: none !important;">
+                            <input type="text" name="search" placeholder="Party Name, Customer ID, Mobile, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="border: none !important; outline: none !important; background: transparent !important; height: 100%; width: 100%; padding: 0 14px 0 0 !important; color: var(--text-main); font-size: 0.85rem; box-shadow: none !important;">
                         </div>
                     </div>
 
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Client Category</label>
-                        <select name="category" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Category</label>
+                        <select name="category" class="form-control form-control-focus text-sm font-semibold" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Categories</option>
-                            <option value="Category A" <?php echo (strcasecmp($category_filter, 'Category A') === 0) ? 'selected' : ''; ?>>Category A</option>
-                            <option value="Category B" <?php echo (strcasecmp($category_filter, 'Category B') === 0) ? 'selected' : ''; ?>>Category B</option>
-                            <option value="Category C" <?php echo (strcasecmp($category_filter, 'Category C') === 0) ? 'selected' : ''; ?>>Category C</option>
-                            <option value="Category D" <?php echo (strcasecmp($category_filter, 'Category D') === 0) ? 'selected' : ''; ?>>Category D</option>
-                            <?php foreach ($dir_categories as $cat): ?>
-                                <?php if (!in_array($cat, ['Category A', 'Category B', 'Category C', 'Category D'])): ?>
-                                    <option value="<?php echo htmlspecialchars($cat); ?>" <?php echo (strcasecmp($category_filter, $cat) === 0) ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($cat); ?>
-                                    </option>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
+                            <option value="A" <?php echo (strcasecmp($category_filter, 'A') === 0 || strcasecmp($category_filter, 'Category A') === 0) ? 'selected' : ''; ?>>A - Premium</option>
+                            <option value="B" <?php echo (strcasecmp($category_filter, 'B') === 0 || strcasecmp($category_filter, 'Category B') === 0) ? 'selected' : ''; ?>>B - Standard</option>
+                            <option value="C" <?php echo (strcasecmp($category_filter, 'C') === 0 || strcasecmp($category_filter, 'Category C') === 0) ? 'selected' : ''; ?>>C - General</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group m-0">
+                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Sort By</label>
+                        <select name="sort" class="form-control form-control-focus text-sm font-semibold" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
+                            <option value="id_desc" <?php echo ($sort_filter === 'id_desc') ? 'selected' : ''; ?>>Recently Added</option>
+                            <option value="name_asc" <?php echo ($sort_filter === 'name_asc') ? 'selected' : ''; ?>>Party Name (A to Z)</option>
+                            <option value="name_desc" <?php echo ($sort_filter === 'name_desc') ? 'selected' : ''; ?>>Party Name (Z to A)</option>
+                            <option value="id_asc" <?php echo ($sort_filter === 'id_asc') ? 'selected' : ''; ?>>Customer ID (Smallest to Largest)</option>
+                            <option value="id_desc" <?php echo ($sort_filter === 'id_desc') ? 'selected' : ''; ?>>Customer ID (Largest to Smallest)</option>
+                            <option value="amount_asc" <?php echo ($sort_filter === 'amount_asc') ? 'selected' : ''; ?>>Total Amount (Low to High)</option>
+                            <option value="amount_desc" <?php echo ($sort_filter === 'amount_desc') ? 'selected' : ''; ?>>Total Amount (High to Low)</option>
+                            <option value="due_asc" <?php echo ($sort_filter === 'due_asc') ? 'selected' : ''; ?>>Renewal Date (Oldest First)</option>
+                            <option value="due_desc" <?php echo ($sort_filter === 'due_desc') ? 'selected' : ''; ?>>Renewal Date (Newest First)</option>
+                            <option value="sno_asc" <?php echo ($sort_filter === 'sno_asc') ? 'selected' : ''; ?>>S.No (1 to 9999)</option>
                         </select>
                     </div>
 
@@ -899,7 +964,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Software Trade</label>
                         <select name="trade" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
-                            <option value="">All Trade Categories</option>
+                            <option value="">All Trades</option>
                             <?php foreach ($dir_trade_types as $tr): ?>
                                 <option value="<?php echo htmlspecialchars($tr); ?>" <?php echo ($trade_filter === $tr) ? 'selected' : ''; ?>>
                                     <?php echo htmlspecialchars($tr); ?>
@@ -912,7 +977,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                         <label class="form-label text-xs font-bold mb-1" style="visibility: hidden; display: block;">&nbsp;</label>
                         <button type="submit" class="btn btn-primary font-bold text-sm" style="width: 100%; height: 42px; border-radius: 10px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); display: flex; align-items: center; justify-content: center; gap: 8px;">
                             <i data-lucide="search" style="width: 15px; height: 15px;"></i>
-                            <span>Search Records</span>
+                            <span>Search</span>
                         </button>
                     </div>
                 </div>
@@ -949,6 +1014,8 @@ function getClientsPageUrl($tab, $p, $limit) {
                 <table class="table" style="font-size: 0.825rem; white-space: nowrap;" id="directory-main-table">
                     <thead>
                         <tr style="text-align: left; background-color: var(--bg-app);">
+                            <!-- Starting Column: Folder / View Option -->
+                            <th class="col-dir-view" style="padding: 0.85rem 0.5rem; text-align: center; width: 65px;">View</th>
                             <th class="col-dir-sno" style="padding: 0.85rem 0.75rem;">S.No</th>
                             <th class="col-dir-sw-type">S/W Type</th>
                             <th class="col-dir-customer-id">Customer ID</th>
@@ -984,7 +1051,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                     <tbody>
                         <?php if (empty($dir_records)): ?>
                             <tr>
-                                <td colspan="30" class="text-center text-muted py-8">
+                                <td colspan="31" class="text-center text-muted py-8">
                                     <i data-lucide="database" style="width: 40px; height: 40px; margin: 0 auto 0.75rem auto; color: var(--text-muted);"></i>
                                     <p class="text-sm font-semibold mb-1">No client directory records found.</p>
                                     <p class="text-xs text-muted mb-3">Click below to bulk import your Excel or CSV file with old client details.</p>
@@ -1011,23 +1078,33 @@ function getClientsPageUrl($tab, $p, $limit) {
                                 }
                                 $rJson = htmlspecialchars(json_encode($r), ENT_QUOTES, 'UTF-8');
                                 
-                                $catVal = $r['category'] ?? 'Category A';
-                                $catBadgeStyle = '--badge-bg: var(--primary-light); --badge-color: var(--primary);';
-                                if (strcasecmp($catVal, 'Category A') === 0 || strcasecmp($catVal, 'A') === 0) {
-                                    $catBadgeStyle = '--badge-bg: rgba(16,185,129,0.12); --badge-color: #10b981;';
-                                } elseif (strcasecmp($catVal, 'Category B') === 0 || strcasecmp($catVal, 'B') === 0) {
-                                    $catBadgeStyle = '--badge-bg: rgba(59,130,246,0.12); --badge-color: #3b82f6;';
-                                } elseif (strcasecmp($catVal, 'Category C') === 0 || strcasecmp($catVal, 'C') === 0) {
-                                    $catBadgeStyle = '--badge-bg: rgba(245,158,11,0.12); --badge-color: #f59e0b;';
-                                } elseif (strcasecmp($catVal, 'Category D') === 0 || strcasecmp($catVal, 'D') === 0) {
-                                    $catBadgeStyle = '--badge-bg: rgba(139,92,246,0.12); --badge-color: #8b5cf6;';
+                                $catVal = trim($r['category'] ?? '');
+                                if (stripos($catVal, 'A') === 0 || strcasecmp($catVal, 'Category A') === 0 || stripos($catVal, 'Premium') !== false) {
+                                    $catLabel = 'A - Premium';
+                                    $catBadgeStyle = '--badge-bg: rgba(16,185,129,0.12); --badge-color: #10b981; border: 1px solid rgba(16,185,129,0.25);';
+                                } elseif (stripos($catVal, 'B') === 0 || strcasecmp($catVal, 'Category B') === 0 || stripos($catVal, 'Standard') !== false) {
+                                    $catLabel = 'B - Standard';
+                                    $catBadgeStyle = '--badge-bg: rgba(59,130,246,0.12); --badge-color: #3b82f6; border: 1px solid rgba(59,130,246,0.25);';
+                                } elseif (stripos($catVal, 'C') === 0 || strcasecmp($catVal, 'Category C') === 0 || stripos($catVal, 'General') !== false) {
+                                    $catLabel = 'C - General';
+                                    $catBadgeStyle = '--badge-bg: rgba(245,158,11,0.12); --badge-color: #f59e0b; border: 1px solid rgba(245,158,11,0.25);';
+                                } else {
+                                    $catLabel = !empty($catVal) ? $catVal : 'C - General';
+                                    $catBadgeStyle = '--badge-bg: var(--border-card); --badge-color: var(--text-main);';
                                 }
                             ?>
                                 <tr>
+                                    <!-- 1. Folder / View Option at STARTING of the row -->
+                                    <td class="col-dir-view text-center" style="padding: 0.45rem 0.35rem; vertical-align: middle;">
+                                        <button type="button" class="btn text-xs font-bold" style="background: rgba(37,99,235,0.12); color: var(--primary); border: 1px solid rgba(37,99,235,0.25); padding: 3px 8px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="View Licence & AMC Information Window" onclick='openLicenceAmcWindow(<?php echo $rJson; ?>)'>
+                                            <i data-lucide="folder" style="width: 14px; height: 14px;"></i>
+                                            <span>View</span>
+                                        </button>
+                                    </td>
                                     <td class="col-dir-sno font-mono text-xs font-bold text-center" style="padding: 0.75rem; color: var(--text-main);"><?php echo $sn; ?></td>
                                     <td class="col-dir-sw-type"><span class="badge text-xs" style="--badge-bg: var(--primary-light); --badge-color: var(--primary);"><?php echo htmlspecialchars($r['sw_type'] ?? 'Marg'); ?></span></td>
                                     <td class="col-dir-customer-id"><span class="font-bold text-primary font-mono"><?php echo htmlspecialchars($r['customer_id']); ?></span></td>
-                                    <td class="col-dir-category"><span class="badge text-xs font-bold" style="<?php echo $catBadgeStyle; ?>"><?php echo htmlspecialchars($catVal); ?></span></td>
+                                    <td class="col-dir-category"><span class="badge text-xs font-bold" style="<?php echo $catBadgeStyle; ?>"><?php echo htmlspecialchars($catLabel); ?></span></td>
                                     <td class="col-dir-subpartner-code text-muted"><?php echo htmlspecialchars($r['subpartner_code'] ?? '-'); ?></td>
                                     <td class="col-dir-subpartner-name text-muted"><?php echo htmlspecialchars($r['subpartner_name'] ?? '-'); ?></td>
                                     <td class="col-dir-party-name">
@@ -1040,7 +1117,16 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td class="col-dir-address text-xs text-muted" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo htmlspecialchars($r['address'] ?? ''); ?>">
                                         <?php echo htmlspecialchars($r['address'] ?? '-'); ?>
                                     </td>
-                                    <td class="col-dir-mobile font-mono text-xs"><a href="tel:<?php echo $r['mobile']; ?>" class="text-main hover-primary"><?php echo htmlspecialchars($r['mobile'] ?? '-'); ?></a></td>
+                                    <td class="col-dir-mobile font-mono text-xs">
+                                        <div class="flex align-center gap-1.5">
+                                            <a href="tel:<?php echo htmlspecialchars($r['mobile'] ?? ''); ?>" class="text-main hover-primary font-bold"><?php echo htmlspecialchars($r['mobile'] ?? '-'); ?></a>
+                                            <?php if (!empty($r['mobile'])): ?>
+                                                <button type="button" class="btn text-xs" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; border-radius: 4px; padding: 1px 4px; cursor: pointer; display: inline-flex; align-items: center;" title="Scan QR to call on smartphone" onclick="openCallQrModal('<?php echo htmlspecialchars(addslashes($r['party_name'])); ?>', '<?php echo htmlspecialchars(addslashes($r['mobile'])); ?>', '')">
+                                                    <i data-lucide="qr-code" style="width: 11px; height: 11px;"></i>
+                                                </button>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
                                     <td class="col-dir-email font-mono text-xs"><?php echo htmlspecialchars($r['email'] ?? '-'); ?></td>
                                     <td class="col-dir-user-type"><span class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-main);"><?php echo htmlspecialchars($r['user_type'] ?? 'Single'); ?></span></td>
                                     <td class="col-dir-software-type"><span class="badge text-xs" style="--badge-bg: var(--accent-light); --badge-color: var(--accent);"><?php echo htmlspecialchars($r['software_type'] ?? '-'); ?></span></td>
@@ -1069,17 +1155,16 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td class="col-dir-software-hitdate font-mono text-xs text-muted"><?php echo htmlspecialchars($r['software_hit_date'] ?? '-'); ?></td>
                                     <td class="col-dir-wallet-id font-mono text-xs text-muted"><?php echo htmlspecialchars($r['wallet_id'] ?? '-'); ?></td>
                                     
-                                    <!-- Actions Column: Credentials Modal, Folder & Edit Icons -->
+                                    <!-- Actions Column: Edit Icon (Restricted to allowed users) -->
                                     <td class="col-dir-actions" style="text-align: right; padding-right: 1.25rem;">
                                         <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-left: auto; width: 100%;">
-                                            <!-- Folder Icon (Licence & AMC Window) -->
-                                            <button type="button" class="btn-icon text-primary" title="View Licence & AMC Information Window" onclick='openLicenceAmcWindow(<?php echo $rJson; ?>)'>
-                                                <i data-lucide="folder" style="width: 15px; height: 15px;"></i>
-                                            </button>
-                                            <!-- Edit Icon (Edit Client Record Modal) -->
-                                            <button type="button" class="btn-icon text-secondary" title="Edit Client Details" onclick='openEditClientRecordModal(<?php echo $rJson; ?>)'>
-                                                <i data-lucide="edit-3" style="width: 15px; height: 15px;"></i>
-                                            </button>
+                                            <?php if ($can_edit_client): ?>
+                                                <button type="button" class="btn-icon text-secondary" title="Edit Client Details" onclick='openEditClientRecordModal(<?php echo $rJson; ?>)'>
+                                                    <i data-lucide="edit-3" style="width: 15px; height: 15px;"></i>
+                                                </button>
+                                            <?php else: ?>
+                                                <span class="badge text-xs text-muted" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted); font-size: 10px;" title="Read-only mode">View Only</span>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>
@@ -1960,13 +2045,11 @@ function highlightProductPill(which) {
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Category</label>
-                            <input type="text" id="edit_category" name="category" placeholder="e.g. Category A, B, C" class="form-control text-xs" list="category_options" style="border-radius: 8px;">
-                            <datalist id="category_options">
-                                <option value="Category A">
-                                <option value="Category B">
-                                <option value="Category C">
-                                <option value="Category D">
-                            </datalist>
+                            <select id="edit_category" name="category" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <option value="Category A">A - Premium</option>
+                                <option value="Category B">B - Standard</option>
+                                <option value="Category C">C - General</option>
+                            </select>
                         </div>
 
                         <div class="form-group m-0">
@@ -2203,7 +2286,19 @@ function openLicenceAmcWindow(client) {
     document.getElementById('info_pin_code').innerText             = client.online_zip_code || '-';
     document.getElementById('info_software_type').innerText        = client.software_type || '-';
     document.getElementById('info_sw_type').innerText              = client.sw_type || '-';
-    document.getElementById('info_category').innerText             = client.category || '-';
+    
+    let catVal = String(client.category || 'Category A').trim();
+    let catLabel = 'C - General';
+    if (catVal.toLowerCase().includes('premium') || catVal.toLowerCase() === 'a' || catVal.toLowerCase() === 'category a' || catVal.toLowerCase().startsWith('a -')) {
+        catLabel = 'A - Premium';
+    } else if (catVal.toLowerCase().includes('standard') || catVal.toLowerCase() === 'b' || catVal.toLowerCase() === 'category b' || catVal.toLowerCase().startsWith('b -')) {
+        catLabel = 'B - Standard';
+    } else if (catVal.toLowerCase().includes('general') || catVal.toLowerCase() === 'c' || catVal.toLowerCase() === 'category c' || catVal.toLowerCase().startsWith('c -')) {
+        catLabel = 'C - General';
+    } else {
+        catLabel = catVal || 'C - General';
+    }
+    document.getElementById('info_category').innerText             = catLabel;
     document.getElementById('info_no_of_users').innerText          = client.no_of_users || '-';
     document.getElementById('info_user_type').innerText            = client.user_type || '-';
     document.getElementById('info_no_of_companies_left').innerText = client.company_using || '-';
@@ -2278,7 +2373,21 @@ function openEditClientRecordModal(client) {
     document.getElementById('edit_client_db_id').value = client.id || '';
     document.getElementById('edit_party_name').value = client.party_name || '';
     document.getElementById('edit_customer_id').value = client.customer_id || '';
-    document.getElementById('edit_category').value = client.category || 'Category A';
+    
+    let cat = String(client.category || 'Category A').trim();
+    let catSelect = document.getElementById('edit_category');
+    if (catSelect) {
+        if (cat.toLowerCase().includes('premium') || cat.toLowerCase() === 'a' || cat.toLowerCase() === 'category a' || cat.toLowerCase().startsWith('a -')) {
+            catSelect.value = 'Category A';
+        } else if (cat.toLowerCase().includes('standard') || cat.toLowerCase() === 'b' || cat.toLowerCase() === 'category b' || cat.toLowerCase().startsWith('b -')) {
+            catSelect.value = 'Category B';
+        } else if (cat.toLowerCase().includes('general') || cat.toLowerCase() === 'c' || cat.toLowerCase() === 'category c' || cat.toLowerCase().startsWith('c -')) {
+            catSelect.value = 'Category C';
+        } else {
+            catSelect.value = 'Category A';
+        }
+    }
+
     document.getElementById('edit_sw_type').value = client.sw_type || 'Marg';
     document.getElementById('edit_mobile').value = client.mobile || '';
     document.getElementById('edit_email').value = client.email || '';
@@ -2494,3 +2603,104 @@ document.addEventListener('DOMContentLoaded', loadDirColumnPreferences);
         </form>
     </div>
 </div>
+
+<!-- ========================================================================= -->
+<!-- Unified Call QR Code Modal (Scan with Smartphone to Dial Number)          -->
+<!-- ========================================================================= -->
+<div id="call-qr-modal" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); z-index: 999999; align-items: center; justify-content: center;">
+    <div class="modal-container" style="background: var(--bg-card, #ffffff); border-radius: 16px; width: 100%; max-width: 380px; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.35); border: 1px solid var(--border-color); text-align: center; transform: scale(0.95); transition: transform 0.2s ease;">
+        <div class="modal-header p-4 flex justify-between align-center" style="border-bottom: 1px solid var(--border-color); background: var(--border-card); padding: 1rem 1.25rem;">
+            <div class="flex align-center gap-2">
+                <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(37,99,235,0.1); color: var(--primary); display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="qr-code" style="width: 18px; height: 18px;"></i>
+                </div>
+                <div style="text-align: left;">
+                    <h3 class="text-sm font-bold text-main m-0" id="qr-modal-title">Direct Smartphone Dialer</h3>
+                    <span class="text-xs text-muted">Scan QR with phone camera to call</span>
+                </div>
+            </div>
+            <button type="button" class="btn-icon" onclick="closeCallQrModal()" style="border: none; background: transparent; cursor: pointer; color: var(--text-muted);">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+            </button>
+        </div>
+        <div class="modal-body p-6 flex flex-col align-center" style="padding: 1.5rem; display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 10px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e5e7eb; display: inline-block;">
+                <img id="qr-modal-img" src="" alt="Call QR Code" style="width: 220px; height: 220px; display: block; border-radius: 6px;">
+            </div>
+            <div class="mt-4" style="margin-top: 1rem;">
+                <span class="text-xs text-muted" style="text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Dialing Number</span>
+                <span class="text-base font-bold font-mono" id="qr-modal-phone" style="color: var(--primary); font-size: 1.15rem;"></span>
+                <span class="text-xs text-muted" style="line-height: 1.4; display: block; margin-top: 4px;">Point smartphone camera to load number directly into your mobile dial pad.</span>
+            </div>
+        </div>
+        <div class="modal-footer p-4" style="background: var(--border-card); border-top: 1px solid var(--border-color); padding: 1rem;">
+            <a id="qr-modal-tel-link" href="#" class="btn btn-primary text-xs flex align-center justify-center gap-2" style="width: 100%; border-radius: 8px; padding: 0.65rem; font-weight: 700; display: flex; align-items: center; justify-content: center; text-decoration: none;">
+                <i data-lucide="phone-call" style="width: 15px; height: 15px;"></i>
+                <span>Direct Call Now</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+function normalizePhoneForDialing(phone) {
+    if (!phone) return '';
+    let digits = String(phone).replace(/[^0-9+]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('+')) return digits;
+    if (digits.length === 10) return '+91' + digits;
+    if (digits.length === 12 && digits.startsWith('91')) return '+' + digits;
+    if (digits.length === 11 && digits.startsWith('0')) return '+91' + digits.substring(1);
+    return '+91' + digits;
+}
+
+function openCallQrModal(name, phone, telEncoded) {
+    if (typeof event !== 'undefined' && event && event.stopPropagation) {
+        event.stopPropagation();
+    }
+    const modal = document.getElementById('call-qr-modal');
+    if (!modal) return;
+    
+    const formattedPhone = normalizePhoneForDialing(phone);
+    const telPayload = 'tel:' + formattedPhone;
+    const encodedPayload = encodeURIComponent(telPayload);
+
+    const titleEl = document.getElementById('qr-modal-title'); if (titleEl) titleEl.textContent = 'Call ' + (name || 'Client');
+    const phoneEl = document.getElementById('qr-modal-phone'); if (phoneEl) phoneEl.textContent = formattedPhone || '-';
+    const linkEl = document.getElementById('qr-modal-tel-link'); if (linkEl) linkEl.href = telPayload;
+    
+    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=4&data=' + encodedPayload;
+    const fallbackUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=260x260&chl=' + encodedPayload;
+    
+    const qrImg = document.getElementById('qr-modal-img');
+    if (qrImg) {
+        qrImg.onerror = function() {
+            this.onerror = null;
+            this.src = fallbackUrl;
+        };
+        qrImg.src = qrUrl;
+    }
+    
+    modal.style.display = 'flex';
+    modal.style.opacity = '1';
+    modal.style.pointerEvents = 'auto';
+
+    const container = modal.querySelector('.modal-container');
+    if (container) container.style.transform = 'scale(1)';
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+window.openCallQrModal = openCallQrModal;
+
+function closeCallQrModal() {
+    const modal = document.getElementById('call-qr-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.style.opacity = '0';
+        modal.style.pointerEvents = 'none';
+        const container = modal.querySelector('.modal-container');
+        if (container) container.style.transform = 'scale(0.95)';
+    }
+}
+window.closeCallQrModal = closeCallQrModal;
+</script>

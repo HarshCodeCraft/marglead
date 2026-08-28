@@ -360,7 +360,7 @@ $role = $_SESSION['user_role'];
         ?>
         <img src="<?php echo htmlspecialchars($sidebar_avatar); ?>" alt="User Avatar" class="sidebar-avatar">
         <div class="user-info" style="display: flex; flex-direction: column;">
-            <span class="font-semibold text-sm text-inverse"><?php echo htmlspecialchars($disp_name); ?></span>
+            <span class="font-semibold text-sm text-main"><?php echo htmlspecialchars($disp_name); ?></span>
             <span class="text-xs text-muted"><?php echo htmlspecialchars($disp_role); ?></span>
         </div>
     </div>
