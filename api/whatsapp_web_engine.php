@@ -23,14 +23,14 @@ $action = $_GET['action'] ?? $_POST['action'] ?? 'check_status';
 $user_id = $_SESSION['user_id'] ?? 1;
 
 // Node.js local self-hosted engine URL (if running locally/on server)
-$localNodeEngineUrl = getenv('WHATSAPP_ENGINE_URL') ?: 'http://localhost:3000';
+$localNodeEngineUrl = getenv('WHATSAPP_ENGINE_URL') ?: 'http://127.0.0.1:3005';
 
 function callLocalNodeEngine($endpoint, $postData = null) {
     global $localNodeEngineUrl;
     $ch = curl_init(rtrim($localNodeEngineUrl, '/') . $endpoint);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+   curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 
     if ($postData !== null) {
         curl_setopt($ch, CURLOPT_POST, true);
@@ -53,7 +53,7 @@ if ($action === 'get_qr') {
     $nodeRes = callLocalNodeEngine('/qr?user_id=' . $user_id);
     if ($nodeRes && !empty($nodeRes['qr'])) {
         echo json_encode([
-            'status'     => 'success',
+            'status'     => 'scan_qr',
             'qr_code'    => $nodeRes['qr'],
             'qr_image'   => $nodeRes['qr_image'] ?? ('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' . urlencode($nodeRes['qr'])),
             'source'     => 'self_hosted_node_engine',
@@ -136,20 +136,15 @@ if ($action === 'send_message') {
         'pdf_url'   => $pdf_url
     ]);
 
-    if ($nodeRes && !empty($nodeRes['success'])) {
+    if ($nodeRes) {
         echo json_encode($nodeRes, JSON_PRETTY_PRINT);
         exit;
     }
 
-    // Self-hosted fallback dispatch response
-    $msgId = 'SELF-WEB-' . strtoupper(bin2hex(random_bytes(6)));
     echo json_encode([
-        'status'     => 'success',
-        'success'    => true,
-        'message_id' => $msgId,
-        'recipient'  => $phoneDigits,
-        'engine'     => 'Self-Hosted Marg ERP Engine',
-        'timestamp'  => time()
+        'status'  => 'error',
+        'success' => false,
+        'message' => 'Unable to communicate with local Node WhatsApp engine.'
     ], JSON_PRETTY_PRINT);
     exit;
 }

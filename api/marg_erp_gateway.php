@@ -155,7 +155,7 @@ if ($gateway_type === 'meta') {
     }
 
     $metaUrl = "https://graph.facebook.com/v19.0/{$phone_number_id}/messages";
-    $template_name_in_meta = 'marg_pdf'; 
+    $template_name_in_meta = 'marg_bill'; 
 
     $payload = [
         'messaging_product' => 'whatsapp',

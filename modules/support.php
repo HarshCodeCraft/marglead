@@ -686,7 +686,7 @@ if ($db_connected && $pdo) {
                     <tr style="text-align: left; background-color: var(--bg-app);">
                         <th style="padding: 0.85rem 1rem;">Ticket ID</th>
                         <th>Client / Company</th>
-                        <th>Mobile</th>
+                        <th>Call Back No.</th>
                         <th>Subject & Issue</th>
                         <th>Product</th>
                         <th>Priority</th>
@@ -722,7 +722,7 @@ if ($db_connected && $pdo) {
                                 </td>
                                 <td>
                                     <?php 
-                                        $phoneNum = trim($t['phone'] ?? $t['callback_number'] ?? '');
+                                        $phoneNum = trim(!empty($t['callback_number']) ? $t['callback_number'] : ($t['phone'] ?? ''));
                                         $cleanPhone = preg_replace('/[^0-9+]/', '', $phoneNum);
                                         $telPayload = 'tel:' . $cleanPhone;
                                         $cNameEsc = htmlspecialchars(addslashes($t['customer_name'] ?? 'Client'), ENT_QUOTES, 'UTF-8');

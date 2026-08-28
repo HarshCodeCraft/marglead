@@ -75,8 +75,7 @@ if (isset($data['entry'][0]['changes'][0]['value'])) {
                 $flowResponse = json_decode($interactive['nfm_reply']['response_json'] ?? '{}', true);
                 $license_no = trim($flowResponse['license_no'] ?? $flowResponse['client_id'] ?? '');
                 $subject = trim($flowResponse['subject'] ?? 'Billing & Technical Issue');
-                $problem = trim($flowResponse['problem'] ?? '');
-                $callback_number = trim($flowResponse['callback_no'] ?? $callback_number);
+                $callback_number = trim($flowResponse['callback_number'] ?? $flowResponse['callback_no'] ?? $flowResponse['call_back_number'] ?? $flowResponse['mobile_number'] ?? $flowResponse['mobile'] ?? $callback_number);
             } elseif (isset($interactive['button_reply'])) {
                 $btnId = $interactive['button_reply']['id'] ?? '';
                 if ($btnId === 'support_btn') {

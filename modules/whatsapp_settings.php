@@ -20,13 +20,13 @@ if (isset($pdo) && $pdo) {
     $whatsappConfig = $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
-// Fallback to central system settings if no individual config exists
-$is_connected = ($whatsappConfig && $whatsappConfig['status'] === 'active');
-$display_phone = $whatsappConfig['display_phone_number'] ?? '';
-$verified_name = $whatsappConfig['verified_name'] ?? 'Marg ERP CRM Partner';
-$waba_id = $whatsappConfig['waba_id'] ?? '';
-$phone_number_id = $whatsappConfig['phone_number_id'] ?? '';
-$access_token = $whatsappConfig['access_token'] ?? '';
+// Fallback to central system settings if no individual config exists or if DB fields are blank
+$is_connected = ($whatsappConfig && $whatsappConfig['status'] === 'active') || (!empty(defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : ''));
+$display_phone = !empty($whatsappConfig['display_phone_number']) ? $whatsappConfig['display_phone_number'] : '+91 92773 87778';
+$verified_name = !empty($whatsappConfig['verified_name']) ? $whatsappConfig['verified_name'] : 'Marg Soft Solution';
+$waba_id = !empty($whatsappConfig['waba_id']) ? $whatsappConfig['waba_id'] : (defined('BUSINESS_ACCOUNT_ID') ? BUSINESS_ACCOUNT_ID : '');
+$phone_number_id = !empty($whatsappConfig['phone_number_id']) ? $whatsappConfig['phone_number_id'] : (defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : '');
+$access_token = !empty($whatsappConfig['access_token']) ? $whatsappConfig['access_token'] : (defined('ACCESS_TOKEN') ? ACCESS_TOKEN : '');
 $signup_method = $whatsappConfig['signup_method'] ?? 'embedded';
 $firm_name = $whatsappConfig['firm_name'] ?? ($_SESSION['user_name'] ?? 'Marg Soft Solution');
 $marg_license_no = $whatsappConfig['marg_license_no'] ?? '1352947';
