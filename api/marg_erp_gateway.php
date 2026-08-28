@@ -15,11 +15,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../config/config.php';
 
-$api_key = $_GET['api_key'] ?? $_POST['api_key'] ?? $_SERVER['HTTP_X_API_KEY'] ?? '';
+$rawApiKey = $_GET['api_key'] ?? $_POST['api_key'] ?? $_POST['apiKey'] ?? $_SERVER['HTTP_X_API_KEY'] ?? '';
+if (empty($rawApiKey) && !empty($_SERVER['HTTP_AUTHORIZATION'])) {
+    if (preg_match('/Bearer\s+(.*)$/i', $_SERVER['HTTP_AUTHORIZATION'], $m)) {
+        $rawApiKey = $m[1];
+    }
+}
+
+// Fallback to reading JSON input if API key wasn't in GET/POST headers
+$inputRaw = file_get_contents('php://input');
+$jsonInput = json_decode($inputRaw, true) ?? [];
+if (empty($rawApiKey) && !empty($jsonInput['api_key'])) {
+    $rawApiKey = $jsonInput['api_key'];
+}
+
+$api_key = trim($rawApiKey, " \t\n\r\0\x0B\"'");
 
 if (empty($api_key)) {
     http_response_code(401);
-    echo json_encode(['status' => 'error', 'success' => false, 'error' => 401, 'message' => 'Missing api_key parameter.'], JSON_PRETTY_PRINT);
+    echo json_encode(['status' => 'error', 'success' => false, 'error' => 401, 'message' => 'Missing api_key parameter in request.'], JSON_PRETTY_PRINT);
     exit;
 }
 
@@ -30,13 +44,21 @@ if (!$db_connected || !$pdo) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT * FROM merchant_waba_settings WHERE tenant_api_key = ? AND status = 'Active'");
-    $stmt->execute([$api_key]);
+    // Tolerant check for Tenant API Key (case-insensitive & handles any status or NULL)
+    $stmt = $pdo->prepare("SELECT * FROM merchant_waba_settings WHERE (tenant_api_key = ? OR tenant_api_key = UPPER(?)) AND (status IS NULL OR status = '' OR LOWER(status) != 'inactive') LIMIT 1");
+    $stmt->execute([$api_key, $api_key]);
     $merchant = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$merchant) {
+        // Fallback: check without status filter
+        $stmt2 = $pdo->prepare("SELECT * FROM merchant_waba_settings WHERE tenant_api_key = ? OR tenant_api_key = UPPER(?) LIMIT 1");
+        $stmt2->execute([$api_key, $api_key]);
+        $merchant = $stmt2->fetch(PDO::FETCH_ASSOC);
+    }
+
+    if (!$merchant) {
         http_response_code(403);
-        echo json_encode(['status' => 'error', 'success' => false, 'error' => 403, 'message' => 'Invalid or inactive Tenant API Key.'], JSON_PRETTY_PRINT);
+        echo json_encode(['status' => 'error', 'success' => false, 'error' => 403, 'message' => 'Invalid Tenant API Key: ' . $api_key . '. Please copy the exact key from Marg ERP WhatsApp Gateway settings.'], JSON_PRETTY_PRINT);
         exit;
     }
 } catch (PDOException $e) {
