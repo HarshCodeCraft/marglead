@@ -839,6 +839,17 @@ if ($db_connected && $pdo) {
 </div>
 
 <script>
+function normalizePhoneForDialing(phone) {
+    if (!phone) return '';
+    let digits = String(phone).replace(/[^0-9+]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('+')) return digits;
+    if (digits.length === 10) return '+91' + digits;
+    if (digits.length === 12 && digits.startsWith('91')) return '+' + digits;
+    if (digits.length === 11 && digits.startsWith('0')) return '+91' + digits.substring(1);
+    return '+91' + digits;
+}
+
 function openCallQRModal(phone, clientName, qrUrl) {
     const modal = document.getElementById('call-qr-modal');
     const nameElem = document.getElementById('qr-client-name');
@@ -846,13 +857,15 @@ function openCallQRModal(phone, clientName, qrUrl) {
     const imgElem = document.getElementById('qr-code-img');
     const callBtn = document.getElementById('qr-direct-call-btn');
 
-    const formattedPhone = (phone.length === 10) ? '+91 ' + phone : phone;
+    const formattedPhone = normalizePhoneForDialing(phone);
+    const telPayload = 'tel:' + formattedPhone;
+    const dynamicQrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=4&data=' + encodeURIComponent(telPayload);
 
     if (modal && imgElem) {
-        if (nameElem) nameElem.innerText = clientName;
-        if (phoneElem) phoneElem.innerText = formattedPhone;
-        imgElem.src = qrUrl;
-        if (callBtn) callBtn.href = 'tel:' + phone;
+        if (nameElem) nameElem.innerText = clientName || 'Client';
+        if (phoneElem) phoneElem.innerText = formattedPhone || '-';
+        imgElem.src = dynamicQrUrl;
+        if (callBtn) callBtn.href = telPayload;
 
         modal.style.display = 'flex';
         if (window.lucide) lucide.createIcons();

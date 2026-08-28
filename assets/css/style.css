@@ -34,16 +34,20 @@
     /* Theme defaults: Light Mode */
     --bg-app: #f8fafc;
     --bg-card: #ffffff;
-    --bg-sidebar: #0f172a;
-    --bg-header: rgba(255, 255, 255, 0.8);
+    --bg-sidebar: #ffffff;
+    --bg-header: rgba(255, 255, 255, 0.85);
     
     --border-color: #e2e8f0;
     --border-card: #f1f5f9;
+    --border-sidebar: #e2e8f0;
     
     --text-main: #0f172a;
     --text-muted: #64748b;
     --text-inverse: #ffffff;
-    --text-sidebar: #94a3b8;
+    --text-sidebar: #334155;
+    --text-sidebar-muted: #64748b;
+    --sidebar-hover-bg: rgba(37, 99, 235, 0.08);
+    --sidebar-hover-color: var(--primary);
     
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
@@ -68,16 +72,20 @@
 [data-theme="dark"] {
     --bg-app: #0b0f19;
     --bg-card: #121826;
-    --bg-sidebar: #090d16;
-    --bg-header: rgba(18, 24, 38, 0.8);
+    --bg-sidebar: #121826;
+    --bg-header: rgba(18, 24, 38, 0.85);
     
     --border-color: #1e293b;
     --border-card: #1f293d;
+    --border-sidebar: #1e293b;
     
     --text-main: #f1f5f9;
     --text-muted: #94a3b8;
     --text-inverse: #0f172a;
-    --text-sidebar: #64748b;
+    --text-sidebar: #cbd5e1;
+    --text-sidebar-muted: #64748b;
+    --sidebar-hover-bg: rgba(255, 255, 255, 0.06);
+    --sidebar-hover-color: #ffffff;
     
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);

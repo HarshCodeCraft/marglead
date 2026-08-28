@@ -77,21 +77,21 @@ if ($db_connected && isset($_SESSION['user_id'])) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- Global CSS Styles -->
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link rel="stylesheet" href="assets/css/layout.css">
-    <link rel="stylesheet" href="assets/css/components.css">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo file_exists(__DIR__ . '/../assets/css/style.css') ? filemtime(__DIR__ . '/../assets/css/style.css') : time(); ?>">
+    <link rel="stylesheet" href="assets/css/layout.css?v=<?php echo file_exists(__DIR__ . '/../assets/css/layout.css') ? filemtime(__DIR__ . '/../assets/css/layout.css') : time(); ?>">
+    <link rel="stylesheet" href="assets/css/components.css?v=<?php echo file_exists(__DIR__ . '/../assets/css/components.css') ? filemtime(__DIR__ . '/../assets/css/components.css') : time(); ?>">
     
     <!-- Module-specific CSS files -->
     <?php if ($page === 'dashboard'): ?>
-        <link rel="stylesheet" href="assets/css/modules/dashboard.css">
+        <link rel="stylesheet" href="assets/css/modules/dashboard.css?v=<?php echo time(); ?>">
     <?php elseif ($page === 'pipeline'): ?>
-        <link rel="stylesheet" href="assets/css/modules/pipeline.css">
+        <link rel="stylesheet" href="assets/css/modules/pipeline.css?v=<?php echo time(); ?>">
     <?php elseif ($page === 'followups'): ?>
-        <link rel="stylesheet" href="assets/css/modules/calendar.css">
+        <link rel="stylesheet" href="assets/css/modules/calendar.css?v=<?php echo time(); ?>">
     <?php elseif (in_array($page, ['bot_flows', 'bot_flow_builder'])): ?>
-        <link rel="stylesheet" href="assets/css/modules/bot_flows.css">
+        <link rel="stylesheet" href="assets/css/modules/bot_flows.css?v=<?php echo time(); ?>">
     <?php elseif (in_array($page, ['login', 'forgot_password', 'otp_reset', 'change_password'])): ?>
-        <link rel="stylesheet" href="assets/css/modules/auth.css">
+        <link rel="stylesheet" href="assets/css/modules/auth.css?v=<?php echo time(); ?>">
     <?php endif; ?>
     
     <!-- Lucide Icons CDN -->

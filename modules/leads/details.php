@@ -1541,16 +1541,31 @@ function applyTemplateFields() {
 </div>
 
 <script>
+function normalizePhoneForDialing(phone) {
+    if (!phone) return '';
+    let digits = String(phone).replace(/[^0-9+]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('+')) return digits;
+    if (digits.length === 10) return '+91' + digits;
+    if (digits.length === 12 && digits.startsWith('91')) return '+' + digits;
+    if (digits.length === 11 && digits.startsWith('0')) return '+91' + digits.substring(1);
+    return '+91' + digits;
+}
+
 function openCallQrModal(name, phone, telEncoded) {
     const modal = document.getElementById('call-qr-modal');
     if (!modal) return;
     
-    document.getElementById('qr-modal-title').textContent = 'Call ' + name;
-    document.getElementById('qr-modal-phone').textContent = phone;
-    document.getElementById('qr-modal-tel-link').href = 'tel:' + phone;
+    const formattedPhone = normalizePhoneForDialing(phone);
+    const telPayload = 'tel:' + formattedPhone;
+    const encodedPayload = encodeURIComponent(telPayload);
+
+    document.getElementById('qr-modal-title').textContent = 'Call ' + (name || 'Lead');
+    document.getElementById('qr-modal-phone').textContent = formattedPhone || '-';
+    document.getElementById('qr-modal-tel-link').href = telPayload;
     
-    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=4&data=' + telEncoded;
-    const fallbackUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=260x260&chl=' + telEncoded;
+    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=4&data=' + encodedPayload;
+    const fallbackUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=260x260&chl=' + encodedPayload;
     const qrImg = document.getElementById('qr-modal-img');
     qrImg.onerror = function() {
         this.onerror = null;
