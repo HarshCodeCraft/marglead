@@ -12,9 +12,22 @@ if (!defined('APP_RUNNING')) {
 
 require_once __DIR__ . '/../config/config.php';
 
-$user_id = (int)($_SESSION['user_id'] ?? 1);
-$user_role = $_SESSION['user_role'] ?? 'Admin';
-$is_super_admin = isSystemAdminRole($user_role) || $user_id === 1;
+$user_id = (int)($_SESSION['user_id'] ?? 0);
+$user_role = $_SESSION['user_role'] ?? 'User';
+
+// Strict SaaS Admin Check: Master Platform Super Admin ONLY.
+// Any user belonging to tenant_companies or having Tenant Admin role is NOT SaaS Admin.
+$is_tenant = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') || 
+             !empty($_SESSION['impersonate_tenant_db']) || 
+             !empty($_SESSION['tenant_company_id']) || 
+             stripos(strtolower($user_role), 'tenant') !== false;
+
+$is_saas_admin = !$is_tenant && (
+    $user_id === 1 || 
+    in_array(strtolower(trim($user_role)), ['super admin', 'superadmin', 'master admin']) ||
+    !empty($_SESSION['is_super_admin'])
+);
+$is_super_admin = $is_saas_admin;
 $message = '';
 $message_type = '';
 
