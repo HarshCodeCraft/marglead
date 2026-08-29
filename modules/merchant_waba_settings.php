@@ -13,21 +13,30 @@ if (!defined('APP_RUNNING')) {
 require_once __DIR__ . '/../config/config.php';
 
 $user_id = (int)($_SESSION['user_id'] ?? 0);
-$user_role = $_SESSION['user_role'] ?? 'User';
+$user_role = trim((string)($_SESSION['user_role'] ?? 'User'));
+$user_email = strtolower(trim((string)($_SESSION['user_email'] ?? '')));
+$tenant_db = trim((string)($_SESSION['tenant_db'] ?? ''));
 
-// Strict SaaS Admin Check: Master Platform Super Admin ONLY.
-// Any user belonging to tenant_companies or having Tenant Admin role is NOT SaaS Admin.
-$is_tenant = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'marg_crm') || 
-             !empty($_SESSION['impersonate_tenant_db']) || 
-             !empty($_SESSION['tenant_company_id']) || 
-             stripos(strtolower($user_role), 'tenant') !== false;
+// Strict SaaS Project Owner Check: ONLY the primary Master SaaS Owner (Deepak Awasthi / Super Admin)
+$is_saas_project_owner = false;
 
-$is_saas_admin = !$is_tenant && (
-    $user_id === 1 || 
-    in_array(strtolower(trim($user_role)), ['super admin', 'superadmin', 'master admin']) ||
-    !empty($_SESSION['is_super_admin'])
-);
-$is_super_admin = $is_saas_admin;
+if (stripos($user_role, 'tenant') !== false || stripos($user_role, 'client') !== false) {
+    // Any Tenant Admin or Tenant User is NOT the SaaS Project Owner
+    $is_saas_project_owner = false;
+} elseif (!empty($tenant_db) && strpos($tenant_db, 't_') === 0) {
+    // Any sub-tenant database session is NOT the SaaS Project Owner
+    $is_saas_project_owner = false;
+} else {
+    // Check if the user is the master SaaS Super Admin
+    if (in_array(strtolower($user_role), ['super admin', 'superadmin']) && empty($tenant_db)) {
+        $is_saas_project_owner = true;
+    } elseif ($user_email === 'deepakawasthi587@gmail.com') {
+        $is_saas_project_owner = true;
+    }
+}
+
+$is_super_admin = $is_saas_project_owner;
+$is_saas_admin = $is_saas_project_owner;
 $message = '';
 $message_type = '';
 
