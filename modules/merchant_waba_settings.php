@@ -814,8 +814,10 @@ function updateWebSessionUI(data) {
     }
 }
 
+const currentUserId = <?php echo (int)$user_id; ?>;
+
 function loadLiveQrCode() {
-    fetch('api/whatsapp_web_engine.php?action=get_qr')
+    fetch('api/whatsapp_web_engine.php?action=get_qr&user_id=' + currentUserId)
         .then(res => res.json())
         .then(data => {
             updateWebSessionUI(data);
@@ -826,7 +828,7 @@ function loadLiveQrCode() {
 }
 
 function checkSessionStatus() {
-    fetch('api/whatsapp_web_engine.php?action=check_status')
+    fetch('api/whatsapp_web_engine.php?action=check_status&user_id=' + currentUserId)
         .then(res => res.json())
         .then(data => {
             updateWebSessionUI(data);
@@ -838,7 +840,7 @@ function checkSessionStatus() {
 
 function logoutWhatsAppSession() {
     if (!confirm("Are you sure you want to disconnect & logout this WhatsApp account?")) return;
-    fetch('api/whatsapp_web_engine.php?action=logout')
+    fetch('api/whatsapp_web_engine.php?action=logout&user_id=' + currentUserId)
         .then(res => res.json())
         .then(data => {
             alert("WhatsApp account disconnected successfully!");
@@ -857,7 +859,7 @@ function generatePhonePairingCode() {
         return;
     }
 
-    fetch('api/whatsapp_web_engine.php?action=get_pairing_code&phone=' + encodeURIComponent(phone))
+    fetch('api/whatsapp_web_engine.php?action=get_pairing_code&user_id=' + currentUserId + '&phone=' + encodeURIComponent(phone))
         .then(res => res.json())
         .then(data => {
             if (data && data.pairing_code) {

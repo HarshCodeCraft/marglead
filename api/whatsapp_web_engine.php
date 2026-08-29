@@ -1,7 +1,7 @@
 <?php
 /**
  * Self-Hosted WhatsApp Web Engine API Bridge (Marg ERP CRM)
- * Provides 100% self-hosted WhatsApp Web session pairing & message dispatching.
+ * Provides 100% self-hosted Multi-Tenant WhatsApp Web session pairing & message dispatching.
  * Eliminates third-party API dependencies.
  */
 
@@ -20,7 +20,10 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../config/config.php';
 
 $action = $_GET['action'] ?? $_POST['action'] ?? 'check_status';
-$user_id = $_SESSION['user_id'] ?? 1;
+$rawInput = file_get_contents('php://input');
+$jsonInput = json_decode($rawInput, true) ?? [];
+
+$user_id = (int)($_GET['user_id'] ?? $_POST['user_id'] ?? $jsonInput['user_id'] ?? $_SESSION['user_id'] ?? 1);
 
 // Node.js local self-hosted engine URL (if running locally/on server)
 $localNodeEngineUrl = getenv('WHATSAPP_ENGINE_URL') ?: 'http://127.0.0.1:3005';
@@ -29,8 +32,8 @@ function callLocalNodeEngine($endpoint, $postData = null) {
     global $localNodeEngineUrl;
     $ch = curl_init(rtrim($localNodeEngineUrl, '/') . $endpoint);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-   curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 
     if ($postData !== null) {
         curl_setopt($ch, CURLOPT_POST, true);
@@ -49,7 +52,7 @@ curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 }
 
 if ($action === 'get_qr') {
-    // Attempt fetching live QR or status from Node Baileys engine
+    // Attempt fetching live QR or status from Node Baileys engine for this specific user
     $nodeRes = callLocalNodeEngine('/qr?user_id=' . $user_id);
     if ($nodeRes) {
         if (!empty($nodeRes['status']) && $nodeRes['status'] === 'connected') {
@@ -64,6 +67,7 @@ if ($action === 'get_qr') {
                 'status'       => 'connected',
                 'phone'        => $phone,
                 'phone_number' => $phone,
+                'user_id'      => $user_id,
                 'session_id'   => 'session_user_' . $user_id
             ], JSON_PRETTY_PRINT);
             exit;
@@ -75,6 +79,7 @@ if ($action === 'get_qr') {
                 'qr_code'    => $nodeRes['qr'],
                 'qr_image'   => $nodeRes['qr_image'] ?? ('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' . urlencode($nodeRes['qr'])),
                 'source'     => 'self_hosted_node_engine',
+                'user_id'    => $user_id,
                 'session_id' => 'session_user_' . $user_id
             ], JSON_PRETTY_PRINT);
             exit;
@@ -92,6 +97,7 @@ if ($action === 'get_qr') {
                     'status'       => 'connected',
                     'phone'        => ltrim($row['business_phone'] ?? '', '+'),
                     'phone_number' => ltrim($row['business_phone'] ?? '', '+'),
+                    'user_id'      => $user_id,
                     'session_id'   => 'session_user_' . $user_id
                 ], JSON_PRETTY_PRINT);
                 exit;
@@ -104,6 +110,7 @@ if ($action === 'get_qr') {
         'qr_code'    => null,
         'qr_image'   => null,
         'source'     => 'self_hosted_php_bridge',
+        'user_id'    => $user_id,
         'session_id' => 'session_user_' . $user_id,
         'message'    => 'Run "npm start" inside whatsapp_engine folder on your server to generate live QR code'
     ], JSON_PRETTY_PRINT);
@@ -111,7 +118,7 @@ if ($action === 'get_qr') {
 }
 
 if ($action === 'get_pairing_code') {
-    $phone = $_GET['phone'] ?? $_POST['phone'] ?? '';
+    $phone = $_GET['phone'] ?? $_POST['phone'] ?? $jsonInput['phone'] ?? '';
     $phoneDigits = preg_replace('/\D/', '', $phone);
     if (strlen($phoneDigits) === 10) $phoneDigits = '91' . $phoneDigits;
 
@@ -120,7 +127,10 @@ if ($action === 'get_pairing_code') {
         exit;
     }
 
-    $nodeRes = callLocalNodeEngine('/pairing-code', ['phone' => $phoneDigits]);
+    $nodeRes = callLocalNodeEngine('/pairing-code', [
+        'user_id' => $user_id,
+        'phone'   => $phoneDigits
+    ]);
     if ($nodeRes) {
         echo json_encode($nodeRes, JSON_PRETTY_PRINT);
         exit;
@@ -155,7 +165,8 @@ if ($action === 'check_status') {
             'status'       => $status,
             'phone'        => $phone,
             'phone_number' => $phone,
-            'engine'       => $nodeRes['engine'] ?? 'Self-Hosted Baileys Engine',
+            'user_id'      => $user_id,
+            'engine'       => $nodeRes['engine'] ?? 'Self-Hosted Multi-Session Baileys Engine',
             'uptime'       => $nodeRes['uptime'] ?? 0
         ], JSON_PRETTY_PRINT);
         exit;
@@ -172,7 +183,8 @@ if ($action === 'check_status') {
                     'status'       => 'connected',
                     'phone'        => ltrim($row['business_phone'] ?? '', '+'),
                     'phone_number' => ltrim($row['business_phone'] ?? '', '+'),
-                    'engine'       => 'Self-Hosted Marg ERP Engine v1.0',
+                    'user_id'      => $user_id,
+                    'engine'       => 'Self-Hosted Marg ERP Engine v2.0',
                     'last_ping'    => date('Y-m-d H:i:s')
                 ], JSON_PRETTY_PRINT);
                 exit;
@@ -184,15 +196,15 @@ if ($action === 'check_status') {
         'status'       => 'scan_qr',
         'session'      => 'ready',
         'phone_number' => null,
-        'engine'       => 'Self-Hosted Marg ERP Engine v1.0',
+        'user_id'      => $user_id,
+        'engine'       => 'Self-Hosted Marg ERP Engine v2.0',
         'last_ping'    => date('Y-m-d H:i:s')
     ], JSON_PRETTY_PRINT);
     exit;
 }
 
 if ($action === 'send_message') {
-    $inputRaw = file_get_contents('php://input');
-    $post = json_decode($inputRaw, true) ?? $_POST;
+    $post = !empty($jsonInput) ? $jsonInput : $_POST;
 
     $recipient = $post['recipient'] ?? $post['phone'] ?? $post['mob'] ?? '';
     $message = $post['message'] ?? $post['msg'] ?? '';
@@ -201,7 +213,7 @@ if ($action === 'send_message') {
     $phoneDigits = preg_replace('/\D/', '', $recipient);
     if (strlen($phoneDigits) === 10) $phoneDigits = '91' . $phoneDigits;
 
-    // Dispatch via local Node engine if running
+    // Dispatch via local Node engine for this specific user
     $nodeRes = callLocalNodeEngine('/send-message', [
         'user_id'   => $user_id,
         'recipient' => $phoneDigits,
@@ -224,7 +236,13 @@ if ($action === 'send_message') {
 
 if ($action === 'logout') {
     callLocalNodeEngine('/logout', ['user_id' => $user_id]);
-    echo json_encode(['status' => 'success', 'message' => 'Self-hosted session cleared.'], JSON_PRETTY_PRINT);
+    if (isset($pdo) && $pdo) {
+        try {
+            $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected' WHERE user_id = ?");
+            $stmtSync->execute([$user_id]);
+        } catch (PDOException $e) {}
+    }
+    echo json_encode(['status' => 'success', 'message' => "Self-hosted session for user {$user_id} cleared."], JSON_PRETTY_PRINT);
     exit;
 }
 

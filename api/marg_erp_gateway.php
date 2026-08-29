@@ -264,6 +264,7 @@ if ($gateway_type === 'meta') {
         : ((strpos($webApiUrl, '.php') !== false) ? ($webApiUrl . '?action=send_message') : (rtrim($webApiUrl, '/') . '/send-message'));
 
     $payload = [
+        'user_id'      => $merchant['user_id'],
         'recipient'    => $phoneDigits,
         'phone'        => $phoneDigits,
         'mobile'       => $phoneDigits,
