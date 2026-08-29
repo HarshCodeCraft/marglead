@@ -17,21 +17,38 @@ $user_role = trim((string)($_SESSION['user_role'] ?? 'User'));
 $user_email = strtolower(trim((string)($_SESSION['user_email'] ?? '')));
 $tenant_db = trim((string)($_SESSION['tenant_db'] ?? ''));
 
-// Strict SaaS Project Owner Check: ONLY the primary Master SaaS Owner (Deepak Awasthi / Super Admin)
+// =========================================================================
+// STRICT SAAS PROJECT OWNER CHECK (Direct tenant_companies verification)
+// =========================================================================
 $is_saas_project_owner = false;
 
-if (stripos($user_role, 'tenant') !== false || stripos($user_role, 'client') !== false) {
-    // Any Tenant Admin or Tenant User is NOT the SaaS Project Owner
-    $is_saas_project_owner = false;
-} elseif (!empty($tenant_db) && strpos($tenant_db, 't_') === 0) {
-    // Any sub-tenant database session is NOT the SaaS Project Owner
-    $is_saas_project_owner = false;
+// 1. If email is the master SaaS Owner email
+if ($user_email === 'deepakawasthi587@gmail.com') {
+    $is_saas_project_owner = true;
 } else {
-    // Check if the user is the master SaaS Super Admin
-    if (in_array(strtolower($user_role), ['super admin', 'superadmin']) && empty($tenant_db)) {
-        $is_saas_project_owner = true;
-    } elseif ($user_email === 'deepakawasthi587@gmail.com') {
-        $is_saas_project_owner = true;
+    // 2. Check tenant_companies table: Any tenant company (testing, id != 1, code != master) is NOT SaaS Owner
+    $dbCheck = (isset($pdo_master) && $pdo_master) ? $pdo_master : $pdo;
+    try {
+        $stmtTC = $dbCheck->prepare("SELECT id, company_code, owner_email FROM tenant_companies WHERE LOWER(owner_email) = ? OR id = ? LIMIT 1");
+        $stmtTC->execute([$user_email, $user_id]);
+        $tcRow = $stmtTC->fetch(PDO::FETCH_ASSOC);
+
+        if ($tcRow) {
+            // User exists in tenant_companies table
+            if ($tcRow['company_code'] === 'master' && (int)$tcRow['id'] === 1 && strtolower($tcRow['owner_email']) === 'deepakawasthi587@gmail.com') {
+                $is_saas_project_owner = true;
+            } else {
+                // Any other tenant company (testing, tenant client, etc.) is NEVER SaaS Owner
+                $is_saas_project_owner = false;
+            }
+        } else {
+            // User is in master users table: only Super Admin without tenant_db is SaaS Owner
+            if (in_array(strtolower($user_role), ['super admin', 'superadmin']) && (empty($tenant_db) || $tenant_db === 'u978772385_friendlyaidata')) {
+                $is_saas_project_owner = true;
+            }
+        }
+    } catch (\PDOException $e) {
+        $is_saas_project_owner = false;
     }
 }
 
