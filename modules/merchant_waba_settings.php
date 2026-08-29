@@ -14,7 +14,19 @@ require_once __DIR__ . '/../config/config.php';
 
 $user_id = (int)($_SESSION['user_id'] ?? 1);
 $user_role = $_SESSION['user_role'] ?? 'Admin';
-$is_super_admin = isSystemAdminRole($user_role) || $user_id === 1;
+$is_super_admin = isSystemAdminRole($user_role);
+
+// Restrict entire page to Super Admin / SaaS Owner only
+if (!$is_super_admin) {
+    echo '<div class="card p-8 text-center" style="max-width: 580px; margin: 3.5rem auto; border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); background: var(--bg-card);">';
+    echo '<div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(239, 68, 68, 0.1); color: var(--danger); display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem auto;"><i data-lucide="shield-alert" style="width: 28px; height: 28px;"></i></div>';
+    echo '<h3 style="font-family: var(--font-heading); font-size: 1.3rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.5rem;">Access Restricted</h3>';
+    echo '<p class="text-muted text-sm mb-6">Marg ERP 9+ WhatsApp Gateway & WABA Setup is restricted to Super Admin / SaaS Owner accounts only.</p>';
+    echo '<a href="index.php?page=dashboard" class="btn btn-primary text-sm" style="display: inline-flex; margin: 0 auto; gap: 6px;"><i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i><span>Return to Dashboard</span></a>';
+    echo '</div>';
+    return;
+}
+
 $message = '';
 $message_type = '';
 

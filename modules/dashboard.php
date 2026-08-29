@@ -601,14 +601,15 @@ window.dashboardChartData = {
 </div>
 
 <?php
-// Check if current user WABA settings are unconfigured
+// Check if current user WABA settings are unconfigured (Super Admin only)
 $showWabaModal = false;
-if ($db_connected && $pdo) {
+$isSuperAdminForModal = isSystemAdminRole($_SESSION['user_role'] ?? '');
+if ($isSuperAdminForModal && $db_connected && $pdo) {
     $uid = $_SESSION['user_id'] ?? 1;
-    $stmtWabaChk = $pdo->prepare("SELECT phone_number_id, access_token FROM merchant_waba_settings WHERE user_id = ?");
+    $stmtWabaChk = $pdo->prepare("SELECT phone_number_id, access_token, web_api_session_status FROM merchant_waba_settings WHERE user_id = ?");
     $stmtWabaChk->execute([$uid]);
     $wabaRow = $stmtWabaChk->fetch(PDO::FETCH_ASSOC);
-    if (!$wabaRow || empty($wabaRow['phone_number_id']) || empty($wabaRow['access_token'])) {
+    if (!$wabaRow || ((empty($wabaRow['phone_number_id']) || empty($wabaRow['access_token'])) && ($wabaRow['web_api_session_status'] ?? '') !== 'connected')) {
         $showWabaModal = true;
     }
 }
