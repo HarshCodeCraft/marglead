@@ -1017,7 +1017,7 @@ if ($db_connected && $pdo) {
                     </div>
 
                     <!-- High-Legibility Organized 3-Column Field Cards Grid -->
-                    <div style="background: var(--bg-app); border-radius: 12px; border: 1px solid var(--border-color); padding: 0.85rem;" class="grid" style="grid-template-columns: repeat(3, 1fr); gap: 0.65rem;">
+                    <div style="background: var(--bg-app); border-radius: 12px; border: 1px solid var(--border-color); padding: 0.85rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem;">
                         
                         <!-- Item 1: Company Name -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
@@ -1031,7 +1031,7 @@ if ($db_connected && $pdo) {
                             <span id="edit-v-contact" style="font-size: 0.82rem; color: var(--text-main); font-weight: 700; word-break: break-word;">-</span>
                         </div>
 
-                        <!-- Item 3: Reg Mobile & Call Back No. -->
+                        <!-- Item 3: Reg Mobile -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <div class="flex justify-between align-center mb-1">
                                 <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em;">Reg Mobile</span>
@@ -1041,99 +1041,103 @@ if ($db_connected && $pdo) {
                                 </button>
                             </div>
                             <span id="edit-v-mobile" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 700;">-</span>
-
-                            <!-- Call Back No. Row below Reg Mobile -->
-                            <div id="edit-v-callback-box" style="margin-top: 5px; padding-top: 4px; border-top: 1px dashed var(--border-color); display: flex; flex-direction: column;">
-                                <div class="flex justify-between align-center mb-0.5">
-                                    <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--primary); letter-spacing: 0.04em;">Call Back No.</span>
-                                    <button type="button" id="edit-v-callback-qr-btn" class="btn text-xs" style="background: rgba(16,185,129,0.1); color: #10b981; border: none; padding: 1px 5px; border-radius: 4px; display: none; cursor: pointer;" title="Scan QR to call Callback Number" onclick="event.stopPropagation();">
-                                        <i data-lucide="qr-code" style="width: 10px; height: 10px;"></i>
-                                        <span style="font-size: 0.65rem; font-weight: 700;">QR</span>
-                                    </button>
-                                </div>
-                                <span id="edit-v-callback" class="font-mono font-bold text-primary" style="font-size: 0.82rem;">-</span>
-                            </div>
                         </div>
 
-                        <!-- Item 4: Reg Email (span 2) -->
-                        <div style="grid-column: span 2; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                        <!-- Item 4: Call Back No. (Separate Box) -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
+                            <div class="flex justify-between align-center mb-1">
+                                <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: #0284c7; letter-spacing: 0.04em;">Call Back No.</span>
+                                <button type="button" id="edit-v-callback-qr-btn" class="btn text-xs" style="background: rgba(16,185,129,0.1); color: #10b981; border: none; padding: 1px 5px; border-radius: 4px; display: none; cursor: pointer;" title="Scan QR to call Callback Number" onclick="event.stopPropagation();">
+                                    <i data-lucide="qr-code" style="width: 10px; height: 10px;"></i>
+                                    <span style="font-size: 0.65rem; font-weight: 700;">QR</span>
+                                </button>
+                            </div>
+                            <span id="edit-v-callback" class="font-mono font-bold" style="font-size: 0.82rem; color: #0284c7;">-</span>
+                        </div>
+
+                        <!-- Item 5: Reg Email ID (Compact 1 Column) -->
+                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Reg Email ID</span>
                             <span id="edit-v-email" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600; word-break: break-all;">-</span>
                         </div>
 
-                        <!-- Item 5: Party Status -->
+                        <!-- Item 6: Party Status -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Party Status</span>
                             <span id="edit-v-status" class="badge text-xs" style="--badge-bg: rgba(16,185,129,0.12); --badge-color: #10b981; width: fit-content;">Running</span>
                         </div>
 
-                        <!-- Item 6: Software Product -->
+                        <!-- Item 7: Software Type -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Software Type</span>
                             <span id="edit-v-product" class="badge text-xs" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); width: fit-content;">-</span>
                         </div>
 
-                        <!-- Item 7: S/W Edition -->
+                        <!-- Item 8: S/W Edition -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">S/W Edition</span>
                             <span id="edit-v-swtype" class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-main); width: fit-content;">-</span>
                         </div>
 
-                        <!-- Item 8: User Type / Users -->
+                        <!-- Item 9: User Type / Users -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">User Type / Users</span>
                             <span id="edit-v-usertype" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
                         </div>
 
-                        <!-- Item 9: No. of Companies -->
+                        <!-- Item 10: No of Companies -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">No of Companies</span>
                             <span id="edit-v-companies" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
                         </div>
 
-                        <!-- Item 10: Software Trade -->
+                        <!-- Item 11: Software Trade -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Software Trade</span>
                             <span id="edit-v-trade" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
                         </div>
 
-                        <!-- Item 11: Home User -->
+                        <!-- Item 12: Home User -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Home User</span>
                             <span id="edit-v-homeuser" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
                         </div>
 
-                        <!-- Item 12: Renewal Date -->
-                        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
-                            <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Renewal Date</span>
-                            <span id="edit-v-renewal" class="font-mono text-warning font-bold" style="font-size: 0.82rem;">-</span>
+                        <!-- Item 13: Renewal Date -->
+                        <div id="edit-v-renewal-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column; transition: all 0.2s;">
+                            <div class="flex justify-between align-center mb-1">
+                                <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em;">Renewal Date</span>
+                                <span id="edit-v-renewal-badge" style="display: none; font-size: 0.62rem; font-weight: 800; padding: 1px 6px; border-radius: 4px;"></span>
+                            </div>
+                            <span id="edit-v-renewal" class="font-mono font-bold" style="font-size: 0.82rem; color: var(--text-main);">-</span>
+                            <span id="edit-v-renewal-sub" style="display: none; font-size: 0.66rem; font-weight: 700; margin-top: 2px;"></span>
                         </div>
 
-                        <!-- Item 13: Act On Date -->
+                        <!-- Item 14: Act On Date -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Act On Date</span>
                             <span id="edit-v-acton" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
                         </div>
 
-                        <!-- Item 14: Last Hit Date -->
+                        <!-- Item 15: Last Hit Date -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Last Hit Date</span>
                             <span id="edit-v-lasthit" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
                         </div>
 
-                        <!-- Item 15: Total Contract Value -->
+                        <!-- Item 16: Total Contract Value -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Total Contract Value</span>
                             <strong id="edit-v-amount" class="text-success font-mono font-bold" style="font-size: 0.85rem;">₹0.00</strong>
                         </div>
 
-                        <!-- Item 16: Sub Partner (span 2) -->
+                        <!-- Item 17: Sub Partner (span 2) -->
                         <div style="grid-column: span 2; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Sub Partner Code / Name</span>
                             <span id="edit-v-subpartner" class="font-mono" style="font-size: 0.82rem; color: var(--text-main); font-weight: 600;">-</span>
                         </div>
 
-                        <!-- Item 17: Registered Address (span 3 / Full Width) -->
+                        <!-- Item 18: Registered Address (span 3 / Full Width) -->
                         <div style="grid-column: span 3; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Registered Address</span>
                             <span id="edit-v-fulladdress" style="font-size: 0.8rem; color: var(--text-main); font-weight: 600; line-height: 1.4;">-</span>
@@ -1589,8 +1593,14 @@ function updateClientCompactView(data) {
         }
     }
 
-    // Populate Call Back No. below Reg Mobile
-    const cbNum = data.callback_number || data.callback_no || data.call_back_number || mob || '-';
+    // Populate Call Back No. (Never mistakenly fallback to Reg Mobile)
+    const currentCbInput = document.getElementById('edit-ticket-callback');
+    const existingCbInputVal = currentCbInput ? currentCbInput.value.trim() : '';
+    const cbNum = (data.callback_number && data.callback_number.trim() !== '') ? data.callback_number.trim() 
+                : ((data.callback_no && data.callback_no.trim() !== '') ? data.callback_no.trim() 
+                : ((data.call_back_number && data.call_back_number.trim() !== '') ? data.call_back_number.trim() 
+                : (existingCbInputVal !== '' ? existingCbInputVal : '-')));
+
     const vCb = document.getElementById('edit-v-callback'); if (vCb) vCb.innerText = cbNum;
     const vCbQrBtn = document.getElementById('edit-v-callback-qr-btn');
     if (vCbQrBtn) {
@@ -1614,7 +1624,158 @@ function updateClientCompactView(data) {
     const vTrade = document.getElementById('edit-v-trade'); if (vTrade) vTrade.innerText = trade;
     const vHome = document.getElementById('edit-v-homeuser'); if (vHome) vHome.innerText = homeUser;
     const vAmt = document.getElementById('edit-v-amount'); if (vAmt) vAmt.innerText = amt;
-    const vRen = document.getElementById('edit-v-renewal'); if (vRen) vRen.innerText = ren;
+
+    // Dynamic Renewal Date Styling & Overdue / Days-Left Calculation
+    const renCard = document.getElementById('edit-v-renewal-card');
+    const renBadge = document.getElementById('edit-v-renewal-badge');
+    const renSub = document.getElementById('edit-v-renewal-sub');
+    const renElem = document.getElementById('edit-v-renewal');
+
+    if (renElem) renElem.innerText = ren;
+
+    if (ren && ren !== '-' && ren !== '0000-00-00') {
+        let renDate = null;
+        const s = String(ren).trim().split(' ')[0];
+        if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(s)) {
+            const p = s.split(/[-/]/);
+            renDate = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+        } else if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(s)) {
+            const p = s.split(/[-/]/);
+            renDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+        } else {
+            const parsed = new Date(s);
+            if (!isNaN(parsed.getTime())) renDate = parsed;
+        }
+
+        if (renDate && !isNaN(renDate.getTime())) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            renDate.setHours(0, 0, 0, 0);
+
+            const diffTime = renDate.getTime() - today.getTime();
+            const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays < 0) {
+                // Overdue
+                const overdueDays = Math.abs(diffDays);
+                if (overdueDays > 7) {
+                    // Severe Overdue (> 7 days): Red Highlight
+                    if (renCard) {
+                        renCard.style.background = 'rgba(239, 68, 68, 0.08)';
+                        renCard.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+                    }
+                    if (renElem) renElem.style.color = '#ef4444';
+                    if (renBadge) {
+                        renBadge.style.display = 'inline-block';
+                        renBadge.style.background = '#ef4444';
+                        renBadge.style.color = '#ffffff';
+                        renBadge.innerText = overdueDays + ' Days Overdue';
+                    }
+                    if (renSub) {
+                        renSub.style.display = 'block';
+                        renSub.style.color = '#ef4444';
+                        renSub.innerText = '⚠️ Overdue by ' + overdueDays + ' days';
+                    }
+                } else {
+                    // Moderate Overdue (1-7 days): Amber/Orange Alert
+                    if (renCard) {
+                        renCard.style.background = 'rgba(249, 115, 22, 0.08)';
+                        renCard.style.borderColor = 'rgba(249, 115, 22, 0.45)';
+                    }
+                    if (renElem) renElem.style.color = '#f97316';
+                    if (renBadge) {
+                        renBadge.style.display = 'inline-block';
+                        renBadge.style.background = '#f97316';
+                        renBadge.style.color = '#ffffff';
+                        renBadge.innerText = overdueDays + (overdueDays === 1 ? ' Day Overdue' : ' Days Overdue');
+                    }
+                    if (renSub) {
+                        renSub.style.display = 'block';
+                        renSub.style.color = '#f97316';
+                        renSub.innerText = '⚠️ Overdue by ' + overdueDays + ' days';
+                    }
+                }
+            } else if (diffDays === 0) {
+                // Expires Today
+                if (renCard) {
+                    renCard.style.background = 'rgba(234, 179, 8, 0.12)';
+                    renCard.style.borderColor = 'rgba(234, 179, 8, 0.55)';
+                }
+                if (renElem) renElem.style.color = '#ca8a04';
+                if (renBadge) {
+                    renBadge.style.display = 'inline-block';
+                    renBadge.style.background = '#eab308';
+                    renBadge.style.color = '#000000';
+                    renBadge.innerText = 'Expires Today';
+                }
+                if (renSub) {
+                    renSub.style.display = 'block';
+                    renSub.style.color = '#ca8a04';
+                    renSub.innerText = '⚡ Renewal is due today';
+                }
+            } else if (diffDays <= 7) {
+                // 1-7 days left
+                if (renCard) {
+                    renCard.style.background = 'rgba(245, 158, 11, 0.08)';
+                    renCard.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+                }
+                if (renElem) renElem.style.color = '#d97706';
+                if (renBadge) {
+                    renBadge.style.display = 'inline-block';
+                    renBadge.style.background = 'rgba(245, 158, 11, 0.18)';
+                    renBadge.style.color = '#d97706';
+                    renBadge.innerText = diffDays + (diffDays === 1 ? ' day left' : ' days left');
+                }
+                if (renSub) {
+                    renSub.style.display = 'block';
+                    renSub.style.color = '#d97706';
+                    renSub.innerText = '⏳ ' + diffDays + (diffDays === 1 ? ' day' : ' days') + ' left';
+                }
+            } else if (diffDays <= 30) {
+                // 8-30 days left
+                if (renCard) {
+                    renCard.style.background = 'rgba(59, 130, 246, 0.06)';
+                    renCard.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                }
+                if (renElem) renElem.style.color = '#2563eb';
+                if (renBadge) {
+                    renBadge.style.display = 'inline-block';
+                    renBadge.style.background = 'rgba(59, 130, 246, 0.12)';
+                    renBadge.style.color = '#2563eb';
+                    renBadge.innerText = diffDays + ' days left';
+                }
+                if (renSub) {
+                    renSub.style.display = 'block';
+                    renSub.style.color = '#2563eb';
+                    renSub.innerText = '📅 ' + diffDays + ' days left';
+                }
+            } else {
+                // Active (> 30 days)
+                if (renCard) {
+                    renCard.style.background = 'var(--bg-card)';
+                    renCard.style.borderColor = 'var(--border-color)';
+                }
+                if (renElem) renElem.style.color = 'var(--text-main)';
+                if (renBadge) {
+                    renBadge.style.display = 'inline-block';
+                    renBadge.style.background = 'rgba(16, 185, 129, 0.12)';
+                    renBadge.style.color = '#10b981';
+                    renBadge.innerText = 'Active';
+                }
+                if (renSub) renSub.style.display = 'none';
+            }
+        } else {
+            if (renCard) { renCard.style.background = 'var(--bg-card)'; renCard.style.borderColor = 'var(--border-color)'; }
+            if (renElem) renElem.style.color = 'var(--text-main)';
+            if (renBadge) renBadge.style.display = 'none';
+            if (renSub) renSub.style.display = 'none';
+        }
+    } else {
+        if (renCard) { renCard.style.background = 'var(--bg-card)'; renCard.style.borderColor = 'var(--border-color)'; }
+        if (renElem) renElem.style.color = 'var(--text-main)';
+        if (renBadge) renBadge.style.display = 'none';
+        if (renSub) renSub.style.display = 'none';
+    }
     const vActOn = document.getElementById('edit-v-acton'); if (vActOn) vActOn.innerText = actOn;
     const vLastHit = document.getElementById('edit-v-lasthit'); if (vLastHit) vLastHit.innerText = lastHit;
     const vSubPartner = document.getElementById('edit-v-subpartner'); if (vSubPartner) vSubPartner.innerText = subPartner;
@@ -1625,6 +1786,12 @@ function openEditTicketModal(ticket) {
     document.getElementById('edit-ticket-id-hidden').value = ticket.id;
     document.getElementById('edit-ticket-id-display').innerText = ticket.id;
     document.getElementById('edit-ticket-client-id').value = ticket.lead_id || "";
+
+    // Set callback input right away before view update
+    const cbInput = document.getElementById('edit-ticket-callback');
+    if (cbInput) {
+        cbInput.value = ticket.callback_number || "";
+    }
 
     // Set initial compact view from ticket fields
     updateClientCompactView(ticket);
@@ -1674,7 +1841,9 @@ function openEditTicketModal(ticket) {
     }
     
     document.getElementById('edit-ticket-due-date').value = ticket.due_date || "";
-    document.getElementById('edit-ticket-callback').value = ticket.callback_number || "";
+    if (cbInput) {
+        cbInput.value = ticket.callback_number || "";
+    }
     
     window.openModal('edit-ticket-modal');
 }
@@ -1712,6 +1881,29 @@ function autoFetchClientDetails() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Add real-time sync between edit-ticket-callback input and the client directory Call Back No. card
+    const editCbInput = document.getElementById('edit-ticket-callback');
+    if (editCbInput) {
+        editCbInput.addEventListener('input', function() {
+            const val = this.value.trim();
+            const vCb = document.getElementById('edit-v-callback');
+            if (vCb) vCb.innerText = val || '-';
+            const vCbQrBtn = document.getElementById('edit-v-callback-qr-btn');
+            if (vCbQrBtn) {
+                const compName = document.getElementById('edit-v-company')?.innerText || 'Client';
+                if (val) {
+                    vCbQrBtn.onclick = function(e) {
+                        if (e) e.stopPropagation();
+                        window.openCallQrModal(compName, val, '');
+                    };
+                    vCbQrBtn.style.display = 'inline-flex';
+                } else {
+                    vCbQrBtn.style.display = 'none';
+                }
+            }
+        });
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
     const targetTicketId = urlParams.get('open_ticket') || urlParams.get('ticket_id');
     if (targetTicketId) {

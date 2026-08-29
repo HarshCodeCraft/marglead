@@ -127,6 +127,11 @@ if ($db_connected && $pdo) {
             }
         }
 
+        if (!empty($_GET['group_stage'])) {
+            $where_conditions[] = "LOWER(group_stage) = ?";
+            $query_params[] = strtolower(trim($_GET['group_stage']));
+        }
+
         // Apply Metric Card Filter if clicked
         if (!empty($active_filter) && !empty($active_day)) {
             if ($active_filter === 'expired') {
@@ -219,6 +224,7 @@ if ($db_connected && $pdo) {
                 'last_contact' => date('Y-m-d h:i A', strtotime($l['updated_at'])),
                 'address' => $l['address'] ?? '',
                 'tags' => $l['tags'] ?? '',
+                'group_stage' => $l['group_stage'] ?? '',
                 'enq_for' => $l['enq_for'] ?? '',
                 'contact_person' => $l['contact_person'] ?? '',
                 'remarks' => $l['remarks'] ?? ''
@@ -230,11 +236,18 @@ if ($db_connected && $pdo) {
 }
 
 $operators = [];
+$available_groups = [];
 if ($db_connected && $pdo) {
     try {
         $stmtOp = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC");
         $operators = $stmtOp->fetchAll(PDO::FETCH_COLUMN);
+
+        $stmtGrp = $pdo->query("SELECT DISTINCT group_stage FROM leads WHERE group_stage IS NOT NULL AND TRIM(group_stage) != '' ORDER BY group_stage ASC");
+        $available_groups = $stmtGrp->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {}
+}
+if (empty($available_groups)) {
+    $available_groups = ['Fresh', 'Followup', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required'];
 }
 
 // Helper to build URL with paginated query parameters
@@ -611,16 +624,83 @@ if (empty($leads)) {
                     <?php endforeach; ?>
                 </select>
             </div>
+            <!-- Group / Stage Filter -->
+            <div class="form-group m-0">
+                <label class="form-label text-xs">Group / Stage</label>
+                <select id="filter-group" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
+                    <option value="">All Groups</option>
+                    <?php 
+                    $cur_grp = strtolower($_GET['group_stage'] ?? '');
+                    foreach ($available_groups as $grpItem): 
+                    ?>
+                        <option value="<?php echo htmlspecialchars($grpItem); ?>" <?php echo ($cur_grp === strtolower($grpItem)) ? 'selected' : ''; ?>><?php echo htmlspecialchars($grpItem); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
         </div>
     </div>
 
     <!-- Spreadsheet-like Leads Table Container -->
     <div class="card p-0 overflow-hidden" id="leads-table-card" style="border: 1px solid var(--border-color);">
+        <!-- Top Pagination & Controls Bar -->
+        <?php
+        $start_num = $limit === 'all' ? 1 : (($page_num - 1) * $limit + 1);
+        $end_num = $limit === 'all' ? $total_leads : min($total_leads, $page_num * $limit);
+        if ($total_leads == 0) {
+            $start_num = 0;
+            $end_num = 0;
+        }
+        ?>
+        <div class="flex justify-between align-center p-3 border-bottom flex-wrap gap-3" style="border-bottom: 1px solid var(--border-color); background-color: var(--border-card);">
+            <div class="flex align-center gap-3">
+                <span class="text-xs text-muted">Showing <strong><?php echo $start_num; ?></strong> to <strong><?php echo $end_num; ?></strong> of <strong><?php echo $total_leads; ?></strong> leads</span>
+                <span class="text-xs text-muted">|</span>
+                <span class="text-xs text-muted">Show:</span>
+                <select class="form-control text-xs" style="width: auto; padding: 0.2rem 0.5rem; height: 28px;" onchange="fetchLeadsPartialWithoutReload(this.value, true);">
+                    <option value="<?php echo getPageUrl(1, 10); ?>" <?php echo $limit == 10 ? 'selected' : ''; ?>>10 per page</option>
+                    <option value="<?php echo getPageUrl(1, 25); ?>" <?php echo $limit == 25 ? 'selected' : ''; ?>>25 per page</option>
+                    <option value="<?php echo getPageUrl(1, 50); ?>" <?php echo $limit == 50 ? 'selected' : ''; ?>>50 per page</option>
+                    <option value="<?php echo getPageUrl(1, 100); ?>" <?php echo $limit == 100 ? 'selected' : ''; ?>>100 per page</option>
+                    <option value="<?php echo getPageUrl(1, 'all'); ?>" <?php echo $limit === 'all' ? 'selected' : ''; ?>>View All</option>
+                </select>
+            </div>
+            
+            <?php if ($limit !== 'all' && $total_pages > 1): ?>
+                <div class="flex align-center gap-1">
+                    <?php if ($page_num > 1): ?>
+                        <a href="<?php echo getPageUrl($page_num - 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.3rem 0.7rem; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                            <i data-lucide="chevron-left" style="width: 12px; height: 12px;"></i>
+                            <span>Prev</span>
+                        </a>
+                    <?php else: ?>
+                        <button class="btn btn-secondary text-xs" style="padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 4px;" disabled>
+                            <i data-lucide="chevron-left" style="width: 12px; height: 12px;"></i>
+                            <span>Prev</span>
+                        </button>
+                    <?php endif; ?>
+
+                    <span class="text-xs font-semibold px-2" style="color: var(--text-main);">Page <?php echo $page_num; ?> of <?php echo $total_pages; ?></span>
+
+                    <?php if ($page_num < $total_pages): ?>
+                        <a href="<?php echo getPageUrl($page_num + 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.3rem 0.7rem; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                            <span>Next</span>
+                            <i data-lucide="chevron-right" style="width: 12px; height: 12px;"></i>
+                        </a>
+                    <?php else: ?>
+                        <button class="btn btn-secondary text-xs" style="padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 4px;" disabled>
+                            <span>Next</span>
+                            <i data-lucide="chevron-right" style="width: 12px; height: 12px;"></i>
+                        </button>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+
         <div class="table-responsive">
             <table class="table">
                 <thead>
                     <tr>
-                        <th style="width: 55px; text-align: center;">
+                        <th style="width: 50px; text-align: center;">
                             <div class="flex align-center justify-center gap-1">
                                 <input type="checkbox" id="select-all-leads" style="accent-color: var(--primary);">
                                 <button type="button" class="gear-settings-btn" onclick="toggleColumnSelectorDrawer()" title="Select Columns">
@@ -628,6 +708,7 @@ if (empty($leads)) {
                                 </button>
                             </div>
                         </th>
+                        <th class="col-sno" style="width: 55px; text-align: center;">S.No.</th>
                         <th class="col-lead-id">Lead ID</th>
                         <th class="col-assigned">Assigned to</th>
                         <th class="col-contact-person">Person Name</th>
@@ -645,10 +726,18 @@ if (empty($leads)) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($leads as $lead): ?>
-                        <tr data-source="<?php echo htmlspecialchars($lead['source']); ?>" data-priority="<?php echo htmlspecialchars($lead['priority']); ?>" data-status="<?php echo htmlspecialchars($lead['status']); ?>" data-assigned="<?php echo htmlspecialchars($lead['assigned']); ?>">
+                    <?php 
+                    $loop_idx = 0;
+                    foreach ($leads as $lead): 
+                        $sno = ($limit === 'all') ? ($loop_idx + 1) : ($offset + $loop_idx + 1);
+                        $loop_idx++;
+                    ?>
+                        <tr data-source="<?php echo htmlspecialchars($lead['source']); ?>" data-priority="<?php echo htmlspecialchars($lead['priority']); ?>" data-status="<?php echo htmlspecialchars($lead['status']); ?>" data-assigned="<?php echo htmlspecialchars($lead['assigned']); ?>" data-group="<?php echo htmlspecialchars($lead['group_stage'] ?? ''); ?>">
                             <td style="text-align: center; vertical-align: middle;">
                                 <input type="checkbox" class="lead-checkbox" value="<?php echo $lead['id']; ?>" style="accent-color: var(--primary);">
+                            </td>
+                            <td class="col-sno text-xs text-muted font-mono font-bold" style="text-align: center; vertical-align: middle;">
+                                <?php echo $sno; ?>
                             </td>
                             <td class="col-lead-id font-bold text-xs" style="vertical-align: middle;">
                                 <a href="index.php?page=lead_details&id=<?php echo $lead['id']; ?>" class="text-primary hover-underline"><?php echo $lead['id']; ?></a>
@@ -667,7 +756,15 @@ if (empty($leads)) {
                                 </div>
                             </td>
                             <td class="col-contact-person text-xs font-semibold" style="vertical-align: middle;">
-                                <?php echo htmlspecialchars(!empty($lead['name']) ? $lead['name'] : 'NA'); ?>
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-main"><?php echo htmlspecialchars(!empty($lead['name']) ? $lead['name'] : (!empty($lead['company']) ? $lead['company'] : 'NA')); ?></span>
+                                    <?php if (!empty($lead['contact_person']) && strcasecmp(trim($lead['contact_person']), trim($lead['name'] ?? '')) !== 0): ?>
+                                        <span class="text-muted text-xs font-normal flex align-center gap-1 mt-0.5" style="font-size: 0.72rem; color: var(--text-muted);">
+                                            <i data-lucide="user" style="width: 11px; height: 11px; color: var(--primary);"></i>
+                                            <span><?php echo htmlspecialchars($lead['contact_person']); ?></span>
+                                        </span>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                             <td class="col-name">
                                 <div class="flex flex-col">
@@ -692,7 +789,7 @@ if (empty($leads)) {
                                 </div>
                             </td>
                             <td class="col-group" style="vertical-align: middle;">
-                                <span class="font-semibold text-xs"><?php echo htmlspecialchars(!empty($lead['group_stage']) ? $lead['group_stage'] : (!empty($lead['tags']) && $lead['tags'] !== 'NA' ? $lead['tags'] : (!empty($lead['company']) ? $lead['company'] : 'NA'))); ?></span>
+                                <span class="font-semibold text-xs"><?php echo htmlspecialchars(!empty($lead['group_stage']) ? $lead['group_stage'] : 'NA'); ?></span>
                             </td>
                             <td class="col-status" style="vertical-align: middle;">
                                 <?php echo getStatusBadge($lead['status']); ?>
@@ -799,6 +896,16 @@ if (empty($leads)) {
             <?php endif; ?>
         </div>
     </div>
+</div>
+
+<!-- Floating Scroll Up / Down Controls (Right Side) -->
+<div id="leads-floating-scroll-controls" style="position: fixed; right: 18px; bottom: 85px; z-index: 990; display: flex; flex-direction: column; gap: 8px;">
+    <button type="button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})" style="width: 38px; height: 38px; border-radius: 50%; background: var(--primary); color: #fff; border: 2px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s, background 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="Scroll to Top">
+        <i data-lucide="chevron-up" style="width: 18px; height: 18px;"></i>
+    </button>
+    <button type="button" onclick="window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})" style="width: 38px; height: 38px; border-radius: 50%; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color); box-shadow: 0 4px 14px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s, background 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="Scroll to Bottom">
+        <i data-lucide="chevron-down" style="width: 18px; height: 18px;"></i>
+    </button>
 </div>
 
 <!-- Quick Follow-up & Data Fill Modal -->
@@ -1051,6 +1158,10 @@ if (empty($leads)) {
             </div>
             
             <div class="column-options-list flex flex-col gap-2">
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_sno')">
+                    <span class="text-xs font-semibold">S.No.</span>
+                    <input type="checkbox" id="cb_col_sno" class="col-toggle-cb" data-target="col-sno" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
                 <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_lead_id')">
                     <span class="text-xs font-semibold">Lead ID</span>
                     <input type="checkbox" id="cb_col_lead_id" class="col-toggle-cb" data-target="col-lead-id" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
@@ -1365,6 +1476,7 @@ if (empty($leads)) {
         const priorityVal = (document.getElementById('filter-priority')?.value || '').toLowerCase().trim();
         const statusVal = (document.getElementById('filter-status')?.value || '').toLowerCase().trim();
         const assignedVal = (document.getElementById('filter-assigned')?.value || '').toLowerCase().trim();
+        const groupVal = (document.getElementById('filter-group')?.value || '').toLowerCase().trim();
 
         if (triggerServer) {
             const url = new URL(window.location.href);
@@ -1372,6 +1484,7 @@ if (empty($leads)) {
             if (priorityVal) url.searchParams.set('priority', priorityVal); else url.searchParams.delete('priority');
             if (statusVal) url.searchParams.set('status', statusVal); else url.searchParams.delete('status');
             if (assignedVal) url.searchParams.set('assigned_to', assignedVal); else url.searchParams.delete('assigned_to');
+            if (groupVal) url.searchParams.set('group_stage', groupVal); else url.searchParams.delete('group_stage');
             url.searchParams.set('p', '1');
             fetchLeadsPartialWithoutReload(url.toString(), true);
             return;
@@ -1384,11 +1497,13 @@ if (empty($leads)) {
             const rPriority = (row.getAttribute('data-priority') || '').toLowerCase();
             const rStatus = (row.getAttribute('data-status') || '').toLowerCase();
             const rAssigned = (row.getAttribute('data-assigned') || '').toLowerCase();
+            const rGroup = (row.getAttribute('data-group') || '').toLowerCase();
 
             const matchSearch = !searchVal || text.includes(searchVal);
             const matchSource = !sourceVal || rSource.includes(sourceVal) || text.includes(sourceVal);
             const matchPriority = !priorityVal || rPriority === priorityVal;
             const matchAssigned = !assignedVal || rAssigned.includes(assignedVal);
+            const matchGroup = !groupVal || rGroup === groupVal || rGroup.includes(groupVal);
 
             let matchStatus = false;
             if (statusVal === 'dropped') {
@@ -1399,7 +1514,7 @@ if (empty($leads)) {
                 matchStatus = (rStatus === statusVal);
             }
 
-            if (matchSearch && matchSource && matchPriority && matchStatus && matchAssigned) {
+            if (matchSearch && matchSource && matchPriority && matchStatus && matchAssigned && matchGroup) {
                 row.style.display = '';
             } else {
                 row.style.display = 'none';

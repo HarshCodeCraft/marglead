@@ -414,7 +414,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
             }
 
             // Fallback 2: Smart Business / Name Column Auto-Detection if header didn't match exact alias
-            if ($col_indices['company'] === -1 && $col_indices['name'] === -1 && !empty($rows_data)) {
+            if ($col_indices['company'] === -1 && ($col_indices['name'] ?? -1) === -1 && !empty($rows_data)) {
                 foreach (array_slice($rows_data, 0, 5) as $sampleRow) {
                     foreach ((array)$sampleRow as $cIdx => $cVal) {
                         if ($cIdx == $col_indices['phone']) continue;
@@ -614,7 +614,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
             } catch (PDOException $exU) {}
             
             $ins = $pdo->prepare("INSERT INTO leads (id, company_id, name, company, email, phone, address, source, tags, group_stage, assigned_to, assigned_by, enq_for, contact_person, remarks, status, priority) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'warm')");
-            $upd = $pdo->prepare("UPDATE leads SET name = ?, company = ?, email = COALESCE(NULLIF(?, ''), email), address = COALESCE(NULLIF(?, ''), address), source = COALESCE(NULLIF(?, ''), source), tags = COALESCE(NULLIF(?, ''), tags), group_stage = COALESCE(NULLIF(?, ''), group_stage), assigned_to = COALESCE(NULLIF(?, ''), assigned_to), assigned_by = COALESCE(NULLIF(?, ''), assigned_by), enq_for = COALESCE(NULLIF(?, ''), enq_for), contact_person = COALESCE(NULLIF(?, ''), contact_person), remarks = COALESCE(NULLIF(?, ''), remarks), status = COALESCE(NULLIF(?, ''), status) WHERE id = ?");
+            $upd = $pdo->prepare("UPDATE leads SET name = COALESCE(?, name), company = COALESCE(?, company), email = COALESCE(?, email), address = COALESCE(?, address), source = COALESCE(?, source), tags = COALESCE(?, tags), group_stage = COALESCE(?, group_stage), assigned_to = COALESCE(?, assigned_to), assigned_by = COALESCE(?, assigned_by), enq_for = COALESCE(?, enq_for), contact_person = COALESCE(?, contact_person), remarks = COALESCE(?, remarks), status = COALESCE(?, status) WHERE id = ?");
             $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead file registered via bulk spreadsheet import')");
             $generated_ids = [];
             foreach ($leads_to_import as $lead) {
@@ -657,21 +657,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
 
                 if (!empty($lead['duplicate_id'])) {
                     $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
-                    // Update matching profile
+                    // Update matching profile (passing null for empty fields so COALESCE keeps existing database values)
                     $upd->execute([
-                        $lead['name'],
-                        $finalCompany,
-                        $lead['email'] ?: null,
-                        $lead['address'] ?: null,
-                        $lead['source'] ?: 'Imported',
-                        $lead['tags'] ?: null,
-                        $lead['group_stage'] ?: null,
-                        $finalAssignee,
+                        !empty($lead['name']) ? $lead['name'] : null,
+                        $finalCompany ?: null,
+                        !empty($lead['email']) ? $lead['email'] : null,
+                        !empty($lead['address']) ? $lead['address'] : null,
+                        !empty($lead['source']) ? $lead['source'] : 'Imported',
+                        !empty($lead['tags']) ? $lead['tags'] : null,
+                        !empty($lead['group_stage']) ? $lead['group_stage'] : null,
+                        $finalAssignee ?: null,
                         $assigned_by,
-                        $lead['enq_for'] ?: null,
-                        $lead['contact_person'] ?: null,
-                        $lead['remarks'] ?: null,
-                        $lead_stage_status,
+                        !empty($lead['enq_for']) ? $lead['enq_for'] : null,
+                        !empty($lead['contact_person']) ? $lead['contact_person'] : null,
+                        !empty($lead['remarks']) ? $lead['remarks'] : null,
+                        $lead_stage_status ?: null,
                         $lead['duplicate_id']
                     ]);
                     $updated++;

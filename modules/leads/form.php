@@ -365,8 +365,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
             </h3>
             <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1.25rem;">
                 <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Name <span style="color: var(--danger);">*</span></label>
-                    <input type="text" name="name" class="form-control form-control-focus" placeholder="E.g. Dheerendra Vyas" required value="<?php echo htmlspecialchars($editLead['name'] ?? ''); ?>">
+                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Firm Name <span style="color: var(--danger);">*</span></label>
+                    <input type="text" name="name" class="form-control form-control-focus" placeholder="E.g. NEW ASHIRWAD MEDICAL STORE" required value="<?php echo htmlspecialchars($editLead['name'] ?? ''); ?>">
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Contact Person</label>
+                    <input type="text" name="contact_person" class="form-control form-control-focus" placeholder="E.g. Dheerendra Vyas" value="<?php echo htmlspecialchars($editLead['contact_person'] ?? ''); ?>">
                 </div>
                 <div class="form-group m-0" style="position: relative;">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Contact Phone <span style="color: var(--danger);">*</span></label>
@@ -392,7 +396,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                         </div>
                     </div>
                 </div>
-                <div class="form-group m-0" style="grid-column: span 2;">
+                <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Email Address</label>
                     <input type="email" name="email" class="form-control form-control-focus" placeholder="E.g. name@domain.com" value="<?php echo htmlspecialchars($editLead['email'] ?? ''); ?>">
                 </div>
