@@ -1148,7 +1148,7 @@ $software_trades_list = [
                                     <i data-lucide="check-circle" style="width: 18px; height: 18px; color: #10b981; flex-shrink: 0;"></i>
                                     <span><strong>Existing Client Record Found!</strong> Details loaded automatically for <strong id="lead_matched_party_label"></strong>.</span>
                                 </div>
-                                <span class="badge" style="--badge-bg: #10b981; --badge-color: #ffffff; font-size: 0.68rem; font-weight: 700; padding: 3px 8px;">Live Database Match</span>
+                                <!-- <span class="badge" style="--badge-bg: #10b981; --badge-color: #ffffff; font-size: 0.68rem; font-weight: 700; padding: 3px 8px;">Live Database Match</span> -->
                             </div>
 
                             <!-- Section 1: Business & Software License Info -->
@@ -2174,24 +2174,27 @@ function renderLeadAreaSuggestions(query) {
         if (filtered.length === 0) {
             html += `
                 <div style="padding: 8px 10px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
-                    No area matching "<strong>${escapeHtml(query)}</strong>" in ${escapeHtml(cityVal)}.
+                    No existing area matching "<strong>${escapeHtml(query)}</strong>" in ${escapeHtml(cityVal)}.
                 </div>
             `;
         }
+        const escQuery = escapeHtml(query);
         html += `
-            <div style="padding: 6px 8px; border-top: 1px dashed var(--border-color); margin-top: 4px;">
-                <button type="button" onclick="quickAddNewLeadArea('${escapeHtml(query).replace(/'/g, "\\'")}')" class="btn btn-primary" style="width: 100%; font-size: 0.75rem; padding: 6px 10px; display: flex; align-items: center; justify-content: center; gap: 5px;">
-                    <i data-lucide="plus" style="width: 13px; height: 13px;"></i>
-                    <span>+ Add "<strong>${escapeHtml(query)}</strong>" to ${escapeHtml(cityVal)}</span>
+            <div style="padding: 4px; border-top: 1px solid var(--border-color); margin-top: 4px;">
+                <button type="button" onclick="quickAddNewLeadArea('${escQuery.replace(/'/g, "\\'")}')" class="btn btn-primary w-full flex align-center justify-center gap-1.5" style="width: 100%; border-radius: 6px; font-size: 0.74rem; font-weight: 700; padding: 6px 10px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none; color: #fff; cursor: pointer;">
+                    <i data-lucide="plus-circle" style="width: 13px; height: 13px;"></i>
+                    <span>Add "<strong>${escQuery}</strong>" to ${escapeHtml(cityVal)}</span>
                 </button>
             </div>
         `;
-    } else if (!query && filtered.length === 0) {
-        html = `
-            <div style="padding: 12px 10px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+    } else if (filtered.length === 0 && !query) {
+        html += `
+            <div style="padding: 10px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
                 No areas saved yet for ${escapeHtml(cityVal)}.
                 <div style="margin-top: 6px;">
-                    <button type="button" onclick="openQuickAddLeadAreaPrompt()" class="btn btn-secondary text-xs" style="padding: 4px 10px;">+ Add First Area</button>
+                    <button type="button" onclick="document.getElementById('lead_client_area').focus();" class="btn btn-sm btn-secondary" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">
+                        + Type to Add Area
+                    </button>
                 </div>
             </div>
         `;
@@ -2222,7 +2225,10 @@ async function quickAddNewLeadArea(areaName) {
         return;
     }
     if (!areaName) {
-        alert('Area name cannot be empty.');
+        areaName = (document.getElementById('lead_client_area')?.value || '').trim();
+    }
+    if (!areaName) {
+        alert('Please enter an area name to add.');
         return;
     }
 
@@ -2259,15 +2265,10 @@ async function quickAddNewLeadArea(areaName) {
 window.quickAddNewLeadArea = quickAddNewLeadArea;
 
 function openQuickAddLeadAreaPrompt() {
-    const cityVal = (document.getElementById('lead_client_city')?.value || '').trim();
-    if (!cityVal) {
-        alert('Please select a State and City first.');
-        document.getElementById('lead_client_city')?.focus();
-        return;
-    }
-    const entered = prompt(`Enter new Area / Locality name for ${cityVal}:`);
-    if (entered && entered.trim()) {
-        quickAddNewLeadArea(entered.trim());
+    const input = document.getElementById('lead_client_area');
+    if (input) {
+        input.focus();
+        renderLeadAreaSuggestions(input.value);
     }
 }
 window.openQuickAddLeadAreaPrompt = openQuickAddLeadAreaPrompt;
