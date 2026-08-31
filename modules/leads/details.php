@@ -1142,6 +1142,15 @@ $software_trades_list = [
                             <input type="hidden" name="action" value="save_client_directory_details">
                             <input type="hidden" name="lead_id" value="<?php echo $lead['id']; ?>">
 
+                            <!-- Live Duplicate/Found Match Banner -->
+                            <div id="lead_customer_id_matched_banner" style="display: none; margin-bottom: 1rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 10px 14px; font-size: 0.8rem; color: #065f46; align-items: center; justify-content: space-between;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i data-lucide="check-circle" style="width: 18px; height: 18px; color: #10b981; flex-shrink: 0;"></i>
+                                    <span><strong>Existing Client Record Found!</strong> Details loaded automatically for <strong id="lead_matched_party_label"></strong>.</span>
+                                </div>
+                                <span class="badge" style="--badge-bg: #10b981; --badge-color: #ffffff; font-size: 0.68rem; font-weight: 700; padding: 3px 8px;">Live Database Match</span>
+                            </div>
+
                             <!-- Section 1: Business & Software License Info -->
                             <div class="card p-5" style="border: 1px solid var(--border-color); background: var(--bg-hover);">
                                 <h4 class="text-xs font-bold text-muted mb-4" style="text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary);">
@@ -1149,22 +1158,25 @@ $software_trades_list = [
                                 </h4>
                                 <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
                                     <div class="form-group m-0">
-                                        <label class="form-label text-xs font-semibold">Customer ID (License No.) <span class="text-danger">*</span></label>
+                                        <label class="form-label text-xs font-semibold" style="display: flex; justify-content: space-between; align-items: center;">
+                                            <span>Customer ID (License No.) <span class="text-danger">*</span></span>
+                                            <span id="lead_customer_id_live_status" style="font-size: 0.68rem; font-weight: 700;"></span>
+                                        </label>
                                         <?php 
                                             $rawCustId = $client_dir_data['customer_id'] ?? '';
                                             // Only display if purely numeric license no (do not display lead IDs like LD-348577)
                                             $displayCustId = (preg_match('/^[0-9]+$/', $rawCustId)) ? $rawCustId : '';
                                         ?>
-                                        <input type="text" name="customer_id" class="form-control text-sm font-mono font-bold" value="<?php echo htmlspecialchars($displayCustId); ?>" required pattern="[0-9]+" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9]/g, '')" placeholder="E.g. 7933108" title="Customer ID (License Number) must be numbers only">
-                                        <span class="text-xs text-muted" style="font-size: 11px;">Mandatory numerical license number</span>
+                                        <input type="text" id="lead_customer_id" name="customer_id" class="form-control text-sm font-mono font-bold" value="<?php echo htmlspecialchars($displayCustId); ?>" required pattern="[0-9]+" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9]/g, ''); onLeadCustomerIdInput(this.value);" onblur="onLeadCustomerIdInput(this.value);" placeholder="E.g. 7933108" title="Customer ID (License Number) must be numbers only">
+                                        <span class="text-xs text-muted" style="font-size: 11px;">Type numeric license number to auto-fetch existing client details</span>
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Party Name <span class="text-danger">*</span></label>
-                                        <input type="text" name="party_name" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['party_name'] ?? $lead['name']); ?>" required placeholder="Full Client / Party Name">
+                                        <input type="text" id="lead_client_party_name" name="party_name" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['party_name'] ?? $lead['name']); ?>" required placeholder="Full Client / Party Name">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Company / Firm Using <span class="text-danger">*</span></label>
-                                        <input type="text" name="company_using" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['company_using'] ?? $lead['company']); ?>" required placeholder="Firm / Organization Name">
+                                        <input type="text" id="lead_client_company_using" name="company_using" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['company_using'] ?? $lead['company']); ?>" required placeholder="Firm / Organization Name">
                                     </div>
                                     <?php 
                                         $curSwType = $client_dir_data['sw_type'] ?? 'Marg ERP';
@@ -1231,7 +1243,7 @@ $software_trades_list = [
                                     <!-- User License Type Dropdown -->
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">User License Type</label>
-                                        <select name="user_type" class="form-control text-sm font-semibold">
+                                        <select id="lead_client_user_type" name="user_type" class="form-control text-sm font-semibold">
                                             <?php $ut = $client_dir_data['user_type'] ?? 'Single User'; ?>
                                             <option value="Single User" <?php echo $ut === 'Single User' ? 'selected' : ''; ?>>Single User</option>
                                             <option value="Multi User" <?php echo $ut === 'Multi User' ? 'selected' : ''; ?>>Multi User</option>
@@ -1242,13 +1254,13 @@ $software_trades_list = [
                                     <!-- No. of Users Input -->
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">No. of Users</label>
-                                        <input type="number" name="no_of_users" class="form-control text-sm font-mono" value="<?php echo htmlspecialchars($client_dir_data['no_of_users'] ?? 1); ?>" min="1">
+                                        <input type="number" id="lead_client_no_of_users" name="no_of_users" class="form-control text-sm font-mono" value="<?php echo htmlspecialchars($client_dir_data['no_of_users'] ?? 1); ?>" min="1">
                                     </div>
 
                                     <!-- Software Version Input -->
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Software Version</label>
-                                        <input type="text" name="version" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['version'] ?? '9.2.14'); ?>" placeholder="E.g. 9.2.14">
+                                        <input type="text" id="lead_client_version" name="version" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['version'] ?? '9.2.14'); ?>" placeholder="E.g. 9.2.14">
                                     </div>
                                 </div>
                             </div>
@@ -1261,15 +1273,15 @@ $software_trades_list = [
                                 <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Contact Person</label>
-                                        <input type="text" name="contact_person" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['contact_person'] ?? ($lead['contact_person'] ?? $lead['name'])); ?>">
+                                        <input type="text" id="lead_client_contact_person" name="contact_person" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['contact_person'] ?? ($lead['contact_person'] ?? $lead['name'])); ?>">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Mobile Number <span class="text-danger">*</span></label>
-                                        <input type="text" name="mobile" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['mobile'] ?? $lead['phone']); ?>" required>
+                                        <input type="text" id="lead_client_mobile" name="mobile" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['mobile'] ?? $lead['phone']); ?>" required>
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Email Address</label>
-                                        <input type="email" name="email" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['email'] ?? $lead['email']); ?>">
+                                        <input type="email" id="lead_client_email" name="email" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['email'] ?? $lead['email']); ?>">
                                     </div>
                                     <!-- State Dropdown -->
                                     <div class="form-group m-0">
@@ -1330,11 +1342,11 @@ $software_trades_list = [
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Online Zip / Pincode</label>
-                                        <input type="text" name="online_zip_code" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['online_zip_code'] ?? ''); ?>" placeholder="Pincode">
+                                        <input type="text" id="lead_client_online_zip" name="online_zip_code" class="form-control text-sm font-mono" value="<?php echo htmlspecialchars($client_dir_data['online_zip_code'] ?? ''); ?>" placeholder="Pincode">
                                     </div>
                                     <div class="form-group m-0" style="grid-column: 1 / -1;">
                                         <label class="form-label text-xs font-semibold">Complete Address</label>
-                                        <textarea name="address" class="form-control text-sm" rows="2"><?php echo htmlspecialchars($client_dir_data['address'] ?? ($lead['address'] ?? '')); ?></textarea>
+                                        <textarea id="lead_client_address" name="address" class="form-control text-sm" rows="2"><?php echo htmlspecialchars($client_dir_data['address'] ?? ($lead['address'] ?? '')); ?></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -1347,31 +1359,31 @@ $software_trades_list = [
                                 <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Subpartner Code</label>
-                                        <input type="text" name="subpartner_code" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['subpartner_code'] ?? ''); ?>" placeholder="E.g. SP-4092">
+                                        <input type="text" id="lead_client_subpartner_code" name="subpartner_code" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['subpartner_code'] ?? ''); ?>" placeholder="E.g. SP-4092">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Subpartner Name</label>
-                                        <input type="text" name="subpartner_name" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['subpartner_name'] ?? ''); ?>" placeholder="Subpartner Name">
+                                        <input type="text" id="lead_client_subpartner_name" name="subpartner_name" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['subpartner_name'] ?? ''); ?>" placeholder="Subpartner Name">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Activation Date (`act_on`)</label>
-                                        <input type="date" name="act_on" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['act_on'] ?? date('Y-m-d')); ?>">
+                                        <input type="date" id="lead_client_act_on" name="act_on" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['act_on'] ?? date('Y-m-d')); ?>">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Renewal Due Date (`due_on`)</label>
-                                        <input type="date" name="due_on" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['due_on'] ?? date('Y-m-d', strtotime('+1 year'))); ?>">
+                                        <input type="date" id="lead_client_due_on" name="due_on" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['due_on'] ?? date('Y-m-d', strtotime('+1 year'))); ?>">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Validity Days</label>
-                                        <input type="number" name="days" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['days'] ?? 365); ?>">
+                                        <input type="number" id="lead_client_days" name="days" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['days'] ?? 365); ?>">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Total Amount (₹)</label>
-                                        <input type="number" step="0.01" name="total_amount" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['total_amount'] ?? ($lead['budget'] ?? 0)); ?>">
+                                        <input type="number" step="0.01" id="lead_client_total_amount" name="total_amount" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['total_amount'] ?? ($lead['budget'] ?? 0)); ?>">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Party Status</label>
-                                        <select name="party_status" class="form-control text-sm">
+                                        <select id="lead_client_party_status" name="party_status" class="form-control text-sm">
                                             <?php $ps = $client_dir_data['party_status'] ?? 'Active'; ?>
                                             <option value="Active" <?php echo $ps === 'Active' ? 'selected' : ''; ?>>Active</option>
                                             <option value="Expiring Soon" <?php echo $ps === 'Expiring Soon' ? 'selected' : ''; ?>>Expiring Soon</option>
@@ -1381,15 +1393,15 @@ $software_trades_list = [
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Software Hit Date</label>
-                                        <input type="date" name="software_hit_date" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['software_hit_date'] ?? ''); ?>">
+                                        <input type="date" id="lead_client_software_hit_date" name="software_hit_date" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['software_hit_date'] ?? ''); ?>">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Wallet ID</label>
-                                        <input type="text" name="wallet_id" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['wallet_id'] ?? ''); ?>" placeholder="Wallet / Account ID">
+                                        <input type="text" id="lead_client_wallet_id" name="wallet_id" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['wallet_id'] ?? ''); ?>" placeholder="Wallet / Account ID">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Home User?</label>
-                                        <select name="home_user" class="form-control text-sm">
+                                        <select id="lead_client_home_user" name="home_user" class="form-control text-sm">
                                             <?php $hu = $client_dir_data['home_user'] ?? 'No'; ?>
                                             <option value="No" <?php echo $hu === 'No' ? 'selected' : ''; ?>>No</option>
                                             <option value="Yes" <?php echo $hu === 'Yes' ? 'selected' : ''; ?>>Yes</option>
@@ -1397,7 +1409,7 @@ $software_trades_list = [
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Transferred Party?</label>
-                                        <select name="transferred_party" class="form-control text-sm">
+                                        <select id="lead_client_transferred_party" name="transferred_party" class="form-control text-sm">
                                             <?php $tp = $client_dir_data['transferred_party'] ?? 'No'; ?>
                                             <option value="No" <?php echo $tp === 'No' ? 'selected' : ''; ?>>No</option>
                                             <option value="Yes" <?php echo $tp === 'Yes' ? 'selected' : ''; ?>>Yes</option>
@@ -1804,6 +1816,152 @@ function openCallQrModal(name, phone, telEncoded) {
     
     window.openModal('call-qr-modal');
 }
+
+// --------------------------------------------------------------------------
+// Lead Details: Live Customer ID (License No.) Lookup & Auto-Fetch Controller
+// --------------------------------------------------------------------------
+let leadCustIdCheckTimer = null;
+let lastCheckedLeadCustId = '';
+
+function onLeadCustomerIdInput(val) {
+    const rawVal = (val || '').replace(/[^0-9]/g, '').trim();
+    const statusEl = document.getElementById('lead_customer_id_live_status');
+    const bannerEl = document.getElementById('lead_customer_id_matched_banner');
+    const partyLabel = document.getElementById('lead_matched_party_label');
+
+    if (leadCustIdCheckTimer) clearTimeout(leadCustIdCheckTimer);
+
+    if (rawVal.length < 3) {
+        if (statusEl) statusEl.innerHTML = '';
+        if (bannerEl) bannerEl.style.display = 'none';
+        return;
+    }
+
+    if (statusEl) {
+        statusEl.innerHTML = '<span style="color:var(--text-muted); font-size:0.68rem;">⏳ Checking...</span>';
+    }
+
+    leadCustIdCheckTimer = setTimeout(async () => {
+        try {
+            const res = await fetch('index.php?page=clients&action=check_customer_id&customer_id=' + encodeURIComponent(rawVal));
+            const data = await res.json();
+
+            if (data.exists && data.client) {
+                const c = data.client;
+                lastCheckedLeadCustId = rawVal;
+
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:#10b981; font-weight:700;">✓ Existing Client Loaded</span>';
+                }
+
+                if (bannerEl) {
+                    if (partyLabel) partyLabel.innerText = c.party_name || c.company_using || rawVal;
+                    bannerEl.style.display = 'flex';
+                    if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') lucide.createIcons();
+                }
+
+                // Auto-populate all fields from existing client record
+                if (c.party_name && document.getElementById('lead_client_party_name')) {
+                    document.getElementById('lead_client_party_name').value = c.party_name;
+                }
+                if (c.company_using && document.getElementById('lead_client_company_using')) {
+                    document.getElementById('lead_client_company_using').value = c.company_using;
+                }
+
+                // S/W Type & Edition
+                if (c.sw_type && document.getElementById('lead_client_sw_type')) {
+                    document.getElementById('lead_client_sw_type').value = c.sw_type;
+                }
+                onLeadSwTypeChange(c.sw_type || 'Marg ERP', c.software_type || '');
+
+                if (c.nature_of_business && document.getElementById('lead_client_nature_of_business')) {
+                    document.getElementById('lead_client_nature_of_business').value = c.nature_of_business;
+                }
+                if (c.software_trade && document.getElementById('lead_client_software_trade')) {
+                    document.getElementById('lead_client_software_trade').value = c.software_trade;
+                }
+                if (c.user_type && document.getElementById('lead_client_user_type')) {
+                    document.getElementById('lead_client_user_type').value = c.user_type;
+                }
+                if (c.no_of_users && document.getElementById('lead_client_no_of_users')) {
+                    document.getElementById('lead_client_no_of_users').value = c.no_of_users;
+                }
+                if (c.version && document.getElementById('lead_client_version')) {
+                    document.getElementById('lead_client_version').value = c.version;
+                }
+                if (c.contact_person && document.getElementById('lead_client_contact_person')) {
+                    document.getElementById('lead_client_contact_person').value = c.contact_person;
+                }
+                if (c.mobile && document.getElementById('lead_client_mobile')) {
+                    document.getElementById('lead_client_mobile').value = c.mobile;
+                }
+                if (c.email && document.getElementById('lead_client_email')) {
+                    document.getElementById('lead_client_email').value = c.email;
+                }
+
+                // State & City
+                if (c.state && document.getElementById('lead_client_state')) {
+                    document.getElementById('lead_client_state').value = c.state;
+                }
+                onLeadClientStateSelect(c.state || 'Uttar Pradesh', c.city || '');
+
+                if (c.area && document.getElementById('lead_client_area')) {
+                    document.getElementById('lead_client_area').value = c.area;
+                }
+                if (c.online_zip_code && document.getElementById('lead_client_online_zip')) {
+                    document.getElementById('lead_client_online_zip').value = c.online_zip_code;
+                }
+                if (c.address && document.getElementById('lead_client_address')) {
+                    document.getElementById('lead_client_address').value = c.address;
+                }
+
+                // Commercials
+                if (c.subpartner_code && document.getElementById('lead_client_subpartner_code')) {
+                    document.getElementById('lead_client_subpartner_code').value = c.subpartner_code;
+                }
+                if (c.subpartner_name && document.getElementById('lead_client_subpartner_name')) {
+                    document.getElementById('lead_client_subpartner_name').value = c.subpartner_name;
+                }
+                if (c.act_on && document.getElementById('lead_client_act_on')) {
+                    document.getElementById('lead_client_act_on').value = c.act_on;
+                }
+                if (c.due_on && document.getElementById('lead_client_due_on')) {
+                    document.getElementById('lead_client_due_on').value = c.due_on;
+                }
+                if (c.days && document.getElementById('lead_client_days')) {
+                    document.getElementById('lead_client_days').value = c.days;
+                }
+                if (c.total_amount !== undefined && document.getElementById('lead_client_total_amount')) {
+                    document.getElementById('lead_client_total_amount').value = c.total_amount;
+                }
+                if (c.party_status && document.getElementById('lead_client_party_status')) {
+                    document.getElementById('lead_client_party_status').value = c.party_status;
+                }
+                if (c.software_hit_date && document.getElementById('lead_client_software_hit_date')) {
+                    document.getElementById('lead_client_software_hit_date').value = c.software_hit_date;
+                }
+                if (c.wallet_id && document.getElementById('lead_client_wallet_id')) {
+                    document.getElementById('lead_client_wallet_id').value = c.wallet_id;
+                }
+                if (c.home_user && document.getElementById('lead_client_home_user')) {
+                    document.getElementById('lead_client_home_user').value = c.home_user;
+                }
+                if (c.transferred_party && document.getElementById('lead_client_transferred_party')) {
+                    document.getElementById('lead_client_transferred_party').value = c.transferred_party;
+                }
+            } else {
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:#6366f1; font-weight:700;">✓ New License No.</span>';
+                }
+                if (bannerEl) bannerEl.style.display = 'none';
+            }
+        } catch (e) {
+            console.error('Error checking customer ID:', e);
+            if (statusEl) statusEl.innerHTML = '';
+        }
+    }, 280);
+}
+window.onLeadCustomerIdInput = onLeadCustomerIdInput;
 
 // --------------------------------------------------------------------------
 // Lead Details: Master S/W Types & Software Editions Dynamic Cascading Controller
