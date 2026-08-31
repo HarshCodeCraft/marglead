@@ -166,6 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $contact_person = trim($_POST['contact_person'] ?? '');
             $sw_type = trim($_POST['sw_type'] ?? '');
             $software_type = trim($_POST['software_type'] ?? '');
+            $nature_of_business = trim($_POST['nature_of_business'] ?? '');
             $user_type = trim($_POST['user_type'] ?? '');
             $no_of_users = intval($_POST['no_of_users'] ?? 1);
             $subpartner_code = trim($_POST['subpartner_code'] ?? '');
@@ -196,14 +197,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if ($existing_client) {
                 $updClient = $pdo->prepare("UPDATE client_directory SET 
                     party_name = ?, company_using = ?, mobile = ?, email = ?, contact_person = ?,
-                    sw_type = ?, software_type = ?, user_type = ?, no_of_users = ?,
+                    sw_type = ?, software_type = ?, nature_of_business = ?, user_type = ?, no_of_users = ?,
                     subpartner_code = ?, subpartner_name = ?, address = ?, city = ?, area = ?, state = ?, online_zip_code = ?,
                     due_on = ?, act_on = ?, days = ?, party_status = ?, category = ?, software_trade = ?, version = ?,
                     total_amount = ?, software_hit_date = ?, wallet_id = ?, home_user = ?, transferred_party = ?, updated_at = NOW()
                     WHERE id = ?");
                 $updClient->execute([
                     $party_name, $company_using, $mobile, $email, $contact_person,
-                    $sw_type, $software_type, $user_type, $no_of_users,
+                    $sw_type, $software_type, $nature_of_business, $user_type, $no_of_users,
                     $subpartner_code, $subpartner_name, $address, $city, $area, $state, $online_zip_code,
                     $due_on, $act_on, $days, $party_status, $category, $software_trade, $version,
                     $total_amount, $software_hit_date, $wallet_id, $home_user, $transferred_party,
@@ -212,20 +213,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             } else {
                 $insClient = $pdo->prepare("INSERT INTO client_directory (
                     company_id, customer_id, party_name, company_using, mobile, email, contact_person,
-                    sw_type, software_type, user_type, no_of_users,
+                    sw_type, software_type, nature_of_business, user_type, no_of_users,
                     subpartner_code, subpartner_name, address, city, area, state, online_zip_code,
                     due_on, act_on, days, party_status, category, software_trade, version,
                     total_amount, software_hit_date, wallet_id, home_user, transferred_party, created_at, updated_at
                 ) VALUES (
                     1, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, NOW(), NOW()
                 )");
                 $insClient->execute([
                     $customer_id, $party_name, $company_using, $mobile, $email, $contact_person,
-                    $sw_type, $software_type, $user_type, $no_of_users,
+                    $sw_type, $software_type, $nature_of_business, $user_type, $no_of_users,
                     $subpartner_code, $subpartner_name, $address, $city, $area, $state, $online_zip_code,
                     $due_on, $act_on, $days, $party_status, $category, $software_trade, $version,
                     $total_amount, $software_hit_date, $wallet_id, $home_user, $transferred_party
@@ -362,6 +363,76 @@ $default_city_areas_map = [
     'Hyderabad' => ['Hitec City', 'Gachibowli', 'Madhapur', 'Banjara Hills', 'Jubilee Hills', 'Kukatpally', 'Secunderabad', 'Ameerpet', 'Begumpet'],
     'Ahmedabad' => ['Navrangpura', 'Satellite', 'Bodakdev', 'SG Highway', 'Prahlad Nagar', 'Maninagar', 'Vastrapur', 'Bopal'],
     'Pune' => ['Kothrud', 'Hinjewadi', 'Baner', 'Wakad', 'Viman Nagar', 'Hadapsar', 'Aundh', 'Shivajinagar', 'Koregaon Park']
+];
+
+// Master S/W Types & Software Editions Mapping
+$sw_types_map = [
+    'Marg ERP' => [
+        'Marg ERP Nano',
+        'Marg ERP Basic',
+        'Marg ERP Silver',
+        'Marg ERP Gold',
+        'Marg ERP CA Addition'
+    ],
+    'Marg Cloud' => [
+        'Marg Basic Cloud',
+        'Marg Basic Cloud Premium',
+        'Marg Silver Cloud'
+    ],
+    'Marg Books' => [
+        'Marg Books Gold',
+        'Marg Books Diamond',
+        'Marg Books Platinum',
+        'Marg Books Platinum Plus',
+        'Marg Books Enterprise'
+    ],
+    'Marg HRMS' => [
+        'Marg HRMS Basic',
+        'Marg HRMS Silver',
+        'Marg HRMS Gold'
+    ]
+];
+
+$all_software_editions = [];
+foreach ($sw_types_map as $sw => $editions) {
+    foreach ($editions as $ed) {
+        $all_software_editions[] = $ed;
+    }
+}
+
+// Master Nature of Business List
+$nature_of_business_list = [
+    'Retail',
+    'Wholesale'
+];
+
+// Master Software Trade List
+$software_trades_list = [
+    'Automobile Parts',
+    'Electrical',
+    'Electronics',
+    'FMCG Distributor',
+    'FMCG Retailer',
+    'Footwear',
+    'Garment',
+    'General Store',
+    'Grocery / Kirana',
+    'Hardware',
+    'Import / Export',
+    'Jewellery',
+    'Mandi / Aadhat',
+    'Manufacturing',
+    'Mobile Shop',
+    'Optical',
+    'Pharma Distributor',
+    'Pharma Manufacturer',
+    'Pharmacy / Chemist',
+    'Restaurant / Food',
+    'Salon & Spa',
+    'Stationery / Book Store',
+    'Supermarket',
+    'Warehouse / Stockist',
+    'Wholesale Trader'
 ];
 ?>
 
@@ -1095,27 +1166,86 @@ $default_city_areas_map = [
                                         <label class="form-label text-xs font-semibold">Company / Firm Using <span class="text-danger">*</span></label>
                                         <input type="text" name="company_using" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['company_using'] ?? $lead['company']); ?>" required placeholder="Firm / Organization Name">
                                     </div>
+                                    <?php 
+                                        $curSwType = $client_dir_data['sw_type'] ?? 'Marg ERP';
+                                        if (empty($curSwType)) $curSwType = 'Marg ERP';
+                                        $curSoftwareType = $client_dir_data['software_type'] ?? ($lead['products'] ?? '');
+                                        $curNob = $client_dir_data['nature_of_business'] ?? '';
+                                        $curTrade = $client_dir_data['software_trade'] ?? '';
+                                    ?>
+                                    <!-- S/W Type Dropdown -->
                                     <div class="form-group m-0">
-                                        <label class="form-label text-xs font-semibold">Software Type</label>
-                                        <input type="text" name="software_type" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['software_type'] ?? ($lead['products'] ?? 'Marg ERP 9+ Pro')); ?>" placeholder="E.g. Marg ERP 9+ Gold, Counter ERP">
+                                        <label class="form-label text-xs font-semibold">S/W Type <span class="text-danger">*</span></label>
+                                        <select id="lead_client_sw_type" name="sw_type" class="form-control text-sm font-semibold" onchange="onLeadSwTypeChange(this.value)">
+                                            <option value="">-- Select S/W Type --</option>
+                                            <?php foreach (array_keys($sw_types_map) as $swName): ?>
+                                                <option value="<?php echo htmlspecialchars($swName); ?>" <?php echo (strcasecmp($swName, $curSwType) === 0) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($swName); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
                                     </div>
+
+                                    <!-- Software Edition Dropdown -->
                                     <div class="form-group m-0">
-                                        <label class="form-label text-xs font-semibold">Software Trade / Industry</label>
-                                        <input type="text" name="software_trade" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['software_trade'] ?? ''); ?>" placeholder="E.g. Pharma Wholesale, FMCG, Supermarket">
+                                        <label class="form-label text-xs font-semibold">Software Edition <span class="text-danger">*</span></label>
+                                        <select id="lead_client_software_type" name="software_type" class="form-control text-sm font-semibold">
+                                            <option value="">-- Select S/W Type First --</option>
+                                            <?php 
+                                                $initialEditions = $sw_types_map[$curSwType] ?? $all_software_editions;
+                                                foreach ($initialEditions as $ed):
+                                            ?>
+                                                <option value="<?php echo htmlspecialchars($ed); ?>" <?php echo (strcasecmp($ed, $curSoftwareType) === 0 || strcasecmp(preg_replace('/^(marg\s*erp|marg)\s*/i', '', $ed), $curSoftwareType) === 0) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($ed); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
                                     </div>
+
+                                    <!-- Nature of Business Dropdown -->
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Nature of Business</label>
+                                        <select id="lead_client_nature_of_business" name="nature_of_business" class="form-control text-sm font-semibold">
+                                            <option value="">-- Select Nature of Business --</option>
+                                            <?php foreach ($nature_of_business_list as $nob): ?>
+                                                <option value="<?php echo htmlspecialchars($nob); ?>" <?php echo (strcasecmp($nob, $curNob) === 0) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($nob); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+
+                                    <!-- Software Trade Dropdown -->
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Software Trade</label>
+                                        <select id="lead_client_software_trade" name="software_trade" class="form-control text-sm font-semibold">
+                                            <option value="">-- Select Software Trade --</option>
+                                            <?php foreach ($software_trades_list as $trade): ?>
+                                                <option value="<?php echo htmlspecialchars($trade); ?>" <?php echo (strcasecmp($trade, $curTrade) === 0) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($trade); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+
+                                    <!-- User License Type Dropdown -->
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">User License Type</label>
-                                        <select name="user_type" class="form-control text-sm">
+                                        <select name="user_type" class="form-control text-sm font-semibold">
                                             <?php $ut = $client_dir_data['user_type'] ?? 'Single User'; ?>
                                             <option value="Single User" <?php echo $ut === 'Single User' ? 'selected' : ''; ?>>Single User</option>
                                             <option value="Multi User" <?php echo $ut === 'Multi User' ? 'selected' : ''; ?>>Multi User</option>
                                             <option value="Enterprise LAN" <?php echo $ut === 'Enterprise LAN' ? 'selected' : ''; ?>>Enterprise LAN</option>
                                         </select>
                                     </div>
+
+                                    <!-- No. of Users Input -->
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">No. of Users</label>
-                                        <input type="number" name="no_of_users" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['no_of_users'] ?? 1); ?>" min="1">
+                                        <input type="number" name="no_of_users" class="form-control text-sm font-mono" value="<?php echo htmlspecialchars($client_dir_data['no_of_users'] ?? 1); ?>" min="1">
                                     </div>
+
+                                    <!-- Software Version Input -->
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Software Version</label>
                                         <input type="text" name="version" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['version'] ?? '9.2.14'); ?>" placeholder="E.g. 9.2.14">
@@ -1676,6 +1806,58 @@ function openCallQrModal(name, phone, telEncoded) {
 }
 
 // --------------------------------------------------------------------------
+// Lead Details: Master S/W Types & Software Editions Dynamic Cascading Controller
+// --------------------------------------------------------------------------
+const leadSwTypesMap = <?php echo json_encode($sw_types_map); ?>;
+
+function normalizeLeadSwType(val) {
+    if (!val) return '';
+    const v = String(val).trim().toLowerCase();
+    if (v === 'marg erp' || v === 'marg' || v.includes('erp')) return 'Marg ERP';
+    if (v === 'marg cloud' || v.includes('cloud')) return 'Marg Cloud';
+    if (v === 'marg books' || v.includes('book')) return 'Marg Books';
+    if (v === 'marg hrms' || v.includes('hrms') || v.includes('hr')) return 'Marg HRMS';
+    return val.trim();
+}
+
+function onLeadSwTypeChange(swTypeVal, selectedEdition = '') {
+    const editSelect = document.getElementById('lead_client_software_type');
+    if (!editSelect) return;
+
+    const targetEdition = (selectedEdition !== undefined && selectedEdition !== null && selectedEdition !== '') ? String(selectedEdition).trim() : '';
+    const normSwType = normalizeLeadSwType(swTypeVal);
+
+    if (!normSwType || !leadSwTypesMap[normSwType]) {
+        editSelect.innerHTML = '<option value="">-- Select S/W Type First --</option>';
+        return;
+    }
+
+    editSelect.innerHTML = '<option value="">-- Select Software Edition (' + normSwType + ') --</option>';
+
+    const editions = leadSwTypesMap[normSwType] || [];
+    let isSelectedFound = false;
+    editions.forEach(function(ed) {
+        const opt = document.createElement('option');
+        opt.value = ed;
+        opt.textContent = ed;
+        if (targetEdition && (ed.toLowerCase() === targetEdition.toLowerCase() || targetEdition.toLowerCase() === ed.toLowerCase().replace(/^(marg\s*erp|marg)\s*/i, '').trim())) {
+            opt.selected = true;
+            isSelectedFound = true;
+        }
+        editSelect.appendChild(opt);
+    });
+
+    if (targetEdition && !isSelectedFound) {
+        const customOpt = document.createElement('option');
+        customOpt.value = targetEdition;
+        customOpt.textContent = targetEdition;
+        customOpt.selected = true;
+        editSelect.appendChild(customOpt);
+    }
+}
+window.onLeadSwTypeChange = onLeadSwTypeChange;
+
+// --------------------------------------------------------------------------
 // Lead Details: State, City Cascading & Smart Area Autocomplete Controller
 // --------------------------------------------------------------------------
 const leadIndianStatesMap = <?php echo json_encode($indian_states_map); ?>;
@@ -1951,6 +2133,12 @@ document.addEventListener('click', function(e) {
 
 // Auto initialize on DOM ready
 document.addEventListener('DOMContentLoaded', function() {
+    const curSwType = document.getElementById('lead_client_sw_type')?.value;
+    const curSoftwareType = '<?php echo addslashes($curSoftwareType ?? ""); ?>';
+    if (curSwType) {
+        onLeadSwTypeChange(curSwType, curSoftwareType);
+    }
+
     const curCity = document.getElementById('lead_client_city')?.value;
     const curState = document.getElementById('lead_client_state')?.value;
     if (curCity) {
