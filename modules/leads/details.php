@@ -326,6 +326,43 @@ if ($db_connected && $pdo && $lead) {
 // Check if lead status is Closed Won / Won / Client / Converted
 $leadStatusNorm = strtolower(str_replace(['_', '-'], ' ', trim($lead['status'] ?? '')));
 $isClientWon = in_array($leadStatusNorm, ['closed won', 'won', 'client', 'converted', 'closed']) || !empty($client_dir_data);
+
+// Indian States & Cities Master List
+$indian_states_map = function_exists('getIndianStatesAndCities') ? getIndianStatesAndCities() : [];
+$indian_states_list = array_keys($indian_states_map);
+$all_indian_cities = [];
+foreach ($indian_states_map as $stName => $cList) {
+    foreach ($cList as $cName) {
+        if (!in_array($cName, $all_indian_cities)) {
+            $all_indian_cities[] = $cName;
+        }
+    }
+}
+sort($all_indian_cities);
+
+// Default City Areas Map
+$default_city_areas_map = [
+    'Kanpur' => ['Civil Lines', 'Kalyanpur', 'Kakadeo', 'Govind Nagar', 'Kidwai Nagar', 'Swaroop Nagar', 'Barra', 'Lajpat Nagar', 'Gumti No. 5', 'Chakeri', 'Fazalganj', 'Panki', 'Sharda Nagar', 'Vikas Nagar', 'Shyam Nagar', 'Yashoda Nagar', 'Armapur', 'Cantt', 'General Ganj', 'Nayaganj', 'Birhana Road', 'Rawatpur', 'Pandu Nagar', 'Ratan Lal Nagar', 'Juhi'],
+    'Lucknow' => ['Hazratganj', 'Gomti Nagar', 'Alambagh', 'Indira Nagar', 'Mahanagar', 'Charbagh', 'Aminabad', 'Jankipuram', 'Ashiyana', 'Chowk', 'Vikas Nagar', 'Rajajipuram', 'Chinhat', 'Transport Nagar'],
+    'Delhi' => ['Connaught Place', 'Karol Bagh', 'Lajpat Nagar', 'Chandni Chowk', 'Rohini', 'Dwarka', 'Pitampura', 'Janakpuri', 'Saket', 'South Extension', 'Nehru Place', 'Laxmi Nagar', 'Okhla', 'Mayur Vihar', 'Paschim Vihar'],
+    'Noida' => ['Sector 18', 'Sector 62', 'Sector 15', 'Sector 137', 'Sector 50', 'Sector 76', 'Sector 128', 'Sector 63', 'Sector 16', 'Sector 12'],
+    'Varanasi' => ['Sigra', 'Lanka', 'Godowlia', 'Cantonment', 'Bhelupur', 'Shivpur', 'Pandeypur', 'Lahurabir', 'Rathyatra', 'Mahmoorganj'],
+    'Agra' => ['Sanjay Place', 'Tajganj', 'Kamla Nagar', 'Dayalbagh', 'Shahganj', 'Civil Lines', 'Khandari', 'Sikandra', 'Raja Ki Mandi'],
+    'Ghaziabad' => ['Indirapuram', 'Vaishali', 'Vasundhara', 'Raj Nagar', 'Crossings Republik', 'Kavi Nagar', 'Sahibabad'],
+    'Meerut' => ['Shastri Nagar', 'Civil Lines', 'Abu Lane', 'Modipuram', 'Ganga Nagar', 'Partapur'],
+    'Prayagraj' => ['Civil Lines', 'George Town', 'Katra', 'Tagore Town', 'Naini', 'Allahpur', 'Ashok Nagar', 'Mumfordganj'],
+    'Allahabad' => ['Civil Lines', 'George Town', 'Katra', 'Tagore Town', 'Naini', 'Allahpur', 'Ashok Nagar', 'Mumfordganj'],
+    'Bareilly' => ['Civil Lines', 'Rajendra Nagar', 'DD Puram', 'Prem Nagar', 'Subhash Nagar', 'Cantonment'],
+    'Aligarh' => ['Civil Lines', 'Centre Point', 'Dodhpur', 'Marris Road', 'Ramghat Road', 'Samad Road'],
+    'Gorakhpur' => ['Golghar', 'Betiahata', 'Civil Lines', 'Medical College Road', 'Taramandal', 'Shahpur'],
+    'Mumbai' => ['Andheri East', 'Andheri West', 'Bandra', 'Borivali', 'Dadar', 'Goregaon', 'Juhu', 'Kandivali', 'Malad', 'Powai', 'Thane', 'Vashi', 'Kurla', 'Ghatkopar', 'Lower Parel', 'Colaba'],
+    'Jaipur' => ['Malviya Nagar', 'Vaishali Nagar', 'Mansarovar', 'C-Scheme', 'Raja Park', 'Tonk Road', 'Jagatpura', 'Ajmer Road', 'Bani Park'],
+    'Bengaluru' => ['Koramangala', 'Indiranagar', 'Whitefield', 'HSR Layout', 'Jayanagar', 'JP Nagar', 'Electronic City', 'BTM Layout', 'Hebbal', 'Marathahalli'],
+    'Kolkata' => ['Salt Lake', 'Park Street', 'New Town', 'Ballygunge', 'Howrah', 'Behala', 'Garia', 'Dum Dum', 'Alipore'],
+    'Hyderabad' => ['Hitec City', 'Gachibowli', 'Madhapur', 'Banjara Hills', 'Jubilee Hills', 'Kukatpally', 'Secunderabad', 'Ameerpet', 'Begumpet'],
+    'Ahmedabad' => ['Navrangpura', 'Satellite', 'Bodakdev', 'SG Highway', 'Prahlad Nagar', 'Maninagar', 'Vastrapur', 'Bopal'],
+    'Pune' => ['Kothrud', 'Hinjewadi', 'Baner', 'Wakad', 'Viman Nagar', 'Hadapsar', 'Aundh', 'Shivajinagar', 'Koregaon Park']
+];
 ?>
 
 <?php if (!$lead): ?>
@@ -1104,17 +1141,62 @@ $isClientWon = in_array($leadStatusNorm, ['closed won', 'won', 'client', 'conver
                                         <label class="form-label text-xs font-semibold">Email Address</label>
                                         <input type="email" name="email" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['email'] ?? $lead['email']); ?>">
                                     </div>
-                                    <div class="form-group m-0">
-                                        <label class="form-label text-xs font-semibold">Area / Locality</label>
-                                        <input type="text" name="area" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['area'] ?? ''); ?>" placeholder="E.g. Okhla Phase 2 / Sector 62">
-                                    </div>
-                                    <div class="form-group m-0">
-                                        <label class="form-label text-xs font-semibold">City</label>
-                                        <input type="text" name="city" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['city'] ?? ($lead['city'] ?? '')); ?>">
-                                    </div>
+                                    <!-- State Dropdown -->
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">State</label>
-                                        <input type="text" name="state" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['state'] ?? ($lead['state'] ?? '')); ?>">
+                                        <?php 
+                                            $curState = $client_dir_data['state'] ?? ($lead['state'] ?? 'Uttar Pradesh');
+                                            if (empty($curState)) $curState = 'Uttar Pradesh';
+                                        ?>
+                                        <select id="lead_client_state" name="state" class="form-control text-sm font-semibold" onchange="onLeadClientStateSelect(this.value)">
+                                            <option value="">-- Select State --</option>
+                                            <?php foreach ($indian_states_list as $stName): ?>
+                                                <option value="<?php echo htmlspecialchars($stName); ?>" <?php echo (strcasecmp($stName, $curState) === 0) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($stName); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+
+                                    <!-- City Dropdown -->
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">City</label>
+                                        <?php 
+                                            $curCity = $client_dir_data['city'] ?? ($lead['city'] ?? 'Kanpur');
+                                            if (empty($curCity)) $curCity = 'Kanpur';
+                                        ?>
+                                        <select id="lead_client_city" name="city" class="form-control text-sm font-semibold" onchange="onLeadClientCitySelect(this.value)">
+                                            <option value="">-- Select City --</option>
+                                            <?php 
+                                                $stateCities = $indian_states_map[$curState] ?? $all_indian_cities;
+                                                foreach ($stateCities as $cName): 
+                                            ?>
+                                                <option value="<?php echo htmlspecialchars($cName); ?>" <?php echo (strcasecmp($cName, $curCity) === 0) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($cName); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+
+                                    <!-- Area / Locality Smart Searchable Combobox -->
+                                    <div class="form-group m-0" style="position: relative;" id="lead_area_autocomplete_wrapper">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                            <label class="form-label text-xs font-semibold" style="margin: 0;">Area / Locality</label>
+                                            <button type="button" onclick="openQuickAddLeadAreaPrompt()" class="btn-ghost" title="Add New Area for selected City" style="background: none; border: none; padding: 0 2px; font-size: 0.7rem; font-weight: 700; color: var(--primary); cursor: pointer; display: flex; align-items: center; gap: 3px;">
+                                                <i data-lucide="plus-circle" style="width: 12px; height: 12px;"></i> Add Area
+                                            </button>
+                                        </div>
+                                        <div style="position: relative;">
+                                            <input type="text" id="lead_client_area" name="area" autocomplete="off" placeholder="Search or type area..." class="form-control text-sm" style="padding-right: 32px;" value="<?php echo htmlspecialchars($client_dir_data['area'] ?? ''); ?>" onfocus="onLeadAreaInputFocus()" oninput="onLeadAreaInputChange(this.value)" onkeydown="onLeadAreaInputKeydown(event)">
+                                            <div id="lead_area_input_icon_spinner" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted); display: flex; align-items: center;">
+                                                <i data-lucide="map-pin" style="width: 14px; height: 14px;"></i>
+                                            </div>
+                                        </div>
+
+                                        <!-- Smart Autocomplete Suggestions Dropdown -->
+                                        <div id="lead_area_autocomplete_dropdown" style="display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1050; background: var(--bg-card, #fff); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 12px 28px -6px rgba(0,0,0,0.4); max-height: 220px; overflow-y: auto; padding: 4px;">
+                                            <!-- Dynamic Area Options injected via JS -->
+                                        </div>
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Online Zip / Pincode</label>
@@ -1592,4 +1674,287 @@ function openCallQrModal(name, phone, telEncoded) {
     
     window.openModal('call-qr-modal');
 }
+
+// --------------------------------------------------------------------------
+// Lead Details: State, City Cascading & Smart Area Autocomplete Controller
+// --------------------------------------------------------------------------
+const leadIndianStatesMap = <?php echo json_encode($indian_states_map); ?>;
+const leadDefaultCityAreasMap = <?php echo json_encode($default_city_areas_map); ?>;
+let leadCityAreasCache = [];
+let leadLoadedCity = '';
+
+function onLeadClientStateSelect(stateVal, targetCity = '') {
+    const citySelect = document.getElementById('lead_client_city');
+    if (!citySelect) return;
+
+    citySelect.innerHTML = '<option value="">-- Select City --</option>';
+    if (!stateVal) {
+        citySelect.innerHTML += '<option value="">(Select a State first)</option>';
+        return;
+    }
+
+    const cities = leadIndianStatesMap[stateVal] || [];
+    cities.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        if (targetCity && c.toLowerCase() === targetCity.toLowerCase()) {
+            opt.selected = true;
+        }
+        citySelect.appendChild(opt);
+    });
+
+    if (targetCity && !cities.some(c => c.toLowerCase() === targetCity.toLowerCase())) {
+        const customOpt = document.createElement('option');
+        customOpt.value = targetCity;
+        customOpt.textContent = targetCity;
+        customOpt.selected = true;
+        citySelect.appendChild(customOpt);
+    }
+
+    const finalCity = citySelect.value || targetCity || '';
+    if (finalCity) {
+        fetchLeadCityAreas(finalCity, stateVal);
+    }
+}
+window.onLeadClientStateSelect = onLeadClientStateSelect;
+
+function onLeadClientCitySelect(cityVal) {
+    const stateVal = (document.getElementById('lead_client_state')?.value || '').trim();
+    fetchLeadCityAreas(cityVal, stateVal);
+}
+window.onLeadClientCitySelect = onLeadClientCitySelect;
+
+async function fetchLeadCityAreas(cityName, stateName = '') {
+    cityName = (cityName || '').trim();
+    if (!cityName) {
+        leadCityAreasCache = [];
+        leadLoadedCity = '';
+        return [];
+    }
+
+    // 1. Instant cache from leadDefaultCityAreasMap so suggestions appear in 0ms
+    if (leadLoadedCity.toLowerCase() !== cityName.toLowerCase() || leadCityAreasCache.length === 0) {
+        let matchKey = Object.keys(leadDefaultCityAreasMap).find(k => k.toLowerCase() === cityName.toLowerCase());
+        if (matchKey && leadDefaultCityAreasMap[matchKey]) {
+            leadCityAreasCache = [...leadDefaultCityAreasMap[matchKey]];
+            leadLoadedCity = cityName;
+            
+            const inputEl = document.getElementById('lead_client_area');
+            const dropdown = document.getElementById('lead_area_autocomplete_dropdown');
+            if (inputEl && (document.activeElement === inputEl || (dropdown && dropdown.style.display === 'block'))) {
+                renderLeadAreaSuggestions(inputEl.value);
+            }
+        }
+    }
+
+    try {
+        const spinner = document.getElementById('lead_area_input_icon_spinner');
+        if (spinner) spinner.innerHTML = '<span style="font-size:10px; color:var(--primary);">...</span>';
+
+        const res = await fetch(`index.php?page=clients&action=get_city_areas&city=${encodeURIComponent(cityName)}&state=${encodeURIComponent(stateName)}`);
+        const data = await res.json();
+
+        if (spinner) spinner.innerHTML = '<i data-lucide="map-pin" style="width:14px; height:14px;"></i>';
+        if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') lucide.createIcons();
+
+        if (data.success && Array.isArray(data.areas) && data.areas.length > 0) {
+            leadCityAreasCache = data.areas;
+            leadLoadedCity = cityName;
+
+            const inputEl = document.getElementById('lead_client_area');
+            const dropdown = document.getElementById('lead_area_autocomplete_dropdown');
+            if (inputEl && (document.activeElement === inputEl || (dropdown && dropdown.style.display === 'block'))) {
+                renderLeadAreaSuggestions(inputEl.value);
+            }
+            return data.areas;
+        }
+    } catch (e) {
+        console.error('Error fetching lead city areas:', e);
+    }
+    return leadCityAreasCache;
+}
+window.fetchLeadCityAreas = fetchLeadCityAreas;
+
+async function onLeadAreaInputFocus() {
+    const cityVal = (document.getElementById('lead_client_city')?.value || '').trim();
+    const stateVal = (document.getElementById('lead_client_state')?.value || '').trim();
+    const inputVal = (document.getElementById('lead_client_area')?.value || '').trim();
+
+    if (cityVal && (leadLoadedCity.toLowerCase() !== cityVal.toLowerCase() || leadCityAreasCache.length === 0)) {
+        await fetchLeadCityAreas(cityVal, stateVal);
+    }
+    renderLeadAreaSuggestions(inputVal);
+}
+window.onLeadAreaInputFocus = onLeadAreaInputFocus;
+
+function onLeadAreaInputChange(val) {
+    renderLeadAreaSuggestions(val);
+}
+window.onLeadAreaInputChange = onLeadAreaInputChange;
+
+function renderLeadAreaSuggestions(query) {
+    const dropdown = document.getElementById('lead_area_autocomplete_dropdown');
+    const cityVal = (document.getElementById('lead_client_city')?.value || '').trim();
+    if (!dropdown) return;
+
+    query = (query || '').trim().toLowerCase();
+
+    if (!cityVal) {
+        dropdown.innerHTML = `
+            <div style="padding: 8px 12px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+                ⚠️ Please select a <strong>City</strong> first
+            </div>
+        `;
+        dropdown.style.display = 'block';
+        return;
+    }
+
+    let filtered = leadCityAreasCache.filter(a => a.toLowerCase().includes(query));
+
+    let html = '';
+    if (filtered.length > 0) {
+        html += `<div style="font-size: 0.68rem; font-weight: 700; color: var(--text-muted); padding: 4px 8px; text-transform: uppercase; letter-spacing: 0.05em;">Areas in ${escapeHtml(cityVal)} (${filtered.length})</div>`;
+        filtered.forEach(area => {
+            const escaped = escapeHtml(area);
+            html += `
+                <div class="area-item" onclick="selectLeadArea('${escaped.replace(/'/g, "\\'")}')" style="padding: 6px 10px; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: background 0.15s; margin-bottom: 2px;" onmouseover="this.style.background='var(--border-card)'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <i data-lucide="map-pin" style="width: 12px; height: 12px; color: var(--primary);"></i>
+                        <span>${escaped}</span>
+                    </div>
+                    <span style="font-size: 0.65rem; color: var(--text-muted);">Select</span>
+                </div>
+            `;
+        });
+    }
+
+    const exactMatch = leadCityAreasCache.some(a => a.toLowerCase() === query);
+    if (query && !exactMatch) {
+        if (filtered.length === 0) {
+            html += `
+                <div style="padding: 8px 10px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+                    No area matching "<strong>${escapeHtml(query)}</strong>" in ${escapeHtml(cityVal)}.
+                </div>
+            `;
+        }
+        html += `
+            <div style="padding: 6px 8px; border-top: 1px dashed var(--border-color); margin-top: 4px;">
+                <button type="button" onclick="quickAddNewLeadArea('${escapeHtml(query).replace(/'/g, "\\'")}')" class="btn btn-primary" style="width: 100%; font-size: 0.75rem; padding: 6px 10px; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                    <i data-lucide="plus" style="width: 13px; height: 13px;"></i>
+                    <span>+ Add "<strong>${escapeHtml(query)}</strong>" to ${escapeHtml(cityVal)}</span>
+                </button>
+            </div>
+        `;
+    } else if (!query && filtered.length === 0) {
+        html = `
+            <div style="padding: 12px 10px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+                No areas saved yet for ${escapeHtml(cityVal)}.
+                <div style="margin-top: 6px;">
+                    <button type="button" onclick="openQuickAddLeadAreaPrompt()" class="btn btn-secondary text-xs" style="padding: 4px 10px;">+ Add First Area</button>
+                </div>
+            </div>
+        `;
+    }
+
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+
+    if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+}
+window.renderLeadAreaSuggestions = renderLeadAreaSuggestions;
+
+function selectLeadArea(areaName) {
+    const input = document.getElementById('lead_client_area');
+    if (input) input.value = areaName;
+    const dropdown = document.getElementById('lead_area_autocomplete_dropdown');
+    if (dropdown) dropdown.style.display = 'none';
+}
+window.selectLeadArea = selectLeadArea;
+
+async function quickAddNewLeadArea(areaName) {
+    const cityVal = (document.getElementById('lead_client_city')?.value || '').trim();
+    const stateVal = (document.getElementById('lead_client_state')?.value || '').trim();
+    if (!cityVal) {
+        alert('Please select a City first.');
+        return;
+    }
+    if (!areaName) {
+        alert('Area name cannot be empty.');
+        return;
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('action', 'add_city_area');
+        formData.append('city', cityVal);
+        formData.append('state', stateVal);
+        formData.append('area_name', areaName);
+
+        const res = await fetch('index.php?page=clients', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            if (!leadCityAreasCache.includes(areaName)) {
+                leadCityAreasCache.push(areaName);
+                leadCityAreasCache.sort();
+            }
+            selectLeadArea(areaName);
+        } else {
+            alert(data.message || 'Could not save area.');
+        }
+    } catch (e) {
+        console.error(e);
+        if (!leadCityAreasCache.includes(areaName)) {
+            leadCityAreasCache.push(areaName);
+        }
+        selectLeadArea(areaName);
+    }
+}
+window.quickAddNewLeadArea = quickAddNewLeadArea;
+
+function openQuickAddLeadAreaPrompt() {
+    const cityVal = (document.getElementById('lead_client_city')?.value || '').trim();
+    if (!cityVal) {
+        alert('Please select a State and City first.');
+        document.getElementById('lead_client_city')?.focus();
+        return;
+    }
+    const entered = prompt(`Enter new Area / Locality name for ${cityVal}:`);
+    if (entered && entered.trim()) {
+        quickAddNewLeadArea(entered.trim());
+    }
+}
+window.openQuickAddLeadAreaPrompt = openQuickAddLeadAreaPrompt;
+
+function onLeadAreaInputKeydown(e) {
+    if (e.key === 'Escape') {
+        const dropdown = document.getElementById('lead_area_autocomplete_dropdown');
+        if (dropdown) dropdown.style.display = 'none';
+    }
+}
+window.onLeadAreaInputKeydown = onLeadAreaInputKeydown;
+
+// Global outside click dismisser
+document.addEventListener('click', function(e) {
+    const wrapper = document.getElementById('lead_area_autocomplete_wrapper');
+    const dropdown = document.getElementById('lead_area_autocomplete_dropdown');
+    if (wrapper && dropdown && !wrapper.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
+
+// Auto initialize on DOM ready
+document.addEventListener('DOMContentLoaded', function() {
+    const curCity = document.getElementById('lead_client_city')?.value;
+    const curState = document.getElementById('lead_client_state')?.value;
+    if (curCity) {
+        fetchLeadCityAreas(curCity, curState);
+    }
+});
 </script>
