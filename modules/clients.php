@@ -2663,11 +2663,20 @@ function performWinLicenceSearch() {
 // --------------------------------------------------------------------------
 // Modal Tab & Step Switcher Controller (Clean Multi-Step Form)
 // --------------------------------------------------------------------------
-const clientModalTabs = ['profile', 'contact', 'commercials'];
-let currentClientModalTab = 'profile';
+let isCustomerIdDuplicate = false;
 
 function switchClientModalTab(tabId) {
     if (!clientModalTabs.includes(tabId)) tabId = 'profile';
+
+    // Block advancing to Tab 2 or 3 if Customer ID is duplicate in Add mode
+    const dbId = document.getElementById('edit_client_db_id').value;
+    if (!dbId && isCustomerIdDuplicate && tabId !== 'profile') {
+        alert('Customer ID already exists in directory! Please enter a unique Customer ID before proceeding.');
+        const custInput = document.getElementById('edit_customer_id');
+        if (custInput) custInput.focus();
+        return;
+    }
+
     currentClientModalTab = tabId;
 
     // Show/Hide Panes & Style Active Tab Buttons
@@ -2700,6 +2709,17 @@ function switchClientModalTab(tabId) {
         if (nextBtn) {
             nextBtn.style.display = 'flex';
             nextBtn.innerHTML = '<span>Next: Contact & Address</span> <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>';
+            if (!dbId && isCustomerIdDuplicate) {
+                nextBtn.disabled = true;
+                nextBtn.style.opacity = '0.5';
+                nextBtn.style.cursor = 'not-allowed';
+                nextBtn.title = 'Please enter a unique Customer ID to proceed';
+            } else {
+                nextBtn.disabled = false;
+                nextBtn.style.opacity = '1';
+                nextBtn.style.cursor = 'pointer';
+                nextBtn.title = '';
+            }
         }
         if (saveBtn) saveBtn.style.display = 'none';
     } else if (tabId === 'contact') {
@@ -2708,13 +2728,27 @@ function switchClientModalTab(tabId) {
         if (nextBtn) {
             nextBtn.style.display = 'flex';
             nextBtn.innerHTML = '<span>Next: Commercials & Dates</span> <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>';
+            nextBtn.disabled = false;
+            nextBtn.style.opacity = '1';
+            nextBtn.style.cursor = 'pointer';
         }
         if (saveBtn) saveBtn.style.display = 'none';
     } else if (tabId === 'commercials') {
         if (indicator) indicator.innerText = 'Step 3 of 3: Commercials & Dates';
         if (prevBtn) prevBtn.style.display = 'inline-flex';
         if (nextBtn) nextBtn.style.display = 'none';
-        if (saveBtn) saveBtn.style.display = 'inline-flex';
+        if (saveBtn) {
+            saveBtn.style.display = 'inline-flex';
+            if (!dbId && isCustomerIdDuplicate) {
+                saveBtn.disabled = true;
+                saveBtn.style.opacity = '0.5';
+                saveBtn.style.cursor = 'not-allowed';
+            } else {
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+                saveBtn.style.cursor = 'pointer';
+            }
+        }
     }
 
     if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
@@ -2724,6 +2758,13 @@ function switchClientModalTab(tabId) {
 window.switchClientModalTab = switchClientModalTab;
 
 function navigateClientModalStep(direction) {
+    const dbId = document.getElementById('edit_client_db_id').value;
+    if (direction > 0 && !dbId && isCustomerIdDuplicate) {
+        alert('Customer ID already exists in directory! Please enter a unique Customer ID before proceeding.');
+        const custInput = document.getElementById('edit_customer_id');
+        if (custInput) custInput.focus();
+        return;
+    }
     const currentIndex = clientModalTabs.indexOf(currentClientModalTab);
     let nextIndex = currentIndex + direction;
     if (nextIndex < 0) nextIndex = 0;
@@ -2861,7 +2902,7 @@ function onActOnDateChange(actOnVal) {
 window.onActOnDateChange = onActOnDateChange;
 
 // --------------------------------------------------------------------------
-// Real-time Customer ID Duplicate Checker & Auto-fill Preview
+// Real-time Customer ID Duplicate Checker & Navigation Guard
 // --------------------------------------------------------------------------
 let custIdCheckTimer = null;
 
@@ -2871,14 +2912,17 @@ function onCustomerIdInput(val) {
     const alertEl = document.getElementById('customer_id_duplicate_alert');
     const statusEl = document.getElementById('customer_id_live_status');
     const saveBtn = document.getElementById('client_modal_save_btn');
+    const nextBtn = document.getElementById('client_modal_next_btn');
     const inputEl = document.getElementById('edit_customer_id');
 
     val = String(val).trim();
-    // If editing existing client or empty value, clear warnings
+    // If editing existing client or empty value, clear warnings & enable navigation
     if (!val || dbId) {
+        isCustomerIdDuplicate = false;
         if (alertEl) alertEl.style.display = 'none';
         if (statusEl) { statusEl.style.display = 'none'; statusEl.innerHTML = ''; }
         if (inputEl) { inputEl.style.borderColor = ''; inputEl.style.boxShadow = ''; }
+        if (nextBtn) { nextBtn.disabled = false; nextBtn.style.opacity = '1'; nextBtn.style.cursor = 'pointer'; nextBtn.title = ''; }
         if (saveBtn) { saveBtn.disabled = false; saveBtn.style.opacity = '1'; saveBtn.style.cursor = 'pointer'; saveBtn.title = ''; }
         return;
     }
@@ -2890,7 +2934,7 @@ function onCustomerIdInput(val) {
 
     custIdCheckTimer = setTimeout(() => {
         checkCustomerIdExistence(val);
-    }, 350);
+    }, 300);
 }
 window.onCustomerIdInput = onCustomerIdInput;
 
@@ -2902,48 +2946,54 @@ async function checkCustomerIdExistence(custId) {
     const descEl = document.getElementById('customer_id_duplicate_desc');
     const statusEl = document.getElementById('customer_id_live_status');
     const saveBtn = document.getElementById('client_modal_save_btn');
+    const nextBtn = document.getElementById('client_modal_next_btn');
     const inputEl = document.getElementById('edit_customer_id');
 
     try {
         const res = await fetch('index.php?page=clients&action=check_customer_id&customer_id=' + encodeURIComponent(custId));
         const data = await res.json();
 
-        // Ensure we are still in Add mode and matching input
+        // Ensure we are still in Add mode and matching current input
         if (document.getElementById('edit_client_db_id').value) return;
         const currentVal = (document.getElementById('edit_customer_id').value || '').trim();
         if (currentVal !== custId) return;
 
         if (data.exists && data.client) {
             const cl = data.client;
+            isCustomerIdDuplicate = true;
             
             // 1. Status Indicator
             if (statusEl) {
                 statusEl.style.display = 'inline-block';
-                statusEl.innerHTML = '<span style="color: #dc2626; font-weight: 800; font-size: 0.68rem;">❌ Already Exists</span>';
+                statusEl.innerHTML = '<span style="color: #dc2626; font-weight: 800; font-size: 0.68rem;">❌ Already Registered</span>';
             }
             if (inputEl) {
                 inputEl.style.borderColor = '#dc2626';
                 inputEl.style.boxShadow = '0 0 0 2px rgba(220, 38, 38, 0.2)';
             }
 
-            // 2. Alert Banner with Details
+            // 2. Alert Banner with Clear Info (NO AUTO-OVERWRITE of user's form inputs)
             if (alertEl && descEl) {
                 alertEl.style.display = 'block';
-                descEl.innerHTML = `Customer ID <strong>${cl.customer_id}</strong> is already registered for firm: <strong>${cl.party_name}</strong> (Mobile: ${cl.mobile || 'N/A'}, City: ${cl.city || 'N/A'}, S/W: ${cl.sw_type || 'Marg'}). Details have been loaded below. <strong>Adding a duplicate record with this Customer ID is blocked.</strong>`;
+                descEl.innerHTML = `Customer ID <strong>${cl.customer_id}</strong> is already registered for firm: <strong>${cl.party_name}</strong> (Mobile: ${cl.mobile || 'N/A'}, City: ${cl.city || 'N/A'}). <strong>Duplicate Customer ID is not allowed. Please enter a unique ID to proceed to Next step.</strong>`;
             }
 
-            // 3. Populate existing client details
-            populateClientModalData(cl);
-
-            // 4. Disable Create/Save Button
+            // 3. Block "Next" & "Save" Buttons
+            if (nextBtn) {
+                nextBtn.disabled = true;
+                nextBtn.style.opacity = '0.45';
+                nextBtn.style.cursor = 'not-allowed';
+                nextBtn.title = 'Customer ID already registered. Enter a unique ID to proceed';
+            }
             if (saveBtn) {
                 saveBtn.disabled = true;
-                saveBtn.style.opacity = '0.5';
+                saveBtn.style.opacity = '0.45';
                 saveBtn.style.cursor = 'not-allowed';
                 saveBtn.title = 'Cannot create duplicate client: Customer ID already exists';
             }
         } else {
             // Customer ID is Available!
+            isCustomerIdDuplicate = false;
             if (statusEl) {
                 statusEl.style.display = 'inline-block';
                 statusEl.innerHTML = '<span style="color: #10b981; font-weight: 800; font-size: 0.68rem;">✓ Available</span>';
@@ -2953,6 +3003,12 @@ async function checkCustomerIdExistence(custId) {
                 inputEl.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
             }
             if (alertEl) alertEl.style.display = 'none';
+            if (nextBtn) {
+                nextBtn.disabled = false;
+                nextBtn.style.opacity = '1';
+                nextBtn.style.cursor = 'pointer';
+                nextBtn.title = '';
+            }
             if (saveBtn) {
                 saveBtn.disabled = false;
                 saveBtn.style.opacity = '1';
