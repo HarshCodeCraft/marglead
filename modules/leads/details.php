@@ -152,7 +152,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     if ($db_connected && $pdo && !empty($leadId)) {
         try {
-            $customer_id = trim($_POST['customer_id'] ?? $leadId);
+            $customer_id = trim($_POST['customer_id'] ?? '');
+            $customer_id = preg_replace('/[^0-9]/', '', $customer_id);
+            if (empty($customer_id)) {
+                $_SESSION['flash_error'] = "Customer ID (License No.) is mandatory and must contain only numbers!";
+                header("Location: index.php?page=lead_details&id=" . $leadId . "&active_tab=client-details");
+                exit;
+            }
             $party_name = trim($_POST['party_name'] ?? '');
             $company_using = trim($_POST['company_using'] ?? '');
             $mobile = trim($_POST['mobile'] ?? '');
@@ -1035,8 +1041,14 @@ $isClientWon = in_array($leadStatusNorm, ['closed won', 'won', 'client', 'conver
                                 </h4>
                                 <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
                                     <div class="form-group m-0">
-                                        <label class="form-label text-xs font-semibold">Marg Customer ID / Code</label>
-                                        <input type="text" name="customer_id" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['customer_id'] ?? $lead['id']); ?>" required placeholder="E.g. MARG-98721">
+                                        <label class="form-label text-xs font-semibold">Customer ID (License No.) <span class="text-danger">*</span></label>
+                                        <?php 
+                                            $rawCustId = $client_dir_data['customer_id'] ?? '';
+                                            // Only display if purely numeric license no (do not display lead IDs like LD-348577)
+                                            $displayCustId = (preg_match('/^[0-9]+$/', $rawCustId)) ? $rawCustId : '';
+                                        ?>
+                                        <input type="text" name="customer_id" class="form-control text-sm font-mono font-bold" value="<?php echo htmlspecialchars($displayCustId); ?>" required pattern="[0-9]+" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9]/g, '')" placeholder="E.g. 7933108" title="Customer ID (License Number) must be numbers only">
+                                        <span class="text-xs text-muted" style="font-size: 11px;">Mandatory numerical license number</span>
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Party Name <span class="text-danger">*</span></label>
