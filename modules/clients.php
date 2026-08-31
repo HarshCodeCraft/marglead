@@ -2154,23 +2154,23 @@ function highlightProductPill(which) {
 
 <!-- Modal 4: Add / Edit Client Directory Record Modal — Modern Premium Redesign -->
 <div id="edit-client-record-modal" class="modal-overlay">
-    <div class="modal-container" style="max-width: 950px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-main); border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 32px 64px -12px rgba(0,0,0,0.6); overflow: hidden;">
+    <div class="modal-container" style="max-width: 680px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-main); border-radius: 18px; border: 1px solid var(--border-color); box-shadow: 0 24px 48px -12px rgba(0,0,0,0.5); overflow: hidden;">
         
         <!-- HEADER (Fixed Top) -->
-        <div style="flex-shrink: 0; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); padding: 1rem 1.5rem;" class="flex align-center justify-between">
-            <div class="flex align-center gap-3">
-                <div style="background: rgba(255,255,255,0.18); backdrop-filter: blur(8px); padding: 0.55rem; border-radius: 12px; display:flex; align-items:center; justify-content:center;">
-                    <i id="edit_client_modal_icon" data-lucide="edit-3" style="width:20px; height:20px; color:#fff;"></i>
+        <div style="flex-shrink: 0; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); padding: 0.9rem 1.25rem;" class="flex align-center justify-between">
+            <div class="flex align-center gap-2.5">
+                <div style="background: rgba(255,255,255,0.18); backdrop-filter: blur(8px); padding: 0.45rem; border-radius: 10px; display:flex; align-items:center; justify-content:center;">
+                    <i id="edit_client_modal_icon" data-lucide="edit-3" style="width:18px; height:18px; color:#fff;"></i>
                 </div>
                 <div>
-                    <h3 id="edit_client_modal_title" class="m-0" style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;">
+                    <h3 id="edit_client_modal_title" class="m-0" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;">
                         Edit Client Directory Record
                     </h3>
-                    <span id="edit_client_modal_subtitle" style="font-size: 0.72rem; color: rgba(255,255,255,0.75);">Update client profile details, license parameters, software edition, and address.</span>
+                    <span id="edit_client_modal_subtitle" style="font-size: 0.7rem; color: rgba(255,255,255,0.8);">Update client profile details, license parameters, and software edition.</span>
                 </div>
             </div>
-            <button type="button" onclick="window.closeModal('edit-client-record-modal')" style="background: rgba(255,255,255,0.15); border: none; border-radius: 10px; width: 34px; height: 34px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
-                <i data-lucide="x" style="width:18px; height:18px; color:#fff;"></i>
+            <button type="button" onclick="window.closeModal('edit-client-record-modal')" style="background: rgba(255,255,255,0.15); border: none; border-radius: 8px; width: 30px; height: 30px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+                <i data-lucide="x" style="width:16px; height:16px; color:#fff;"></i>
             </button>
         </div>
 
@@ -2179,116 +2179,105 @@ function highlightProductPill(which) {
             <input type="hidden" id="edit_client_db_id" name="client_db_id" value="">
 
             <!-- STEP & TAB SELECTOR (Top Navigation) -->
-            <div style="background: var(--bg-card); border-bottom: 1px solid var(--border-color); padding: 0.65rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--bg-app); padding: 4px; border-radius: 12px; border: 1px solid var(--border-color);">
-                    <button type="button" id="tab_btn_client_profile" onclick="switchClientModalTab('profile')" class="client-modal-tab-btn" style="border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.25);">
-                        <i data-lucide="building" style="width: 14px; height: 14px;"></i>
+            <div style="background: var(--bg-card); border-bottom: 1px solid var(--border-color); padding: 0.55rem 1.15rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 0.35rem; background: var(--bg-app); padding: 3px; border-radius: 10px; border: 1px solid var(--border-color);">
+                    <button type="button" id="tab_btn_client_profile" onclick="switchClientModalTab('profile')" class="client-modal-tab-btn" style="border: none; padding: 5px 12px; border-radius: 7px; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.2s; background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.25);">
+                        <i data-lucide="building" style="width: 13px; height: 13px;"></i>
                         <span>1. Firm &amp; Software</span>
                     </button>
-                    <button type="button" id="tab_btn_client_contact" onclick="switchClientModalTab('contact')" class="client-modal-tab-btn" style="border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; background: transparent; color: var(--text-muted);">
-                        <i data-lucide="map-pin" style="width: 14px; height: 14px;"></i>
+                    <button type="button" id="tab_btn_client_contact" onclick="switchClientModalTab('contact')" class="client-modal-tab-btn" style="border: none; padding: 5px 12px; border-radius: 7px; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.2s; background: transparent; color: var(--text-muted);">
+                        <i data-lucide="map-pin" style="width: 13px; height: 13px;"></i>
                         <span>2. Contact &amp; Address</span>
                     </button>
-                    <button type="button" id="tab_btn_client_commercials" onclick="switchClientModalTab('commercials')" class="client-modal-tab-btn" style="border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; background: transparent; color: var(--text-muted);">
-                        <i data-lucide="calendar-check-2" style="width: 14px; height: 14px;"></i>
+                    <button type="button" id="tab_btn_client_commercials" onclick="switchClientModalTab('commercials')" class="client-modal-tab-btn" style="border: none; padding: 5px 12px; border-radius: 7px; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.2s; background: transparent; color: var(--text-muted);">
+                        <i data-lucide="calendar-check-2" style="width: 13px; height: 13px;"></i>
                         <span>3. Commercials &amp; Dates</span>
                     </button>
                 </div>
-                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700; background: var(--bg-app); padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border-color);">
+                <div style="font-size: 0.7rem; color: var(--text-muted); font-weight: 700; background: var(--bg-app); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-color);">
                     <span id="client_modal_step_indicator">Step 1 of 3: Firm &amp; Software</span>
                 </div>
             </div>
 
-            <div class="modal-body p-5" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-app);">
+            <div class="modal-body p-4" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-app);">
                 
                 <!-- PANE 1: FIRM & SOFTWARE PROFILE -->
-                <div id="client_pane_profile" class="flex flex-col gap-4" style="display: flex;">
-                    
-                    <!-- Card 1A: Basic Identification -->
-                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
-                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
-                            <i data-lucide="id-card" style="width:14px; height:14px;"></i> Firm &amp; Client Identity
+                <div id="client_pane_profile" class="flex flex-col" style="display: flex;">
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.15rem 1.25rem;">
+                        
+                        <!-- Row 1: Party Name (Full) -->
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Party Name (Firm / Company) *</label>
+                            <input type="text" id="edit_party_name" name="party_name" required placeholder="e.g. Apex Medical Store" class="form-control text-xs" style="height: 38px; border-radius: 8px;">
                         </div>
 
-                        <div class="grid grid-4 gap-3">
-                            <div class="form-group m-0" style="grid-column: span 2;">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Name (Firm / Company) *</label>
-                                <input type="text" id="edit_party_name" name="party_name" required placeholder="e.g. Apex Medical Store" class="form-control text-xs" style="border-radius: 8px;">
-                            </div>
-
+                        <!-- Row 2: Customer ID & Category -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" id="edit_customer_id_label" style="color: var(--text-main);">
+                                <label id="edit_customer_id_label" style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">
                                     Customer ID *
-                                    <span id="edit_customer_id_locked_badge" class="badge" style="display:none; --badge-bg: rgba(239,68,68,0.1); --badge-color: #dc2626; font-size: 0.65rem; margin-left: 6px; vertical-align: middle;">
-                                        🔒 Non-Editable
-                                    </span>
+                                    <span id="edit_customer_id_locked_badge" class="badge" style="display:none; --badge-bg: rgba(239,68,68,0.1); --badge-color: #dc2626; font-size: 0.65rem; margin-left: 4px;">🔒 Locked</span>
                                 </label>
-                                <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                                <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
                             </div>
-
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Category</label>
-                                <select id="edit_category" name="category" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Category</label>
+                                <select id="edit_category" name="category" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
                                     <option value="Category A">A - Premium</option>
                                     <option value="Category B">B - Standard</option>
                                     <option value="Category C">C - General</option>
                                 </select>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Card 1B: Software Configuration -->
-                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
-                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
-                            <i data-lucide="cpu" style="width:14px; height:14px;"></i> Software Edition &amp; User Setup
-                        </div>
-
-                        <div class="grid grid-4 gap-3 mb-3">
+                        <!-- Row 3: S/W Type & Edition -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">S/W Type *</label>
-                                <select id="edit_sw_type" name="sw_type" class="form-control text-xs font-semibold" style="border-radius: 8px;" onchange="onSwTypeChange(this.value)">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">S/W Type *</label>
+                                <select id="edit_sw_type" name="sw_type" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onchange="onSwTypeChange(this.value)">
                                     <option value="">-- Select S/W Type --</option>
                                     <?php foreach (array_keys($sw_types_map) as $swName): ?>
                                         <option value="<?php echo htmlspecialchars($swName); ?>"><?php echo htmlspecialchars($swName); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Edition *</label>
-                                <select id="edit_software_type" name="software_type" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Edition *</label>
+                                <select id="edit_software_type" name="software_type" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
                                     <option value="">-- Select S/W Type First --</option>
                                 </select>
                             </div>
+                        </div>
 
+                        <!-- Row 4: User License Type & No. of Users -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">User License Type</label>
-                                <select id="edit_user_type" name="user_type" class="form-control text-xs" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">User License Type</label>
+                                <select id="edit_user_type" name="user_type" class="form-control text-xs" style="height: 38px; border-radius: 8px;">
                                     <option value="Single User">Single User</option>
                                     <option value="Multi User">Multi User</option>
                                 </select>
                             </div>
-
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">No. of Users</label>
-                                <input type="number" id="edit_no_of_users" name="no_of_users" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">No. of Users</label>
+                                <input type="number" id="edit_no_of_users" name="no_of_users" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
                             </div>
                         </div>
 
-                        <div class="grid grid-3 gap-3">
+                        <!-- Row 5: Nature of Business & Software Trade -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Nature of Business</label>
-                                <select id="edit_nature_of_business" name="nature_of_business" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Nature of Business</label>
+                                <select id="edit_nature_of_business" name="nature_of_business" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
                                     <option value="">-- Select Nature of Business --</option>
                                     <?php foreach ($nature_of_business_list as $nob): ?>
                                         <option value="<?php echo htmlspecialchars($nob); ?>"><?php echo htmlspecialchars($nob); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-
-                            <div class="form-group m-0" style="grid-column: span 2;">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Trade</label>
-                                <select id="edit_software_trade" name="software_trade" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Trade</label>
+                                <select id="edit_software_trade" name="software_trade" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
                                     <option value="">-- Select Software Trade --</option>
                                     <?php foreach ($software_trades_list as $trade): ?>
                                         <option value="<?php echo htmlspecialchars($trade); ?>"><?php echo htmlspecialchars($trade); ?></option>
@@ -2296,104 +2285,94 @@ function highlightProductPill(which) {
                                 </select>
                             </div>
                         </div>
+
                     </div>
                 </div>
 
                 <!-- PANE 2: CONTACT & REGISTERED ADDRESS -->
-                <div id="client_pane_contact" class="flex flex-col gap-4" style="display: none;">
-                    
-                    <!-- Card 2A: Contact Info -->
-                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
-                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
-                            <i data-lucide="phone-call" style="width:14px; height:14px;"></i> Contact &amp; Communication Channels
-                        </div>
-
-                        <div class="grid grid-4 gap-3">
+                <div id="client_pane_contact" class="flex flex-col" style="display: none;">
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.15rem 1.25rem;">
+                        
+                        <!-- Row 1: Mobile & Alternative No. -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Registered Mobile</label>
-                                <input type="text" id="edit_mobile" name="mobile" placeholder="e.g. 9876543210" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Registered Mobile</label>
+                                <input type="text" id="edit_mobile" name="mobile" placeholder="e.g. 9876543210" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
                             </div>
-
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Alternative Mobile / No.</label>
-                                <input type="text" id="edit_alt_mobile" name="alt_mobile" placeholder="e.g. 9876500000" class="form-control text-xs font-mono" style="border-radius: 8px;">
-                            </div>
-
-                            <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Registered Email</label>
-                                <input type="email" id="edit_email" name="email" placeholder="e.g. client@example.com" class="form-control text-xs font-mono" style="border-radius: 8px;">
-                            </div>
-
-                            <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Contact Person Name</label>
-                                <input type="text" id="edit_contact_person" name="contact_person" placeholder="e.g. Dr. Rajesh Sharma" class="form-control text-xs" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Alternative Mobile / No.</label>
+                                <input type="text" id="edit_alt_mobile" name="alt_mobile" placeholder="e.g. 9876500000" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Card 2B: Location & Address -->
-                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
-                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
-                            <i data-lucide="map-pin" style="width:14px; height:14px;"></i> Registered Location &amp; Address
-                        </div>
-
-                        <div class="form-group mb-3">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Street / Building Address</label>
-                            <textarea id="edit_address" name="address" rows="2" placeholder="e.g. Shop No. 12, Main Market, Civil Lines" class="form-control text-xs" style="border-radius: 8px; resize: vertical;"></textarea>
-                        </div>
-
-                        <div class="grid grid-4 gap-3">
+                        <!-- Row 2: Email & Contact Person -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">State</label>
-                                <select id="edit_state" name="state" class="form-control text-xs font-semibold" style="border-radius: 8px;" onchange="onClientStateSelect(this.value)">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Registered Email</label>
+                                <input type="email" id="edit_email" name="email" placeholder="e.g. client@example.com" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
+                            </div>
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Contact Person Name</label>
+                                <input type="text" id="edit_contact_person" name="contact_person" placeholder="e.g. Dr. Rajesh Sharma" class="form-control text-xs" style="height: 38px; border-radius: 8px;">
+                            </div>
+                        </div>
+
+                        <!-- Row 3: Street Address -->
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Street / Building Address</label>
+                            <textarea id="edit_address" name="address" rows="2" placeholder="e.g. Shop No. 12, Main Market, Civil Lines" class="form-control text-xs" style="border-radius: 8px; resize: vertical; min-height: 52px;"></textarea>
+                        </div>
+
+                        <!-- Row 4: State & City -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">State</label>
+                                <select id="edit_state" name="state" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onchange="onClientStateSelect(this.value)">
                                     <option value="">-- Select State --</option>
                                     <?php foreach ($indian_states_list as $stName): ?>
                                         <option value="<?php echo htmlspecialchars($stName); ?>"><?php echo htmlspecialchars($stName); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">City</label>
-                                <select id="edit_city" name="city" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">City</label>
+                                <select id="edit_city" name="city" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
                                     <option value="">-- Select City --</option>
                                     <?php foreach ($all_indian_cities as $cName): ?>
                                         <option value="<?php echo htmlspecialchars($cName); ?>"><?php echo htmlspecialchars($cName); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
+                        </div>
 
+                        <!-- Row 5: Area & Zip Code -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Area / Locality</label>
-                                <input type="text" id="edit_area" name="area" placeholder="e.g. Sector 18 / Civil Lines" class="form-control text-xs" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Area / Locality</label>
+                                <input type="text" id="edit_area" name="area" placeholder="e.g. Sector 18 / Civil Lines" class="form-control text-xs" style="height: 38px; border-radius: 8px;">
                             </div>
-
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Zip Code</label>
-                                <input type="text" id="edit_online_zip_code" name="online_zip_code" placeholder="e.g. 208001" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Zip Code</label>
+                                <input type="text" id="edit_online_zip_code" name="online_zip_code" placeholder="e.g. 208001" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
                             </div>
                         </div>
+
                     </div>
                 </div>
 
                 <!-- PANE 3: COMMERCIALS & KEY DATES -->
-                <div id="client_pane_commercials" class="flex flex-col gap-4" style="display: none;">
-                    
-                    <!-- Card 3A: Commercials -->
-                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
-                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
-                            <i data-lucide="wallet" style="width:14px; height:14px;"></i> Commercials &amp; Account Status
-                        </div>
-
-                        <div class="grid grid-2 gap-4">
+                <div id="client_pane_commercials" class="flex flex-col" style="display: none;">
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.15rem 1.25rem;">
+                        
+                        <!-- Row 1: Amount & Party Status -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Total Contract / AMC Amount (₹)</label>
-                                <input type="number" step="0.01" id="edit_total_amount" name="total_amount" placeholder="e.g. 4661.00" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Total Contract / AMC Amount (₹)</label>
+                                <input type="number" step="0.01" id="edit_total_amount" name="total_amount" placeholder="e.g. 4661.00" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
                             </div>
-
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Status</label>
-                                <select id="edit_party_status" name="party_status" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Party Status</label>
+                                <select id="edit_party_status" name="party_status" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
                                     <option value="Running">Running</option>
                                     <option value="Expired">Expired</option>
                                     <option value="Deactive">Deactive</option>
@@ -2401,50 +2380,48 @@ function highlightProductPill(which) {
                                 </select>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Card 3B: Dates -->
-                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
-                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
-                            <i data-lucide="calendar" style="width:14px; height:14px;"></i> Key License &amp; Followup Dates
-                        </div>
-
-                        <div class="grid grid-3 gap-3">
+                        <!-- Row 2: Act On & Due On -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Act On (Activation Date)</label>
-                                <input type="date" id="edit_act_on" name="act_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;" onchange="onActOnDateChange(this.value)" oninput="onActOnDateChange(this.value)">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Act On (Activation Date)</label>
+                                <input type="date" id="edit_act_on" name="act_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="height: 38px; border-radius: 8px;" onchange="onActOnDateChange(this.value)" oninput="onActOnDateChange(this.value)">
                             </div>
-
                             <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Due On (+1 Year Auto / Expiry)</label>
-                                <input type="date" id="edit_due_on" name="due_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;">
-                            </div>
-
-                            <div class="form-group m-0">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Hit Date</label>
-                                <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Due On (+1 Year Auto / Expiry)</label>
+                                <input type="date" id="edit_due_on" name="due_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="height: 38px; border-radius: 8px;">
                             </div>
                         </div>
+
+                        <!-- Row 3: Hit Date -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Hit Date</label>
+                                <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="height: 38px; border-radius: 8px;">
+                            </div>
+                            <div class="form-group m-0"></div>
+                        </div>
+
                     </div>
                 </div>
 
             </div>
 
             <!-- FOOTER (ALWAYS FIXED AT BOTTOM WITH STEP CONTROLS) -->
-            <div style="flex-shrink: 0; padding: 0.85rem 1.5rem; background: var(--border-card); border-top: 1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
-                <button type="button" onclick="window.closeModal('edit-client-record-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.25rem; font-size: 0.8rem;">
+            <div style="flex-shrink: 0; padding: 0.75rem 1.25rem; background: var(--border-card); border-top: 1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+                <button type="button" onclick="window.closeModal('edit-client-record-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 8px; padding: 0.45rem 1.15rem; font-size: 0.8rem;">
                     <i data-lucide="x" style="width:14px; height:14px;"></i> Cancel
                 </button>
-                <div style="display: flex; align-items: center; gap: 0.65rem;">
-                    <button type="button" id="client_modal_prev_btn" onclick="navigateClientModalStep(-1)" class="btn btn-secondary" style="display:none; border-radius: 9px; padding: 0.5rem 1.25rem; font-size: 0.8rem; font-weight: 700;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <button type="button" id="client_modal_prev_btn" onclick="navigateClientModalStep(-1)" class="btn btn-secondary" style="display:none; border-radius: 8px; padding: 0.45rem 1.15rem; font-size: 0.8rem; font-weight: 700;">
                         <i data-lucide="arrow-left" style="width:14px; height:14px;"></i> Back
                     </button>
-                    <button type="button" id="client_modal_next_btn" onclick="navigateClientModalStep(1)" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.4rem; font-size: 0.82rem; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%);">
+                    <button type="button" id="client_modal_next_btn" onclick="navigateClientModalStep(1)" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 8px; padding: 0.45rem 1.25rem; font-size: 0.8rem; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%);">
                         <span>Next: Contact &amp; Address</span>
                         <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>
                     </button>
-                    <button type="submit" id="client_modal_save_btn" class="btn btn-primary font-bold flex align-center gap-2" style="display:none; border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.85rem; background: #10b981; border: none; color: #fff; box-shadow: 0 4px 12px rgba(16,185,129,0.3);">
-                        <i data-lucide="check-circle-2" style="width:15px; height:15px;"></i>
+                    <button type="submit" id="client_modal_save_btn" class="btn btn-primary font-bold flex align-center gap-2" style="display:none; border-radius: 8px; padding: 0.45rem 1.35rem; font-size: 0.82rem; background: #10b981; border: none; color: #fff; box-shadow: 0 4px 12px rgba(16,185,129,0.3);">
+                        <i data-lucide="check-circle-2" style="width:14px; height:14px;"></i>
                         <span id="edit_client_submit_btn_text">Save Client Record</span>
                     </button>
                 </div>
