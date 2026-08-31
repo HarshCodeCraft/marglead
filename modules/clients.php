@@ -2178,225 +2178,276 @@ function highlightProductPill(which) {
             <input type="hidden" name="action" value="update_client_directory">
             <input type="hidden" id="edit_client_db_id" name="client_db_id" value="">
 
-            <div class="modal-body p-6 flex flex-col gap-5" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-app);">
+            <!-- STEP & TAB SELECTOR (Top Navigation) -->
+            <div style="background: var(--bg-card); border-bottom: 1px solid var(--border-color); padding: 0.65rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--bg-app); padding: 4px; border-radius: 12px; border: 1px solid var(--border-color);">
+                    <button type="button" id="tab_btn_client_profile" onclick="switchClientModalTab('profile')" class="client-modal-tab-btn" style="border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.25);">
+                        <i data-lucide="building" style="width: 14px; height: 14px;"></i>
+                        <span>1. Firm &amp; Software</span>
+                    </button>
+                    <button type="button" id="tab_btn_client_contact" onclick="switchClientModalTab('contact')" class="client-modal-tab-btn" style="border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; background: transparent; color: var(--text-muted);">
+                        <i data-lucide="map-pin" style="width: 14px; height: 14px;"></i>
+                        <span>2. Contact &amp; Address</span>
+                    </button>
+                    <button type="button" id="tab_btn_client_commercials" onclick="switchClientModalTab('commercials')" class="client-modal-tab-btn" style="border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; background: transparent; color: var(--text-muted);">
+                        <i data-lucide="calendar-check-2" style="width: 14px; height: 14px;"></i>
+                        <span>3. Commercials &amp; Dates</span>
+                    </button>
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700; background: var(--bg-app); padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <span id="client_modal_step_indicator">Step 1 of 3: Firm &amp; Software</span>
+                </div>
+            </div>
+
+            <div class="modal-body p-5" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-app);">
                 
-                <!-- SECTION 1: IDENTITY & BASIC INFO -->
-                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
-                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
-                        <i data-lucide="id-card" style="width:14px; height:14px;"></i> Client Identity &amp; Classification
-                    </div>
-
-                    <div class="grid grid-4 gap-3">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Name *</label>
-                            <input type="text" id="edit_party_name" name="party_name" required placeholder="e.g. Apex Medical Store" class="form-control text-xs" style="border-radius: 8px;">
+                <!-- PANE 1: FIRM & SOFTWARE PROFILE -->
+                <div id="client_pane_profile" class="flex flex-col gap-4" style="display: flex;">
+                    
+                    <!-- Card 1A: Basic Identification -->
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
+                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
+                            <i data-lucide="id-card" style="width:14px; height:14px;"></i> Firm &amp; Client Identity
                         </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" id="edit_customer_id_label" style="color: var(--text-main);">
-                                Customer ID *
-                                <span id="edit_customer_id_locked_badge" class="badge" style="display:none; --badge-bg: rgba(239,68,68,0.1); --badge-color: #dc2626; font-size: 0.65rem; margin-left: 6px; vertical-align: middle;">
-                                    🔒 Non-Editable
-                                </span>
-                            </label>
-                            <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947 " class="form-control text-xs font-mono" style="border-radius: 8px;">
-                        </div>
+                        <div class="grid grid-4 gap-3">
+                            <div class="form-group m-0" style="grid-column: span 2;">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Name (Firm / Company) *</label>
+                                <input type="text" id="edit_party_name" name="party_name" required placeholder="e.g. Apex Medical Store" class="form-control text-xs" style="border-radius: 8px;">
+                            </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Category</label>
-                            <select id="edit_category" name="category" class="form-control text-xs font-semibold" style="border-radius: 8px;">
-                                <option value="Category A">A - Premium</option>
-                                <option value="Category B">B - Standard</option>
-                                <option value="Category C">C - General</option>
-                            </select>
-                        </div>
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" id="edit_customer_id_label" style="color: var(--text-main);">
+                                    Customer ID *
+                                    <span id="edit_customer_id_locked_badge" class="badge" style="display:none; --badge-bg: rgba(239,68,68,0.1); --badge-color: #dc2626; font-size: 0.65rem; margin-left: 6px; vertical-align: middle;">
+                                        🔒 Non-Editable
+                                    </span>
+                                </label>
+                                <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">S/W Type</label>
-                            <select id="edit_sw_type" name="sw_type" class="form-control text-xs font-semibold" style="border-radius: 8px;" onchange="onSwTypeChange(this.value)">
-                                <option value="">-- Select S/W Type --</option>
-                                <?php foreach (array_keys($sw_types_map) as $swName): ?>
-                                    <option value="<?php echo htmlspecialchars($swName); ?>"><?php echo htmlspecialchars($swName); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- SECTION 2: CONTACT DETAILS -->
-                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
-                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
-                        <i data-lucide="phone-call" style="width:14px; height:14px;"></i> Contact &amp; Communication
-                    </div>
-
-                    <div class="grid grid-4 gap-3">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Reg Mobile</label>
-                            <input type="text" id="edit_mobile" name="mobile" placeholder="e.g. 9876543210" class="form-control text-xs font-mono" style="border-radius: 8px;">
-                        </div>
-
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Alternative No.</label>
-                            <input type="text" id="edit_alt_mobile" name="alt_mobile" placeholder="e.g. 9876500000" class="form-control text-xs font-mono" style="border-radius: 8px;">
-                        </div>
-
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Reg Email</label>
-                            <input type="email" id="edit_email" name="email" placeholder="e.g. client@example.com" class="form-control text-xs font-mono" style="border-radius: 8px;">
-                        </div>
-
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Contact Person</label>
-                            <input type="text" id="edit_contact_person" name="contact_person" placeholder="e.g. Dr. Rajesh Sharma" class="form-control text-xs" style="border-radius: 8px;">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- SECTION 3: SOFTWARE & LICENSE DETAILS -->
-                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
-                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
-                        <i data-lucide="cpu" style="width:14px; height:14px;"></i> Software Parameters &amp; Commercials
-                    </div>
-
-                    <div class="grid grid-4 gap-3 mb-3">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Type (Edition)</label>
-                            <select id="edit_software_type" name="software_type" class="form-control text-xs font-semibold" style="border-radius: 8px;">
-                                <option value="">-- Select S/W Type First --</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">User Type</label>
-                            <select id="edit_user_type" name="user_type" class="form-control text-xs" style="border-radius: 8px;">
-                                <option value="Single User">Single User</option>
-                                <option value="Multi User">Multi User</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">No. of Users</label>
-                            <input type="number" id="edit_no_of_users" name="no_of_users" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="border-radius: 8px;">
-                        </div>
-
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Nature of Business</label>
-                            <select id="edit_nature_of_business" name="nature_of_business" class="form-control text-xs font-semibold" style="border-radius: 8px;">
-                                <option value="">-- Select Nature of Business --</option>
-                                <?php foreach ($nature_of_business_list as $nob): ?>
-                                    <option value="<?php echo htmlspecialchars($nob); ?>"><?php echo htmlspecialchars($nob); ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Category</label>
+                                <select id="edit_category" name="category" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                    <option value="Category A">A - Premium</option>
+                                    <option value="Category B">B - Standard</option>
+                                    <option value="Category C">C - General</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="grid grid-3 gap-3">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Trade</label>
-                            <select id="edit_software_trade" name="software_trade" class="form-control text-xs font-semibold" style="border-radius: 8px;">
-                                <option value="">-- Select Software Trade --</option>
-                                <?php foreach ($software_trades_list as $trade): ?>
-                                    <option value="<?php echo htmlspecialchars($trade); ?>"><?php echo htmlspecialchars($trade); ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                    <!-- Card 1B: Software Configuration -->
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
+                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
+                            <i data-lucide="cpu" style="width:14px; height:14px;"></i> Software Edition &amp; User Setup
                         </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Total Contract Amount (₹)</label>
-                            <input type="number" step="0.01" id="edit_total_amount" name="total_amount" placeholder="e.g. 4661.00" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        <div class="grid grid-4 gap-3 mb-3">
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">S/W Type *</label>
+                                <select id="edit_sw_type" name="sw_type" class="form-control text-xs font-semibold" style="border-radius: 8px;" onchange="onSwTypeChange(this.value)">
+                                    <option value="">-- Select S/W Type --</option>
+                                    <?php foreach (array_keys($sw_types_map) as $swName): ?>
+                                        <option value="<?php echo htmlspecialchars($swName); ?>"><?php echo htmlspecialchars($swName); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Edition *</label>
+                                <select id="edit_software_type" name="software_type" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                    <option value="">-- Select S/W Type First --</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">User License Type</label>
+                                <select id="edit_user_type" name="user_type" class="form-control text-xs" style="border-radius: 8px;">
+                                    <option value="Single User">Single User</option>
+                                    <option value="Multi User">Multi User</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">No. of Users</label>
+                                <input type="number" id="edit_no_of_users" name="no_of_users" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            </div>
                         </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Status</label>
-                            <select id="edit_party_status" name="party_status" class="form-control text-xs" style="border-radius: 8px;">
-                                <option value="Running">Running</option>
-                                <option value="Expired">Expired</option>
-                                <option value="Deactive">Deactive</option>
-                                <option value="Suspended">Suspended</option>
-                            </select>
+                        <div class="grid grid-3 gap-3">
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Nature of Business</label>
+                                <select id="edit_nature_of_business" name="nature_of_business" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                    <option value="">-- Select Nature of Business --</option>
+                                    <?php foreach ($nature_of_business_list as $nob): ?>
+                                        <option value="<?php echo htmlspecialchars($nob); ?>"><?php echo htmlspecialchars($nob); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="form-group m-0" style="grid-column: span 2;">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Trade</label>
+                                <select id="edit_software_trade" name="software_trade" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                    <option value="">-- Select Software Trade --</option>
+                                    <?php foreach ($software_trades_list as $trade): ?>
+                                        <option value="<?php echo htmlspecialchars($trade); ?>"><?php echo htmlspecialchars($trade); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- SECTION 4: ADDRESS -->
-                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
-                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
-                        <i data-lucide="map-pin" style="width:14px; height:14px;"></i> Registered Location &amp; Address
+                <!-- PANE 2: CONTACT & REGISTERED ADDRESS -->
+                <div id="client_pane_contact" class="flex flex-col gap-4" style="display: none;">
+                    
+                    <!-- Card 2A: Contact Info -->
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
+                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
+                            <i data-lucide="phone-call" style="width:14px; height:14px;"></i> Contact &amp; Communication Channels
+                        </div>
+
+                        <div class="grid grid-4 gap-3">
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Registered Mobile</label>
+                                <input type="text" id="edit_mobile" name="mobile" placeholder="e.g. 9876543210" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Alternative Mobile / No.</label>
+                                <input type="text" id="edit_alt_mobile" name="alt_mobile" placeholder="e.g. 9876500000" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Registered Email</label>
+                                <input type="email" id="edit_email" name="email" placeholder="e.g. client@example.com" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Contact Person Name</label>
+                                <input type="text" id="edit_contact_person" name="contact_person" placeholder="e.g. Dr. Rajesh Sharma" class="form-control text-xs" style="border-radius: 8px;">
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="form-group mb-3">
-                        <label class="form-label text-xs font-bold" style="color: var(--text-main);">Registered Address</label>
-                        <textarea id="edit_address" name="address" rows="2" placeholder="e.g. Shop No. 12, Main Market, Civil Lines" class="form-control text-xs" style="border-radius: 8px; resize: vertical;"></textarea>
-                    </div>
-
-                    <div class="grid grid-4 gap-3">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">State</label>
-                            <select id="edit_state" name="state" class="form-control text-xs font-semibold" style="border-radius: 8px;" onchange="onClientStateSelect(this.value)">
-                                <option value="">-- Select State --</option>
-                                <?php foreach ($indian_states_list as $stName): ?>
-                                    <option value="<?php echo htmlspecialchars($stName); ?>"><?php echo htmlspecialchars($stName); ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                    <!-- Card 2B: Location & Address -->
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
+                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
+                            <i data-lucide="map-pin" style="width:14px; height:14px;"></i> Registered Location &amp; Address
                         </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">City</label>
-                            <select id="edit_city" name="city" class="form-control text-xs font-semibold" style="border-radius: 8px;">
-                                <option value="">-- Select City --</option>
-                                <?php foreach ($all_indian_cities as $cName): ?>
-                                    <option value="<?php echo htmlspecialchars($cName); ?>"><?php echo htmlspecialchars($cName); ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                        <div class="form-group mb-3">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Street / Building Address</label>
+                            <textarea id="edit_address" name="address" rows="2" placeholder="e.g. Shop No. 12, Main Market, Civil Lines" class="form-control text-xs" style="border-radius: 8px; resize: vertical;"></textarea>
                         </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Area / Locality</label>
-                            <input type="text" id="edit_area" name="area" placeholder="e.g. Sector 18 / Civil Lines" class="form-control text-xs" style="border-radius: 8px;">
-                        </div>
+                        <div class="grid grid-4 gap-3">
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">State</label>
+                                <select id="edit_state" name="state" class="form-control text-xs font-semibold" style="border-radius: 8px;" onchange="onClientStateSelect(this.value)">
+                                    <option value="">-- Select State --</option>
+                                    <?php foreach ($indian_states_list as $stName): ?>
+                                        <option value="<?php echo htmlspecialchars($stName); ?>"><?php echo htmlspecialchars($stName); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Zip Code</label>
-                            <input type="text" id="edit_online_zip_code" name="online_zip_code" placeholder="e.g. 208001" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">City</label>
+                                <select id="edit_city" name="city" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                    <option value="">-- Select City --</option>
+                                    <?php foreach ($all_indian_cities as $cName): ?>
+                                        <option value="<?php echo htmlspecialchars($cName); ?>"><?php echo htmlspecialchars($cName); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Area / Locality</label>
+                                <input type="text" id="edit_area" name="area" placeholder="e.g. Sector 18 / Civil Lines" class="form-control text-xs" style="border-radius: 8px;">
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Zip Code</label>
+                                <input type="text" id="edit_online_zip_code" name="online_zip_code" placeholder="e.g. 208001" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- SECTION 5: DATES -->
-                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
-                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.85rem; display:flex; align-items:center; gap: 6px;">
-                        <i data-lucide="calendar" style="width:14px; height:14px;"></i> Key License &amp; Followup Dates
+                <!-- PANE 3: COMMERCIALS & KEY DATES -->
+                <div id="client_pane_commercials" class="flex flex-col gap-4" style="display: none;">
+                    
+                    <!-- Card 3A: Commercials -->
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
+                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
+                            <i data-lucide="wallet" style="width:14px; height:14px;"></i> Commercials &amp; Account Status
+                        </div>
+
+                        <div class="grid grid-2 gap-4">
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Total Contract / AMC Amount (₹)</label>
+                                <input type="number" step="0.01" id="edit_total_amount" name="total_amount" placeholder="e.g. 4661.00" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Status</label>
+                                <select id="edit_party_status" name="party_status" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                    <option value="Running">Running</option>
+                                    <option value="Expired">Expired</option>
+                                    <option value="Deactive">Deactive</option>
+                                    <option value="Suspended">Suspended</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="grid grid-3 gap-3">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Act On (Activation Date)</label>
-                            <input type="date" id="edit_act_on" name="act_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;" onchange="onActOnDateChange(this.value)" oninput="onActOnDateChange(this.value)">
+                    <!-- Card 3B: Dates -->
+                    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.25rem;">
+                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 0.75rem; display:flex; align-items:center; gap: 6px;">
+                            <i data-lucide="calendar" style="width:14px; height:14px;"></i> Key License &amp; Followup Dates
                         </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Due On</label>
-                            <input type="date" id="edit_due_on" name="due_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;">
-                        </div>
+                        <div class="grid grid-3 gap-3">
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Act On (Activation Date)</label>
+                                <input type="date" id="edit_act_on" name="act_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;" onchange="onActOnDateChange(this.value)" oninput="onActOnDateChange(this.value)">
+                            </div>
 
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Hit Date</label>
-                            <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;">
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Due On (+1 Year Auto / Expiry)</label>
+                                <input type="date" id="edit_due_on" name="due_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;">
+                            </div>
+
+                            <div class="form-group m-0">
+                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Hit Date</label>
+                                <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;">
+                            </div>
                         </div>
                     </div>
                 </div>
 
             </div>
 
-            <!-- FOOTER (ALWAYS FIXED AT BOTTOM) -->
-            <div style="flex-shrink: 0; padding: 0.85rem 1.5rem; background: var(--border-card); border-top: 1px solid var(--border-color); display:flex; justify-content:flex-end; gap: 0.75rem; align-items:center;">
+            <!-- FOOTER (ALWAYS FIXED AT BOTTOM WITH STEP CONTROLS) -->
+            <div style="flex-shrink: 0; padding: 0.85rem 1.5rem; background: var(--border-card); border-top: 1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
                 <button type="button" onclick="window.closeModal('edit-client-record-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.25rem; font-size: 0.8rem;">
                     <i data-lucide="x" style="width:14px; height:14px;"></i> Cancel
                 </button>
-                <button type="submit" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                    <i data-lucide="check-circle-2" style="width:15px; height:15px;"></i>
-                    <span id="edit_client_submit_btn_text">Save Changes</span>
-                </button>
+                <div style="display: flex; align-items: center; gap: 0.65rem;">
+                    <button type="button" id="client_modal_prev_btn" onclick="navigateClientModalStep(-1)" class="btn btn-secondary" style="display:none; border-radius: 9px; padding: 0.5rem 1.25rem; font-size: 0.8rem; font-weight: 700;">
+                        <i data-lucide="arrow-left" style="width:14px; height:14px;"></i> Back
+                    </button>
+                    <button type="button" id="client_modal_next_btn" onclick="navigateClientModalStep(1)" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.4rem; font-size: 0.82rem; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%);">
+                        <span>Next: Contact &amp; Address</span>
+                        <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>
+                    </button>
+                    <button type="submit" id="client_modal_save_btn" class="btn btn-primary font-bold flex align-center gap-2" style="display:none; border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.85rem; background: #10b981; border: none; color: #fff; box-shadow: 0 4px 12px rgba(16,185,129,0.3);">
+                        <i data-lucide="check-circle-2" style="width:15px; height:15px;"></i>
+                        <span id="edit_client_submit_btn_text">Save Client Record</span>
+                    </button>
+                </div>
             </div>
         </form>
     </div>
@@ -2574,6 +2625,78 @@ function performWinLicenceSearch() {
         alert('No matching client licence record found for search query.');
     }
 }
+
+// --------------------------------------------------------------------------
+// Modal Tab & Step Switcher Controller (Clean Multi-Step Form)
+// --------------------------------------------------------------------------
+const clientModalTabs = ['profile', 'contact', 'commercials'];
+let currentClientModalTab = 'profile';
+
+function switchClientModalTab(tabId) {
+    if (!clientModalTabs.includes(tabId)) tabId = 'profile';
+    currentClientModalTab = tabId;
+
+    // Show/Hide Panes & Style Active Tab Buttons
+    clientModalTabs.forEach(t => {
+        const pane = document.getElementById('client_pane_' + t);
+        const btn = document.getElementById('tab_btn_client_' + t);
+        if (pane) pane.style.display = (t === tabId) ? 'flex' : 'none';
+        if (btn) {
+            if (t === tabId) {
+                btn.style.background = 'var(--primary)';
+                btn.style.color = '#fff';
+                btn.style.boxShadow = '0 2px 8px rgba(37,99,235,0.25)';
+            } else {
+                btn.style.background = 'transparent';
+                btn.style.color = 'var(--text-muted)';
+                btn.style.boxShadow = 'none';
+            }
+        }
+    });
+
+    // Step Indicator & Dynamic Footer Buttons
+    const indicator = document.getElementById('client_modal_step_indicator');
+    const prevBtn = document.getElementById('client_modal_prev_btn');
+    const nextBtn = document.getElementById('client_modal_next_btn');
+    const saveBtn = document.getElementById('client_modal_save_btn');
+
+    if (tabId === 'profile') {
+        if (indicator) indicator.innerText = 'Step 1 of 3: Firm & Software';
+        if (prevBtn) prevBtn.style.display = 'none';
+        if (nextBtn) {
+            nextBtn.style.display = 'flex';
+            nextBtn.innerHTML = '<span>Next: Contact & Address</span> <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>';
+        }
+        if (saveBtn) saveBtn.style.display = 'none';
+    } else if (tabId === 'contact') {
+        if (indicator) indicator.innerText = 'Step 2 of 3: Contact & Address';
+        if (prevBtn) prevBtn.style.display = 'inline-flex';
+        if (nextBtn) {
+            nextBtn.style.display = 'flex';
+            nextBtn.innerHTML = '<span>Next: Commercials & Dates</span> <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>';
+        }
+        if (saveBtn) saveBtn.style.display = 'none';
+    } else if (tabId === 'commercials') {
+        if (indicator) indicator.innerText = 'Step 3 of 3: Commercials & Dates';
+        if (prevBtn) prevBtn.style.display = 'inline-flex';
+        if (nextBtn) nextBtn.style.display = 'none';
+        if (saveBtn) saveBtn.style.display = 'inline-flex';
+    }
+
+    if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+}
+window.switchClientModalTab = switchClientModalTab;
+
+function navigateClientModalStep(direction) {
+    const currentIndex = clientModalTabs.indexOf(currentClientModalTab);
+    let nextIndex = currentIndex + direction;
+    if (nextIndex < 0) nextIndex = 0;
+    if (nextIndex >= clientModalTabs.length) nextIndex = clientModalTabs.length - 1;
+    switchClientModalTab(clientModalTabs[nextIndex]);
+}
+window.navigateClientModalStep = navigateClientModalStep;
 
 // --------------------------------------------------------------------------
 // Master S/W Types & Software Editions Map + Dynamic Edition Dropdown Handler
@@ -2768,6 +2891,8 @@ function openAddClientModal() {
     document.getElementById('edit_act_on').value = '';
     document.getElementById('edit_software_hit_date').value = '';
 
+    switchClientModalTab('profile');
+
     if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
         lucide.createIcons();
     }
@@ -2890,6 +3015,8 @@ function openEditClientRecordModal(client) {
         custIdInput.style.borderColor = '';
         if (custIdBadge) custIdBadge.style.display = 'none';
     }
+
+    switchClientModalTab('profile');
 
     if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
         lucide.createIcons();
