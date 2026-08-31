@@ -458,3 +458,15 @@ CREATE TABLE IF NOT EXISTS customer_kyc_details (
     INDEX idx_udyam (udyam_number),
     INDEX idx_kyc_status (kyc_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 22. City Areas Master Table (City-Linked Areas with Search & Autocomplete)
+CREATE TABLE IF NOT EXISTS city_areas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    state VARCHAR(100) NULL,
+    city VARCHAR(100) NOT NULL,
+    area_name VARCHAR(150) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_city_area (city, area_name),
+    INDEX idx_city (city),
+    INDEX idx_state_city (state, city)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

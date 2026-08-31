@@ -56,6 +56,93 @@ if (isset($_GET['action']) && $_GET['action'] === 'check_customer_id') {
     exit;
 }
 
+// Ensure city_areas table exists and seed from directory
+if ($pdo) {
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS city_areas (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                state VARCHAR(100) NULL,
+                city VARCHAR(100) NOT NULL,
+                area_name VARCHAR(150) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_city_area (city, area_name),
+                INDEX idx_city (city),
+                INDEX idx_state_city (state, city)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ");
+    } catch (Exception $e) {}
+}
+
+// 1. AJAX Endpoint: Get City Areas List
+if (isset($_GET['action']) && $_GET['action'] === 'get_city_areas') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    
+    $city = isset($_GET['city']) ? trim($_GET['city']) : '';
+    $state = isset($_GET['state']) ? trim($_GET['state']) : '';
+    
+    $areas = [];
+    if (!empty($city) && $pdo) {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT area_name FROM city_areas WHERE LOWER(TRIM(city)) = LOWER(TRIM(?))
+                UNION
+                SELECT DISTINCT TRIM(area) as area_name FROM client_directory 
+                WHERE LOWER(TRIM(city)) = LOWER(TRIM(?)) AND area IS NOT NULL AND TRIM(area) != ''
+                ORDER BY area_name ASC
+            ");
+            $stmt->execute([$city, $city]);
+            $raw = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($raw as $a) {
+                $aClean = trim($a);
+                if (!empty($aClean) && !in_array($aClean, $areas)) {
+                    $areas[] = $aClean;
+                }
+            }
+        } catch (Exception $e) {
+            $areas = [];
+        }
+    }
+    
+    echo json_encode(['success' => true, 'city' => $city, 'areas' => $areas]);
+    exit;
+}
+
+// 2. AJAX Endpoint: Add New Area to City
+if (isset($_POST['action']) && $_POST['action'] === 'add_city_area') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    
+    $city = isset($_POST['city']) ? trim($_POST['city']) : '';
+    $state = isset($_POST['state']) ? trim($_POST['state']) : '';
+    $area_name = isset($_POST['area_name']) ? trim($_POST['area_name']) : '';
+    
+    if (empty($city)) {
+        echo json_encode(['success' => false, 'message' => 'Please select a City before adding an area.']);
+        exit;
+    }
+    if (empty($area_name)) {
+        echo json_encode(['success' => false, 'message' => 'Area name cannot be empty.']);
+        exit;
+    }
+    
+    if ($pdo) {
+        try {
+            $stmt = $pdo->prepare("INSERT IGNORE INTO city_areas (state, city, area_name) VALUES (?, ?, ?)");
+            $stmt->execute([$state ?: null, $city, $area_name]);
+            echo json_encode(['success' => true, 'message' => "Area '{$area_name}' added successfully to {$city}!", 'area' => $area_name]);
+            exit;
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+            exit;
+        }
+    }
+    
+    echo json_encode(['success' => false, 'message' => 'Database connection failed.']);
+    exit;
+}
+
 // Download Sample CSV Template
 if (isset($_GET['action']) && $_GET['action'] === 'download_client_template') {
     while (ob_get_level()) { ob_end_clean(); }
@@ -2393,7 +2480,7 @@ function highlightProductPill(which) {
                             </div>
                             <div class="form-group m-0">
                                 <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">City</label>
-                                <select id="edit_city" name="city" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
+                                <select id="edit_city" name="city" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onchange="onClientCityChange(this.value)">
                                     <option value="">-- Select City --</option>
                                     <?php foreach ($all_indian_cities as $cName): ?>
                                         <option value="<?php echo htmlspecialchars($cName); ?>"><?php echo htmlspecialchars($cName); ?></option>
@@ -2402,11 +2489,28 @@ function highlightProductPill(which) {
                             </div>
                         </div>
 
-                        <!-- Row 5: Area & Zip Code -->
+                        <!-- Row 5: Area (Smart Searchable Combobox with + Add) & Zip Code -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                            <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Area / Locality</label>
-                                <input type="text" id="edit_area" name="area" placeholder="e.g. Sector 18 / Civil Lines" class="form-control text-xs" style="height: 38px; border-radius: 8px;">
+                            <div class="form-group m-0" style="position: relative;" id="area_autocomplete_wrapper">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin: 0; display: block;">
+                                        Area / Locality
+                                    </label>
+                                    <button type="button" onclick="openQuickAddAreaPrompt()" class="btn-ghost" title="Add New Area for selected City" style="background: none; border: none; padding: 0 2px; font-size: 0.7rem; font-weight: 700; color: var(--primary); cursor: pointer; display: flex; align-items: center; gap: 3px;">
+                                        <i data-lucide="plus-circle" style="width: 12px; height: 12px;"></i> Add Area
+                                    </button>
+                                </div>
+                                <div style="position: relative;">
+                                    <input type="text" id="edit_area" name="area" autocomplete="off" placeholder="Search or type area..." class="form-control text-xs" style="height: 38px; border-radius: 8px; padding-right: 32px;" onfocus="onAreaInputFocus()" oninput="onAreaInputChange(this.value)" onkeydown="onAreaInputKeydown(event)">
+                                    <div id="area_input_icon_spinner" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted); display: flex; align-items: center;">
+                                        <i data-lucide="map-pin" style="width: 14px; height: 14px;"></i>
+                                    </div>
+                                </div>
+
+                                <!-- Smart Autocomplete Suggestions Dropdown -->
+                                <div id="area_autocomplete_dropdown" style="display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1050; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 12px 28px -6px rgba(0,0,0,0.4); max-height: 220px; overflow-y: auto; padding: 4px;">
+                                    <!-- Dynamic Area Options injected via JS -->
+                                </div>
                             </div>
                             <div class="form-group m-0">
                                 <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Zip Code</label>
@@ -2663,20 +2767,11 @@ function performWinLicenceSearch() {
 // --------------------------------------------------------------------------
 // Modal Tab & Step Switcher Controller (Clean Multi-Step Form)
 // --------------------------------------------------------------------------
-let isCustomerIdDuplicate = false;
+const clientModalTabs = ['profile', 'contact', 'commercials'];
+let currentClientModalTab = 'profile';
 
 function switchClientModalTab(tabId) {
     if (!clientModalTabs.includes(tabId)) tabId = 'profile';
-
-    // Block advancing to Tab 2 or 3 if Customer ID is duplicate in Add mode
-    const dbId = document.getElementById('edit_client_db_id').value;
-    if (!dbId && isCustomerIdDuplicate && tabId !== 'profile') {
-        alert('Customer ID already exists in directory! Please enter a unique Customer ID before proceeding.');
-        const custInput = document.getElementById('edit_customer_id');
-        if (custInput) custInput.focus();
-        return;
-    }
-
     currentClientModalTab = tabId;
 
     // Show/Hide Panes & Style Active Tab Buttons
@@ -2709,17 +2804,6 @@ function switchClientModalTab(tabId) {
         if (nextBtn) {
             nextBtn.style.display = 'flex';
             nextBtn.innerHTML = '<span>Next: Contact & Address</span> <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>';
-            if (!dbId && isCustomerIdDuplicate) {
-                nextBtn.disabled = true;
-                nextBtn.style.opacity = '0.5';
-                nextBtn.style.cursor = 'not-allowed';
-                nextBtn.title = 'Please enter a unique Customer ID to proceed';
-            } else {
-                nextBtn.disabled = false;
-                nextBtn.style.opacity = '1';
-                nextBtn.style.cursor = 'pointer';
-                nextBtn.title = '';
-            }
         }
         if (saveBtn) saveBtn.style.display = 'none';
     } else if (tabId === 'contact') {
@@ -2728,27 +2812,13 @@ function switchClientModalTab(tabId) {
         if (nextBtn) {
             nextBtn.style.display = 'flex';
             nextBtn.innerHTML = '<span>Next: Commercials & Dates</span> <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>';
-            nextBtn.disabled = false;
-            nextBtn.style.opacity = '1';
-            nextBtn.style.cursor = 'pointer';
         }
         if (saveBtn) saveBtn.style.display = 'none';
     } else if (tabId === 'commercials') {
         if (indicator) indicator.innerText = 'Step 3 of 3: Commercials & Dates';
         if (prevBtn) prevBtn.style.display = 'inline-flex';
         if (nextBtn) nextBtn.style.display = 'none';
-        if (saveBtn) {
-            saveBtn.style.display = 'inline-flex';
-            if (!dbId && isCustomerIdDuplicate) {
-                saveBtn.disabled = true;
-                saveBtn.style.opacity = '0.5';
-                saveBtn.style.cursor = 'not-allowed';
-            } else {
-                saveBtn.disabled = false;
-                saveBtn.style.opacity = '1';
-                saveBtn.style.cursor = 'pointer';
-            }
-        }
+        if (saveBtn) saveBtn.style.display = 'inline-flex';
     }
 
     if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
@@ -2758,13 +2828,6 @@ function switchClientModalTab(tabId) {
 window.switchClientModalTab = switchClientModalTab;
 
 function navigateClientModalStep(direction) {
-    const dbId = document.getElementById('edit_client_db_id').value;
-    if (direction > 0 && !dbId && isCustomerIdDuplicate) {
-        alert('Customer ID already exists in directory! Please enter a unique Customer ID before proceeding.');
-        const custInput = document.getElementById('edit_customer_id');
-        if (custInput) custInput.focus();
-        return;
-    }
     const currentIndex = clientModalTabs.indexOf(currentClientModalTab);
     let nextIndex = currentIndex + direction;
     if (nextIndex < 0) nextIndex = 0;
@@ -2866,8 +2929,254 @@ function onClientStateSelect(stateVal, selectedCity = '') {
         customOpt.selected = true;
         citySelect.appendChild(customOpt);
     }
+
+    // Refresh city areas for the selected city
+    const finalCity = citySelect.value || targetCity || '';
+    if (finalCity) {
+        fetchCityAreas(finalCity, stateVal);
+    }
 }
 window.onClientStateSelect = onClientStateSelect;
+
+// --------------------------------------------------------------------------
+// Master City Areas Autocomplete & Real-time + Add New Area Controller
+// --------------------------------------------------------------------------
+let currentCityAreasCache = [];
+let currentLoadedCity = '';
+let areaSearchQuery = '';
+
+async function fetchCityAreas(cityName, stateName = '') {
+    cityName = (cityName || '').trim();
+    if (!cityName) {
+        currentCityAreasCache = [];
+        currentLoadedCity = '';
+        return [];
+    }
+    
+    if (currentLoadedCity.toLowerCase() === cityName.toLowerCase() && currentCityAreasCache.length > 0) {
+        return currentCityAreasCache;
+    }
+
+    try {
+        const spinner = document.getElementById('area_input_icon_spinner');
+        if (spinner) spinner.innerHTML = '<span style="font-size:10px; color:var(--primary);">...</span>';
+        
+        const res = await fetch(`index.php?page=clients&action=get_city_areas&city=${encodeURIComponent(cityName)}&state=${encodeURIComponent(stateName)}`);
+        const data = await res.json();
+        
+        if (spinner) spinner.innerHTML = '<i data-lucide="map-pin" style="width:14px; height:14px;"></i>';
+        if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') lucide.createIcons();
+
+        if (data.success && Array.isArray(data.areas)) {
+            currentCityAreasCache = data.areas;
+            currentLoadedCity = cityName;
+            return data.areas;
+        }
+    } catch (e) {
+        console.error('Error fetching city areas:', e);
+    }
+    return [];
+}
+window.fetchCityAreas = fetchCityAreas;
+
+function onClientCityChange(cityVal) {
+    const stateVal = (document.getElementById('edit_state')?.value || '').trim();
+    fetchCityAreas(cityVal, stateVal);
+}
+window.onClientCityChange = onClientCityChange;
+
+async function onAreaInputFocus() {
+    const cityVal = (document.getElementById('edit_city')?.value || '').trim();
+    const stateVal = (document.getElementById('edit_state')?.value || '').trim();
+    const inputVal = (document.getElementById('edit_area')?.value || '').trim();
+    
+    if (cityVal && currentLoadedCity.toLowerCase() !== cityVal.toLowerCase()) {
+        await fetchCityAreas(cityVal, stateVal);
+    }
+    renderAreaSuggestions(inputVal);
+}
+window.onAreaInputFocus = onAreaInputFocus;
+
+function onAreaInputChange(val) {
+    areaSearchQuery = val;
+    renderAreaSuggestions(val);
+}
+window.onAreaInputChange = onAreaInputChange;
+
+function renderAreaSuggestions(query) {
+    const dropdown = document.getElementById('area_autocomplete_dropdown');
+    const cityVal = (document.getElementById('edit_city')?.value || '').trim();
+    if (!dropdown) return;
+
+    query = (query || '').trim().toLowerCase();
+
+    if (!cityVal) {
+        dropdown.innerHTML = `
+            <div style="padding: 8px 12px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+                ⚠️ Please select a <strong>City</strong> first
+            </div>
+        `;
+        dropdown.style.display = 'block';
+        return;
+    }
+
+    let filtered = currentCityAreasCache.filter(a => a.toLowerCase().includes(query));
+
+    let html = '';
+    if (filtered.length > 0) {
+        html += `<div style="font-size: 0.68rem; font-weight: 700; color: var(--text-muted); padding: 4px 8px; text-transform: uppercase; letter-spacing: 0.05em;">Areas in ${escapeHtml(cityVal)} (${filtered.length})</div>`;
+        filtered.forEach(area => {
+            const escaped = escapeHtml(area);
+            html += `
+                <div class="area-item" onclick="selectArea('${escaped.replace(/'/g, "\\'")}')" style="padding: 6px 10px; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: background 0.15s; margin-bottom: 2px;" onmouseover="this.style.background='var(--border-card)'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <i data-lucide="map-pin" style="width: 12px; height: 12px; color: var(--primary);"></i>
+                        <span>${escaped}</span>
+                    </div>
+                    <span style="font-size: 0.65rem; color: var(--text-muted);">Select</span>
+                </div>
+            `;
+        });
+    }
+
+    // If query is typed and not exactly in existing list, show "+ Add [query] to [City]" button
+    const exactMatch = currentCityAreasCache.some(a => a.toLowerCase() === query);
+    if (query && !exactMatch) {
+        if (filtered.length === 0) {
+            html += `
+                <div style="padding: 8px 10px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+                    No existing area matching "<strong>${escapeHtml(query)}</strong>" in ${escapeHtml(cityVal)}.
+                </div>
+            `;
+        }
+        const escQuery = escapeHtml(query);
+        html += `
+            <div style="padding: 4px; border-top: 1px solid var(--border-color); margin-top: 4px;">
+                <button type="button" onclick="quickAddNewArea('${escQuery.replace(/'/g, "\\'")}')" class="btn btn-primary w-full flex align-center justify-center gap-1.5" style="width: 100%; border-radius: 6px; font-size: 0.74rem; font-weight: 700; padding: 6px 10px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none; color: #fff; cursor: pointer;">
+                    <i data-lucide="plus-circle" style="width: 13px; height: 13px;"></i>
+                    <span>Add "<strong>${escQuery}</strong>" to ${escapeHtml(cityVal)}</span>
+                </button>
+            </div>
+        `;
+    } else if (filtered.length === 0 && !query) {
+        html += `
+            <div style="padding: 10px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+                No areas saved yet for ${escapeHtml(cityVal)}.
+                <div style="margin-top: 6px;">
+                    <button type="button" onclick="openQuickAddAreaPrompt()" class="btn btn-sm btn-secondary" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">
+                        + Add First Area
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+
+    if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+}
+
+function selectArea(areaName) {
+    const inputEl = document.getElementById('edit_area');
+    if (inputEl) {
+        inputEl.value = areaName;
+    }
+    const dropdown = document.getElementById('area_autocomplete_dropdown');
+    if (dropdown) dropdown.style.display = 'none';
+}
+window.selectArea = selectArea;
+
+async function quickAddNewArea(areaName) {
+    const cityVal = (document.getElementById('edit_city')?.value || '').trim();
+    const stateVal = (document.getElementById('edit_state')?.value || '').trim();
+    
+    if (!cityVal) {
+        alert('Please select a City first.');
+        return;
+    }
+    
+    if (!areaName) {
+        areaName = (document.getElementById('edit_area')?.value || '').trim();
+    }
+    if (!areaName) {
+        alert('Please enter an area name to add.');
+        return;
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('action', 'add_city_area');
+        formData.append('city', cityVal);
+        formData.append('state', stateVal);
+        formData.append('area_name', areaName);
+
+        const res = await fetch('index.php?page=clients', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            if (!currentCityAreasCache.includes(data.area)) {
+                currentCityAreasCache.push(data.area);
+                currentCityAreasCache.sort();
+            }
+            selectArea(data.area);
+        } else {
+            alert(data.message || 'Could not add area.');
+        }
+    } catch (e) {
+        console.error('Error adding new area:', e);
+        // Fallback: set input anyway
+        selectArea(areaName);
+    }
+}
+window.quickAddNewArea = quickAddNewArea;
+
+function openQuickAddAreaPrompt() {
+    const cityVal = (document.getElementById('edit_city')?.value || '').trim();
+    if (!cityVal) {
+        alert('Please select a City before adding a new area.');
+        const cityEl = document.getElementById('edit_city');
+        if (cityEl) cityEl.focus();
+        return;
+    }
+    const newArea = prompt(`Enter new Area / Locality name for "${cityVal}":`);
+    if (newArea && newArea.trim() !== '') {
+        quickAddNewArea(newArea.trim());
+    }
+}
+window.openQuickAddAreaPrompt = openQuickAddAreaPrompt;
+
+function onAreaInputKeydown(e) {
+    if (e.key === 'Escape') {
+        const dropdown = document.getElementById('area_autocomplete_dropdown');
+        if (dropdown) dropdown.style.display = 'none';
+    }
+}
+window.onAreaInputKeydown = onAreaInputKeydown;
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// Close Area Dropdown on Outside Click
+document.addEventListener('click', function(e) {
+    const wrapper = document.getElementById('area_autocomplete_wrapper');
+    const dropdown = document.getElementById('area_autocomplete_dropdown');
+    if (wrapper && dropdown && !wrapper.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
 
 // --------------------------------------------------------------------------
 // Auto Calculate Exact 1-Year Due On Date from Act On Date
@@ -2902,7 +3211,7 @@ function onActOnDateChange(actOnVal) {
 window.onActOnDateChange = onActOnDateChange;
 
 // --------------------------------------------------------------------------
-// Real-time Customer ID Duplicate Checker & Navigation Guard
+// Real-time Customer ID Duplicate Checker & Auto-fill Preview
 // --------------------------------------------------------------------------
 let custIdCheckTimer = null;
 
@@ -2912,17 +3221,14 @@ function onCustomerIdInput(val) {
     const alertEl = document.getElementById('customer_id_duplicate_alert');
     const statusEl = document.getElementById('customer_id_live_status');
     const saveBtn = document.getElementById('client_modal_save_btn');
-    const nextBtn = document.getElementById('client_modal_next_btn');
     const inputEl = document.getElementById('edit_customer_id');
 
     val = String(val).trim();
-    // If editing existing client or empty value, clear warnings & enable navigation
+    // If editing existing client or empty value, clear warnings
     if (!val || dbId) {
-        isCustomerIdDuplicate = false;
         if (alertEl) alertEl.style.display = 'none';
         if (statusEl) { statusEl.style.display = 'none'; statusEl.innerHTML = ''; }
         if (inputEl) { inputEl.style.borderColor = ''; inputEl.style.boxShadow = ''; }
-        if (nextBtn) { nextBtn.disabled = false; nextBtn.style.opacity = '1'; nextBtn.style.cursor = 'pointer'; nextBtn.title = ''; }
         if (saveBtn) { saveBtn.disabled = false; saveBtn.style.opacity = '1'; saveBtn.style.cursor = 'pointer'; saveBtn.title = ''; }
         return;
     }
@@ -2934,7 +3240,7 @@ function onCustomerIdInput(val) {
 
     custIdCheckTimer = setTimeout(() => {
         checkCustomerIdExistence(val);
-    }, 300);
+    }, 350);
 }
 window.onCustomerIdInput = onCustomerIdInput;
 
@@ -2946,54 +3252,48 @@ async function checkCustomerIdExistence(custId) {
     const descEl = document.getElementById('customer_id_duplicate_desc');
     const statusEl = document.getElementById('customer_id_live_status');
     const saveBtn = document.getElementById('client_modal_save_btn');
-    const nextBtn = document.getElementById('client_modal_next_btn');
     const inputEl = document.getElementById('edit_customer_id');
 
     try {
         const res = await fetch('index.php?page=clients&action=check_customer_id&customer_id=' + encodeURIComponent(custId));
         const data = await res.json();
 
-        // Ensure we are still in Add mode and matching current input
+        // Ensure we are still in Add mode and matching input
         if (document.getElementById('edit_client_db_id').value) return;
         const currentVal = (document.getElementById('edit_customer_id').value || '').trim();
         if (currentVal !== custId) return;
 
         if (data.exists && data.client) {
             const cl = data.client;
-            isCustomerIdDuplicate = true;
             
             // 1. Status Indicator
             if (statusEl) {
                 statusEl.style.display = 'inline-block';
-                statusEl.innerHTML = '<span style="color: #dc2626; font-weight: 800; font-size: 0.68rem;">❌ Already Registered</span>';
+                statusEl.innerHTML = '<span style="color: #dc2626; font-weight: 800; font-size: 0.68rem;">❌ Already Exists</span>';
             }
             if (inputEl) {
                 inputEl.style.borderColor = '#dc2626';
                 inputEl.style.boxShadow = '0 0 0 2px rgba(220, 38, 38, 0.2)';
             }
 
-            // 2. Alert Banner with Clear Info (NO AUTO-OVERWRITE of user's form inputs)
+            // 2. Alert Banner with Details
             if (alertEl && descEl) {
                 alertEl.style.display = 'block';
-                descEl.innerHTML = `Customer ID <strong>${cl.customer_id}</strong> is already registered for firm: <strong>${cl.party_name}</strong> (Mobile: ${cl.mobile || 'N/A'}, City: ${cl.city || 'N/A'}). <strong>Duplicate Customer ID is not allowed. Please enter a unique ID to proceed to Next step.</strong>`;
+                descEl.innerHTML = `Customer ID <strong>${cl.customer_id}</strong> is already registered for firm: <strong>${cl.party_name}</strong> (Mobile: ${cl.mobile || 'N/A'}, City: ${cl.city || 'N/A'}, S/W: ${cl.sw_type || 'Marg'}). Details have been loaded below. <strong>Adding a duplicate record with this Customer ID is blocked.</strong>`;
             }
 
-            // 3. Block "Next" & "Save" Buttons
-            if (nextBtn) {
-                nextBtn.disabled = true;
-                nextBtn.style.opacity = '0.45';
-                nextBtn.style.cursor = 'not-allowed';
-                nextBtn.title = 'Customer ID already registered. Enter a unique ID to proceed';
-            }
+            // 3. Populate existing client details
+            populateClientModalData(cl);
+
+            // 4. Disable Create/Save Button
             if (saveBtn) {
                 saveBtn.disabled = true;
-                saveBtn.style.opacity = '0.45';
+                saveBtn.style.opacity = '0.5';
                 saveBtn.style.cursor = 'not-allowed';
                 saveBtn.title = 'Cannot create duplicate client: Customer ID already exists';
             }
         } else {
             // Customer ID is Available!
-            isCustomerIdDuplicate = false;
             if (statusEl) {
                 statusEl.style.display = 'inline-block';
                 statusEl.innerHTML = '<span style="color: #10b981; font-weight: 800; font-size: 0.68rem;">✓ Available</span>';
@@ -3003,12 +3303,6 @@ async function checkCustomerIdExistence(custId) {
                 inputEl.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
             }
             if (alertEl) alertEl.style.display = 'none';
-            if (nextBtn) {
-                nextBtn.disabled = false;
-                nextBtn.style.opacity = '1';
-                nextBtn.style.cursor = 'pointer';
-                nextBtn.title = '';
-            }
             if (saveBtn) {
                 saveBtn.disabled = false;
                 saveBtn.style.opacity = '1';
