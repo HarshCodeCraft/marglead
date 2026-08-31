@@ -10,7 +10,33 @@ require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
 
 $user_id = (int)($_SESSION['user_id'] ?? 0);
-$user_role = $_SESSION['user_role'] ?? 'Admin';
+$user_role = trim((string)($_SESSION['user_role'] ?? 'Admin'));
+$user_email = strtolower(trim((string)($_SESSION['user_email'] ?? '')));
+$user_name = trim((string)($_SESSION['user_name'] ?? ''));
+$tenant_db = trim((string)($_SESSION['tenant_db'] ?? ''));
+
+$is_tenant_session = (
+    strcasecmp($user_role, 'Tenant Admin') === 0 ||
+    !empty($_SESSION['is_tenant']) ||
+    (!empty($tenant_db) && $tenant_db !== 'u978772385_friendlyaidata' && $tenant_db !== 'marg_crm' && empty($_SESSION['impersonate_tenant_db']))
+);
+
+$is_super_admin = false;
+if (!$is_tenant_session) {
+    $is_deepak_email = in_array($user_email, [
+        'deepakawasthi587@gmail.com',
+        'harshsaini20172018@gmail.com',
+        'operator@domain.local'
+    ]);
+    $is_super_admin_role = in_array(strtolower($user_role), ['super admin', 'superadmin']);
+    if (($is_deepak_email || (stripos($user_name, 'deepak') !== false)) && $is_super_admin_role) {
+        $is_super_admin = true;
+    } elseif ($is_deepak_email) {
+        $is_super_admin = true;
+    } elseif ($is_super_admin_role && empty($tenant_db)) {
+        $is_super_admin = true;
+    }
+}
 
 // Fetch existing WhatsApp Cloud API configuration for current user/tenant
 $whatsappConfig = null;
@@ -18,21 +44,55 @@ if (isset($pdo) && $pdo) {
     $stmt = $pdo->prepare("SELECT * FROM tenant_whatsapp_configs WHERE user_id = ? ORDER BY id DESC LIMIT 1");
     $stmt->execute([$user_id]);
     $whatsappConfig = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Also check merchant_waba_settings if tenant_whatsapp_configs is not populated
+    if (!$whatsappConfig || empty($whatsappConfig['phone_number_id'])) {
+        $stmt2 = $pdo->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? LIMIT 1");
+        $stmt2->execute([$user_id]);
+        $wabaRow = $stmt2->fetch(PDO::FETCH_ASSOC);
+        if ($wabaRow && !empty($wabaRow['phone_number_id']) && !empty($wabaRow['access_token'])) {
+            $whatsappConfig = [
+                'phone_number_id' => $wabaRow['phone_number_id'],
+                'waba_id' => $wabaRow['waba_id'],
+                'access_token' => $wabaRow['access_token'],
+                'display_phone_number' => $wabaRow['business_phone'],
+                'verified_name' => $user_name ?: 'Marg Partner',
+                'status' => 'active',
+                'signup_method' => 'manual',
+                'firm_name' => $user_name,
+                'marg_license_no' => ''
+            ];
+        }
+    }
 }
 
-// Fallback to central system settings if no individual config exists or if DB fields are blank
-$is_connected = ($whatsappConfig && $whatsappConfig['status'] === 'active') || (!empty(defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : ''));
-$display_phone = !empty($whatsappConfig['display_phone_number']) ? $whatsappConfig['display_phone_number'] : '+91 92773 87778';
-$verified_name = !empty($whatsappConfig['verified_name']) ? $whatsappConfig['verified_name'] : 'Marg Soft Solution';
-$waba_id = !empty($whatsappConfig['waba_id']) ? $whatsappConfig['waba_id'] : (defined('BUSINESS_ACCOUNT_ID') ? BUSINESS_ACCOUNT_ID : '');
-$phone_number_id = !empty($whatsappConfig['phone_number_id']) ? $whatsappConfig['phone_number_id'] : (defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : '');
-$access_token = !empty($whatsappConfig['access_token']) ? $whatsappConfig['access_token'] : (defined('ACCESS_TOKEN') ? ACCESS_TOKEN : '');
+// Strictly evaluate connection status for THIS specific user/tenant
+$is_connected = ($whatsappConfig && !empty($whatsappConfig['phone_number_id']) && !empty($whatsappConfig['access_token']));
+$display_phone = !empty($whatsappConfig['display_phone_number']) ? $whatsappConfig['display_phone_number'] : '';
+$verified_name = !empty($whatsappConfig['verified_name']) ? $whatsappConfig['verified_name'] : ($user_name ?: 'Marg Partner');
+$waba_id = !empty($whatsappConfig['waba_id']) ? $whatsappConfig['waba_id'] : '';
+$phone_number_id = !empty($whatsappConfig['phone_number_id']) ? $whatsappConfig['phone_number_id'] : '';
+$access_token = !empty($whatsappConfig['access_token']) ? $whatsappConfig['access_token'] : '';
 $signup_method = $whatsappConfig['signup_method'] ?? 'embedded';
-$firm_name = $whatsappConfig['firm_name'] ?? ($_SESSION['user_name'] ?? 'Marg Soft Solution');
-$marg_license_no = $whatsappConfig['marg_license_no'] ?? '1352947';
+$firm_name = !empty($whatsappConfig['firm_name']) ? $whatsappConfig['firm_name'] : ($user_name ?: 'Marg Partner');
+$marg_license_no = !empty($whatsappConfig['marg_license_no']) ? $whatsappConfig['marg_license_no'] : '';
+
+// ONLY fallback to central system settings IF user is master SaaS super admin ($user_id === 1 or project owner)
+if (!$is_connected && $is_super_admin && $user_id === 1) {
+    if (defined('PHONE_NUMBER_ID') && !empty(PHONE_NUMBER_ID) && defined('ACCESS_TOKEN') && !empty(ACCESS_TOKEN)) {
+        $is_connected = true;
+        $display_phone = '+91 92773 87778';
+        $verified_name = 'Marg Soft Solution';
+        $waba_id = defined('BUSINESS_ACCOUNT_ID') ? BUSINESS_ACCOUNT_ID : '';
+        $phone_number_id = PHONE_NUMBER_ID;
+        $access_token = ACCESS_TOKEN;
+        $firm_name = 'Marg Soft Solution';
+        $marg_license_no = '1352947';
+    }
+}
 
 $app_id = defined('META_APP_ID') ? META_APP_ID : (getenv('META_APP_ID') ?: '2484306222079451');
-$config_id = getenv('META_EMBEDDED_CONFIG_ID') ?: 'config_id_embedded_signup';
+$config_id = defined('META_EMBEDDED_CONFIG_ID') ? META_EMBEDDED_CONFIG_ID : (getenv('META_EMBEDDED_CONFIG_ID') ?: '1618888196426623');
 ?>
 
 <!-- Facebook SDK for Meta Embedded Signup -->
@@ -287,6 +347,16 @@ window.addEventListener('message', (event) => {
 
 // Launch FB Login Popup for Embedded Signup
 function launchMetaEmbeddedSignup() {
+    let fbLoginOptions = {
+        scope: 'whatsapp_business_management,whatsapp_business_messaging',
+        response_type: 'code',
+        override_default_response_type: true
+    };
+    <?php if (!empty($config_id) && is_numeric($config_id)): ?>
+    fbLoginOptions.config_id = '<?php echo htmlspecialchars($config_id); ?>';
+    fbLoginOptions.extras = { setup: {} };
+    <?php endif; ?>
+
     FB.login(function(response) {
         if (response.authResponse) {
             const code = response.authResponse.code;
@@ -312,40 +382,14 @@ function launchMetaEmbeddedSignup() {
                 } else {
                     alert("Embedded Signup Error: " + result.message);
                 }
+            })
+            .catch(err => {
+                alert("Network error processing Meta Embedded Signup.");
             });
         } else {
-            // User cancelled or fallback simulation for testing
-            if (confirm("Meta Embedded Signup popup launched. Would you like to auto-activate with sample WABA credentials for testing?")) {
-                fetch('api/meta_embedded_signup.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'embedded_signup',
-                        waba_id: '1360878153768577',
-                        phone_number_id: '1360878153768577',
-                        display_phone_number: '+91 98765 43210',
-                        verified_name: "<?php echo htmlspecialchars($firm_name); ?>",
-                        firm_name: "<?php echo htmlspecialchars($firm_name); ?>",
-                        marg_license_no: "<?php echo htmlspecialchars($marg_license_no); ?>"
-                    })
-                })
-                .then(res => res.json())
-                .then(result => {
-                    alert(result.message);
-                    window.location.reload();
-                });
-            }
+            console.log("FB Login cancelled or no auth response.", response);
         }
-    }, {
-        config_id: '<?php echo htmlspecialchars($config_id); ?>',
-        response_type: 'code',
-        override_default_response_type: true,
-        extras: {
-            setup: {
-                // Meta Embedded Signup Spec
-            }
-        }
-    });
+    }, fbLoginOptions);
 }
 
 // Save Manual Credentials

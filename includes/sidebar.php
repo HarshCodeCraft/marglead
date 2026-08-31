@@ -176,12 +176,12 @@ $role = $_SESSION['user_role'];
                     </li>
                 <?php endif; ?>
 
-                <?php if (isSystemAdminRole($role)): ?>
+                <?php if (hasAccess('merchant_waba_settings', $role) || hasAccess('whatsapp_settings', $role)): ?>
                     <li class="sidebar-item <?php echo isActivePage('merchant_waba_settings'); ?>">
                         <a href="index.php?page=merchant_waba_settings">
                             <i data-lucide="qr-code" style="width: 18px; height: 18px;"></i>
                             <span>Marg ERP WABA Setup</span>
-                            <span class="badge" style="margin-left: auto; background: #10b981; color: white; font-size: 0.65rem;">SUPER ADMIN</span>
+                            <span class="badge" style="margin-left: auto; background: #10b981; color: white; font-size: 0.65rem;">ADD-ON</span>
                         </a>
                     </li>
                 <?php endif; ?>
@@ -246,7 +246,7 @@ $role = $_SESSION['user_role'];
                                     <span>Reports</span>
                                 </a>
                             </li>
-                            <?php if (isSystemAdminRole($role)): ?>
+                            <?php if (hasAccess('whatsapp_settings', $role) || hasAccess('merchant_waba_settings', $role)): ?>
                                 <li class="sidebar-subitem <?php echo isActivePage('whatsapp_settings'); ?>">
                                     <a href="index.php?page=whatsapp_settings">
                                         <i data-lucide="key" style="width: 14px; height: 14px; color: #25D366;"></i>

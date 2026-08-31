@@ -55,6 +55,12 @@ if ($db_connected && $pdo) {
         } else {
             $results[] = ["status" => "info", "msg" => "'client_directory' table is fully updated with 'category' column."];
         }
+        if (!in_array('area', $cdCols)) {
+            $pdo->exec("ALTER TABLE client_directory ADD COLUMN area VARCHAR(150) NULL AFTER city");
+            $results[] = ["status" => "success", "msg" => "Added 'area' column to 'client_directory' table."];
+        } else {
+            $results[] = ["status" => "info", "msg" => "'client_directory' table is fully updated with 'area' column."];
+        }
 
         // 2. Customers Table
         $pdo->exec("CREATE TABLE IF NOT EXISTS customers (

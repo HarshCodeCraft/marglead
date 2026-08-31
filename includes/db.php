@@ -501,6 +501,15 @@ try {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
 
+        // Schema auto-upgrade to ensure client_directory table has area column
+        $cdCheck = $pdo->query("SHOW TABLES LIKE 'client_directory'");
+        if ($cdCheck && $cdCheck->rowCount() > 0) {
+            $cdCols = $pdo->query("SHOW COLUMNS FROM client_directory")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('area', $cdCols)) {
+                $pdo->exec("ALTER TABLE client_directory ADD COLUMN area VARCHAR(150) NULL AFTER city");
+            }
+        }
+
         // Schema auto-upgrade to ensure quotations table exists and has items_json column
         $quoteCheck = $pdo->query("SHOW TABLES LIKE 'quotations'");
         if ($quoteCheck && $quoteCheck->rowCount() === 0) {
@@ -605,7 +614,9 @@ try {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
-    } catch (\Exception $e) {}
+    } catch (\Exception $e) {
+        // Suppress individual table auto-upgrade exceptions
+    }
 }
 } catch (\PDOException $e) {
     $pdo = null;
@@ -614,3 +625,4 @@ try {
     // Log exception for debugging (non-fatal)
     error_log("Database connection failure: " . $e->getMessage());
 }
+

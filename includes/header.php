@@ -128,7 +128,7 @@ if ($db_connected && isset($_SESSION['user_id'])) {
                     </button>
                     
                     <!-- Role Switcher Panel for Prototyping -->
-                    <?php if (isset($_SESSION['login_role']) && ($_SESSION['login_role'] === 'Admin' || $_SESSION['login_role'] === 'Super Admin')): ?>
+                    <!-- <?php if (isset($_SESSION['login_role']) && ($_SESSION['login_role'] === 'Admin' || $_SESSION['login_role'] === 'Super Admin')): ?>
                     <div class="role-switcher-container flex align-center gap-2" style="background-color: var(--border-card); padding: 0.25rem 0.75rem; border-radius: var(--border-radius-full); border: 1px solid var(--border-color);">
                         <i data-lucide="shield-check" class="text-muted" style="width: 16px; height: 16px; color: var(--primary);"></i>
                         <select id="global-role-switcher" class="text-xs font-semibold pointer" style="border: none; background: transparent; padding-right: 0.5rem; text-transform: uppercase; color: var(--text-main);">
@@ -142,7 +142,7 @@ if ($db_connected && isset($_SESSION['user_id'])) {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <?php endif; ?>
+                    <?php endif; ?> -->
                     
                     <!-- Theme Toggle Btn -->
                     <button class="header-action-btn theme-toggle" aria-label="Toggle visual theme">

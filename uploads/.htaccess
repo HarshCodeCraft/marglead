@@ -1,21 +1,8 @@
-# Protect Uploads Directory - Disable Script Execution & Directory Browsing
-Options -Indexes -ExecCGI
+# Disable directory listing for all uploads
+Options -Indexes
 
-# Turn off PHP Execution Engine in Uploads
-<IfModule mod_php7.c>
-    php_flag engine off
-</IfModule>
-<IfModule mod_php.c>
-    php_flag engine off
-</IfModule>
-
-# Block access to any executable or script extensions
-<FilesMatch "\.(php|php3|php4|php5|php7|phtml|pl|py|jsp|asp|aspx|sh|cgi|exe|bat|cmd)$">
-    <IfModule mod_authz_core.c>
-        Require all denied
-    </IfModule>
-    <IfModule !mod_authz_core.c>
-        Order allow,deny
-        Deny from all
-    </IfModule>
+# Prevent execution of any scripts in uploads directory
+<FilesMatch "\.(php|php5|php7|php8|phtml|pl|py|cgi|sh|exe)$">
+    Order Deny,Allow
+    Deny from all
 </FilesMatch>

@@ -69,6 +69,9 @@ if (!defined('WHATSAPP_ENGINE_URL')) {
 if (!defined('META_APP_ID')) {
     define('META_APP_ID', getenv('META_APP_ID') ?: '2484306222079451');
 }
+if (!defined('META_EMBEDDED_CONFIG_ID')) {
+    define('META_EMBEDDED_CONFIG_ID', getenv('META_EMBEDDED_CONFIG_ID') ?: '1618888196426623');
+}
 if (!defined('PHONE_NUMBER_ID')) {
     define('PHONE_NUMBER_ID', getenv('PHONE_NUMBER_ID') ?: '1361533150369205');
 }

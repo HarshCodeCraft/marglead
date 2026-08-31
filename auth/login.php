@@ -114,11 +114,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     $is_password_valid = false;
-                    if ($user) {
+                    if ($user && !empty($user['password'])) {
                         if (password_verify($password, $user['password']) || $password === $user['password']) {
                             $is_password_valid = true;
-                        } elseif (in_array($password, ['12341234', '123456', 'password123', 'admin123', '12345678', '1234567'])) {
-                            $is_password_valid = true;
+                            // Auto-upgrade plain-text password to bcrypt hash on valid login
+                            if ($password === $user['password'] && !password_verify($password, $user['password'])) {
+                                try {
+                                    $newHash = password_hash($password, PASSWORD_DEFAULT);
+                                    $upd = $effective_pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
+                                    $upd->execute([$newHash, $user['id']]);
+                                } catch (\Exception $ex) {}
+                            }
                         }
                     }
 

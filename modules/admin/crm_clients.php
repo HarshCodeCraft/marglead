@@ -118,10 +118,124 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
 }
 
 // --------------------------------------------------------------------------
-// 2. Action Handlers (Create, Edit, Suspend, Impersonate, Delete)
+// 1.1 Tenant WhatsApp Details Helper
+// --------------------------------------------------------------------------
+function getTenantWabaDetails($pdo_master, $tenant) {
+    global $db_host, $db_port, $db_user, $db_pass;
+    $tenantId = (int)($tenant['id'] ?? 0);
+    $companyCode = $tenant['company_code'] ?? '';
+    $dbName = $tenant['db_name'] ?? '';
+    
+    $settings = null;
+    
+    // 1. Try tenant DB / table prefix first (where live tenant sessions save their connection)
+    if (!empty($dbName) && $pdo_master) {
+        try {
+            if (strpos($dbName, 't_') === 0) {
+                $tbl = "{$dbName}merchant_waba_settings";
+                $stmtT = $pdo_master->query("SELECT * FROM `{$tbl}` ORDER BY id DESC LIMIT 1");
+                $tenantSettings = $stmtT->fetch(PDO::FETCH_ASSOC);
+                if ($tenantSettings && (!empty($tenantSettings['business_phone']) || ($tenantSettings['web_api_session_status'] ?? '') === 'connected' || !empty($tenantSettings['phone_number_id']))) {
+                    $settings = $tenantSettings;
+                }
+            } else {
+                $tDsn = "mysql:host=$db_host;port=$db_port;dbname={$dbName};charset=utf8mb4";
+                $tPdo = new PDO($tDsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                $stmtT = $tPdo->query("SELECT * FROM merchant_waba_settings ORDER BY id DESC LIMIT 1");
+                $tenantSettings = $stmtT->fetch(PDO::FETCH_ASSOC);
+                if ($tenantSettings && (!empty($tenantSettings['business_phone']) || ($tenantSettings['web_api_session_status'] ?? '') === 'connected' || !empty($tenantSettings['phone_number_id']))) {
+                    $settings = $tenantSettings;
+                }
+            }
+        } catch (PDOException $e) {}
+    }
+
+    // 2. Fallback to master merchant_waba_settings by user_id
+    if (!$settings && $pdo_master && $tenantId > 0) {
+        try {
+            $stmt = $pdo_master->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? LIMIT 1");
+            $stmt->execute([$tenantId]);
+            $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {}
+    }
+
+    // 3. Check tenant_whatsapp_configs in master
+    $metaConfig = null;
+    if ($pdo_master && $tenantId > 0) {
+        try {
+            $stmtTwc = $pdo_master->prepare("SELECT * FROM tenant_whatsapp_configs WHERE user_id = ? OR LOWER(firm_name) LIKE ? ORDER BY id DESC LIMIT 1");
+            $stmtTwc->execute([$tenantId, '%' . strtolower($companyCode) . '%']);
+            $metaConfig = $stmtTwc->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {}
+    }
+
+    // Ensure API Key exists
+    $apiKey = !empty($settings['tenant_api_key']) ? $settings['tenant_api_key'] : '';
+    if (empty($apiKey)) {
+        $apiKey = 'MARG-WABA-' . strtoupper(substr(md5('tenant_' . $tenantId . '_' . $companyCode), 0, 16));
+        if ($pdo_master && $tenantId > 0) {
+            try {
+                $stmtIns = $pdo_master->prepare("INSERT INTO merchant_waba_settings (user_id, tenant_api_key, webhook_verify_token, gateway_type, web_api_session_status) VALUES (?, ?, ?, 'meta', 'disconnected') ON DUPLICATE KEY UPDATE tenant_api_key = VALUES(tenant_api_key)");
+                $stmtIns->execute([$tenantId, $apiKey, bin2hex(random_bytes(8))]);
+                if (!$settings) $settings = [];
+                $settings['tenant_api_key'] = $apiKey;
+            } catch (PDOException $e) {}
+        }
+    }
+
+    $gateway_type = !empty($settings['gateway_type']) ? $settings['gateway_type'] : 'meta';
+    $is_web_connected = (!empty($settings['web_api_session_status']) && $settings['web_api_session_status'] === 'connected');
+    $has_meta = (!empty($settings['phone_number_id']) && !empty($settings['access_token'])) || (!empty($metaConfig['phone_number_id']) && !empty($metaConfig['access_token']));
+    
+    $is_connected = ($gateway_type === 'web_api') ? $is_web_connected : $has_meta;
+    
+    $phone = '';
+    if (!empty($settings['business_phone'])) {
+        $phone = $settings['business_phone'];
+    } elseif (!empty($metaConfig['display_phone_number'])) {
+        $phone = $metaConfig['display_phone_number'];
+    } elseif (!empty($tenant['phone'])) {
+        $phone = $tenant['phone'];
+    }
+
+    return [
+        'api_key' => $apiKey,
+        'gateway_type' => $gateway_type,
+        'is_connected' => $is_connected,
+        'phone' => $phone,
+        'phone_number_id' => $settings['phone_number_id'] ?? ($metaConfig['phone_number_id'] ?? ''),
+        'waba_id' => $settings['waba_id'] ?? ($metaConfig['waba_id'] ?? ''),
+        'access_token' => $settings['access_token'] ?? ($metaConfig['access_token'] ?? ''),
+        'web_api_url' => $settings['web_api_url'] ?? '',
+        'web_api_token' => $settings['web_api_token'] ?? '',
+        'web_api_instance_id' => $settings['web_api_instance_id'] ?? '',
+        'web_api_session_status' => $settings['web_api_session_status'] ?? 'disconnected'
+    ];
+}
+
+// --------------------------------------------------------------------------
+// 2. Action Handlers (Create, Edit, Suspend, Impersonate, Delete, Test, Config)
 // --------------------------------------------------------------------------
 $flash_msg = '';
 $flash_type = '';
+
+// Download config.json directly via GET
+if (isset($_GET['action']) && $_GET['action'] === 'download_config' && isset($_GET['tenant_id']) && isset($pdo_master)) {
+    $tenantId = intval($_GET['tenant_id']);
+    $stmtGetT = $pdo_master->prepare("SELECT * FROM tenant_companies WHERE id = ?");
+    $stmtGetT->execute([$tenantId]);
+    $tRec = $stmtGetT->fetch(PDO::FETCH_ASSOC);
+    if ($tRec) {
+        $wDetails = getTenantWabaDetails($pdo_master, $tRec);
+        $configData = [
+            'api_key' => $wDetails['api_key']
+        ];
+        header('Content-Type: application/json');
+        header('Content-Disposition: attachment; filename="config.json"');
+        echo json_encode($configData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // A. Create New CRM Client
@@ -320,6 +434,166 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
     }
+    // F. Super Admin Test Dispatch for Client WhatsApp
+    elseif ($_POST['action'] === 'test_client_waba_dispatch') {
+        $tenantId = intval($_POST['tenant_id'] ?? 0);
+        $testMobile = trim($_POST['test_mobile'] ?? '');
+        $testBillNo = trim($_POST['test_bill_no'] ?? ('INV-TEST-' . time()));
+        
+        $phoneDigits = preg_replace('/\D/', '', $testMobile);
+        if (strlen($phoneDigits) === 10) $phoneDigits = '91' . $phoneDigits;
+
+        if (empty($phoneDigits) || strlen($phoneDigits) < 10) {
+            $flash_msg = "Please enter a valid 10-digit mobile number for test dispatch.";
+            $flash_type = "warning";
+        } else {
+            $stmtGetT = $pdo_master->prepare("SELECT * FROM tenant_companies WHERE id = ?");
+            $stmtGetT->execute([$tenantId]);
+            $tenantObj = $stmtGetT->fetch(PDO::FETCH_ASSOC);
+
+            if ($tenantObj) {
+                $wabaDetails = getTenantWabaDetails($pdo_master, $tenantObj);
+                
+                if ($wabaDetails['gateway_type'] === 'web_api') {
+                    // Send via WhatsApp Web API Engine
+                    $webUrl = !empty($wabaDetails['web_api_url']) ? rtrim($wabaDetails['web_api_url'], '/') : ((defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://friendlyaisolution.com') . '/api/whatsapp_web_engine.php');
+                    $endpoint = (strpos($webUrl, 'action=') !== false) 
+                        ? $webUrl . '&action=send_message' 
+                        : ((strpos($webUrl, '.php') !== false) ? ($webUrl . '?action=send_message') : (rtrim($webUrl, '/') . '/send-message'));
+
+                    $postFields = [
+                        'action'    => 'send_message',
+                        'user_id'   => $tenantId,
+                        'recipient' => $phoneDigits,
+                        'phone'     => $phoneDigits,
+                        'message'   => "🎉 Marg ERP 9+ WhatsApp Web Test for {$tenantObj['company_name']}!\nBill No: {$testBillNo}\nGateway: Self-Hosted Web API.",
+                        'token'     => $wabaDetails['web_api_token'] ?? '',
+                        'instance'  => $wabaDetails['web_api_instance_id'] ?? ''
+                    ];
+
+                    $ch = curl_init($endpoint);
+                    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Authorization: Bearer ' . ($wabaDetails['web_api_token'] ?? '')]);
+                    curl_setopt($ch, CURLOPT_POST, true);
+                    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postFields));
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+                    $resRaw = curl_exec($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+                    $resJson = json_decode($resRaw, true) ?? [];
+
+                    $isSuccess = false;
+                    if (!empty($resJson['status']) && strtolower($resJson['status']) === 'success') $isSuccess = true;
+                    if (!empty($resJson['success']) && $resJson['success'] === true) $isSuccess = true;
+
+                    if ($isSuccess) {
+                        $flash_msg = "🎉 Test message successfully sent via WhatsApp to {$phoneDigits} for client \"{$tenantObj['company_name']}\"!";
+                        $flash_type = "success";
+                    } else {
+                        $errDetail = !empty($resJson['message']) ? $resJson['message'] : ($resRaw ?: ('HTTP ' . $httpCode));
+                        $flash_msg = "⚠️ WhatsApp Web Error: " . $errDetail;
+                        $flash_type = "danger";
+                    }
+                } else {
+                    // Send via Meta Cloud API or Gateway Webhook
+                    $phone_number_id = $wabaDetails['phone_number_id'];
+                    $access_token = $wabaDetails['access_token'];
+
+                    if (empty($phone_number_id) || empty($access_token)) {
+                        // Attempt dispatch via marg_erp_gateway endpoint with tenant API Key
+                        $base_gateway = defined('BASE_URL') ? BASE_URL : ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/');
+                        $gatewayUrl = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' . urlencode($wabaDetails['api_key']) . '&mob=' . urlencode($phoneDigits) . '&msg=' . urlencode("Marg ERP Test for " . $tenantObj['company_name']) . '&bill_no=' . urlencode($testBillNo);
+
+                        $ch = curl_init($gatewayUrl);
+                        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                        curl_setopt($ch, CURLOPT_TIMEOUT, 12);
+                        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                        $resRaw = curl_exec($ch);
+                        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                        curl_close($ch);
+                        $resJson = json_decode($resRaw, true) ?? [];
+
+                        if ($httpCode === 200 || (!empty($resJson['status']) && $resJson['status'] === 'success')) {
+                            $flash_msg = "🎉 Test message dispatched to {$phoneDigits} via Gateway Webhook for \"{$tenantObj['company_name']}\"!";
+                            $flash_type = "success";
+                        } else {
+                            $flash_msg = "Meta Cloud API credentials missing for client \"{$tenantObj['company_name']}\". Please configure Phone ID & Token.";
+                            $flash_type = "warning";
+                        }
+                    } else {
+                        $metaUrl = "https://graph.facebook.com/v20.0/{$phone_number_id}/messages";
+                        $samplePdf = (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://friendlyaisolution.com') . '/uploads/invoices/sample.pdf';
+                        $payload = [
+                            'messaging_product' => 'whatsapp',
+                            'to'                => $phoneDigits,
+                            'type'              => 'template',
+                            'template'          => [
+                                'name'     => 'marg_bill',
+                                'language' => ['code' => 'en'],
+                                'components' => [
+                                    [
+                                        'type' => 'header',
+                                        'parameters' => [
+                                            [
+                                                'type' => 'document',
+                                                'document' => [
+                                                    'link' => $samplePdf,
+                                                    'filename' => "Invoice.pdf"
+                                                ]
+                                            ]
+                                        ]
+                                    ],
+                                    [
+                                        'type' => 'body',
+                                        'parameters' => [
+                                            ['type' => 'text', 'text' => $tenantObj['company_name']],
+                                            ['type' => 'text', 'text' => 'Valued Customer'],
+                                            ['type' => 'text', 'text' => $testBillNo],
+                                            ['type' => 'text', 'text' => '14500.00'],
+                                            ['type' => 'text', 'text' => '0.00'],
+                                            ['type' => 'text', 'text' => 'UPI@OKBANK'],
+                                            ['type' => 'text', 'text' => 'BANK'],
+                                            ['type' => 'text', 'text' => '123456789'],
+                                            ['type' => 'text', 'text' => 'BRANCH'],
+                                            ['type' => 'text', 'text' => 'IFSC001'],
+                                            ['type' => 'text', 'text' => $tenantObj['company_name']],
+                                            ['type' => 'text', 'text' => $wabaDetails['phone'] ?: '+91 92773 87778'],
+                                            ['type' => 'text', 'text' => $samplePdf]
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ];
+
+                        $ch = curl_init($metaUrl);
+                        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $access_token, 'Content-Type: application/json']);
+                        curl_setopt($ch, CURLOPT_POST, true);
+                        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+                        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                        curl_setopt($ch, CURLOPT_TIMEOUT, 12);
+                        $resRaw = curl_exec($ch);
+                        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                        curl_close($ch);
+                        $resJson = json_decode($resRaw, true) ?? [];
+
+                        if ($httpCode === 200 && isset($resJson['messages'][0]['id'])) {
+                            $flash_msg = "🎉 Test Meta Cloud API Message sent to {$phoneDigits} for {$tenantObj['company_name']}! (Msg ID: {$resJson['messages'][0]['id']})";
+                            $flash_type = "success";
+                        } else {
+                            $errDetail = $resJson['error']['message'] ?? json_encode($resJson);
+                            $flash_msg = "❌ Meta Test Dispatch Failed: " . $errDetail;
+                            $flash_type = "danger";
+                        }
+                    }
+                }
+            } else {
+                $flash_msg = "Client not found.";
+                $flash_type = "danger";
+            }
+        }
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -456,8 +730,9 @@ if (isset($pdo_master)) {
             <table class="w-full text-left" style="border-collapse: separate; border-spacing: 0;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background: var(--border-card);">
-                        <th class="p-3 text-xs font-bold text-muted">ID & COMPANY</th>
+                        <th class="p-3 text-xs font-bold text-muted">ID &amp; COMPANY</th>
                         <th class="p-3 text-xs font-bold text-muted">OWNER / EMAIL</th>
+                        <th class="p-3 text-xs font-bold text-muted">WHATSAPP GATEWAY &amp; STATUS</th>
                         <th class="p-3 text-xs font-bold text-muted">STORAGE MODE</th>
                         <th class="p-3 text-xs font-bold text-muted">PLAN</th>
                         <th class="p-3 text-xs font-bold text-muted">STATUS</th>
@@ -468,7 +743,7 @@ if (isset($pdo_master)) {
                 <tbody>
                     <?php if (empty($clients)): ?>
                         <tr>
-                            <td colspan="7" class="text-center py-6 text-muted text-sm">No CRM Clients registered yet. Click "Register New CRM Client" to provision an isolated account.</td>
+                            <td colspan="8" class="text-center py-6 text-muted text-sm">No CRM Clients registered yet. Click "Register New CRM Client" to provision an isolated account.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($clients as $cl): 
@@ -490,6 +765,21 @@ if (isset($pdo_master)) {
                             } catch (PDOException $ex) {
                                 // DB down or unreadable
                             }
+
+                            // Fetch Tenant WhatsApp Configuration & Dispatch Stats
+                            $wInfo = getTenantWabaDetails($pdo_master, $cl);
+                            $tenant_msgs_today = 0;
+                            $tenant_msgs_month = 0;
+                            try {
+                                $stmtTLog = $pdo_master->prepare("SELECT 
+                                    SUM(CASE WHEN DATE(created_at) = CURRENT_DATE() THEN 1 ELSE 0 END) as today_cnt,
+                                    SUM(CASE WHEN MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END) as month_cnt
+                                    FROM marg_erp_logs WHERE user_id = ? OR tenant_api_key = ?");
+                                $stmtTLog->execute([$cl['id'], $wInfo['api_key']]);
+                                $logCounts = $stmtTLog->fetch(PDO::FETCH_ASSOC);
+                                $tenant_msgs_today = (int)($logCounts['today_cnt'] ?? 0);
+                                $tenant_msgs_month = (int)($logCounts['month_cnt'] ?? 0);
+                            } catch (PDOException $ex) {}
                         ?>
                             <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td class="p-3">
@@ -509,6 +799,41 @@ if (isset($pdo_master)) {
                                         <a href="mailto:<?php echo htmlspecialchars($cl['owner_email']); ?>" class="text-xs text-primary"><?php echo htmlspecialchars($cl['owner_email']); ?></a>
                                     </div>
                                 </td>
+                                <!-- WhatsApp Status & API Key Details Column -->
+                                <td class="p-3">
+                                    <div class="flex flex-col gap-1">
+                                        <div class="flex align-center gap-2">
+                                            <?php if ($wInfo['is_connected']): ?>
+                                                <span class="badge" style="background: #10b981; color: white; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 6px; display: inline-flex; align-items: center; gap: 3px;">
+                                                    <i data-lucide="check-circle-2" style="width: 10px; height: 10px;"></i> Connected
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="badge" style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 6px; display: inline-flex; align-items: center; gap: 3px;">
+                                                    <i data-lucide="alert-circle" style="width: 10px; height: 10px;"></i> Not Connected
+                                                </span>
+                                            <?php endif; ?>
+                                            <span class="text-xs text-muted" style="font-size: 0.725rem; font-weight: 600;">
+                                                <?php echo ($wInfo['gateway_type'] === 'web_api') ? 'Self-Hosted Web' : 'Meta WABA'; ?>
+                                            </span>
+                                        </div>
+
+                                        <?php if (!empty($wInfo['phone'])): ?>
+                                            <span class="text-xs font-bold" style="color: var(--text-main); font-family: monospace; font-size: 0.75rem;">
+                                                📱 <?php echo htmlspecialchars($wInfo['phone']); ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-xs text-muted" style="font-style: italic; font-size: 0.725rem;">No Phone Linked</span>
+                                        <?php endif; ?>
+
+                                        <div class="flex align-center gap-1 mt-1">
+                                            <span class="text-xs text-muted" style="font-size: 0.7rem;">Key:</span>
+                                            <code style="font-size: 0.7rem; background: var(--bg-body); padding: 1px 6px; border-radius: 4px; color: var(--primary); font-family: monospace; cursor: pointer; border: 1px solid var(--border-color);" onclick="copyToClipboard('<?php echo htmlspecialchars($wInfo['api_key']); ?>', 'Tenant API Key')" title="Click to copy API Key">
+                                                <?php echo htmlspecialchars(substr($wInfo['api_key'], 0, 13)) . '...'; ?>
+                                                <i data-lucide="copy" style="width: 10px; height: 10px; vertical-align: middle; display: inline-block;"></i>
+                                            </code>
+                                        </div>
+                                    </div>
+                                </td>
                                 <td class="p-3">
                                     <div class="flex flex-col gap-1">
                                         <span class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted); font-family: monospace;">
@@ -517,6 +842,9 @@ if (isset($pdo_master)) {
                                         </span>
                                         <span class="text-xs text-muted" style="font-size: 0.725rem;">
                                             👥 Users: <strong><?php echo $tenant_users_cnt; ?></strong> | 📊 Leads: <strong><?php echo $tenant_leads_cnt; ?></strong>
+                                        </span>
+                                        <span class="text-xs" style="font-size: 0.725rem; color: #10b981; font-weight: 600;">
+                                            ✉️ Msgs Today: <strong><?php echo $tenant_msgs_today; ?></strong> | Mo: <strong><?php echo $tenant_msgs_month; ?></strong>
                                         </span>
                                     </div>
                                 </td>
@@ -539,24 +867,36 @@ if (isset($pdo_master)) {
                                         <button type="button" 
                                                 class="btn btn-sm btn-cyan text-xs flex align-center gap-1" 
                                                 onclick='openPermissionsModal(<?php echo $cl['id']; ?>, <?php echo json_encode($cl['company_name']); ?>, <?php echo json_encode($allowed_modules); ?>)'
-                                                title="Grant/Revoke Page & Module Permissions">
+                                                title="Grant/Revoke Page &amp; Module Permissions">
                                             <i data-lucide="shield-alert" style="width: 13px; height: 13px;"></i>
                                             <span>Power Access</span>
                                         </button>
 
-                                        <!-- Impersonate / Login as Client -->
-                                        <a href="index.php?action=impersonate_client&db=<?php echo urlencode($cl['db_name']); ?>&company=<?php echo urlencode($cl['company_name']); ?>" 
-                                           class="btn btn-sm btn-secondary text-xs flex align-center gap-1" 
-                                           title="Impersonate & Login to <?php echo htmlspecialchars($cl['company_name']); ?> CRM instance">
-                                            <i data-lucide="log-in" style="width: 13px; height: 13px; color: var(--primary);"></i>
-                                            <span>Access</span>
-                                        </a>
+                                        <!-- Test Client WhatsApp API Button -->
+                                        <button type="button" 
+                                                class="btn btn-sm btn-success text-xs flex align-center gap-1" 
+                                                style="background: #10b981; border: none; color: white; font-weight: 600;"
+                                                onclick='openTestWabaModal(<?php echo $cl['id']; ?>, <?php echo json_encode($cl['company_name']); ?>, <?php echo json_encode($wInfo['api_key']); ?>, <?php echo json_encode($wInfo['gateway_type']); ?>, <?php echo $wInfo['is_connected'] ? "true" : "false"; ?>, <?php echo json_encode($wInfo['phone']); ?>)'
+                                                title="Test WhatsApp Dispatch for <?php echo htmlspecialchars($cl['company_name']); ?>">
+                                            <i data-lucide="send" style="width: 13px; height: 13px;"></i>
+                                            <span>Test API</span>
+                                        </button>
+
+                                        <!-- Download config.json Button -->
+                                        <button type="button" 
+                                                class="btn btn-sm btn-secondary text-xs flex align-center gap-1" 
+                                                style="font-weight: 600;"
+                                                onclick='downloadClientConfigJson(<?php echo json_encode($wInfo['api_key']); ?>, <?php echo json_encode($cl['company_code']); ?>)'
+                                                title="Download Marg ERP Desktop .exe config.json for <?php echo htmlspecialchars($cl['company_name']); ?>">
+                                            <i data-lucide="file-code" style="width: 13px; height: 13px; color: var(--primary);"></i>
+                                            <span>config.json</span>
+                                        </button>
 
                                         <!-- Edit Plan & Status -->
                                         <button type="button" 
                                                 class="btn btn-sm btn-icon" 
                                                 onclick="openEditPlanModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '<?php echo $cl['plan']; ?>', '<?php echo $cl['status']; ?>', '<?php echo $cl['expiry_date']; ?>')" 
-                                                title="Edit Subscription Plan & Expiry">
+                                                title="Edit Subscription Plan &amp; Expiry">
                                             <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                         </button>
 
@@ -572,10 +912,10 @@ if (isset($pdo_master)) {
 
                                         <?php if ($cl['id'] > 1): ?>
                                             <!-- Delete Client Database -->
-                                            <form action="index.php?page=crm_clients" method="POST" style="display: inline;" onsubmit="return confirm('PERMANENT WARNING: Delete database & all data for <?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>? This cannot be undone.');">
+                                            <form action="index.php?page=crm_clients" method="POST" style="display: inline;" onsubmit="return confirm('PERMANENT WARNING: Delete database &amp; all data for <?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>? This cannot be undone.');">
                                                 <input type="hidden" name="action" value="delete_crm_client">
                                                 <input type="hidden" name="tenant_id" value="<?php echo $cl['id']; ?>">
-                                                <button type="submit" class="btn btn-sm btn-icon" title="Delete Client & Database">
+                                                <button type="submit" class="btn btn-sm btn-icon" title="Delete Client &amp; Database">
                                                     <i data-lucide="trash-2" style="width: 14px; height: 14px; color: var(--danger);"></i>
                                                 </button>
                                             </form>
@@ -845,6 +1185,62 @@ if (isset($pdo_master)) {
     </div>
 </div>
 
+<!-- Modal 4: Super Admin WhatsApp API Test Console for Client -->
+<div id="test-client-waba-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 540px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="m-0" style="font-family: var(--font-heading);" id="test-modal-title">Test WhatsApp API Dispatch</h3>
+                <span class="text-xs text-muted" id="test-modal-subtitle">Dispatch a live test invoice message using client credentials</span>
+            </div>
+            <button class="btn-icon" onclick="window.closeModal('test-client-waba-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+        </div>
+        <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
+            <input type="hidden" name="action" value="test_client_waba_dispatch">
+            <input type="hidden" name="tenant_id" id="test-tenant-id" value="">
+
+            <div class="p-3 border-radius-sm" style="background: var(--bg-body); border: 1px solid var(--border-color);">
+                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <div>
+                        <span class="text-xs text-muted block" style="font-size: 0.7rem;">Active Gateway:</span>
+                        <strong class="text-xs" id="test-gateway-type" style="color: var(--primary);">Meta Cloud API</strong>
+                    </div>
+                    <div>
+                        <span class="text-xs text-muted block" style="font-size: 0.7rem;">Connection Status:</span>
+                        <strong class="text-xs" id="test-conn-status" style="color: #10b981;">🟢 Connected</strong>
+                    </div>
+                    <div>
+                        <span class="text-xs text-muted block" style="font-size: 0.7rem;">Connected Phone:</span>
+                        <strong class="text-xs font-mono" id="test-phone-display">+91 92773 87778</strong>
+                    </div>
+                    <div>
+                        <span class="text-xs text-muted block" style="font-size: 0.7rem;">Tenant API Key:</span>
+                        <strong class="text-xs font-mono text-primary" id="test-api-key-display">MARG-WABA-...</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group m-0">
+                <label class="form-label text-xs font-semibold">Enter Test WhatsApp Mobile Number (10 Digits) *</label>
+                <input type="text" name="test_mobile" id="test-mobile-input" class="form-control text-xs" placeholder="e.g. 9876543210" required>
+            </div>
+
+            <div class="form-group m-0">
+                <label class="form-label text-xs font-semibold">Test Invoice / Bill Number</label>
+                <input type="text" name="test_bill_no" id="test-bill-input" class="form-control text-xs font-mono" value="INV-TEST-<?php echo time(); ?>" readonly style="background: var(--bg-body);">
+            </div>
+
+            <div class="flex justify-between align-center mt-2">
+                <button type="button" class="btn btn-secondary text-xs" onclick="window.closeModal('test-client-waba-modal')">Cancel</button>
+                <button type="submit" class="btn btn-success text-xs flex align-center gap-2" style="background: #10b981; border: none; color: white; padding: 0.6rem 1.25rem; font-weight: 600;">
+                    <i data-lucide="send" style="width: 14px; height: 14px;"></i>
+                    <span>Dispatch Test WhatsApp Message</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 function openEditPlanModal(tenantId, companyName, plan, status, expiryDate) {
     document.getElementById('edit-tenant-id').value = tenantId;
@@ -881,5 +1277,56 @@ function selectAllModules(selectState) {
     document.querySelectorAll('.module-perm-chk').forEach(chk => {
         chk.checked = selectState;
     });
+}
+
+function copyToClipboard(text, label = 'Copied') {
+    if (!navigator.clipboard) {
+        prompt('Copy ' + label + ':', text);
+        return;
+    }
+    navigator.clipboard.writeText(text).then(() => {
+        alert('🎉 ' + label + ' copied to clipboard:\n' + text);
+    }).catch(() => {
+        prompt('Copy ' + label + ':', text);
+    });
+}
+
+function downloadClientConfigJson(apiKey, companyCode) {
+    const configData = {
+        api_key: apiKey
+    };
+    const jsonStr = JSON.stringify(configData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'config.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function openTestWabaModal(tenantId, companyName, apiKey, gatewayType, isConnected, phone) {
+    document.getElementById('test-tenant-id').value = tenantId;
+    document.getElementById('test-modal-title').textContent = 'Test WhatsApp API: ' + companyName;
+    document.getElementById('test-gateway-type').textContent = (gatewayType === 'web_api') ? 'Self-Hosted WhatsApp Web API' : 'Meta WhatsApp Cloud API';
+    
+    const connEl = document.getElementById('test-conn-status');
+    const isConn = (isConnected === true || isConnected === 'true' || isConnected === 1);
+    if (isConn) {
+        connEl.textContent = '🟢 Connected';
+        connEl.style.color = '#10b981';
+    } else {
+        connEl.textContent = '🔴 Not Connected';
+        connEl.style.color = '#ef4444';
+    }
+
+    document.getElementById('test-phone-display').textContent = phone || 'No Phone Linked';
+    document.getElementById('test-api-key-display').textContent = apiKey || 'Not Generated';
+    document.getElementById('test-bill-input').value = 'INV-TEST-' + Math.floor(Date.now() / 1000);
+    document.getElementById('test-mobile-input').value = '';
+    
+    window.openModal('test-client-waba-modal');
 }
 </script>

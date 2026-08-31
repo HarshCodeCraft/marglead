@@ -68,8 +68,8 @@ if ($db_connected && $pdo) {
 
             $hotLeads = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(priority) = 'hot'")->fetchColumn();
 
-            $pendingDemos = $pdo->query("SELECT (SELECT COUNT(*) FROM demos WHERE status = 'scheduled' AND scheduled_at >= NOW()) + (SELECT COUNT(*) FROM followups WHERE status = 'pending' AND scheduled_at >= NOW())")->fetchColumn();
-            $todaysDemos = $pdo->query("SELECT (SELECT COUNT(*) FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled' AND scheduled_at >= NOW()) + (SELECT COUNT(*) FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'pending' AND scheduled_at >= NOW())")->fetchColumn();
+            $pendingDemos = $pdo->query("SELECT COUNT(*) FROM leads WHERE group_stage LIKE '%Demo Scheduled%'")->fetchColumn();
+            $todaysDemos = $pdo->query("SELECT COUNT(*) FROM leads WHERE group_stage LIKE '%Demo Scheduled%' AND DATE(created_at) = CURRENT_DATE()")->fetchColumn();
 
             $pendingQuotes = $pdo->query("SELECT COUNT(*) FROM quotations WHERE status = 'pending'")->fetchColumn();
             $pendingQuotesVal = $pdo->query("SELECT SUM(grand_total) FROM quotations WHERE status = 'pending'")->fetchColumn();
@@ -126,12 +126,12 @@ if ($db_connected && $pdo) {
             $stmt->execute([$user_name]);
             $hotLeads = $stmt->fetchColumn();
 
-            $stmt = $pdo->prepare("SELECT (SELECT COUNT(*) FROM demos WHERE (engineer = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'scheduled' AND scheduled_at >= NOW()) + (SELECT COUNT(*) FROM followups WHERE (assigned_to = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'pending' AND scheduled_at >= NOW())");
-            $stmt->execute([$user_name, $user_name, $user_name, $user_name]);
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE (assigned_to = ? OR FIND_IN_SET(?, assigned_to) OR assigned_to LIKE ?) AND group_stage LIKE '%Demo Scheduled%'");
+            $stmt->execute([$user_name, $user_name, '%' . $user_name . '%']);
             $pendingDemos = $stmt->fetchColumn();
 
-            $stmt = $pdo->prepare("SELECT (SELECT COUNT(*) FROM demos WHERE (engineer = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled' AND scheduled_at >= NOW()) + (SELECT COUNT(*) FROM followups WHERE (assigned_to = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND DATE(scheduled_at) = CURRENT_DATE() AND status = 'pending' AND scheduled_at >= NOW())");
-            $stmt->execute([$user_name, $user_name, $user_name, $user_name]);
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE (assigned_to = ? OR FIND_IN_SET(?, assigned_to) OR assigned_to LIKE ?) AND group_stage LIKE '%Demo Scheduled%' AND DATE(created_at) = CURRENT_DATE()");
+            $stmt->execute([$user_name, $user_name, '%' . $user_name . '%']);
             $todaysDemos = $stmt->fetchColumn();
 
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM quotations WHERE (created_by = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'pending'");
@@ -375,7 +375,7 @@ $kpi_cards = [
         'border' => 'var(--warning)',
         'bg' => 'var(--warning-light)',
         'color' => 'var(--warning)',
-        'link' => 'index.php?page=demo&status=scheduled'
+        'link' => 'index.php?page=leads&group_stage=' . urlencode('Demo Scheduled')
     ],
     [
         'title' => 'Quotation Pending',
@@ -601,15 +601,14 @@ window.dashboardChartData = {
 </div>
 
 <?php
-// Check if current user WABA settings are unconfigured (Super Admin only)
+// Check if current user WABA settings are unconfigured
 $showWabaModal = false;
-$isSuperAdminForModal = isSystemAdminRole($_SESSION['user_role'] ?? '');
-if ($isSuperAdminForModal && $db_connected && $pdo) {
+if ($db_connected && $pdo) {
     $uid = $_SESSION['user_id'] ?? 1;
-    $stmtWabaChk = $pdo->prepare("SELECT phone_number_id, access_token, web_api_session_status FROM merchant_waba_settings WHERE user_id = ?");
+    $stmtWabaChk = $pdo->prepare("SELECT phone_number_id, access_token FROM merchant_waba_settings WHERE user_id = ?");
     $stmtWabaChk->execute([$uid]);
     $wabaRow = $stmtWabaChk->fetch(PDO::FETCH_ASSOC);
-    if (!$wabaRow || ((empty($wabaRow['phone_number_id']) || empty($wabaRow['access_token'])) && ($wabaRow['web_api_session_status'] ?? '') !== 'connected')) {
+    if (!$wabaRow || empty($wabaRow['phone_number_id']) || empty($wabaRow['access_token'])) {
         $showWabaModal = true;
     }
 }

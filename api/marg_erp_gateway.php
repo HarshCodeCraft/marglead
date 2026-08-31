@@ -44,12 +44,52 @@ if (!$db_connected || !$pdo) {
 }
 
 try {
-    // 1. Exact or case-insensitive match by Tenant API Key
+    // 1. Exact or case-insensitive match by Tenant API Key in master merchant_waba_settings
     $stmt = $pdo->prepare("SELECT * FROM merchant_waba_settings WHERE (tenant_api_key = ? OR tenant_api_key = UPPER(?)) LIMIT 1");
     $stmt->execute([$api_key, $api_key]);
     $merchant = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // 2. If not found and key starts with MARG-WABA-, fallback to master merchant record
+    // 2. Check in all tenant databases / isolated tables (t_{code}_merchant_waba_settings)
+    $stmtTenants = $pdo->query("SELECT * FROM tenant_companies WHERE status = 'Active'");
+    $tenantsList = $stmtTenants ? $stmtTenants->fetchAll(PDO::FETCH_ASSOC) : [];
+
+    foreach ($tenantsList as $tComp) {
+        $tDb = $tComp['db_name'] ?? '';
+        if (!empty($tDb) && strpos($tDb, 't_') === 0) {
+            $tbl = "{$tDb}merchant_waba_settings";
+            try {
+                $stmtT = $pdo->prepare("SELECT * FROM `{$tbl}` WHERE (tenant_api_key = ? OR tenant_api_key = UPPER(?)) LIMIT 1");
+                $stmtT->execute([$api_key, $api_key]);
+                $tMerchant = $stmtT->fetch(PDO::FETCH_ASSOC);
+                if ($tMerchant) {
+                    $merchant = $tMerchant;
+                    $merchant['user_id'] = $tComp['id'];
+                    break;
+                }
+            } catch (\PDOException $ex) {}
+        }
+    }
+
+    // 3. If still not found and key matches a tenant company prefix, try latest waba settings
+    if (!$merchant && strpos($api_key, 'MARG-WABA-') === 0) {
+        foreach ($tenantsList as $tComp) {
+            $tDb = $tComp['db_name'] ?? '';
+            if (!empty($tDb) && strpos($tDb, 't_') === 0) {
+                $tbl = "{$tDb}merchant_waba_settings";
+                try {
+                    $stmtT2 = $pdo->query("SELECT * FROM `{$tbl}` ORDER BY id DESC LIMIT 1");
+                    $tMerchant2 = $stmtT2 ? $stmtT2->fetch(PDO::FETCH_ASSOC) : null;
+                    if ($tMerchant2 && !empty($tMerchant2['tenant_api_key']) && ($tMerchant2['tenant_api_key'] === $api_key || strtoupper($tMerchant2['tenant_api_key']) === strtoupper($api_key))) {
+                        $merchant = $tMerchant2;
+                        $merchant['user_id'] = $tComp['id'];
+                        break;
+                    }
+                } catch (\PDOException $ex) {}
+            }
+        }
+    }
+
+    // 4. If still not found, fallback to master merchant record
     if (!$merchant && strpos($api_key, 'MARG-WABA-') === 0) {
         $stmtFallback = $pdo->prepare("SELECT * FROM merchant_waba_settings ORDER BY id ASC LIMIT 1");
         $stmtFallback->execute();
@@ -133,10 +173,14 @@ if (empty($phoneDigits) || strlen($phoneDigits) < 10) {
     exit;
 }
 
-// Upload Directory Setup with Bill-Specific Subfolder
+// Generate a high-entropy unguessable cryptographic token for this invoice (Prevents IDOR & URL tampering)
+$secureInvoiceHash = substr(hash('sha256', $safeBillNo . '_' . $phoneDigits . '_' . microtime(true) . '_' . bin2hex(random_bytes(16))), 0, 24);
+$secureFolder = $safeBillNo . '_' . $secureInvoiceHash;
+
+// Upload Directory Setup with Cryptographically Secure Subfolder
 $baseUrl = (!empty($_SERVER['HTTPS']) ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST']);
 $baseUploadsDir = __DIR__ . '/../uploads/invoices/';
-$billFolder = $baseUploadsDir . $safeBillNo . '/';
+$billFolder = $baseUploadsDir . $secureFolder . '/';
 
 if (!is_dir($billFolder)) {
     @mkdir($billFolder, 0777, true);
@@ -150,21 +194,105 @@ if (!empty($_FILES)) {
     if (!empty($uploadedFile['tmp_name']) && is_uploaded_file($uploadedFile['tmp_name'])) {
         $targetFile = $billFolder . "Invoice.pdf";
         if (move_uploaded_file($uploadedFile['tmp_name'], $targetFile)) {
-            $pdfDownloadUrl = $baseUrl . "/uploads/invoices/" . $safeBillNo . "/Invoice.pdf";
+            $pdfDownloadUrl = $baseUrl . "/uploads/invoices/" . $secureFolder . "/Invoice.pdf";
         }
     }
 }
 
 if (!$pdfDownloadUrl) {
-    $pdfDownloadUrl = $baseUrl . "/uploads/invoices/" . $safeBillNo . "/Invoice.pdf";
+    $pdfDownloadUrl = $baseUrl . "/uploads/invoices/" . $secureFolder . "/Invoice.pdf";
 }
+
+// -------------------------------------------------------------
+// Dynamic Multi-Tenant Bank & Helpline Lookup (Per Client)
+// -------------------------------------------------------------
+$bankDetails = null;
+$tenantId = (int)($merchant['user_id'] ?? 0);
+$tenantCompany = null;
+
+if ($tenantId > 0) {
+    try {
+        $stmtTComp = $pdo->prepare("SELECT * FROM tenant_companies WHERE id = ? LIMIT 1");
+        $stmtTComp->execute([$tenantId]);
+        $tenantCompany = $stmtTComp->fetch(PDO::FETCH_ASSOC);
+        
+        if ($tenantCompany && !empty($tenantCompany['db_name']) && strpos($tenantCompany['db_name'], 't_') === 0) {
+            $tBankTbl = "{$tenantCompany['db_name']}bank_accounts";
+            $stmtB = $pdo->query("SELECT * FROM `{$tBankTbl}` WHERE status = 'Active' ORDER BY is_primary DESC, id ASC LIMIT 1");
+            $bankDetails = $stmtB ? $stmtB->fetch(PDO::FETCH_ASSOC) : null;
+        }
+    } catch (\PDOException $ex) {}
+}
+
+// Only fallback to master bank_accounts for Super Admin (user_id 1)
+if (!$bankDetails && ($tenantId === 1 || empty($tenantCompany))) {
+    try {
+        $stmtB2 = $pdo->query("SELECT * FROM bank_accounts WHERE status = 'Active' ORDER BY is_primary DESC, id ASC LIMIT 1");
+        $bankDetails = $stmtB2 ? $stmtB2->fetch(PDO::FETCH_ASSOC) : null;
+    } catch (\PDOException $ex) {}
+}
+
+// Client Helpline Phone
+$merchant_helpline = '';
+if (!empty($merchant['business_phone'])) {
+    $merchant_helpline = $merchant['business_phone'];
+} elseif (!empty($tenantCompany['owner_phone'])) {
+    $merchant_helpline = $tenantCompany['owner_phone'];
+} elseif ($tenantId === 1) {
+    $merchant_helpline = '+91 92773 87778';
+}
+
+// Firm Name
+$firmDisplay = !empty($parsedData['firm_name']) ? $parsedData['firm_name'] : ($tenantCompany['company_name'] ?? 'Marg ERP Merchant');
+
+// Extract specific bank variables for Meta Template
+$bankUpi = $bankDetails['upi_id'] ?? '';
+$bankName = $bankDetails['bank_name'] ?? '';
+$bankAccNo = $bankDetails['account_number'] ?? '';
+$bankBranch = $bankDetails['branch'] ?? '';
+$bankIfsc = $bankDetails['ifsc_code'] ?? '';
+
+// Build Complete Dynamic Bill Confirmation Message Text
+$fullBillMessage = "From: *" . $firmDisplay . "*\n";
+$fullBillMessage .= "Subject: *Sale Bill Confirmation*\n\n";
+$fullBillMessage .= "Dear *" . $parsedData['customer_name'] . "*,\n\n";
+$fullBillMessage .= "Your recent order with the invoice number *" . $parsedData['bill_no'] . "* of the amount *₹" . $parsedData['bill_amount'] . "* has been successfully generated.\n\n";
+$fullBillMessage .= "Please check for your payments.\n";
+$fullBillMessage .= "Your Ledger balance is *₹" . $parsedData['balance'] . "*.\n\n";
+
+// Only include Bank Details block if the client has actually configured their bank account
+if ($bankDetails && !empty($bankDetails['account_number'])) {
+    $fullBillMessage .= "*Bank Details:*\n";
+    if (!empty($bankDetails['upi_id'])) {
+        $fullBillMessage .= "UPI ID: *" . $bankDetails['upi_id'] . "*\n";
+    }
+    if (!empty($bankDetails['bank_name'])) {
+        $fullBillMessage .= "Bank Name: *" . $bankDetails['bank_name'] . "*\n";
+    }
+    $fullBillMessage .= "Account No.: *" . $bankDetails['account_number'] . "*\n";
+    if (!empty($bankDetails['branch'])) {
+        $fullBillMessage .= "Branch: *" . $bankDetails['branch'] . "*\n";
+    }
+    if (!empty($bankDetails['ifsc_code'])) {
+        $fullBillMessage .= "IFSC Code: *" . $bankDetails['ifsc_code'] . "*\n";
+    }
+    $fullBillMessage .= "\n";
+}
+
+$fullBillMessage .= "Regards,\n";
+$fullBillMessage .= "*" . $firmDisplay . "*\n";
+if (!empty($merchant_helpline)) {
+    $fullBillMessage .= "Helpline: *" . $merchant_helpline . "*\n";
+}
+$fullBillMessage .= "\n";
+$fullBillMessage .= "The bill PDF is attached above.\n";
+$fullBillMessage .= "Preview link: " . $pdfDownloadUrl . "\n\n";
+$fullBillMessage .= "Thank you for doing business with us!";
 
 $gateway_type = $merchant['gateway_type'] ?? 'meta';
 // Auto-route through Self-Hosted WhatsApp Web if web session is connected or if explicitly chosen
-if (!empty($merchant['web_api_session_status']) && $merchant['web_api_session_status'] === 'connected') {
-    if ($gateway_type === 'web_api' || empty($merchant['phone_number_id']) || empty($merchant['access_token'])) {
-        $gateway_type = 'web_api';
-    }
+if ((!empty($merchant['web_api_session_status']) && $merchant['web_api_session_status'] === 'connected') || $gateway_type === 'web_api') {
+    $gateway_type = 'web_api';
 }
 
 $success = false;
@@ -176,7 +304,6 @@ if ($gateway_type === 'meta') {
     // ==========================================
     $phone_number_id = $merchant['phone_number_id'] ?? '';
     $access_token = $merchant['access_token'] ?? '';
-    $merchant_helpline = !empty($merchant['business_phone']) ? $merchant['business_phone'] : '+91 92773 87778';
 
     if (empty($phone_number_id) || empty($access_token)) {
         http_response_code(400);
@@ -184,7 +311,7 @@ if ($gateway_type === 'meta') {
         exit;
     }
 
-    $metaUrl = "https://graph.facebook.com/v19.0/{$phone_number_id}/messages";
+    $metaUrl = "https://graph.facebook.com/v20.0/{$phone_number_id}/messages";
     $template_name_in_meta = 'marg_bill'; 
 
     $payload = [
@@ -215,11 +342,11 @@ if ($gateway_type === 'meta') {
                         ['type' => 'text', 'text' => (string)$parsedData['bill_no']],
                         ['type' => 'text', 'text' => (string)$parsedData['bill_amount']],
                         ['type' => 'text', 'text' => (string)$parsedData['balance']],
-                        ['type' => 'text', 'text' => 'HARSHSAINI2017@OKICCI'],
-                        ['type' => 'text', 'text' => 'BOI'],
-                        ['type' => 'text', 'text' => '178963542456'],
-                        ['type' => 'text', 'text' => 'MANDHANA'],
-                        ['type' => 'text', 'text' => 'BKI0125'],
+                        ['type' => 'text', 'text' => (string)$bankUpi],
+                        ['type' => 'text', 'text' => (string)$bankName],
+                        ['type' => 'text', 'text' => (string)$bankAccNo],
+                        ['type' => 'text', 'text' => (string)$bankBranch],
+                        ['type' => 'text', 'text' => (string)$bankIfsc],
                         ['type' => 'text', 'text' => (string)$parsedData['firm_name']],
                         ['type' => 'text', 'text' => (string)$merchant_helpline],
                         ['type' => 'text', 'text' => (string)$pdfDownloadUrl]
@@ -268,7 +395,7 @@ if ($gateway_type === 'meta') {
         'recipient'    => $phoneDigits,
         'phone'        => $phoneDigits,
         'mobile'       => $phoneDigits,
-        'message'      => $parsedData['formatted_text'],
+        'message'      => $fullBillMessage,
         'document_url' => $pdfDownloadUrl,
         'file_url'     => $pdfDownloadUrl,
         'pdf_url'      => $pdfDownloadUrl,
@@ -304,6 +431,21 @@ if ($gateway_type === 'meta') {
 
 // Final Clean JSON Response
 if ($success) {
+    // Record dispatch in marg_erp_logs for live stats & message counters
+    try {
+        $metaMsgId = $apiResponseData['messages'][0]['id'] ?? ($apiResponseData['message_id'] ?? ('MSG_' . time()));
+        $stmtLog = $pdo->prepare("INSERT INTO marg_erp_logs (user_id, tenant_api_key, recipient_phone, event_type, bill_number, template_name, status, meta_message_id, payload_json) VALUES (?, ?, ?, 'Marg ERP Bill', ?, ?, 'Sent', ?, ?)");
+        $stmtLog->execute([
+            $merchant['user_id'] ?? 1,
+            $api_key,
+            $phoneDigits,
+            $parsedData['bill_no'],
+            $gateway_type,
+            $metaMsgId,
+            json_encode(['amount' => $parsedData['bill_amount'], 'customer' => $parsedData['customer_name'], 'gateway' => $gateway_type])
+        ]);
+    } catch (\PDOException $ex) {}
+
     echo json_encode([
         'status' => 'success', 
         'gateway' => $gateway_type,

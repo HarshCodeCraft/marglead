@@ -17,8 +17,42 @@ $total_leads = 0;
 $leads = [];
 
 $user_role = $_SESSION['user_role'] ?? 'Sales Executive';
-$user_name = $_SESSION['user_name'] ?? '';
+$user_name = trim($_SESSION['user_name'] ?? '');
+$user_email = trim($_SESSION['user_email'] ?? '');
+$user_id = trim(strval($_SESSION['user_id'] ?? ''));
 $is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
+
+// Collect all possible aliases/identifiers for the current logged-in employee (Name, Email, ID)
+$user_identifiers = [];
+if (!empty($user_name)) $user_identifiers[] = $user_name;
+if (!empty($user_email)) $user_identifiers[] = $user_email;
+if (!empty($user_id)) $user_identifiers[] = $user_id;
+
+if ($db_connected && $pdo && (!empty($user_id) || !empty($user_email) || !empty($user_name))) {
+    try {
+        $uStmt = $pdo->prepare("SELECT id, name, email FROM users WHERE (id = ? AND ? != '') OR (email = ? AND ? != '') OR (name = ? AND ? != '')");
+        $uStmt->execute([$user_id, $user_id, $user_email, $user_email, $user_name, $user_name]);
+        $uData = $uStmt->fetch(PDO::FETCH_ASSOC);
+        if ($uData) {
+            if (!empty($uData['name'])) $user_identifiers[] = trim($uData['name']);
+            if (!empty($uData['email'])) $user_identifiers[] = trim($uData['email']);
+            if (!empty($uData['id'])) $user_identifiers[] = trim(strval($uData['id']));
+        }
+    } catch (PDOException $e) {}
+}
+
+// Add email username prefix (e.g. 'poornimabajpai17') and space variations (e.g. 'poornimabajpai17@gmail com')
+$extra_idents = [];
+foreach ($user_identifiers as $ident) {
+    if (strpos($ident, '@') !== false) {
+        $parts = explode('@', $ident);
+        if (!empty($parts[0]) && strlen($parts[0]) >= 3) {
+            $extra_idents[] = $parts[0];
+        }
+        $extra_idents[] = str_replace('.', ' ', $ident);
+    }
+}
+$user_identifiers = array_values(array_unique(array_filter(array_merge($user_identifiers, $extra_idents))));
 
 // Dates setup for Today, Tomorrow, Next Day summary metric cards
 $today_str = date('Y-m-d');
@@ -26,7 +60,7 @@ $tomorrow_str = date('Y-m-d', strtotime('+1 day'));
 $nextday_str = date('Y-m-d', strtotime('+2 days'));
 
 // Fetch live metrics dynamically
-$liveMetrics = getLiveMetricCounts($pdo, $is_admin, $user_name);
+$liveMetrics = getLiveMetricCounts($pdo, $is_admin, $user_identifiers);
 $expired_counts = $liveMetrics['expired'];
 $demo_counts = $liveMetrics['demo'];
 $callback_counts = $liveMetrics['callback'];
@@ -58,15 +92,27 @@ if ($db_connected && $pdo) {
         $where_conditions = [];
         $query_params = [];
 
-        if (!$is_admin && !empty($user_name)) {
-            $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE ?)";
-            $query_params[] = $user_name;
-            $query_params[] = $user_name;
-            $query_params[] = '%' . $user_name . '%';
+        if (!$is_admin && !empty($user_identifiers)) {
+            $emp_or_clauses = [];
+            foreach ($user_identifiers as $uIdent) {
+                $emp_or_clauses[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
+                $query_params[] = $uIdent;
+                $emp_or_clauses[] = "FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(assigned_to, ', ', ',')))";
+                $query_params[] = $uIdent;
+                $emp_or_clauses[] = "assigned_to LIKE ?";
+                $query_params[] = '%' . $uIdent . '%';
+            }
+            $where_conditions[] = "(" . implode(" OR ", $emp_or_clauses) . ")";
         }
 
-        if (!empty($_GET['filter']) && $_GET['filter'] === 'today') {
-            $where_conditions[] = "DATE(created_at) = CURRENT_DATE()";
+        $filter_date = trim($_GET['lead_date'] ?? $_GET['date'] ?? '');
+        if (!empty($filter_date)) {
+            $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = ?) OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = ?) OR DATE(leads.created_at) = ?)";
+            $query_params[] = $filter_date;
+            $query_params[] = $filter_date;
+            $query_params[] = $filter_date;
+        } elseif (!empty($_GET['filter']) && $_GET['filter'] === 'today') {
+            $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE()) OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE()) OR DATE(leads.created_at) = CURRENT_DATE())";
         }
 
         $search_term = trim($_GET['search'] ?? $_GET['q'] ?? '');
@@ -128,12 +174,12 @@ if ($db_connected && $pdo) {
         }
 
         if (!empty($_GET['group_stage'])) {
-            $where_conditions[] = "LOWER(group_stage) = ?";
-            $query_params[] = strtolower(trim($_GET['group_stage']));
+            $where_conditions[] = "group_stage LIKE ?";
+            $query_params[] = '%' . trim($_GET['group_stage']) . '%';
         }
 
-        // Apply Metric Card Filter if clicked
-        if (!empty($active_filter) && !empty($active_day)) {
+        // Apply Metric Card Filter if clicked (only when explicit date filter is not chosen)
+        if (!empty($active_filter) && !empty($active_day) && empty($filter_date)) {
             if ($active_filter === 'expired') {
                 if ($active_day === 'all' || $active_day === 'total') {
                     $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%' OR status = 'missed' OR scheduled_at <= NOW())) OR id IN (SELECT lead_id FROM renewals) OR LOWER(status) IN ('expired', 'trial_expired'))";
@@ -148,16 +194,15 @@ if ($db_connected && $pdo) {
                     $query_params[] = $target_date;
                 }
             } elseif ($active_filter === 'demo_scheduled') {
+                $demo_base = "(group_stage LIKE '%Demo Scheduled%' OR LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled') OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%')))";
                 if ($active_day === 'all' || $active_day === 'total') {
-                    $where_conditions[] = "(LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled') OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%')))";
+                    $where_conditions[] = $demo_base;
                 } elseif ($active_day === 'today') {
-                    $where_conditions[] = "(LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) <= ?) OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) <= ?))";
-                    $query_params[] = $today_str;
+                    $where_conditions[] = "{$demo_base} AND COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' AND (action_type LIKE '%Demo%' OR remarks LIKE '%demo%') ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at)) <= ?";
                     $query_params[] = $today_str;
                 } else {
                     $target_date = ($active_day === 'tomorrow') ? $tomorrow_str : $nextday_str;
-                    $where_conditions[] = "(LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled' AND DATE(scheduled_at) = ?) OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%') AND DATE(scheduled_at) = ?))";
-                    $query_params[] = $target_date;
+                    $where_conditions[] = "{$demo_base} AND COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' AND (action_type LIKE '%Demo%' OR remarks LIKE '%demo%') ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at)) = ?";
                     $query_params[] = $target_date;
                 }
             } elseif ($active_filter === 'callback') {
@@ -207,6 +252,18 @@ if ($db_connected && $pdo) {
             $stmt->execute();
         }
         $db_leads = $stmt->fetchAll();
+        $lead_ids = array_column($db_leads, 'id');
+        $fup_dates = [];
+        if (!empty($lead_ids)) {
+            $in_placeholders = implode(',', array_fill(0, count($lead_ids), '?'));
+            $fStmt = $pdo->prepare("SELECT lead_id, scheduled_at FROM followups WHERE lead_id IN ($in_placeholders) AND status = 'pending' ORDER BY scheduled_at ASC");
+            $fStmt->execute($lead_ids);
+            while ($fRow = $fStmt->fetch(PDO::FETCH_ASSOC)) {
+                if (!isset($fup_dates[$fRow['lead_id']])) {
+                    $fup_dates[$fRow['lead_id']] = date('Y-m-d', strtotime($fRow['scheduled_at']));
+                }
+            }
+        }
         foreach ($db_leads as $l) {
             $leads[] = [
                 'id' => $l['id'],
@@ -222,6 +279,9 @@ if ($db_connected && $pdo) {
                 'assigned_by' => $l['assigned_by'] ?? 'Admin',
                 'budget' => '₹' . number_format($l['budget'], 0),
                 'last_contact' => date('Y-m-d h:i A', strtotime($l['updated_at'])),
+                'created_date' => !empty($l['created_at']) ? date('Y-m-d', strtotime($l['created_at'])) : '',
+                'scheduled_date' => $fup_dates[$l['id']] ?? '',
+                'created_at' => $l['created_at'] ?? '',
                 'address' => $l['address'] ?? '',
                 'tags' => $l['tags'] ?? '',
                 'group_stage' => $l['group_stage'] ?? '',
@@ -573,6 +633,16 @@ if (empty($leads)) {
             <button class="text-xs text-primary font-semibold pointer" onclick="resetFilters()">Reset All Filters</button>
         </div>
         <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.25rem;">
+            <!-- Schedule / Follow-up Reminder Date Filter -->
+            <div class="form-group m-0" style="position: relative;">
+                <div class="flex justify-between align-center mb-1">
+                    <label class="form-label text-xs font-semibold m-0" title="Schedule Follow-up reminder Date & Time">Scheduled / Follow-up Date</label>
+                    <?php if (!empty($_GET['lead_date']) || !empty($_GET['date'])): ?>
+                        <span class="text-xs text-danger font-semibold pointer" style="cursor: pointer; font-size: 11px;" onclick="clearDateFilter()" title="Clear date filter">✕ Clear</span>
+                    <?php endif; ?>
+                </div>
+                <input type="date" id="filter-date" class="form-control text-xs no-quick" data-no-quick="true" style="height: 35px;" value="<?php echo htmlspecialchars($_GET['lead_date'] ?? $_GET['date'] ?? ''); ?>" onchange="applyAdvancedFilters(true)" oninput="if(this.value.length === 10 || this.value === '') applyAdvancedFilters(true);">
+            </div>
             <!-- Source Filter -->
             <div class="form-group m-0">
                 <label class="form-label text-xs">Lead Source</label>
@@ -732,7 +802,7 @@ if (empty($leads)) {
                         $sno = ($limit === 'all') ? ($loop_idx + 1) : ($offset + $loop_idx + 1);
                         $loop_idx++;
                     ?>
-                        <tr data-source="<?php echo htmlspecialchars($lead['source']); ?>" data-priority="<?php echo htmlspecialchars($lead['priority']); ?>" data-status="<?php echo htmlspecialchars($lead['status']); ?>" data-assigned="<?php echo htmlspecialchars($lead['assigned']); ?>" data-group="<?php echo htmlspecialchars($lead['group_stage'] ?? ''); ?>">
+                        <tr data-source="<?php echo htmlspecialchars($lead['source']); ?>" data-priority="<?php echo htmlspecialchars($lead['priority']); ?>" data-status="<?php echo htmlspecialchars($lead['status']); ?>" data-assigned="<?php echo htmlspecialchars($lead['assigned']); ?>" data-group="<?php echo htmlspecialchars($lead['group_stage'] ?? ''); ?>" data-date="<?php echo htmlspecialchars(!empty($lead['scheduled_date']) ? $lead['scheduled_date'] : $lead['created_date']); ?>" data-fupdate="<?php echo htmlspecialchars($lead['scheduled_date'] ?? ''); ?>" data-createdate="<?php echo htmlspecialchars($lead['created_date'] ?? ''); ?>">
                             <td style="text-align: center; vertical-align: middle;">
                                 <input type="checkbox" class="lead-checkbox" value="<?php echo $lead['id']; ?>" style="accent-color: var(--primary);">
                             </td>
@@ -1451,7 +1521,16 @@ if (empty($leads)) {
                 }
             });
 
-            // 4. Re-initialize Lucide Icons & Column preferences
+            // 4. Sync Advanced Filter Drawer inputs if present
+            ['filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-assigned', 'filter-group'].forEach(id => {
+                const cur = document.getElementById(id);
+                const nw = doc.getElementById(id);
+                if (cur && nw && cur !== document.activeElement) {
+                    cur.value = nw.value;
+                }
+            });
+
+            // 5. Re-initialize Lucide Icons & Column preferences
             if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
                 lucide.createIcons();
             }
@@ -1470,8 +1549,18 @@ if (empty($leads)) {
 
     window.fetchLeadsPartialWithoutReload = fetchLeadsPartialWithoutReload;
 
+    function clearDateFilter() {
+        const dtInput = document.getElementById('filter-date');
+        if (dtInput) {
+            dtInput.value = '';
+            applyAdvancedFilters(true);
+        }
+    }
+    window.clearDateFilter = clearDateFilter;
+
     function applyAdvancedFilters(triggerServer = false) {
         const searchVal = (document.getElementById('leads-search-input')?.value || '').toLowerCase().trim();
+        const dateVal = (document.getElementById('filter-date')?.value || '').trim();
         const sourceVal = (document.getElementById('filter-source')?.value || '').toLowerCase().trim();
         const priorityVal = (document.getElementById('filter-priority')?.value || '').toLowerCase().trim();
         const statusVal = (document.getElementById('filter-status')?.value || '').toLowerCase().trim();
@@ -1480,6 +1569,16 @@ if (empty($leads)) {
 
         if (triggerServer) {
             const url = new URL(window.location.href);
+            if (dateVal) {
+                url.searchParams.set('lead_date', dateVal);
+                url.searchParams.delete('filter');
+                url.searchParams.delete('card_filter');
+                url.searchParams.delete('filter_card');
+                url.searchParams.delete('day');
+            } else {
+                url.searchParams.delete('lead_date');
+                url.searchParams.delete('date');
+            }
             if (sourceVal) url.searchParams.set('source', sourceVal); else url.searchParams.delete('source');
             if (priorityVal) url.searchParams.set('priority', priorityVal); else url.searchParams.delete('priority');
             if (statusVal) url.searchParams.set('status', statusVal); else url.searchParams.delete('status');
@@ -1493,6 +1592,9 @@ if (empty($leads)) {
         const rows = document.querySelectorAll('table.table tbody tr');
         rows.forEach(row => {
             const text = row.textContent.toLowerCase();
+            const rDate = (row.getAttribute('data-date') || '').trim();
+            const rFupDate = (row.getAttribute('data-fupdate') || '').trim();
+            const rCreateDate = (row.getAttribute('data-createdate') || '').trim();
             const rSource = (row.getAttribute('data-source') || '').toLowerCase();
             const rPriority = (row.getAttribute('data-priority') || '').toLowerCase();
             const rStatus = (row.getAttribute('data-status') || '').toLowerCase();
@@ -1500,6 +1602,7 @@ if (empty($leads)) {
             const rGroup = (row.getAttribute('data-group') || '').toLowerCase();
 
             const matchSearch = !searchVal || text.includes(searchVal);
+            const matchDate = !dateVal || rDate === dateVal || rFupDate === dateVal || rCreateDate === dateVal || rDate.startsWith(dateVal);
             const matchSource = !sourceVal || rSource.includes(sourceVal) || text.includes(sourceVal);
             const matchPriority = !priorityVal || rPriority === priorityVal;
             const matchAssigned = !assignedVal || rAssigned.includes(assignedVal);
@@ -1514,7 +1617,7 @@ if (empty($leads)) {
                 matchStatus = (rStatus === statusVal);
             }
 
-            if (matchSearch && matchSource && matchPriority && matchStatus && matchAssigned && matchGroup) {
+            if (matchSearch && matchDate && matchSource && matchPriority && matchStatus && matchAssigned && matchGroup) {
                 row.style.display = '';
             } else {
                 row.style.display = 'none';
@@ -1523,6 +1626,10 @@ if (empty($leads)) {
     }
 
     function resetFilters() {
+        ['filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-assigned', 'filter-group', 'leads-search-input'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
         fetchLeadsPartialWithoutReload('index.php?page=leads', true);
     }
 

@@ -202,17 +202,44 @@ if ($db_connected && $pdo) {
         $stmt2->execute($params_fups);
         $list2 = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
-        // Merge deduplicating by lead_id + scheduled_at
+        // Query 3: Leads where group_stage LIKE '%Demo Scheduled%'
+        $where_leads = ["l.group_stage LIKE '%Demo Scheduled%'"];
+        $params_leads = [];
+        if (!$is_admin && !empty($user_name)) {
+            $where_leads[] = "(LOWER(TRIM(l.assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(l.assigned_to, ', ', ','))) OR l.assigned_to LIKE ?)";
+            $params_leads = [$user_name, $user_name, '%' . $user_name . '%'];
+        }
+        $sql_where_leads = "WHERE " . implode(" AND ", $where_leads);
+        $stmt3 = $pdo->prepare("
+            SELECT CONCAT('LEAD-', l.id) as id, l.id as lead_id, COALESCE(l.created_at, NOW()) as scheduled_at, 'Demo Walkthrough' as mode, COALESCE(NULLIF(l.assigned_to, ''), 'System') as engineer,
+                'scheduled' as status, 5 as rating, CONCAT('Stage: ', l.group_stage) as feedback, '' as cancel_reason,
+                l.name as lead_name, l.company, l.phone, l.email
+            FROM leads l
+            {$sql_where_leads}
+        ");
+        $stmt3->execute($params_leads);
+        $list3 = $stmt3->fetchAll(PDO::FETCH_ASSOC);
+
+        // Merge deduplicating by lead_id
         $seen = [];
+        $seen_leads = [];
         foreach ($list1 as $item) {
             $key = $item['lead_id'] . '_' . date('Y-m-d H:i', strtotime($item['scheduled_at']));
             $seen[$key] = true;
+            $seen_leads[$item['lead_id']] = true;
             $demos[] = $item;
         }
         foreach ($list2 as $item) {
             $key = $item['lead_id'] . '_' . date('Y-m-d H:i', strtotime($item['scheduled_at']));
             if (!isset($seen[$key])) {
                 $demos[] = $item;
+            }
+            $seen_leads[$item['lead_id']] = true;
+        }
+        foreach ($list3 as $item) {
+            if (!isset($seen_leads[$item['lead_id']])) {
+                $demos[] = $item;
+                $seen_leads[$item['lead_id']] = true;
             }
         }
 

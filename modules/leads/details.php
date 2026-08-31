@@ -167,6 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $address = trim($_POST['address'] ?? '');
             $city = trim($_POST['city'] ?? '');
             $state = trim($_POST['state'] ?? '');
+            $area = trim($_POST['area'] ?? '');
             $online_zip_code = trim($_POST['online_zip_code'] ?? '');
             $due_on = !empty($_POST['due_on']) ? $_POST['due_on'] : null;
             $act_on = !empty($_POST['act_on']) ? $_POST['act_on'] : null;
@@ -190,14 +191,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $updClient = $pdo->prepare("UPDATE client_directory SET 
                     party_name = ?, company_using = ?, mobile = ?, email = ?, contact_person = ?,
                     sw_type = ?, software_type = ?, user_type = ?, no_of_users = ?,
-                    subpartner_code = ?, subpartner_name = ?, address = ?, city = ?, state = ?, online_zip_code = ?,
+                    subpartner_code = ?, subpartner_name = ?, address = ?, city = ?, area = ?, state = ?, online_zip_code = ?,
                     due_on = ?, act_on = ?, days = ?, party_status = ?, category = ?, software_trade = ?, version = ?,
                     total_amount = ?, software_hit_date = ?, wallet_id = ?, home_user = ?, transferred_party = ?, updated_at = NOW()
                     WHERE id = ?");
                 $updClient->execute([
                     $party_name, $company_using, $mobile, $email, $contact_person,
                     $sw_type, $software_type, $user_type, $no_of_users,
-                    $subpartner_code, $subpartner_name, $address, $city, $state, $online_zip_code,
+                    $subpartner_code, $subpartner_name, $address, $city, $area, $state, $online_zip_code,
                     $due_on, $act_on, $days, $party_status, $category, $software_trade, $version,
                     $total_amount, $software_hit_date, $wallet_id, $home_user, $transferred_party,
                     $existing_client['id']
@@ -206,20 +207,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $insClient = $pdo->prepare("INSERT INTO client_directory (
                     company_id, customer_id, party_name, company_using, mobile, email, contact_person,
                     sw_type, software_type, user_type, no_of_users,
-                    subpartner_code, subpartner_name, address, city, state, online_zip_code,
+                    subpartner_code, subpartner_name, address, city, area, state, online_zip_code,
                     due_on, act_on, days, party_status, category, software_trade, version,
                     total_amount, software_hit_date, wallet_id, home_user, transferred_party, created_at, updated_at
                 ) VALUES (
                     1, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, NOW(), NOW()
                 )");
                 $insClient->execute([
                     $customer_id, $party_name, $company_using, $mobile, $email, $contact_person,
                     $sw_type, $software_type, $user_type, $no_of_users,
-                    $subpartner_code, $subpartner_name, $address, $city, $state, $online_zip_code,
+                    $subpartner_code, $subpartner_name, $address, $city, $area, $state, $online_zip_code,
                     $due_on, $act_on, $days, $party_status, $category, $software_trade, $version,
                     $total_amount, $software_hit_date, $wallet_id, $home_user, $transferred_party
                 ]);
@@ -1090,6 +1091,10 @@ $isClientWon = in_array($leadStatusNorm, ['closed won', 'won', 'client', 'conver
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">Email Address</label>
                                         <input type="email" name="email" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['email'] ?? $lead['email']); ?>">
+                                    </div>
+                                    <div class="form-group m-0">
+                                        <label class="form-label text-xs font-semibold">Area / Locality</label>
+                                        <input type="text" name="area" class="form-control text-sm" value="<?php echo htmlspecialchars($client_dir_data['area'] ?? ''); ?>" placeholder="E.g. Okhla Phase 2 / Sector 62">
                                     </div>
                                     <div class="form-group m-0">
                                         <label class="form-label text-xs font-semibold">City</label>

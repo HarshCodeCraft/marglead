@@ -24,3 +24,7 @@ uploads/tmp/*
 # Local environment overrides
 .env.local
 .env.development.local
+
+# Python cache
+__pycache__/
+*.pyc

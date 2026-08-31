@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS client_directory (
     days INT DEFAULT 0,                     -- Days
     party_status VARCHAR(50) DEFAULT 'Running', -- Party Status
     city VARCHAR(100) NULL,                 -- City
+    area VARCHAR(150) NULL,                 -- Area / Locality
     transferred_party VARCHAR(20) DEFAULT 'No', -- Transferred Party
     online_zip_code VARCHAR(20) NULL,       -- OnlineZipCode
     state VARCHAR(100) NULL,                -- State

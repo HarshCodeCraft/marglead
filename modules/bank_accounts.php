@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/mailer.php';
 
 $role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_id = $_SESSION['user_id'] ?? 1;
-$is_admin = ($role === 'Administrator' || $role === 'System Admin' || $role === 'Regional Manager' || $user_id == 1);
+$is_admin = ($role === 'Administrator' || $role === 'System Admin' || $role === 'Super Admin' || $role === 'Tenant Admin' || $role === 'Regional Manager' || $user_id == 1 || !empty($_SESSION['tenant_db']));
 
 $message = '';
 $message_type = 'success';
@@ -301,6 +301,23 @@ if (!$primary_account && !empty($bank_accounts)) {
 
     <!-- VIEW 1: Cards View Grid -->
     <div id="bank-cards-view" class="bank-cards-grid">
+        <?php if (empty($bank_accounts)): ?>
+            <div class="card p-8 text-center" style="grid-column: 1 / -1; border: 2px dashed var(--border-color); background: var(--bg-card); border-radius: 16px; margin: 1rem 0;">
+                <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(59, 130, 246, 0.1); color: var(--primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem;">
+                    <i data-lucide="building-2" style="width: 32px; height: 32px;"></i>
+                </div>
+                <h3 class="text-base font-bold mb-1" style="color: var(--text-main);">No Bank Accounts Registered Yet</h3>
+                <p class="text-sm text-muted mb-4" style="max-width: 450px; margin-left: auto; margin-right: auto;">
+                    Add your company bank account details, IFSC code, and payment QR code so they are automatically included in client invoices and WhatsApp messages.
+                </p>
+                <?php if ($is_admin): ?>
+                    <button type="button" class="btn btn-primary text-xs flex align-center gap-2" onclick="openAddAccountModal()" style="margin: 0 auto; padding: 0.75rem 1.5rem; font-weight: 700; box-shadow: var(--shadow-md);">
+                        <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
+                        <span>Add Your First Bank Account / QR</span>
+                    </button>
+                <?php endif; ?>
+            </div>
+        <?php else: ?>
         <?php foreach ($bank_accounts as $acc): ?>
             <?php 
             $is_prim = ($acc['is_primary'] == 1);
@@ -503,8 +520,8 @@ if (!$primary_account && !empty($bank_accounts)) {
                     </div>
                 </div>
 
-            </div>
         <?php endforeach; ?>
+        <?php endif; ?>
     </div>
 
     <!-- VIEW 2: Dense Table View Matrix (Hidden by default) -->

@@ -387,65 +387,132 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Edit Record Handler
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_client_directory') {
+// Add & Edit Client Directory Record Handler
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array($_POST['action'], ['update_client_directory', 'add_client_directory', 'save_client_directory'])) {
     $id = intval($_POST['client_db_id'] ?? 0);
     $customer_id = trim($_POST['customer_id'] ?? '');
     $party_name = trim($_POST['party_name'] ?? '');
     $category = trim($_POST['category'] ?? 'Category A');
     
-    if ($id > 0 && !empty($party_name) && $pdo) {
+    if (empty($customer_id) && !empty($party_name)) {
+        $customer_id = 'CUST-' . strtoupper(substr(md5($party_name . microtime()), 0, 8));
+    }
+    
+    if (!empty($party_name) && $pdo) {
         try {
-            $stmt = $pdo->prepare("
-                UPDATE client_directory SET
-                    sw_type = ?, customer_id = ?, category = ?, subpartner_code = ?, subpartner_name = ?,
-                    party_name = ?, company_using = ?, address = ?, mobile = ?, email = ?,
-                    user_type = ?, software_type = ?, no_of_users = ?, contact_person = ?,
-                    due_on = ?, act_on = ?, days = ?, party_status = ?, city = ?,
-                    transferred_party = ?, online_zip_code = ?, state = ?, home_user = ?,
-                    software_trade = ?, version = ?, total_amount = ?, software_hit_date = ?, wallet_id = ?
-                WHERE id = ?
-            ");
-            
-            $stmt->execute([
-                $_POST['sw_type'] ?? 'Marg',
-                $customer_id,
-                $category,
-                $_POST['subpartner_code'] ?: null,
-                $_POST['subpartner_name'] ?: null,
-                $party_name,
-                $_POST['company_using'] ?: null,
-                $_POST['address'] ?: null,
-                $_POST['mobile'] ?: null,
-                $_POST['email'] ?: null,
-                $_POST['user_type'] ?: null,
-                $_POST['software_type'] ?: null,
-                intval($_POST['no_of_users'] ?? 1),
-                $_POST['contact_person'] ?: null,
-                $_POST['due_on'] ?: null,
-                $_POST['act_on'] ?: null,
-                intval($_POST['days'] ?? 0),
-                $_POST['party_status'] ?? 'Running',
-                $_POST['city'] ?: null,
-                $_POST['transferred_party'] ?? 'No',
-                $_POST['online_zip_code'] ?: null,
-                $_POST['state'] ?: null,
-                $_POST['home_user'] ?? 'No',
-                $_POST['software_trade'] ?: null,
-                $_POST['version'] ?: null,
-                floatval($_POST['total_amount'] ?? 0.00),
-                $_POST['software_hit_date'] ?: null,
-                $_POST['wallet_id'] ?: null,
-                $id
-            ]);
-            
-            $import_result = [
-                'success' => true,
-                'message' => "Client record for <strong>" . htmlspecialchars($party_name) . "</strong> updated successfully!"
-            ];
+            if ($id > 0) {
+                // Update Existing Client
+                $stmt = $pdo->prepare("
+                    UPDATE client_directory SET
+                        sw_type = ?,
+                        customer_id = ?,
+                        category = ?,
+                        party_name = ?,
+                        mobile = ?,
+                        email = ?,
+                        contact_person = ?,
+                        software_type = ?,
+                        user_type = ?,
+                        no_of_users = ?,
+                        software_trade = ?,
+                        total_amount = ?,
+                        party_status = ?,
+                        address = ?,
+                        area = ?,
+                        city = ?,
+                        state = ?,
+                        online_zip_code = ?,
+                        due_on = ?,
+                        act_on = ?,
+                        software_hit_date = ?
+                    WHERE id = ?
+                ");
+                
+                $stmt->execute([
+                    !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg',
+                    $customer_id,
+                    $category,
+                    $party_name,
+                    !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                    !empty($_POST['email']) ? trim($_POST['email']) : null,
+                    !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
+                    !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
+                    !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
+                    intval($_POST['no_of_users'] ?? 1),
+                    !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
+                    floatval($_POST['total_amount'] ?? 0.00),
+                    !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
+                    !empty($_POST['address']) ? trim($_POST['address']) : null,
+                    !empty($_POST['area']) ? trim($_POST['area']) : null,
+                    !empty($_POST['city']) ? trim($_POST['city']) : null,
+                    !empty($_POST['state']) ? trim($_POST['state']) : null,
+                    !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
+                    !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
+                    !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
+                    !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
+                    $id
+                ]);
+                
+                $import_result = [
+                    'success' => true,
+                    'message' => "Client record for <strong>" . htmlspecialchars($party_name) . "</strong> updated successfully!"
+                ];
+            } else {
+                // Insert New Client
+                $maxSno = $pdo->query("SELECT COALESCE(MAX(sno), 0) FROM client_directory")->fetchColumn();
+                $nextSno = intval($maxSno) + 1;
+                
+                $stmt = $pdo->prepare("
+                    INSERT INTO client_directory (
+                        sno, sw_type, customer_id, category, party_name,
+                        mobile, email, contact_person, software_type, user_type,
+                        no_of_users, software_trade, total_amount, party_status,
+                        address, area, city, state, online_zip_code,
+                        due_on, act_on, software_hit_date
+                    ) VALUES (
+                        ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?,
+                        ?, ?, ?
+                    )
+                ");
+                
+                $stmt->execute([
+                    $nextSno,
+                    !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg',
+                    $customer_id,
+                    $category,
+                    $party_name,
+                    !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                    !empty($_POST['email']) ? trim($_POST['email']) : null,
+                    !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
+                    !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
+                    !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
+                    intval($_POST['no_of_users'] ?? 1),
+                    !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
+                    floatval($_POST['total_amount'] ?? 0.00),
+                    !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
+                    !empty($_POST['address']) ? trim($_POST['address']) : null,
+                    !empty($_POST['area']) ? trim($_POST['area']) : null,
+                    !empty($_POST['city']) ? trim($_POST['city']) : null,
+                    !empty($_POST['state']) ? trim($_POST['state']) : null,
+                    !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
+                    !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
+                    !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
+                    !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null
+                ]);
+                
+                $import_result = [
+                    'success' => true,
+                    'message' => "New Client <strong>" . htmlspecialchars($party_name) . "</strong> (Customer ID: <strong>" . htmlspecialchars($customer_id) . "</strong>) created and added to directory successfully!"
+                ];
+            }
         } catch (Exception $e) {
-            $import_result = ['success' => false, 'message' => "Error updating client record: " . $e->getMessage()];
+            $import_result = ['success' => false, 'message' => "Error saving client record: " . $e->getMessage()];
         }
+    } else {
+        $import_result = ['success' => false, 'message' => "Party Name is required to save client record."];
     }
 }
 
@@ -554,6 +621,18 @@ if ($limit !== 'all') {
     $limit = max(10, intval($limit));
 }
 
+// Master Indian States and Cities
+$indian_states_map = function_exists('getIndianStatesAndCities') ? getIndianStatesAndCities() : [];
+$indian_states_list = array_keys($indian_states_map);
+$all_indian_cities = [];
+foreach ($indian_states_map as $stName => $cList) {
+    foreach ($cList as $cItem) {
+        $all_indian_cities[] = $cItem;
+    }
+}
+$all_indian_cities = array_values(array_unique($all_indian_cities));
+sort($all_indian_cities);
+
 // --------------------------------------------------------------------------
 // 4. Data Queries for Tab 1: Client Directory (client_directory table)
 // --------------------------------------------------------------------------
@@ -582,9 +661,9 @@ if ($db_connected && $pdo) {
         $dir_params = [];
 
         if (!empty($search_query)) {
-            $dir_where[] = "(party_name LIKE ? OR customer_id LIKE ? OR mobile LIKE ? OR email LIKE ? OR address LIKE ? OR city LIKE ? OR state LIKE ? OR contact_person LIKE ? OR category LIKE ?)";
+            $dir_where[] = "(party_name LIKE ? OR customer_id LIKE ? OR mobile LIKE ? OR email LIKE ? OR address LIKE ? OR area LIKE ? OR city LIKE ? OR state LIKE ? OR contact_person LIKE ? OR category LIKE ?)";
             $st = '%' . $search_query . '%';
-            for ($i = 0; $i < 9; $i++) $dir_params[] = $st;
+            for ($i = 0; $i < 10; $i++) $dir_params[] = $st;
         }
 
         if (!empty($status_filter)) {
@@ -810,13 +889,17 @@ function getClientsPageUrl($tab, $p, $limit) {
         </div>
 
         <div class="flex gap-2 flex-wrap">
-            <button class="btn btn-primary text-sm flex align-center gap-2" onclick="window.openModal('import-client-modal');">
+            <button class="btn btn-primary text-sm flex align-center gap-2" style="font-weight: 700; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);" onclick="openAddClientModal();">
+                <i data-lucide="user-plus" style="width: 16px; height: 16px;"></i>
+                <span>Add New Client</span>
+            </button>
+            <button class="btn btn-secondary text-sm flex align-center gap-2" onclick="window.openModal('import-client-modal');">
                 <i data-lucide="file-up" style="width: 16px; height: 16px;"></i>
-                <span>Bulk Import Clients (Excel/CSV)</span>
+                <span>Bulk Import (Excel/CSV)</span>
             </button>
             <a href="index.php?page=clients&action=export_client_directory" class="btn btn-secondary text-sm flex align-center gap-2">
                 <i data-lucide="download" style="width: 16px; height: 16px;"></i>
-                <span>Export Client Directory</span>
+                <span>Export CSV</span>
             </a>
             <button class="btn btn-secondary text-sm" onclick="window.print();">
                 <i data-lucide="printer" style="width: 16px; height: 16px;"></i>
@@ -1993,7 +2076,7 @@ function highlightProductPill(which) {
 }
 </script>
 
-<!-- Modal 4: Edit Client Directory Record Modal — Modern Premium Redesign -->
+<!-- Modal 4: Add / Edit Client Directory Record Modal — Modern Premium Redesign -->
 <div id="edit-client-record-modal" class="modal-overlay">
     <div class="modal-container" style="max-width: 950px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-main); border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 32px 64px -12px rgba(0,0,0,0.6); overflow: hidden;">
         
@@ -2001,13 +2084,13 @@ function highlightProductPill(which) {
         <div style="flex-shrink: 0; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); padding: 1rem 1.5rem;" class="flex align-center justify-between">
             <div class="flex align-center gap-3">
                 <div style="background: rgba(255,255,255,0.18); backdrop-filter: blur(8px); padding: 0.55rem; border-radius: 12px; display:flex; align-items:center; justify-content:center;">
-                    <i data-lucide="edit-3" style="width:20px; height:20px; color:#fff;"></i>
+                    <i id="edit_client_modal_icon" data-lucide="edit-3" style="width:20px; height:20px; color:#fff;"></i>
                 </div>
                 <div>
-                    <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;">
+                    <h3 id="edit_client_modal_title" class="m-0" style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;">
                         Edit Client Directory Record
                     </h3>
-                    <span style="font-size: 0.72rem; color: rgba(255,255,255,0.75);">Update client profile details, license parameters, software edition, and address.</span>
+                    <span id="edit_client_modal_subtitle" style="font-size: 0.72rem; color: rgba(255,255,255,0.75);">Update client profile details, license parameters, software edition, and address.</span>
                 </div>
             </div>
             <button type="button" onclick="window.closeModal('edit-client-record-modal')" style="background: rgba(255,255,255,0.15); border: none; border-radius: 10px; width: 34px; height: 34px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
@@ -2030,7 +2113,7 @@ function highlightProductPill(which) {
                     <div class="grid grid-4 gap-3">
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Party Name *</label>
-                            <input type="text" id="edit_party_name" name="party_name" required class="form-control text-xs" style="border-radius: 8px;">
+                            <input type="text" id="edit_party_name" name="party_name" required placeholder="e.g. Apex Medical Store" class="form-control text-xs" style="border-radius: 8px;">
                         </div>
 
                         <div class="form-group m-0">
@@ -2040,7 +2123,7 @@ function highlightProductPill(which) {
                                     🔒 Non-Editable
                                 </span>
                             </label>
-                            <input type="text" id="edit_customer_id" name="customer_id" required class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947 " class="form-control text-xs font-mono" style="border-radius: 8px;">
                         </div>
 
                         <div class="form-group m-0">
@@ -2054,7 +2137,7 @@ function highlightProductPill(which) {
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">S/W Type</label>
-                            <input type="text" id="edit_sw_type" name="sw_type" value="Marg" class="form-control text-xs" style="border-radius: 8px;">
+                            <input type="text" id="edit_sw_type" name="sw_type" placeholder="e.g. Marg" class="form-control text-xs" style="border-radius: 8px;">
                         </div>
                     </div>
                 </div>
@@ -2068,17 +2151,17 @@ function highlightProductPill(which) {
                     <div class="grid grid-3 gap-3">
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Reg Mobile</label>
-                            <input type="text" id="edit_mobile" name="mobile" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <input type="text" id="edit_mobile" name="mobile" placeholder="e.g. 9876543210" class="form-control text-xs font-mono" style="border-radius: 8px;">
                         </div>
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Reg Email</label>
-                            <input type="email" id="edit_email" name="email" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <input type="email" id="edit_email" name="email" placeholder="e.g. client@example.com" class="form-control text-xs font-mono" style="border-radius: 8px;">
                         </div>
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Contact Person</label>
-                            <input type="text" id="edit_contact_person" name="contact_person" class="form-control text-xs" style="border-radius: 8px;">
+                            <input type="text" id="edit_contact_person" name="contact_person" placeholder="e.g. Dr. Rajesh Sharma" class="form-control text-xs" style="border-radius: 8px;">
                         </div>
                     </div>
                 </div>
@@ -2105,7 +2188,7 @@ function highlightProductPill(which) {
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">No. of Users</label>
-                            <input type="number" id="edit_no_of_users" name="no_of_users" min="1" value="1" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <input type="number" id="edit_no_of_users" name="no_of_users" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="border-radius: 8px;">
                         </div>
                     </div>
 
@@ -2117,7 +2200,7 @@ function highlightProductPill(which) {
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Total Contract Amount (₹)</label>
-                            <input type="number" step="0.01" id="edit_total_amount" name="total_amount" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <input type="number" step="0.01" id="edit_total_amount" name="total_amount" placeholder="e.g. 4661.00" class="form-control text-xs font-mono" style="border-radius: 8px;">
                         </div>
 
                         <div class="form-group m-0">
@@ -2140,23 +2223,38 @@ function highlightProductPill(which) {
 
                     <div class="form-group mb-3">
                         <label class="form-label text-xs font-bold" style="color: var(--text-main);">Registered Address</label>
-                        <textarea id="edit_address" name="address" rows="2" class="form-control text-xs" style="border-radius: 8px; resize: vertical;"></textarea>
+                        <textarea id="edit_address" name="address" rows="2" placeholder="e.g. Shop No. 12, Main Market, Civil Lines" class="form-control text-xs" style="border-radius: 8px; resize: vertical;"></textarea>
                     </div>
 
-                    <div class="grid grid-3 gap-3">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">City</label>
-                            <input type="text" id="edit_city" name="city" class="form-control text-xs" style="border-radius: 8px;">
-                        </div>
-
+                    <div class="grid grid-4 gap-3">
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">State</label>
-                            <input type="text" id="edit_state" name="state" class="form-control text-xs" style="border-radius: 8px;">
+                            <select id="edit_state" name="state" class="form-control text-xs font-semibold" style="border-radius: 8px;" onchange="onClientStateSelect(this.value)">
+                                <option value="">-- Select State --</option>
+                                <?php foreach ($indian_states_list as $stName): ?>
+                                    <option value="<?php echo htmlspecialchars($stName); ?>"><?php echo htmlspecialchars($stName); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
 
                         <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Online Zip Code</label>
-                            <input type="text" id="edit_online_zip_code" name="online_zip_code" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">City</label>
+                            <select id="edit_city" name="city" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <option value="">-- Select City --</option>
+                                <?php foreach ($all_indian_cities as $cName): ?>
+                                    <option value="<?php echo htmlspecialchars($cName); ?>"><?php echo htmlspecialchars($cName); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Area / Locality</label>
+                            <input type="text" id="edit_area" name="area" placeholder="e.g. Sector 18 / Civil Lines" class="form-control text-xs" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Zip Code</label>
+                            <input type="text" id="edit_online_zip_code" name="online_zip_code" placeholder="e.g. 208001" class="form-control text-xs font-mono" style="border-radius: 8px;">
                         </div>
                     </div>
                 </div>
@@ -2169,18 +2267,18 @@ function highlightProductPill(which) {
 
                     <div class="grid grid-3 gap-3">
                         <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Due On</label>
-                            <input type="date" id="edit_due_on" name="due_on" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Act On (Activation Date)</label>
+                            <input type="date" id="edit_act_on" name="act_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;" onchange="onActOnDateChange(this.value)" oninput="onActOnDateChange(this.value)">
                         </div>
 
                         <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Act On</label>
-                            <input type="date" id="edit_act_on" name="act_on" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Due On</label>
+                            <input type="date" id="edit_due_on" name="due_on" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;">
                         </div>
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Hit Date</label>
-                            <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="border-radius: 8px;">
                         </div>
                     </div>
                 </div>
@@ -2194,7 +2292,7 @@ function highlightProductPill(which) {
                 </button>
                 <button type="submit" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
                     <i data-lucide="check-circle-2" style="width:15px; height:15px;"></i>
-                    <span>Save Changes</span>
+                    <span id="edit_client_submit_btn_text">Save Changes</span>
                 </button>
             </div>
         </form>
@@ -2279,7 +2377,11 @@ function openLicenceAmcWindow(client) {
     document.getElementById('info_mobile').innerText               = client.mobile || '-';
     document.getElementById('info_contact_person').innerText       = client.contact_person || '-';
     document.getElementById('info_address1').innerText             = client.address || '-';
-    document.getElementById('info_address2').innerText             = (client.city ? client.city + ' - ' : '') + (client.online_zip_code || '');
+    let addrParts = [];
+    if (client.area) addrParts.push(client.area);
+    if (client.city) addrParts.push(client.city);
+    if (client.online_zip_code) addrParts.push(client.online_zip_code);
+    document.getElementById('info_address2').innerText             = addrParts.length > 0 ? addrParts.join(' - ') : '-';
     document.getElementById('info_address3').innerText             = 'INDIA';
     document.getElementById('info_city').innerText                 = client.city || '-';
     document.getElementById('info_state').innerText                = client.state || '-';
@@ -2367,9 +2469,157 @@ function performWinLicenceSearch() {
 }
 
 // --------------------------------------------------------------------------
-// Window 2: Open Edit Client Record Modal (Edit Icon ✏️)
+// Master Indian States & Cities Map + Dynamic City Select Dropdown Handler
+// --------------------------------------------------------------------------
+const indianStatesMap = <?php echo json_encode($indian_states_map); ?>;
+const allIndianCitiesList = <?php echo json_encode($all_indian_cities); ?>;
+
+function onClientStateSelect(stateVal, selectedCity = '') {
+    const citySelect = document.getElementById('edit_city');
+    if (!citySelect) return;
+    
+    const targetCity = (selectedCity !== undefined && selectedCity !== null && selectedCity !== '') ? String(selectedCity).trim() : '';
+    citySelect.innerHTML = '<option value="">-- Select City --</option>';
+    
+    let cities = [];
+    if (stateVal && indianStatesMap[stateVal]) {
+        cities = indianStatesMap[stateVal];
+    } else {
+        cities = allIndianCitiesList;
+    }
+
+    let isSelectedFound = false;
+    cities.forEach(function(c) {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        if (targetCity && c.toLowerCase() === targetCity.toLowerCase()) {
+            opt.selected = true;
+            isSelectedFound = true;
+        }
+        citySelect.appendChild(opt);
+    });
+
+    // If client had a custom or existing city not in list, preserve it as an option
+    if (targetCity && !isSelectedFound) {
+        const customOpt = document.createElement('option');
+        customOpt.value = targetCity;
+        customOpt.textContent = targetCity;
+        customOpt.selected = true;
+        citySelect.appendChild(customOpt);
+    }
+}
+window.onClientStateSelect = onClientStateSelect;
+
+// --------------------------------------------------------------------------
+// Auto Calculate Exact 1-Year Due On Date from Act On Date
+// --------------------------------------------------------------------------
+function onActOnDateChange(actOnVal) {
+    if (!actOnVal) return;
+    try {
+        const parts = String(actOnVal).trim().split('-');
+        if (parts.length === 3) {
+            const year = parseInt(parts[0], 10);
+            const month = parts[1];
+            const day = parts[2];
+            const nextYear = year + 1;
+            
+            // Handle leap year edge case (Feb 29 -> Feb 28 on non-leap year)
+            let dueDay = day;
+            if (month === '02' && day === '29') {
+                const isLeap = (nextYear % 4 === 0 && (nextYear % 100 !== 0 || nextYear % 400 === 0));
+                if (!isLeap) dueDay = '28';
+            }
+
+            const dueOnVal = `${nextYear}-${month}-${dueDay}`;
+            const dueOnInput = document.getElementById('edit_due_on');
+            if (dueOnInput) {
+                dueOnInput.value = dueOnVal;
+            }
+        }
+    } catch (e) {
+        console.error('Error calculating Due On date:', e);
+    }
+}
+window.onActOnDateChange = onActOnDateChange;
+
+// --------------------------------------------------------------------------
+// Window 2A: Open Add New Client Record Modal (➕ User Plus)
+// --------------------------------------------------------------------------
+function openAddClientModal() {
+    var titleEl = document.getElementById('edit_client_modal_title');
+    if (titleEl) titleEl.innerText = 'Add New Enterprise Client Record';
+    var subEl = document.getElementById('edit_client_modal_subtitle');
+    if (subEl) subEl.innerText = 'Create and register a new client profile in the enterprise directory.';
+    var btnText = document.getElementById('edit_client_submit_btn_text');
+    if (btnText) btnText.innerText = 'Create Client Record';
+    var iconEl = document.getElementById('edit_client_modal_icon');
+    if (iconEl) iconEl.setAttribute('data-lucide', 'user-plus');
+
+    document.getElementById('edit_client_db_id').value = '';
+    document.getElementById('edit_party_name').value = '';
+    
+    var custIdInput = document.getElementById('edit_customer_id');
+    if (custIdInput) {
+        custIdInput.value = '';
+        custIdInput.removeAttribute('readonly');
+        custIdInput.style.background = '';
+        custIdInput.style.color = '';
+        custIdInput.style.cursor = '';
+        custIdInput.style.borderColor = '';
+    }
+
+    var custIdBadge = document.getElementById('edit_customer_id_locked_badge');
+    if (custIdBadge) custIdBadge.style.display = 'none';
+
+    var catSelect = document.getElementById('edit_category');
+    if (catSelect) catSelect.value = 'Category A';
+
+    document.getElementById('edit_sw_type').value = '';
+    document.getElementById('edit_mobile').value = '';
+    document.getElementById('edit_email').value = '';
+    document.getElementById('edit_contact_person').value = '';
+    document.getElementById('edit_software_type').value = '';
+    document.getElementById('edit_user_type').value = 'Single User';
+    document.getElementById('edit_no_of_users').value = '';
+    document.getElementById('edit_address').value = '';
+    document.getElementById('edit_area').value = '';
+    
+    var stateSelect = document.getElementById('edit_state');
+    if (stateSelect) stateSelect.value = '';
+    var citySelect = document.getElementById('edit_city');
+    if (citySelect) citySelect.value = '';
+    onClientStateSelect('', '');
+
+    document.getElementById('edit_online_zip_code').value = '';
+    document.getElementById('edit_software_trade').value = '';
+    document.getElementById('edit_total_amount').value = '';
+    document.getElementById('edit_party_status').value = 'Running';
+    document.getElementById('edit_due_on').value = '';
+    document.getElementById('edit_act_on').value = '';
+    document.getElementById('edit_software_hit_date').value = '';
+
+    if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+
+    window.openModal('edit-client-record-modal');
+}
+window.openAddClientModal = openAddClientModal;
+
+// --------------------------------------------------------------------------
+// Window 2B: Open Edit Client Record Modal (Edit Icon ✏️)
 // --------------------------------------------------------------------------
 function openEditClientRecordModal(client) {
+    var titleEl = document.getElementById('edit_client_modal_title');
+    if (titleEl) titleEl.innerText = 'Edit Client Directory Record';
+    var subEl = document.getElementById('edit_client_modal_subtitle');
+    if (subEl) subEl.innerText = 'Update client profile details, license parameters, software edition, and address.';
+    var btnText = document.getElementById('edit_client_submit_btn_text');
+    if (btnText) btnText.innerText = 'Save Changes';
+    var iconEl = document.getElementById('edit_client_modal_icon');
+    if (iconEl) iconEl.setAttribute('data-lucide', 'edit-3');
+
     document.getElementById('edit_client_db_id').value = client.id || '';
     document.getElementById('edit_party_name').value = client.party_name || '';
     document.getElementById('edit_customer_id').value = client.customer_id || '';
@@ -2396,8 +2646,23 @@ function openEditClientRecordModal(client) {
     document.getElementById('edit_user_type').value = client.user_type || 'Single User';
     document.getElementById('edit_no_of_users').value = client.no_of_users || 1;
     document.getElementById('edit_address').value = client.address || '';
-    document.getElementById('edit_city').value = client.city || '';
-    document.getElementById('edit_state').value = client.state || '';
+    document.getElementById('edit_area').value = client.area || '';
+    
+    let stVal = client.state || '';
+    let stSelect = document.getElementById('edit_state');
+    if (stSelect) {
+        stSelect.value = stVal;
+        if (stVal && !stSelect.value) {
+            for (let i = 0; i < stSelect.options.length; i++) {
+                if (stSelect.options[i].value.toLowerCase() === stVal.toLowerCase()) {
+                    stSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+    onClientStateSelect(stSelect ? stSelect.value : stVal, client.city || '');
+
     document.getElementById('edit_online_zip_code').value = client.online_zip_code || '';
     document.getElementById('edit_software_trade').value = client.software_trade || '';
     document.getElementById('edit_total_amount').value = client.total_amount || 0;
@@ -2425,8 +2690,13 @@ function openEditClientRecordModal(client) {
         if (custIdBadge) custIdBadge.style.display = 'none';
     }
 
+    if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+
     window.openModal('edit-client-record-modal');
 }
+window.openEditClientRecordModal = openEditClientRecordModal;
 
 // --------------------------------------------------------------------------
 // Window 3: Open Client Account, Login & Access Modal (Key Icon 🔑)
