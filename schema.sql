@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS client_directory (
     company_using VARCHAR(150) NULL,        -- CompanyUsing
     address TEXT NULL,                      -- Address
     mobile VARCHAR(50) NULL,                -- Mobile
+    alt_mobile VARCHAR(50) NULL,            -- Alternative Mobile / No.
     email VARCHAR(150) NULL,                -- EmailID
     user_type VARCHAR(50) NULL,             -- User (e.g. Multi User / Single User)
     software_type VARCHAR(100) NULL,        -- Type (e.g. Marg ERP Silver)
@@ -203,6 +204,7 @@ CREATE TABLE IF NOT EXISTS client_directory (
     online_zip_code VARCHAR(20) NULL,       -- OnlineZipCode
     state VARCHAR(100) NULL,                -- State
     home_user VARCHAR(20) DEFAULT 'No',     -- Home User
+    nature_of_business VARCHAR(50) NULL,    -- Nature of Business (Retail / Wholesale)
     software_trade VARCHAR(150) NULL,       -- Software Trade
     version VARCHAR(50) NULL,               -- Version
     total_amount DECIMAL(12, 2) DEFAULT 0.00, -- Total Amount

@@ -409,11 +409,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                         category = ?,
                         party_name = ?,
                         mobile = ?,
+                        alt_mobile = ?,
                         email = ?,
                         contact_person = ?,
                         software_type = ?,
                         user_type = ?,
                         no_of_users = ?,
+                        nature_of_business = ?,
                         software_trade = ?,
                         total_amount = ?,
                         party_status = ?,
@@ -429,16 +431,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                 ");
                 
                 $stmt->execute([
-                    !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg',
+                    !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
                     $customer_id,
                     $category,
                     $party_name,
                     !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                    !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
                     !empty($_POST['email']) ? trim($_POST['email']) : null,
                     !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
                     !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
                     !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
                     intval($_POST['no_of_users'] ?? 1),
+                    !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
                     !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
                     floatval($_POST['total_amount'] ?? 0.00),
                     !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
@@ -465,14 +469,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                 $stmt = $pdo->prepare("
                     INSERT INTO client_directory (
                         sno, sw_type, customer_id, category, party_name,
-                        mobile, email, contact_person, software_type, user_type,
-                        no_of_users, software_trade, total_amount, party_status,
+                        mobile, alt_mobile, email, contact_person, software_type, user_type,
+                        no_of_users, nature_of_business, software_trade, total_amount, party_status,
                         address, area, city, state, online_zip_code,
                         due_on, act_on, software_hit_date
                     ) VALUES (
                         ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?,
                         ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?,
                         ?, ?, ?, ?, ?,
                         ?, ?, ?
                     )
@@ -480,16 +484,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                 
                 $stmt->execute([
                     $nextSno,
-                    !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg',
+                    !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
                     $customer_id,
                     $category,
                     $party_name,
                     !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                    !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
                     !empty($_POST['email']) ? trim($_POST['email']) : null,
                     !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
                     !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
                     !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
                     intval($_POST['no_of_users'] ?? 1),
+                    !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
                     !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
                     floatval($_POST['total_amount'] ?? 0.00),
                     !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
@@ -632,6 +638,76 @@ foreach ($indian_states_map as $stName => $cList) {
 }
 $all_indian_cities = array_values(array_unique($all_indian_cities));
 sort($all_indian_cities);
+
+// Master S/W Types & Software Editions Mapping
+$sw_types_map = [
+    'Marg ERP' => [
+        'Marg ERP Nano',
+        'Marg ERP Basic',
+        'Marg ERP Silver',
+        'Marg ERP Gold',
+        'Marg ERP CA Addition'
+    ],
+    'Marg Cloud' => [
+        'Marg Basic Cloud',
+        'Marg Basic Cloud Premium',
+        'Marg Silver Cloud'
+    ],
+    'Marg Books' => [
+        'Marg Books Gold',
+        'Marg Books Diamond',
+        'Marg Books Platinum',
+        'Marg Books Platinum Plus',
+        'Marg Books Enterprise'
+    ],
+    'Marg HRMS' => [
+        'Marg HRMS Basic',
+        'Marg HRMS Silver',
+        'Marg HRMS Gold'
+    ]
+];
+
+$all_software_editions = [];
+foreach ($sw_types_map as $sw => $editions) {
+    foreach ($editions as $ed) {
+        $all_software_editions[] = $ed;
+    }
+}
+
+// Master Nature of Business List
+$nature_of_business_list = [
+    'Retail',
+    'Wholesale'
+];
+
+// Master Software Trade List
+$software_trades_list = [
+    'Automobile Parts',
+    'Electrical',
+    'Electronics',
+    'FMCG Distributor',
+    'FMCG Retailer',
+    'Footwear',
+    'Garment',
+    'General Store',
+    'Grocery / Kirana',
+    'Hardware',
+    'Import / Export',
+    'Jewellery',
+    'Mandi / Aadhat',
+    'Manufacturing',
+    'Mobile Shop',
+    'Optical',
+    'Pharma Distributor',
+    'Pharma Manufacturer',
+    'Pharmacy / Chemist',
+    'Restaurant / Food',
+    'Salon & Spa',
+    'Stationery / Book Store',
+    'Supermarket',
+    'Warehouse / Stockist',
+    'Wholesale Trader'
+];
 
 // --------------------------------------------------------------------------
 // 4. Data Queries for Tab 1: Client Directory (client_directory table)
@@ -2137,7 +2213,12 @@ function highlightProductPill(which) {
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">S/W Type</label>
-                            <input type="text" id="edit_sw_type" name="sw_type" placeholder="e.g. Marg" class="form-control text-xs" style="border-radius: 8px;">
+                            <select id="edit_sw_type" name="sw_type" class="form-control text-xs font-semibold" style="border-radius: 8px;" onchange="onSwTypeChange(this.value)">
+                                <option value="">-- Select S/W Type --</option>
+                                <?php foreach (array_keys($sw_types_map) as $swName): ?>
+                                    <option value="<?php echo htmlspecialchars($swName); ?>"><?php echo htmlspecialchars($swName); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -2148,10 +2229,15 @@ function highlightProductPill(which) {
                         <i data-lucide="phone-call" style="width:14px; height:14px;"></i> Contact &amp; Communication
                     </div>
 
-                    <div class="grid grid-3 gap-3">
+                    <div class="grid grid-4 gap-3">
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Reg Mobile</label>
                             <input type="text" id="edit_mobile" name="mobile" placeholder="e.g. 9876543210" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                        </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Alternative No.</label>
+                            <input type="text" id="edit_alt_mobile" name="alt_mobile" placeholder="e.g. 9876500000" class="form-control text-xs font-mono" style="border-radius: 8px;">
                         </div>
 
                         <div class="form-group m-0">
@@ -2172,10 +2258,15 @@ function highlightProductPill(which) {
                         <i data-lucide="cpu" style="width:14px; height:14px;"></i> Software Parameters &amp; Commercials
                     </div>
 
-                    <div class="grid grid-3 gap-3 mb-3">
+                    <div class="grid grid-4 gap-3 mb-3">
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Type (Edition)</label>
-                            <input type="text" id="edit_software_type" name="software_type" placeholder="e.g. Marg ERP Silver" class="form-control text-xs" style="border-radius: 8px;">
+                            <select id="edit_software_type" name="software_type" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <option value="">-- Select Software Edition --</option>
+                                <?php foreach ($all_software_editions as $ed): ?>
+                                    <option value="<?php echo htmlspecialchars($ed); ?>"><?php echo htmlspecialchars($ed); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
 
                         <div class="form-group m-0">
@@ -2190,12 +2281,27 @@ function highlightProductPill(which) {
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">No. of Users</label>
                             <input type="number" id="edit_no_of_users" name="no_of_users" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="border-radius: 8px;">
                         </div>
+
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Nature of Business</label>
+                            <select id="edit_nature_of_business" name="nature_of_business" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <option value="">-- Select Nature of Business --</option>
+                                <?php foreach ($nature_of_business_list as $nob): ?>
+                                    <option value="<?php echo htmlspecialchars($nob); ?>"><?php echo htmlspecialchars($nob); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="grid grid-3 gap-3">
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Trade</label>
-                            <input type="text" id="edit_software_trade" name="software_trade" placeholder="e.g. Pharmaceutical & Chemicals" class="form-control text-xs" style="border-radius: 8px;">
+                            <select id="edit_software_trade" name="software_trade" class="form-control text-xs font-semibold" style="border-radius: 8px;">
+                                <option value="">-- Select Software Trade --</option>
+                                <?php foreach ($software_trades_list as $trade): ?>
+                                    <option value="<?php echo htmlspecialchars($trade); ?>"><?php echo htmlspecialchars($trade); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
 
                         <div class="form-group m-0">
@@ -2374,7 +2480,9 @@ function openLicenceAmcWindow(client) {
     document.getElementById('info_licence_no').innerText           = client.customer_id || '-';
     document.getElementById('info_company_name').innerText         = client.party_name || '-';
     document.getElementById('info_email').innerText                = client.email || '-';
-    document.getElementById('info_mobile').innerText               = client.mobile || '-';
+    let mobDisplay = client.mobile || '-';
+    if (client.alt_mobile) mobDisplay += ' / ' + client.alt_mobile;
+    document.getElementById('info_mobile').innerText               = mobDisplay;
     document.getElementById('info_contact_person').innerText       = client.contact_person || '-';
     document.getElementById('info_address1').innerText             = client.address || '-';
     let addrParts = [];
@@ -2408,7 +2516,9 @@ function openLicenceAmcWindow(client) {
     document.getElementById('info_subpartner_name').innerText      = client.subpartner_name || '-';
     document.getElementById('info_party_status').innerText         = client.party_status || '-';
     document.getElementById('info_home_user').innerText            = client.home_user || '-';
-    document.getElementById('info_software_trade').innerText       = client.software_trade || '-';
+    let tradeDisplay = client.software_trade || '-';
+    if (client.nature_of_business) tradeDisplay += ' (' + client.nature_of_business + ')';
+    document.getElementById('info_software_trade').innerText       = tradeDisplay;
     document.getElementById('info_total_amount').innerText         = client.total_amount ? '₹' + parseFloat(client.total_amount).toFixed(2) : '-';
     document.getElementById('info_renewal_date').innerText         = client.due_on || client.act_on || 'N/A';
     document.getElementById('info_act_on').innerText               = client.act_on || 'N/A';
@@ -2467,6 +2577,48 @@ function performWinLicenceSearch() {
         alert('No matching client licence record found for search query.');
     }
 }
+
+// --------------------------------------------------------------------------
+// Master S/W Types & Software Editions Map + Dynamic Edition Dropdown Handler
+// --------------------------------------------------------------------------
+const swTypesMap = <?php echo json_encode($sw_types_map); ?>;
+const allSoftwareEditions = <?php echo json_encode($all_software_editions); ?>;
+
+function onSwTypeChange(swTypeVal, selectedEdition = '') {
+    const editSelect = document.getElementById('edit_software_type');
+    if (!editSelect) return;
+
+    const targetEdition = (selectedEdition !== undefined && selectedEdition !== null && selectedEdition !== '') ? String(selectedEdition).trim() : '';
+    editSelect.innerHTML = '<option value="">-- Select Software Edition --</option>';
+
+    let editions = [];
+    if (swTypeVal && swTypesMap[swTypeVal]) {
+        editions = swTypesMap[swTypeVal];
+    } else {
+        editions = allSoftwareEditions;
+    }
+
+    let isSelectedFound = false;
+    editions.forEach(function(ed) {
+        const opt = document.createElement('option');
+        opt.value = ed;
+        opt.textContent = ed;
+        if (targetEdition && ed.toLowerCase() === targetEdition.toLowerCase()) {
+            opt.selected = true;
+            isSelectedFound = true;
+        }
+        editSelect.appendChild(opt);
+    });
+
+    if (targetEdition && !isSelectedFound) {
+        const customOpt = document.createElement('option');
+        customOpt.value = targetEdition;
+        customOpt.textContent = targetEdition;
+        customOpt.selected = true;
+        editSelect.appendChild(customOpt);
+    }
+}
+window.onSwTypeChange = onSwTypeChange;
 
 // --------------------------------------------------------------------------
 // Master Indian States & Cities Map + Dynamic City Select Dropdown Handler
@@ -2575,13 +2727,23 @@ function openAddClientModal() {
     var catSelect = document.getElementById('edit_category');
     if (catSelect) catSelect.value = 'Category A';
 
-    document.getElementById('edit_sw_type').value = '';
+    var swTypeSelect = document.getElementById('edit_sw_type');
+    if (swTypeSelect) swTypeSelect.value = '';
+    onSwTypeChange('', '');
+
     document.getElementById('edit_mobile').value = '';
+    var altMob = document.getElementById('edit_alt_mobile');
+    if (altMob) altMob.value = '';
     document.getElementById('edit_email').value = '';
     document.getElementById('edit_contact_person').value = '';
-    document.getElementById('edit_software_type').value = '';
     document.getElementById('edit_user_type').value = 'Single User';
     document.getElementById('edit_no_of_users').value = '';
+    
+    var nobSelect = document.getElementById('edit_nature_of_business');
+    if (nobSelect) nobSelect.value = '';
+    var tradeSelect = document.getElementById('edit_software_trade');
+    if (tradeSelect) tradeSelect.value = '';
+
     document.getElementById('edit_address').value = '';
     document.getElementById('edit_area').value = '';
     
@@ -2592,7 +2754,6 @@ function openAddClientModal() {
     onClientStateSelect('', '');
 
     document.getElementById('edit_online_zip_code').value = '';
-    document.getElementById('edit_software_trade').value = '';
     document.getElementById('edit_total_amount').value = '';
     document.getElementById('edit_party_status').value = 'Running';
     document.getElementById('edit_due_on').value = '';
@@ -2638,13 +2799,46 @@ function openEditClientRecordModal(client) {
         }
     }
 
-    document.getElementById('edit_sw_type').value = client.sw_type || 'Marg';
+    var swTypeSelect = document.getElementById('edit_sw_type');
+    let swVal = client.sw_type || '';
+    if (swTypeSelect) {
+        swTypeSelect.value = swVal;
+        if (swVal && !swTypeSelect.value) {
+            for (let i = 0; i < swTypeSelect.options.length; i++) {
+                if (swTypeSelect.options[i].value.toLowerCase() === swVal.toLowerCase()) {
+                    swTypeSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+    onSwTypeChange(swTypeSelect ? swTypeSelect.value : swVal, client.software_type || '');
+
     document.getElementById('edit_mobile').value = client.mobile || '';
+    var altMob = document.getElementById('edit_alt_mobile');
+    if (altMob) altMob.value = client.alt_mobile || '';
     document.getElementById('edit_email').value = client.email || '';
     document.getElementById('edit_contact_person').value = client.contact_person || '';
-    document.getElementById('edit_software_type').value = client.software_type || '';
     document.getElementById('edit_user_type').value = client.user_type || 'Single User';
     document.getElementById('edit_no_of_users').value = client.no_of_users || 1;
+    
+    var nobSelect = document.getElementById('edit_nature_of_business');
+    if (nobSelect) nobSelect.value = client.nature_of_business || '';
+    
+    var tradeSelect = document.getElementById('edit_software_trade');
+    let tradeVal = client.software_trade || '';
+    if (tradeSelect) {
+        tradeSelect.value = tradeVal;
+        if (tradeVal && !tradeSelect.value) {
+            for (let i = 0; i < tradeSelect.options.length; i++) {
+                if (tradeSelect.options[i].value.toLowerCase() === tradeVal.toLowerCase()) {
+                    tradeSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+
     document.getElementById('edit_address').value = client.address || '';
     document.getElementById('edit_area').value = client.area || '';
     
@@ -2664,7 +2858,6 @@ function openEditClientRecordModal(client) {
     onClientStateSelect(stSelect ? stSelect.value : stVal, client.city || '');
 
     document.getElementById('edit_online_zip_code').value = client.online_zip_code || '';
-    document.getElementById('edit_software_trade').value = client.software_trade || '';
     document.getElementById('edit_total_amount').value = client.total_amount || 0;
     document.getElementById('edit_party_status').value = client.party_status || 'Running';
     document.getElementById('edit_due_on').value = client.due_on || '';
