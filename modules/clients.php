@@ -74,6 +74,30 @@ if ($pdo) {
     } catch (Exception $e) {}
 }
 
+// Master Popular City Areas Dictionary
+$default_city_areas_map = [
+    'Kanpur' => ['Civil Lines', 'Kalyanpur', 'Kakadeo', 'Govind Nagar', 'Kidwai Nagar', 'Swaroop Nagar', 'Barra', 'Lajpat Nagar', 'Gumti No. 5', 'Chakeri', 'Fazalganj', 'Panki', 'Sharda Nagar', 'Vikas Nagar', 'Shyam Nagar', 'Yashoda Nagar', 'Armapur', 'Cantt', 'General Ganj', 'Nayaganj', 'Birhana Road', 'Rawatpur', 'Pandu Nagar', 'Ratan Lal Nagar', 'Juhi'],
+    'Lucknow' => ['Hazratganj', 'Gomti Nagar', 'Alambagh', 'Indira Nagar', 'Mahanagar', 'Charbagh', 'Aminabad', 'Jankipuram', 'Ashiyana', 'Chowk', 'Vikas Nagar', 'Rajajipuram', 'Chinhat', 'Transport Nagar'],
+    'Delhi' => ['Connaught Place', 'Karol Bagh', 'Lajpat Nagar', 'Chandni Chowk', 'Rohini', 'Dwarka', 'Pitampura', 'Janakpuri', 'Saket', 'South Extension', 'Nehru Place', 'Laxmi Nagar', 'Okhla', 'Mayur Vihar', 'Paschim Vihar'],
+    'Noida' => ['Sector 18', 'Sector 62', 'Sector 15', 'Sector 137', 'Sector 50', 'Sector 76', 'Sector 128', 'Sector 63', 'Sector 16', 'Sector 12'],
+    'Varanasi' => ['Sigra', 'Lanka', 'Godowlia', 'Cantonment', 'Bhelupur', 'Shivpur', 'Pandeypur', 'Lahurabir', 'Rathyatra', 'Mahmoorganj'],
+    'Agra' => ['Sanjay Place', 'Tajganj', 'Kamla Nagar', 'Dayalbagh', 'Shahganj', 'Civil Lines', 'Khandari', 'Sikandra', 'Raja Ki Mandi'],
+    'Ghaziabad' => ['Indirapuram', 'Vaishali', 'Vasundhara', 'Raj Nagar', 'Crossings Republik', 'Kavi Nagar', 'Sahibabad'],
+    'Meerut' => ['Shastri Nagar', 'Civil Lines', 'Abu Lane', 'Modipuram', 'Ganga Nagar', 'Partapur'],
+    'Prayagraj' => ['Civil Lines', 'George Town', 'Katra', 'Tagore Town', 'Naini', 'Allahpur', 'Ashok Nagar', 'Mumfordganj'],
+    'Allahabad' => ['Civil Lines', 'George Town', 'Katra', 'Tagore Town', 'Naini', 'Allahpur', 'Ashok Nagar', 'Mumfordganj'],
+    'Bareilly' => ['Civil Lines', 'Rajendra Nagar', 'DD Puram', 'Prem Nagar', 'Subhash Nagar', 'Cantonment'],
+    'Aligarh' => ['Civil Lines', 'Centre Point', 'Dodhpur', 'Marris Road', 'Ramghat Road', 'Samad Road'],
+    'Gorakhpur' => ['Golghar', 'Betiahata', 'Civil Lines', 'Medical College Road', 'Taramandal', 'Shahpur'],
+    'Mumbai' => ['Andheri East', 'Andheri West', 'Bandra', 'Borivali', 'Dadar', 'Goregaon', 'Juhu', 'Kandivali', 'Malad', 'Powai', 'Thane', 'Vashi', 'Kurla', 'Ghatkopar', 'Lower Parel', 'Colaba'],
+    'Jaipur' => ['Malviya Nagar', 'Vaishali Nagar', 'Mansarovar', 'C-Scheme', 'Raja Park', 'Tonk Road', 'Jagatpura', 'Ajmer Road', 'Bani Park'],
+    'Bengaluru' => ['Koramangala', 'Indiranagar', 'Whitefield', 'HSR Layout', 'Jayanagar', 'JP Nagar', 'Electronic City', 'BTM Layout', 'Hebbal', 'Marathahalli'],
+    'Kolkata' => ['Salt Lake', 'Park Street', 'New Town', 'Ballygunge', 'Howrah', 'Behala', 'Garia', 'Dum Dum', 'Alipore'],
+    'Hyderabad' => ['Hitec City', 'Gachibowli', 'Madhapur', 'Banjara Hills', 'Jubilee Hills', 'Kukatpally', 'Secunderabad', 'Ameerpet', 'Begumpet'],
+    'Ahmedabad' => ['Navrangpura', 'Satellite', 'Bodakdev', 'SG Highway', 'Prahlad Nagar', 'Maninagar', 'Vastrapur', 'Bopal'],
+    'Pune' => ['Kothrud', 'Hinjewadi', 'Baner', 'Wakad', 'Viman Nagar', 'Hadapsar', 'Aundh', 'Shivajinagar', 'Koregaon Park']
+];
+
 // 1. AJAX Endpoint: Get City Areas List
 if (isset($_GET['action']) && $_GET['action'] === 'get_city_areas') {
     while (ob_get_level()) { ob_end_clean(); }
@@ -83,26 +107,56 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_city_areas') {
     $state = isset($_GET['state']) ? trim($_GET['state']) : '';
     
     $areas = [];
-    if (!empty($city) && $pdo) {
-        try {
-            $stmt = $pdo->prepare("
-                SELECT DISTINCT area_name FROM city_areas WHERE LOWER(TRIM(city)) = LOWER(TRIM(?))
-                UNION
-                SELECT DISTINCT TRIM(area) as area_name FROM client_directory 
-                WHERE LOWER(TRIM(city)) = LOWER(TRIM(?)) AND area IS NOT NULL AND TRIM(area) != ''
-                ORDER BY area_name ASC
-            ");
-            $stmt->execute([$city, $city]);
-            $raw = $stmt->fetchAll(PDO::FETCH_COLUMN);
-            foreach ($raw as $a) {
-                $aClean = trim($a);
-                if (!empty($aClean) && !in_array($aClean, $areas)) {
-                    $areas[] = $aClean;
+    if (!empty($city)) {
+        if ($pdo) {
+            try {
+                $stmt = $pdo->prepare("
+                    SELECT DISTINCT area_name FROM city_areas WHERE LOWER(TRIM(city)) = LOWER(TRIM(?))
+                    UNION
+                    SELECT DISTINCT TRIM(area) as area_name FROM client_directory 
+                    WHERE LOWER(TRIM(city)) = LOWER(TRIM(?)) AND area IS NOT NULL AND TRIM(area) != ''
+                    ORDER BY area_name ASC
+                ");
+                $stmt->execute([$city, $city]);
+                $raw = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($raw as $a) {
+                    $aClean = trim($a);
+                    if (!empty($aClean) && !in_array($aClean, $areas)) {
+                        $areas[] = $aClean;
+                    }
+                }
+            } catch (Exception $e) {
+                $areas = [];
+            }
+        }
+
+        // Fallback / Auto-seed from default_city_areas_map if database had no areas
+        $matchedDefaultCity = null;
+        foreach ($default_city_areas_map as $cName => $cAreas) {
+            if (strcasecmp($cName, $city) === 0) {
+                $matchedDefaultCity = $cName;
+                break;
+            }
+        }
+
+        if ($matchedDefaultCity && !empty($default_city_areas_map[$matchedDefaultCity])) {
+            $defList = $default_city_areas_map[$matchedDefaultCity];
+            foreach ($defList as $defArea) {
+                if (!in_array($defArea, $areas)) {
+                    $areas[] = $defArea;
                 }
             }
-        } catch (Exception $e) {
-            $areas = [];
+            // Auto-persist into city_areas table if database is accessible
+            if ($pdo) {
+                try {
+                    $insStmt = $pdo->prepare("INSERT IGNORE INTO city_areas (state, city, area_name) VALUES (?, ?, ?)");
+                    foreach ($defList as $defArea) {
+                        $insStmt->execute([$state ?: null, $city, $defArea]);
+                    }
+                } catch (Exception $e) {}
+            }
         }
+        sort($areas, SORT_NATURAL | SORT_FLAG_CASE);
     }
     
     echo json_encode(['success' => true, 'city' => $city, 'areas' => $areas]);
@@ -2814,6 +2868,13 @@ function switchClientModalTab(tabId) {
             nextBtn.innerHTML = '<span>Next: Commercials & Dates</span> <i data-lucide="arrow-right" style="width:14px; height:14px;"></i>';
         }
         if (saveBtn) saveBtn.style.display = 'none';
+
+        // Preload city areas for currently selected city
+        const curCity = (document.getElementById('edit_city')?.value || '').trim();
+        const curState = (document.getElementById('edit_state')?.value || '').trim();
+        if (curCity) {
+            fetchCityAreas(curCity, curState);
+        }
     } else if (tabId === 'commercials') {
         if (indicator) indicator.innerText = 'Step 3 of 3: Commercials & Dates';
         if (prevBtn) prevBtn.style.display = 'inline-flex';
@@ -2941,6 +3002,7 @@ window.onClientStateSelect = onClientStateSelect;
 // --------------------------------------------------------------------------
 // Master City Areas Autocomplete & Real-time + Add New Area Controller
 // --------------------------------------------------------------------------
+const defaultCityAreasMap = <?php echo json_encode($default_city_areas_map); ?>;
 let currentCityAreasCache = [];
 let currentLoadedCity = '';
 let areaSearchQuery = '';
@@ -2953,8 +3015,20 @@ async function fetchCityAreas(cityName, stateName = '') {
         return [];
     }
     
-    if (currentLoadedCity.toLowerCase() === cityName.toLowerCase() && currentCityAreasCache.length > 0) {
-        return currentCityAreasCache;
+    // 1. Instant fallback from defaultCityAreasMap so suggestions show up in 0ms!
+    if (currentLoadedCity.toLowerCase() !== cityName.toLowerCase() || currentCityAreasCache.length === 0) {
+        let matchKey = Object.keys(defaultCityAreasMap).find(k => k.toLowerCase() === cityName.toLowerCase());
+        if (matchKey && defaultCityAreasMap[matchKey]) {
+            currentCityAreasCache = [...defaultCityAreasMap[matchKey]];
+            currentLoadedCity = cityName;
+            
+            // If area dropdown is open or area input is active, render immediately
+            const inputEl = document.getElementById('edit_area');
+            const dropdown = document.getElementById('area_autocomplete_dropdown');
+            if (inputEl && (document.activeElement === inputEl || (dropdown && dropdown.style.display === 'block'))) {
+                renderAreaSuggestions(inputEl.value);
+            }
+        }
     }
 
     try {
@@ -2967,15 +3041,22 @@ async function fetchCityAreas(cityName, stateName = '') {
         if (spinner) spinner.innerHTML = '<i data-lucide="map-pin" style="width:14px; height:14px;"></i>';
         if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') lucide.createIcons();
 
-        if (data.success && Array.isArray(data.areas)) {
+        if (data.success && Array.isArray(data.areas) && data.areas.length > 0) {
             currentCityAreasCache = data.areas;
             currentLoadedCity = cityName;
+            
+            // Re-render suggestions if active
+            const inputEl = document.getElementById('edit_area');
+            const dropdown = document.getElementById('area_autocomplete_dropdown');
+            if (inputEl && (document.activeElement === inputEl || (dropdown && dropdown.style.display === 'block'))) {
+                renderAreaSuggestions(inputEl.value);
+            }
             return data.areas;
         }
     } catch (e) {
         console.error('Error fetching city areas:', e);
     }
-    return [];
+    return currentCityAreasCache;
 }
 window.fetchCityAreas = fetchCityAreas;
 
@@ -2990,7 +3071,7 @@ async function onAreaInputFocus() {
     const stateVal = (document.getElementById('edit_state')?.value || '').trim();
     const inputVal = (document.getElementById('edit_area')?.value || '').trim();
     
-    if (cityVal && currentLoadedCity.toLowerCase() !== cityVal.toLowerCase()) {
+    if (cityVal && (currentLoadedCity.toLowerCase() !== cityVal.toLowerCase() || currentCityAreasCache.length === 0)) {
         await fetchCityAreas(cityVal, stateVal);
     }
     renderAreaSuggestions(inputVal);
