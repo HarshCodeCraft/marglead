@@ -34,7 +34,8 @@ if (!class_exists('TenantAwarePDO')) {
                         'client_directory', 'customers', 'customer_kyc_details', 'customer_reviews',
                         'message_logs', 'chat_conversations', 'merchant_waba_settings', 'bot_flows',
                         'renewals', 'invoices', 'lead_documents', 'broadcast_campaigns', 'campaign_audience',
-                        'whatsapp_keyword_triggers', 'whatsapp_templates', 'notifications', 'activity_logs'
+                        'whatsapp_keyword_triggers', 'whatsapp_templates', 'notifications', 'activity_logs',
+                        'city_areas'
                     ];
 
                     foreach ($tables as $tbl) {
