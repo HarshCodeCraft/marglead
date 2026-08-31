@@ -29,6 +29,33 @@ $can_edit_client = $is_admin || hasAccess('clients_edit', $user_role) || in_arra
 // 0. Action Handlers: Template Download & Directory CSV Export
 // --------------------------------------------------------------------------
 
+// Check if Customer ID exists (AJAX Endpoint for real-time validation)
+if (isset($_GET['action']) && $_GET['action'] === 'check_customer_id') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    
+    $check_id = isset($_GET['customer_id']) ? trim($_GET['customer_id']) : '';
+    if (empty($check_id)) {
+        echo json_encode(['exists' => false]);
+        exit;
+    }
+    
+    if ($pdo) {
+        $stmt = $pdo->prepare("SELECT * FROM client_directory WHERE customer_id = ? LIMIT 1");
+        $stmt->execute([$check_id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            echo json_encode([
+                'exists' => true,
+                'client' => $row
+            ]);
+            exit;
+        }
+    }
+    echo json_encode(['exists' => false]);
+    exit;
+}
+
 // Download Sample CSV Template
 if (isset($_GET['action']) && $_GET['action'] === 'download_client_template') {
     while (ob_get_level()) { ob_end_clean(); }
@@ -462,57 +489,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                     'message' => "Client record for <strong>" . htmlspecialchars($party_name) . "</strong> updated successfully!"
                 ];
             } else {
-                // Insert New Client
-                $maxSno = $pdo->query("SELECT COALESCE(MAX(sno), 0) FROM client_directory")->fetchColumn();
-                $nextSno = intval($maxSno) + 1;
-                
-                $stmt = $pdo->prepare("
-                    INSERT INTO client_directory (
-                        sno, sw_type, customer_id, category, party_name,
-                        mobile, alt_mobile, email, contact_person, software_type, user_type,
-                        no_of_users, nature_of_business, software_trade, total_amount, party_status,
-                        address, area, city, state, online_zip_code,
-                        due_on, act_on, software_hit_date
-                    ) VALUES (
-                        ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?,
-                        ?, ?, ?
-                    )
-                ");
-                
-                $stmt->execute([
-                    $nextSno,
-                    !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
-                    $customer_id,
-                    $category,
-                    $party_name,
-                    !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
-                    !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
-                    !empty($_POST['email']) ? trim($_POST['email']) : null,
-                    !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
-                    !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
-                    !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
-                    intval($_POST['no_of_users'] ?? 1),
-                    !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
-                    !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
-                    floatval($_POST['total_amount'] ?? 0.00),
-                    !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
-                    !empty($_POST['address']) ? trim($_POST['address']) : null,
-                    !empty($_POST['area']) ? trim($_POST['area']) : null,
-                    !empty($_POST['city']) ? trim($_POST['city']) : null,
-                    !empty($_POST['state']) ? trim($_POST['state']) : null,
-                    !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
-                    !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
-                    !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
-                    !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null
-                ]);
-                
-                $import_result = [
-                    'success' => true,
-                    'message' => "New Client <strong>" . htmlspecialchars($party_name) . "</strong> (Customer ID: <strong>" . htmlspecialchars($customer_id) . "</strong>) created and added to directory successfully!"
-                ];
+                // Insert New Client - Validate Customer ID uniqueness
+                $isDuplicate = false;
+                if (!empty($customer_id)) {
+                    $chkStmt = $pdo->prepare("SELECT id, party_name, customer_id FROM client_directory WHERE customer_id = ? LIMIT 1");
+                    $chkStmt->execute([$customer_id]);
+                    $existingClient = $chkStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($existingClient) {
+                        $isDuplicate = true;
+                        $import_result = [
+                            'success' => false,
+                            'message' => "Customer ID <strong>" . htmlspecialchars($customer_id) . "</strong> already exists for client <strong>" . htmlspecialchars($existingClient['party_name']) . "</strong>! Cannot create duplicate client record."
+                        ];
+                    }
+                }
+
+                if (!$isDuplicate) {
+                    $maxSno = $pdo->query("SELECT COALESCE(MAX(sno), 0) FROM client_directory")->fetchColumn();
+                    $nextSno = intval($maxSno) + 1;
+                    
+                    $stmt = $pdo->prepare("
+                        INSERT INTO client_directory (
+                            sno, sw_type, customer_id, category, party_name,
+                            mobile, alt_mobile, email, contact_person, software_type, user_type,
+                            no_of_users, nature_of_business, software_trade, total_amount, party_status,
+                            address, area, city, state, online_zip_code,
+                            due_on, act_on, software_hit_date
+                        ) VALUES (
+                            ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?,
+                            ?, ?, ?
+                        )
+                    ");
+                    
+                    $stmt->execute([
+                        $nextSno,
+                        !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
+                        $customer_id,
+                        $category,
+                        $party_name,
+                        !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                        !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
+                        !empty($_POST['email']) ? trim($_POST['email']) : null,
+                        !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
+                        !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
+                        !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
+                        intval($_POST['no_of_users'] ?? 1),
+                        !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
+                        !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
+                        floatval($_POST['total_amount'] ?? 0.00),
+                        !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
+                        !empty($_POST['address']) ? trim($_POST['address']) : null,
+                        !empty($_POST['area']) ? trim($_POST['area']) : null,
+                        !empty($_POST['city']) ? trim($_POST['city']) : null,
+                        !empty($_POST['state']) ? trim($_POST['state']) : null,
+                        !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
+                        !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
+                        !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
+                        !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null
+                    ]);
+                    
+                    $import_result = [
+                        'success' => true,
+                        'message' => "New enterprise client <strong>" . htmlspecialchars($party_name) . "</strong> created successfully (Customer ID: " . htmlspecialchars($customer_id) . ")!"
+                    ];
+                }
             }
         } catch (Exception $e) {
             $import_result = ['success' => false, 'message' => "Error saving client record: " . $e->getMessage()];
@@ -2205,6 +2248,19 @@ function highlightProductPill(which) {
                 <div id="client_pane_profile" class="flex flex-col" style="display: flex;">
                     <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.15rem 1.25rem;">
                         
+                        <!-- Real-time Duplicate Customer ID Warning Alert -->
+                        <div id="customer_id_duplicate_alert" style="display: none; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; color: #b91c1c;">
+                            <div style="display: flex; align-items: flex-start; gap: 8px;">
+                                <i data-lucide="alert-triangle" style="width: 16px; height: 16px; color: #dc2626; flex-shrink: 0; margin-top: 2px;"></i>
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 800; font-size: 0.8rem; color: #dc2626;">Customer ID Already Registered!</div>
+                                    <div id="customer_id_duplicate_desc" style="margin-top: 3px; font-size: 0.73rem; color: var(--text-main); line-height: 1.4;">
+                                        This Customer ID already exists in the client directory. Existing record details have been loaded below. <strong>Creating a new duplicate client with this ID is blocked.</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Row 1: Party Name (Full) -->
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Party Name (Firm / Company) *</label>
@@ -2214,11 +2270,12 @@ function highlightProductPill(which) {
                         <!-- Row 2: Customer ID & Category -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label id="edit_customer_id_label" style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">
-                                    Customer ID *
+                                <label id="edit_customer_id_label" style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span>Customer ID *</span>
+                                    <span id="customer_id_live_status" style="font-size: 0.68rem; font-weight: 700;"></span>
                                     <span id="edit_customer_id_locked_badge" class="badge" style="display:none; --badge-bg: rgba(239,68,68,0.1); --badge-color: #dc2626; font-size: 0.65rem; margin-left: 4px;">🔒 Locked</span>
                                 </label>
-                                <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
+                                <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;" oninput="onCustomerIdInput(this.value)" onblur="onCustomerIdInput(this.value)">
                             </div>
                             <div class="form-group m-0">
                                 <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Category</label>
@@ -2804,96 +2861,119 @@ function onActOnDateChange(actOnVal) {
 window.onActOnDateChange = onActOnDateChange;
 
 // --------------------------------------------------------------------------
-// Window 2A: Open Add New Client Record Modal (➕ User Plus)
+// Real-time Customer ID Duplicate Checker & Auto-fill Preview
 // --------------------------------------------------------------------------
-function openAddClientModal() {
-    var titleEl = document.getElementById('edit_client_modal_title');
-    if (titleEl) titleEl.innerText = 'Add New Enterprise Client Record';
-    var subEl = document.getElementById('edit_client_modal_subtitle');
-    if (subEl) subEl.innerText = 'Create and register a new client profile in the enterprise directory.';
-    var btnText = document.getElementById('edit_client_submit_btn_text');
-    if (btnText) btnText.innerText = 'Create Client Record';
-    var iconEl = document.getElementById('edit_client_modal_icon');
-    if (iconEl) iconEl.setAttribute('data-lucide', 'user-plus');
+let custIdCheckTimer = null;
 
-    document.getElementById('edit_client_db_id').value = '';
-    document.getElementById('edit_party_name').value = '';
-    
-    var custIdInput = document.getElementById('edit_customer_id');
-    if (custIdInput) {
-        custIdInput.value = '';
-        custIdInput.removeAttribute('readonly');
-        custIdInput.style.background = '';
-        custIdInput.style.color = '';
-        custIdInput.style.cursor = '';
-        custIdInput.style.borderColor = '';
+function onCustomerIdInput(val) {
+    clearTimeout(custIdCheckTimer);
+    const dbId = document.getElementById('edit_client_db_id').value;
+    const alertEl = document.getElementById('customer_id_duplicate_alert');
+    const statusEl = document.getElementById('customer_id_live_status');
+    const saveBtn = document.getElementById('client_modal_save_btn');
+    const inputEl = document.getElementById('edit_customer_id');
+
+    val = String(val).trim();
+    // If editing existing client or empty value, clear warnings
+    if (!val || dbId) {
+        if (alertEl) alertEl.style.display = 'none';
+        if (statusEl) { statusEl.style.display = 'none'; statusEl.innerHTML = ''; }
+        if (inputEl) { inputEl.style.borderColor = ''; inputEl.style.boxShadow = ''; }
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.style.opacity = '1'; saveBtn.style.cursor = 'pointer'; saveBtn.title = ''; }
+        return;
     }
 
-    var custIdBadge = document.getElementById('edit_customer_id_locked_badge');
-    if (custIdBadge) custIdBadge.style.display = 'none';
+    if (statusEl) {
+        statusEl.style.display = 'inline-block';
+        statusEl.innerHTML = '<span style="color: var(--text-muted); font-size: 0.68rem;">Checking...</span>';
+    }
 
-    var catSelect = document.getElementById('edit_category');
-    if (catSelect) catSelect.value = 'Category A';
+    custIdCheckTimer = setTimeout(() => {
+        checkCustomerIdExistence(val);
+    }, 350);
+}
+window.onCustomerIdInput = onCustomerIdInput;
 
-    var swTypeSelect = document.getElementById('edit_sw_type');
-    if (swTypeSelect) swTypeSelect.value = '';
-    onSwTypeChange('', '');
+async function checkCustomerIdExistence(custId) {
+    const dbId = document.getElementById('edit_client_db_id').value;
+    if (dbId) return;
 
-    document.getElementById('edit_mobile').value = '';
-    var altMob = document.getElementById('edit_alt_mobile');
-    if (altMob) altMob.value = '';
-    document.getElementById('edit_email').value = '';
-    document.getElementById('edit_contact_person').value = '';
-    document.getElementById('edit_user_type').value = 'Single User';
-    document.getElementById('edit_no_of_users').value = '';
+    const alertEl = document.getElementById('customer_id_duplicate_alert');
+    const descEl = document.getElementById('customer_id_duplicate_desc');
+    const statusEl = document.getElementById('customer_id_live_status');
+    const saveBtn = document.getElementById('client_modal_save_btn');
+    const inputEl = document.getElementById('edit_customer_id');
+
+    try {
+        const res = await fetch('index.php?page=clients&action=check_customer_id&customer_id=' + encodeURIComponent(custId));
+        const data = await res.json();
+
+        // Ensure we are still in Add mode and matching input
+        if (document.getElementById('edit_client_db_id').value) return;
+        const currentVal = (document.getElementById('edit_customer_id').value || '').trim();
+        if (currentVal !== custId) return;
+
+        if (data.exists && data.client) {
+            const cl = data.client;
+            
+            // 1. Status Indicator
+            if (statusEl) {
+                statusEl.style.display = 'inline-block';
+                statusEl.innerHTML = '<span style="color: #dc2626; font-weight: 800; font-size: 0.68rem;">❌ Already Exists</span>';
+            }
+            if (inputEl) {
+                inputEl.style.borderColor = '#dc2626';
+                inputEl.style.boxShadow = '0 0 0 2px rgba(220, 38, 38, 0.2)';
+            }
+
+            // 2. Alert Banner with Details
+            if (alertEl && descEl) {
+                alertEl.style.display = 'block';
+                descEl.innerHTML = `Customer ID <strong>${cl.customer_id}</strong> is already registered for firm: <strong>${cl.party_name}</strong> (Mobile: ${cl.mobile || 'N/A'}, City: ${cl.city || 'N/A'}, S/W: ${cl.sw_type || 'Marg'}). Details have been loaded below. <strong>Adding a duplicate record with this Customer ID is blocked.</strong>`;
+            }
+
+            // 3. Populate existing client details
+            populateClientModalData(cl);
+
+            // 4. Disable Create/Save Button
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.style.opacity = '0.5';
+                saveBtn.style.cursor = 'not-allowed';
+                saveBtn.title = 'Cannot create duplicate client: Customer ID already exists';
+            }
+        } else {
+            // Customer ID is Available!
+            if (statusEl) {
+                statusEl.style.display = 'inline-block';
+                statusEl.innerHTML = '<span style="color: #10b981; font-weight: 800; font-size: 0.68rem;">✓ Available</span>';
+            }
+            if (inputEl) {
+                inputEl.style.borderColor = '#10b981';
+                inputEl.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
+            }
+            if (alertEl) alertEl.style.display = 'none';
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+                saveBtn.style.cursor = 'pointer';
+                saveBtn.title = '';
+            }
+        }
+    } catch (err) {
+        console.error('Error verifying customer ID existence:', err);
+    }
     
-    var nobSelect = document.getElementById('edit_nature_of_business');
-    if (nobSelect) nobSelect.value = '';
-    var tradeSelect = document.getElementById('edit_software_trade');
-    if (tradeSelect) tradeSelect.value = '';
-
-    document.getElementById('edit_address').value = '';
-    document.getElementById('edit_area').value = '';
-    
-    var stateSelect = document.getElementById('edit_state');
-    if (stateSelect) stateSelect.value = '';
-    var citySelect = document.getElementById('edit_city');
-    if (citySelect) citySelect.value = '';
-    onClientStateSelect('', '');
-
-    document.getElementById('edit_online_zip_code').value = '';
-    document.getElementById('edit_total_amount').value = '';
-    document.getElementById('edit_party_status').value = 'Running';
-    document.getElementById('edit_due_on').value = '';
-    document.getElementById('edit_act_on').value = '';
-    document.getElementById('edit_software_hit_date').value = '';
-
-    switchClientModalTab('profile');
-
     if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
         lucide.createIcons();
     }
-
-    window.openModal('edit-client-record-modal');
 }
-window.openAddClientModal = openAddClientModal;
+window.checkCustomerIdExistence = checkCustomerIdExistence;
 
-// --------------------------------------------------------------------------
-// Window 2B: Open Edit Client Record Modal (Edit Icon ✏️)
-// --------------------------------------------------------------------------
-function openEditClientRecordModal(client) {
-    var titleEl = document.getElementById('edit_client_modal_title');
-    if (titleEl) titleEl.innerText = 'Edit Client Directory Record';
-    var subEl = document.getElementById('edit_client_modal_subtitle');
-    if (subEl) subEl.innerText = 'Update client profile details, license parameters, software edition, and address.';
-    var btnText = document.getElementById('edit_client_submit_btn_text');
-    if (btnText) btnText.innerText = 'Save Changes';
-    var iconEl = document.getElementById('edit_client_modal_icon');
-    if (iconEl) iconEl.setAttribute('data-lucide', 'edit-3');
+function populateClientModalData(client) {
+    if (!client) return;
 
-    document.getElementById('edit_client_db_id').value = client.id || '';
     document.getElementById('edit_party_name').value = client.party_name || '';
-    document.getElementById('edit_customer_id').value = client.customer_id || '';
     
     let cat = String(client.category || 'Category A').trim();
     let catSelect = document.getElementById('edit_category');
@@ -2973,6 +3053,129 @@ function openEditClientRecordModal(client) {
     document.getElementById('edit_due_on').value = client.due_on || '';
     document.getElementById('edit_act_on').value = client.act_on || '';
     document.getElementById('edit_software_hit_date').value = client.software_hit_date || '';
+}
+window.populateClientModalData = populateClientModalData;
+
+// --------------------------------------------------------------------------
+// Window 2A: Open Add New Client Record Modal (➕ User Plus)
+// --------------------------------------------------------------------------
+function openAddClientModal() {
+    var titleEl = document.getElementById('edit_client_modal_title');
+    if (titleEl) titleEl.innerText = 'Add New Enterprise Client Record';
+    var subEl = document.getElementById('edit_client_modal_subtitle');
+    if (subEl) subEl.innerText = 'Create and register a new client profile in the enterprise directory.';
+    var btnText = document.getElementById('edit_client_submit_btn_text');
+    if (btnText) btnText.innerText = 'Create Client Record';
+    var iconEl = document.getElementById('edit_client_modal_icon');
+    if (iconEl) iconEl.setAttribute('data-lucide', 'user-plus');
+
+    document.getElementById('edit_client_db_id').value = '';
+    document.getElementById('edit_party_name').value = '';
+    
+    var custIdInput = document.getElementById('edit_customer_id');
+    if (custIdInput) {
+        custIdInput.value = '';
+        custIdInput.removeAttribute('readonly');
+        custIdInput.style.background = '';
+        custIdInput.style.color = '';
+        custIdInput.style.cursor = '';
+        custIdInput.style.borderColor = '';
+        custIdInput.style.boxShadow = '';
+    }
+
+    var custIdBadge = document.getElementById('edit_customer_id_locked_badge');
+    if (custIdBadge) custIdBadge.style.display = 'none';
+
+    var alertEl = document.getElementById('customer_id_duplicate_alert');
+    if (alertEl) alertEl.style.display = 'none';
+    var statusEl = document.getElementById('customer_id_live_status');
+    if (statusEl) { statusEl.style.display = 'none'; statusEl.innerHTML = ''; }
+
+    var saveBtn = document.getElementById('client_modal_save_btn');
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.style.opacity = '1';
+        saveBtn.style.cursor = 'pointer';
+        saveBtn.title = '';
+    }
+
+    var catSelect = document.getElementById('edit_category');
+    if (catSelect) catSelect.value = 'Category A';
+
+    var swTypeSelect = document.getElementById('edit_sw_type');
+    if (swTypeSelect) swTypeSelect.value = '';
+    onSwTypeChange('', '');
+
+    document.getElementById('edit_mobile').value = '';
+    var altMob = document.getElementById('edit_alt_mobile');
+    if (altMob) altMob.value = '';
+    document.getElementById('edit_email').value = '';
+    document.getElementById('edit_contact_person').value = '';
+    document.getElementById('edit_user_type').value = 'Single User';
+    document.getElementById('edit_no_of_users').value = '';
+    
+    var nobSelect = document.getElementById('edit_nature_of_business');
+    if (nobSelect) nobSelect.value = '';
+    var tradeSelect = document.getElementById('edit_software_trade');
+    if (tradeSelect) tradeSelect.value = '';
+
+    document.getElementById('edit_address').value = '';
+    document.getElementById('edit_area').value = '';
+    
+    var stateSelect = document.getElementById('edit_state');
+    if (stateSelect) stateSelect.value = '';
+    var citySelect = document.getElementById('edit_city');
+    if (citySelect) citySelect.value = '';
+    onClientStateSelect('', '');
+
+    document.getElementById('edit_online_zip_code').value = '';
+    document.getElementById('edit_total_amount').value = '';
+    document.getElementById('edit_party_status').value = 'Running';
+    document.getElementById('edit_due_on').value = '';
+    document.getElementById('edit_act_on').value = '';
+    document.getElementById('edit_software_hit_date').value = '';
+
+    switchClientModalTab('profile');
+
+    if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+
+    window.openModal('edit-client-record-modal');
+}
+window.openAddClientModal = openAddClientModal;
+
+// --------------------------------------------------------------------------
+// Window 2B: Open Edit Client Record Modal (Edit Icon ✏️)
+// --------------------------------------------------------------------------
+function openEditClientRecordModal(client) {
+    var titleEl = document.getElementById('edit_client_modal_title');
+    if (titleEl) titleEl.innerText = 'Edit Client Directory Record';
+    var subEl = document.getElementById('edit_client_modal_subtitle');
+    if (subEl) subEl.innerText = 'Update client profile details, license parameters, software edition, and address.';
+    var btnText = document.getElementById('edit_client_submit_btn_text');
+    if (btnText) btnText.innerText = 'Save Changes';
+    var iconEl = document.getElementById('edit_client_modal_icon');
+    if (iconEl) iconEl.setAttribute('data-lucide', 'edit-3');
+
+    var alertEl = document.getElementById('customer_id_duplicate_alert');
+    if (alertEl) alertEl.style.display = 'none';
+    var statusEl = document.getElementById('customer_id_live_status');
+    if (statusEl) { statusEl.style.display = 'none'; statusEl.innerHTML = ''; }
+
+    var saveBtn = document.getElementById('client_modal_save_btn');
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.style.opacity = '1';
+        saveBtn.style.cursor = 'pointer';
+        saveBtn.title = '';
+    }
+
+    document.getElementById('edit_client_db_id').value = client.id || '';
+    document.getElementById('edit_customer_id').value = client.customer_id || '';
+    
+    // Populate all fields
+    populateClientModalData(client);
 
     // Lock Customer ID field if it already has a value (non-editable for existing clients)
     var custIdInput = document.getElementById('edit_customer_id');
@@ -2983,6 +3186,7 @@ function openEditClientRecordModal(client) {
         custIdInput.style.color = 'var(--text-muted, #888)';
         custIdInput.style.cursor = 'not-allowed';
         custIdInput.style.borderColor = 'var(--border-color)';
+        custIdInput.style.boxShadow = '';
         if (custIdBadge) custIdBadge.style.display = 'inline-block';
     } else {
         custIdInput.removeAttribute('readonly');
@@ -2990,6 +3194,7 @@ function openEditClientRecordModal(client) {
         custIdInput.style.color = '';
         custIdInput.style.cursor = '';
         custIdInput.style.borderColor = '';
+        custIdInput.style.boxShadow = '';
         if (custIdBadge) custIdBadge.style.display = 'none';
     }
 
@@ -3001,6 +3206,7 @@ function openEditClientRecordModal(client) {
 
     window.openModal('edit-client-record-modal');
 }
+window.openEditClientRecordModal = openEditClientRecordModal;
 window.openEditClientRecordModal = openEditClientRecordModal;
 
 // --------------------------------------------------------------------------
