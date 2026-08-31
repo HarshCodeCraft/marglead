@@ -2262,10 +2262,7 @@ function highlightProductPill(which) {
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Software Type (Edition)</label>
                             <select id="edit_software_type" name="software_type" class="form-control text-xs font-semibold" style="border-radius: 8px;">
-                                <option value="">-- Select Software Edition --</option>
-                                <?php foreach ($all_software_editions as $ed): ?>
-                                    <option value="<?php echo htmlspecialchars($ed); ?>"><?php echo htmlspecialchars($ed); ?></option>
-                                <?php endforeach; ?>
+                                <option value="">-- Select S/W Type First --</option>
                             </select>
                         </div>
 
@@ -2584,26 +2581,37 @@ function performWinLicenceSearch() {
 const swTypesMap = <?php echo json_encode($sw_types_map); ?>;
 const allSoftwareEditions = <?php echo json_encode($all_software_editions); ?>;
 
+function normalizeSwType(val) {
+    if (!val) return '';
+    const v = String(val).trim().toLowerCase();
+    if (v === 'marg erp' || v === 'marg' || v.includes('erp')) return 'Marg ERP';
+    if (v === 'marg cloud' || v.includes('cloud')) return 'Marg Cloud';
+    if (v === 'marg books' || v.includes('book')) return 'Marg Books';
+    if (v === 'marg hrms' || v.includes('hrms') || v.includes('hr')) return 'Marg HRMS';
+    return val.trim();
+}
+
 function onSwTypeChange(swTypeVal, selectedEdition = '') {
     const editSelect = document.getElementById('edit_software_type');
     if (!editSelect) return;
 
     const targetEdition = (selectedEdition !== undefined && selectedEdition !== null && selectedEdition !== '') ? String(selectedEdition).trim() : '';
-    editSelect.innerHTML = '<option value="">-- Select Software Edition --</option>';
+    const normSwType = normalizeSwType(swTypeVal);
 
-    let editions = [];
-    if (swTypeVal && swTypesMap[swTypeVal]) {
-        editions = swTypesMap[swTypeVal];
-    } else {
-        editions = allSoftwareEditions;
+    if (!normSwType || !swTypesMap[normSwType]) {
+        editSelect.innerHTML = '<option value="">-- Select S/W Type First --</option>';
+        return;
     }
 
+    editSelect.innerHTML = '<option value="">-- Select Software Edition (' + normSwType + ') --</option>';
+
+    const editions = swTypesMap[normSwType] || [];
     let isSelectedFound = false;
     editions.forEach(function(ed) {
         const opt = document.createElement('option');
         opt.value = ed;
         opt.textContent = ed;
-        if (targetEdition && ed.toLowerCase() === targetEdition.toLowerCase()) {
+        if (targetEdition && (ed.toLowerCase() === targetEdition.toLowerCase() || targetEdition.toLowerCase() === ed.toLowerCase().replace(/^(marg\s*erp|marg)\s*/i, '').trim())) {
             opt.selected = true;
             isSelectedFound = true;
         }
@@ -2800,7 +2808,7 @@ function openEditClientRecordModal(client) {
     }
 
     var swTypeSelect = document.getElementById('edit_sw_type');
-    let swVal = client.sw_type || '';
+    let swVal = normalizeSwType(client.sw_type || '');
     if (swTypeSelect) {
         swTypeSelect.value = swVal;
         if (swVal && !swTypeSelect.value) {
