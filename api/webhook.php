@@ -310,6 +310,16 @@ foreach ($data['entry'][0]['changes'] as $change) {
                         $from
                     ]);
 
+                    // Log in support_ticket_history
+                    try {
+                        $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details) VALUES (?, 'created', ?, 'Team Member', ?)");
+                        $stmtH->execute([
+                            $ticketId,
+                            $teamAgent['name'] . ' (' . $teamAgent['emp_code'] . ')',
+                            "Ticket created via Team WhatsApp Lead Drop by {$teamAgent['name']} ({$teamAgent['emp_code']})" . (!empty($problemNote) ? " with note: {$problemNote}" : "")
+                        ]);
+                    } catch (Throwable $eH) {}
+
                     // Admin Topbar Notification
                     $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, 'index.php?page=support', 'warning')");
                     $stmtNotif->execute([

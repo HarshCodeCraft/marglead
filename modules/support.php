@@ -13,9 +13,112 @@ $canEdit = hasAccess('support_edit', $_SESSION['user_role']);
 $canAssign = hasAccess('support_assign', $_SESSION['user_role']);
 $canClose = hasAccess('support_close', $_SESSION['user_role']);
 
+// Ajax handler to fetch ticket history
+if (isset($_GET['action']) && $_GET['action'] === 'get_ticket_history') {
+    header('Content-Type: application/json');
+    $tId = trim($_GET['ticket_id'] ?? '');
+    try {
+        $stmtH = $pdo->prepare("SELECT * FROM support_ticket_history WHERE ticket_id = ? ORDER BY created_at ASC");
+        $stmtH->execute([$tId]);
+        $history = $stmtH->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['status' => 'success', 'history' => $history]);
+    } catch (Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // 1. Process support ticket updates/creations
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $act = $_POST['action'];
+
+    if ($act === 'take_ticket') {
+        $ticketId = trim($_POST['ticket_id'] ?? '');
+        $currentUserName = $_SESSION['user_name'] ?? 'Support Engineer';
+        $currentUserRole = $_SESSION['user_role'] ?? 'Technical Support';
+
+        if (empty($ticketId)) {
+            $_SESSION['flash_error'] = "Invalid ticket ID provided.";
+            header("Location: index.php?page=support");
+            exit;
+        }
+
+        if ($db_connected && $pdo) {
+            try {
+                $checkStmt = $pdo->prepare("SELECT id, assigned_to, status, dropped_by_emp_phone, dropped_by_emp_name, phone, callback_number, customer_name FROM support_tickets WHERE id = ?");
+                $checkStmt->execute([$ticketId]);
+                $origTicket = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$origTicket) {
+                    $_SESSION['flash_error'] = "Ticket not found.";
+                    header("Location: index.php?page=support");
+                    exit;
+                }
+
+                $curAssigned = trim($origTicket['assigned_to'] ?? '');
+                $isUnassigned = (empty($curAssigned) || strtolower($curAssigned) === 'unassigned');
+
+                if (!$isUnassigned && strtolower($curAssigned) !== strtolower($currentUserName) && !$is_admin) {
+                    $_SESSION['flash_error'] = "Ticket #{$ticketId} has already been taken by {$curAssigned}.";
+                    header("Location: index.php?page=support");
+                    exit;
+                }
+
+                $newStatus = (strtolower($origTicket['status'] ?? '') === 'open') ? 'in_progress' : $origTicket['status'];
+                $updStmt = $pdo->prepare("UPDATE support_tickets SET assigned_to = ?, status = ? WHERE id = ?");
+                $updStmt->execute([$currentUserName, $newStatus, $ticketId]);
+
+                try {
+                    $stmtT = $pdo->prepare("UPDATE tickets SET status = ? WHERE ticket_number = ?");
+                    $stmtT->execute([ucfirst($newStatus), $ticketId]);
+                } catch (Throwable $eT) {}
+
+                // Log into support_ticket_history
+                try {
+                    $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details) VALUES (?, 'taken', ?, ?, ?)");
+                    $stmtH->execute([
+                        $ticketId,
+                        $currentUserName,
+                        $currentUserRole,
+                        "Ticket claimed / taken by {$currentUserName} ({$currentUserRole})"
+                    ]);
+                } catch (Throwable $eH) {}
+
+                // Admin Notification
+                try {
+                    $adminNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', 'Ticket Claimed', ?, 'index.php?page=support', 'info')");
+                    $adminNotif->execute(["{$currentUserName} took ticket #{$ticketId}"]);
+                } catch (Throwable $eN) {}
+
+                // WhatsApp Notification to dropped_by employee
+                $empDropPhone = $origTicket['dropped_by_emp_phone'] ?? '';
+                if (!empty($empDropPhone)) {
+                    try {
+                        require_once __DIR__ . '/../api/whatsapp-api.php';
+                        $whatsappObj = new WhatsAppAPI($pdo);
+                        $clientDisplayPhone = !empty($origTicket['callback_number']) ? $origTicket['callback_number'] : ($origTicket['phone'] ?? '');
+                        $clientDisplayName = !empty($origTicket['customer_name']) ? $origTicket['customer_name'] : 'Client';
+
+                        $takeMsg = "👨‍💻 *Ticket Update on #{$ticketId}*\n\n" .
+                                   "📞 Client: *{$clientDisplayPhone}*" . (!empty($clientDisplayName) && $clientDisplayName !== '-' ? " ({$clientDisplayName})" : "") . "\n" .
+                                   "🔄 Status: *In Progress (Taken)*\n" .
+                                   "👤 Handled By: *{$currentUserName} (Technical Team)*\n\n" .
+                                   "⚡ _Aapki bheji hui ticket par {$currentUserName} ne kaam shuru kar diya hai._";
+                        $whatsappObj->sendText($empDropPhone, $takeMsg);
+                    } catch (Throwable $eWa) {
+                        write_log('error', "Failed sending team agent take update: " . $eWa->getMessage());
+                    }
+                }
+
+                $_SESSION['flash_success'] = "Ticket #{$ticketId} successfully assigned to you! You can now call the client and update details.";
+            } catch (PDOException $e) {
+                $_SESSION['flash_error'] = "Failed to take ticket: " . $e->getMessage();
+            }
+        }
+
+        header("Location: index.php?page=support");
+        exit;
+    }
 
     if ($act === 'whatsapp_create_ticket') {
         header('Content-Type: application/json');
@@ -203,10 +306,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         exit;
                     }
 
-                    // Check Assign/Transfer permission - if user cannot assign, preserve existing assigned_to
-                    if (!$canAssign) {
-                        $assigned_to = $orig['assigned_to'] ?? $assigned_to;
-                    } elseif ($orig['assigned_to'] !== $assigned_to && !$canAssign) {
+                    // Check Assign/Transfer permission - user can transfer if Admin, has canAssign, or ticket is assigned to them
+                    $canTransfer = $is_admin || $canAssign || $isAssignedToMe;
+                    if (!$canTransfer && $orig['assigned_to'] !== $assigned_to) {
                         $_SESSION['flash_error'] = "Access Denied: You do not have permissions to assign/transfer tickets.";
                         header("Location: index.php?page=support");
                         exit;
@@ -221,6 +323,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     
                     $stmt = $pdo->prepare("UPDATE support_tickets SET priority = ?, status = ?, subject = ?, problem = ?, resolution = ?, assigned_to = ?, due_date = ?, callback_number = ?, lead_id = ?, customer_name = ?, phone = ?, email = ?, product = ?, renewal_date = ?, address = ? WHERE id = ?");
                     $stmt->execute([$priority, $status, $subject, $problem, $resolution, $assigned_to, $due_date, $callback_number, $lead_id, $customer_name, $phone, $email, $product, $renewal_date, $address, $ticketId]);
+
+                    // Log transfer in support_ticket_history
+                    if ($orig['assigned_to'] !== $assigned_to) {
+                        try {
+                            $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details) VALUES (?, 'transferred', ?, ?, ?)");
+                            $stmtH->execute([
+                                $ticketId,
+                                $user_name,
+                                $user_role,
+                                "Ticket transferred from '{$orig['assigned_to']}' to '{$assigned_to}'"
+                            ]);
+                        } catch (Throwable $eH) {}
+                    }
+
+                    // Log status change in support_ticket_history
+                    if ($orig['status'] !== $status) {
+                        try {
+                            $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details) VALUES (?, 'status_change', ?, ?, ?)");
+                            $stmtH->execute([
+                                $ticketId,
+                                $user_name,
+                                $user_role,
+                                "Status updated from '" . ucfirst($orig['status']) . "' to '" . ucfirst($status) . "'"
+                            ]);
+                        } catch (Throwable $eH) {}
+                    }
+
+                    // Log resolution in support_ticket_history
+                    if (!empty($resolution) && ($orig['resolution'] ?? '') !== $resolution) {
+                        try {
+                            $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details) VALUES (?, 'resolution', ?, ?, ?)");
+                            $stmtH->execute([
+                                $ticketId,
+                                $user_name,
+                                $user_role,
+                                "Resolution notes: {$resolution}"
+                            ]);
+                        } catch (Throwable $eH) {}
+                    }
 
                     // Also sync update to raw `tickets` table if exists
                     try {
@@ -437,9 +578,9 @@ $priority_filter = trim($_GET['priority'] ?? '');
 $where_conditions = [];
 $query_params = [];
 
-// Non-admin employees only see tickets assigned to them
+// Non-admin employees see tickets assigned to them OR unassigned pool tickets
 if (!$is_admin) {
-    $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
+    $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
     $query_params[] = $user_name;
 } elseif (!empty($operator_filter)) {
     $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
@@ -540,7 +681,7 @@ if ($db_connected && $pdo) {
         $cConds = [];
         $cParams = [];
         if (!$is_admin) {
-            $cConds[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
+            $cConds[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
             $cParams[] = $user_name;
         }
         $cSql = !empty($cConds) ? "WHERE " . implode(" AND ", $cConds) : "";
@@ -846,13 +987,20 @@ if ($db_connected && $pdo) {
                                 </td>
                                 <td class="font-mono text-xs text-muted"><?php echo htmlspecialchars($t['due_date'] ?? '-'); ?></td>
                                 <td style="text-align: right; padding-right: 1.25rem;">
-                                    <div class="flex align-center justify-end gap-1">
+                                    <div class="flex align-center justify-end gap-1.5">
                                         <?php 
                                             $tAssigned = strtolower(trim($t['assigned_to'] ?? ''));
                                             $currUser = strtolower(trim($user_name ?? ''));
                                             $isAssignedToMe = !empty($tAssigned) && $tAssigned !== 'unassigned' && ($tAssigned === $currUser);
-                                            $canUserEditThisTicket = $is_admin || $isAssignedToMe || ($canEdit && (empty($tAssigned) || $tAssigned === 'unassigned'));
+                                            $isUnassigned = empty($tAssigned) || $tAssigned === 'unassigned';
+                                            $canUserEditThisTicket = $is_admin || $isAssignedToMe || ($canEdit && $isUnassigned);
                                         ?>
+                                        <?php if ($isUnassigned): ?>
+                                            <button type="button" class="btn btn-xs flex align-center gap-1 font-bold" style="background: #10b981; color: #ffffff; border: none; border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; cursor: pointer; box-shadow: 0 1px 4px rgba(16,185,129,0.3);" title="Take / Claim this ticket" onclick="takeTicket('<?php echo htmlspecialchars($t['id']); ?>')">
+                                                <i data-lucide="hand" style="width: 12px; height: 12px;"></i>
+                                                <span>Take</span>
+                                            </button>
+                                        <?php endif; ?>
                                         <?php if ($canUserEditThisTicket): ?>
                                             <button type="button" class="btn-icon" title="Edit / Update Ticket" onclick='openEditTicketModal(<?php echo $tJson; ?>)'>
                                                 <i data-lucide="edit-3" style="width: 15px; height: 15px; color: var(--primary);"></i>
@@ -1276,15 +1424,12 @@ if ($db_connected && $pdo) {
 
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Assign / Transfer Technician</label>
-                            <select name="assigned_to" id="edit-ticket-assigned" class="form-control text-xs" style="border-radius: 8px;" required <?php echo !$canAssign ? 'disabled' : ''; ?>>
+                            <select name="assigned_to" id="edit-ticket-assigned" class="form-control text-xs" style="border-radius: 8px;" required>
                                 <option value="Unassigned">Unassigned</option>
                                 <?php foreach ($db_operators as $op): ?>
                                     <option value="<?php echo htmlspecialchars($op['name']); ?>"><?php echo htmlspecialchars($op['name']) . " (" . htmlspecialchars($op['role']) . ")"; ?></option>
                                 <?php endforeach; ?>
                             </select>
-                            <?php if (!$canAssign): ?>
-                                <input type="hidden" name="assigned_to" id="edit-ticket-assigned-hidden">
-                            <?php endif; ?>
                         </div>
                     </div>
 
@@ -1304,6 +1449,20 @@ if ($db_connected && $pdo) {
                             </div>
                             <input type="text" name="callback_number" id="edit-ticket-callback" class="form-control text-xs font-mono" style="border-radius: 8px;" placeholder="Contact number for update calls">
                         </div>
+                    </div>
+                </div>
+
+                <!-- SECTION 4: TICKET LIFECYCLE & ASSIGNMENT HISTORY -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem;">
+                    <div class="flex justify-between align-center mb-2">
+                        <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); display:flex; align-items:center; gap: 6px;">
+                            <i data-lucide="history" style="width:14px; height:14px;"></i> Assignment &amp; Activity History
+                        </div>
+                        <span id="edit-history-count" class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted); font-size: 0.68rem; font-weight: 700;">0 logs</span>
+                    </div>
+
+                    <div id="edit-ticket-history-container" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; padding-right: 4px;">
+                        <p class="text-xs text-muted m-0" style="font-style: italic;">Loading ticket history...</p>
                     </div>
                 </div>
 
@@ -1949,6 +2108,11 @@ function openEditTicketModal(ticket) {
     // Populate Technician Assignment
     const assignVal = ticket.assigned_to || "Unassigned";
     const assignedSelect = document.getElementById('edit-ticket-assigned');
+    const currentUserName = <?php echo json_encode($user_name); ?>;
+    const isAdmin = <?php echo $is_admin ? 'true' : 'false'; ?>;
+    const canAssignPerm = <?php echo $canAssign ? 'true' : 'false'; ?>;
+    const isAssignedToMe = (assignVal.toLowerCase() === currentUserName.toLowerCase());
+
     if (assignedSelect) {
         let hasOption = Array.from(assignedSelect.options).some(opt => opt.value.toLowerCase() === assignVal.toLowerCase());
         if (!hasOption && assignVal) {
@@ -1958,10 +2122,13 @@ function openEditTicketModal(ticket) {
             assignedSelect.appendChild(newOpt);
         }
         assignedSelect.value = assignVal;
-    }
-    const hiddenAssigned = document.getElementById('edit-ticket-assigned-hidden');
-    if (hiddenAssigned) {
-        hiddenAssigned.value = assignVal;
+
+        // Allow transfer if Admin, has canAssign permission, or ticket is assigned to current user
+        if (isAdmin || canAssignPerm || isAssignedToMe) {
+            assignedSelect.removeAttribute('disabled');
+        } else {
+            assignedSelect.setAttribute('disabled', 'disabled');
+        }
     }
     
     document.getElementById('edit-ticket-due-date').value = ticket.due_date || "";
@@ -1969,7 +2136,94 @@ function openEditTicketModal(ticket) {
         cbInput.value = ticket.callback_number || "";
     }
     
+    // Load ticket activity & assignment history
+    loadTicketHistory(ticket.id);
+
     window.openModal('edit-ticket-modal');
+}
+
+function takeTicket(ticketId) {
+    if (!confirm('Are you sure you want to take ticket #' + ticketId + '? It will be assigned to you.')) {
+        return;
+    }
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = 'index.php?page=support';
+    
+    const actInput = document.createElement('input');
+    actInput.type = 'hidden';
+    actInput.name = 'action';
+    actInput.value = 'take_ticket';
+    form.appendChild(actInput);
+
+    const idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = 'ticket_id';
+    idInput.value = ticketId;
+    form.appendChild(idInput);
+
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function loadTicketHistory(ticketId) {
+    const container = document.getElementById('edit-ticket-history-container');
+    const countElem = document.getElementById('edit-history-count');
+    if (!container) return;
+    container.innerHTML = '<p class="text-xs text-muted m-0" style="font-style: italic;">Loading ticket history...</p>';
+
+    fetch('index.php?page=support&action=get_ticket_history&ticket_id=' + encodeURIComponent(ticketId))
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success' && Array.isArray(data.history) && data.history.length > 0) {
+                if (countElem) countElem.innerText = data.history.length + (data.history.length === 1 ? ' log' : ' logs');
+                let html = '';
+                data.history.forEach(item => {
+                    let badgeBg = 'rgba(59, 130, 246, 0.12)';
+                    let badgeColor = '#2563eb';
+                    if (item.action === 'taken') {
+                        badgeBg = 'rgba(16, 185, 129, 0.15)';
+                        badgeColor = '#059669';
+                    } else if (item.action === 'transferred') {
+                        badgeBg = 'rgba(245, 158, 11, 0.15)';
+                        badgeColor = '#d97706';
+                    } else if (item.action === 'status_change') {
+                        badgeBg = 'rgba(139, 92, 246, 0.15)';
+                        badgeColor = '#7c3aed';
+                    } else if (item.action === 'resolution') {
+                        badgeBg = 'rgba(16, 185, 129, 0.2)';
+                        badgeColor = '#10b981';
+                    }
+                    const dt = new Date(item.created_at);
+                    const timeStr = isNaN(dt.getTime()) ? item.created_at : dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+
+                    const actorEsc = String(item.actor_name || 'System').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const roleEsc = item.actor_role ? String(item.actor_role).replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+                    const detailsEsc = String(item.details || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+                    html += `
+                        <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.45rem 0.65rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem;">
+                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span class="badge text-xs" style="--badge-bg: ${badgeBg}; --badge-color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; text-transform: uppercase;">${item.action}</span>
+                                    <strong style="font-size: 0.75rem; color: var(--text-main);">${actorEsc}</strong>
+                                    ${roleEsc ? `<span class="text-muted" style="font-size: 0.68rem;">(${roleEsc})</span>` : ''}
+                                </div>
+                                <span style="font-size: 0.74rem; color: var(--text-main); line-height: 1.3;">${detailsEsc}</span>
+                            </div>
+                            <span class="font-mono text-muted" style="font-size: 0.65rem; white-space: nowrap; flex-shrink: 0;">${timeStr}</span>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            } else {
+                if (countElem) countElem.innerText = '0 logs';
+                container.innerHTML = '<p class="text-xs text-muted m-0" style="font-style: italic;">No specific lifecycle history logged yet for this ticket.</p>';
+            }
+        })
+        .catch(() => {
+            container.innerHTML = '<p class="text-xs text-muted m-0" style="font-style: italic;">Could not load history.</p>';
+        });
 }
 
 function autoFetchClientDetails() {
