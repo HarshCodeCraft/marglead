@@ -246,17 +246,19 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 $problemNote = trim(str_replace([$clientPhoneClean, '+91', '91' . $clientPhoneClean], '', $body));
                 $problemNote = preg_replace('/\s+/', ' ', $problemNote);
                 if (empty($problemNote) || strlen($problemNote) < 3) {
-                    $problemNote = "Client lead forwarded by " . $teamAgent['name'] . " (" . $teamAgent['emp_code'] . ")";
+                    $problemNote = "";
                 }
 
                 // Auto-lookup Party Name from client directory or leads
-                $partyName = "Client (" . $clientPhoneClean . ")";
+                $partyName = "";
+                $licenseNo = "";
                 try {
-                    $stmtParty = $pdo->prepare("SELECT party_name FROM client_directory WHERE mobile LIKE ? LIMIT 1");
+                    $stmtParty = $pdo->prepare("SELECT customer_id, party_name FROM client_directory WHERE mobile LIKE ? LIMIT 1");
                     $stmtParty->execute(['%' . $clientPhoneClean . '%']);
                     $pRow = $stmtParty->fetch(PDO::FETCH_ASSOC);
                     if (!empty($pRow['party_name'])) {
                         $partyName = $pRow['party_name'];
+                        $licenseNo = $pRow['customer_id'] ?? '';
                     } else {
                         $stmtLead = $pdo->prepare("SELECT company, name FROM leads WHERE phone LIKE ? LIMIT 1");
                         $stmtLead->execute(['%' . $clientPhoneClean . '%']);
@@ -267,22 +269,41 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     }
                 } catch (Throwable $e) {}
 
-                // Create Unique Support Ticket
-                $ticketId = 'TK-' . date('ymd') . '-' . rand(1000, 9999);
+                // Create Unique Support Ticket in standard format TK-YYYY-XXXXXX
+                $year = date('Y');
+                $prefix = "TK-{$year}-";
+                try {
+                    $stmtSeq = $pdo->prepare("SELECT id FROM support_tickets WHERE id LIKE ? ORDER BY id DESC LIMIT 1");
+                    $stmtSeq->execute([$prefix . '%']);
+                    $lastId = $stmtSeq->fetchColumn();
+                    if ($lastId) {
+                        $numPart = (int) substr($lastId, strlen($prefix));
+                        $nextNum = $numPart + 1;
+                    } else {
+                        $nextNum = 1;
+                    }
+                    $ticketId = $prefix . str_pad($nextNum, 6, '0', STR_PAD_LEFT);
+                } catch (Throwable $e) {
+                    $ticketId = 'TK-' . date('ymd') . '-' . rand(1000, 9999);
+                }
+
+                $subject = !empty($problemNote) ? mb_strimwidth($problemNote, 0, 70, '...') : (!empty($partyName) ? "Technical Support - " . $partyName : "Technical Support");
+
                 try {
                     $stmtTicket = $pdo->prepare("
                         INSERT INTO support_tickets (
                             id, customer_name, subject, priority, status, assigned_to,
-                            phone, callback_number, problem, dropped_by_emp_id,
+                            lead_id, phone, callback_number, problem, dropped_by_emp_id,
                             dropped_by_emp_name, dropped_by_emp_phone, source, date_created
-                        ) VALUES (?, ?, ?, 'medium', 'open', 'Unassigned', ?, ?, ?, ?, ?, ?, 'team_whatsapp_drop', NOW())
+                        ) VALUES (?, ?, ?, 'medium', 'open', 'Unassigned', ?, ?, ?, ?, ?, ?, ?, 'team_whatsapp_drop', NOW())
                     ");
                     $stmtTicket->execute([
                         $ticketId,
                         $partyName,
-                        "Support Lead: " . $partyName,
-                        $clientPhone,
-                        $clientPhone,
+                        $subject,
+                        $licenseNo,
+                        $clientPhoneClean,
+                        $clientPhoneClean,
                         $problemNote,
                         $teamAgent['id'],
                         $teamAgent['name'] . ' (' . $teamAgent['emp_code'] . ')',
@@ -293,19 +314,19 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, 'index.php?page=support', 'warning')");
                     $stmtNotif->execute([
                         "New Team Lead: " . $ticketId,
-                        "{$teamAgent['name']} ({$teamAgent['emp_code']}) dropped client {$clientPhone} ({$partyName})"
+                        "{$teamAgent['name']} ({$teamAgent['emp_code']}) dropped client {$clientPhoneClean}" . (!empty($partyName) ? " ({$partyName})" : "")
                     ]);
 
                     // NOTE: NO MESSAGE IS SENT TO THE CLIENT!
                     // Send Instant Confirmation Receipt ONLY to the Team Member:
                     $ackMsg = "✅ *Ticket Created Successfully!*\n\n" .
                               "🎟️ Ticket ID: *#{$ticketId}*\n" .
-                              "📞 Client No: *{$clientPhone}*\n" .
-                              "🏢 Party: *{$partyName}*\n" .
-                              "📝 Note: _{$problemNote}_\n" .
+                              "📞 Client No: *{$clientPhoneClean}*\n" .
+                              (!empty($partyName) ? "🏢 Party: *{$partyName}*\n" : "") .
+                              (!empty($problemNote) ? "📝 Note: _{$problemNote}_\n" : "") .
                               "👨‍💻 Queue: *Technical Support Team*\n" .
                               "👤 Forwarded By: *{$teamAgent['name']} ({$teamAgent['emp_code']})*\n\n" .
-                              "⚡ _Technical team ko ticket assign ho gayi hai. Jaise hi wo call karenge, Call Back set karenge, ya ticket Close karenge — aapko yahan turant update mil jayega._";
+                              "⚡ _Technical team ko ticket assign ho chuki hai. Jab wo call karenge ya status update karenge, aapko yahan alert mil jayega._";
                     $whatsapp->sendText($from, $ackMsg);
 
                 } catch (Throwable $e) {

@@ -771,26 +771,28 @@ if ($db_connected && $pdo) {
                                     </span>
                                 </td>
                                 <td>
-                                    <strong class="text-main block text-sm"><?php echo htmlspecialchars($t['customer_name']); ?></strong>
-                                    <span class="text-xs text-muted font-mono">ID: <?php echo htmlspecialchars($t['lead_id'] ?? 'NA'); ?></span>
-                                    <?php if (($t['source'] ?? '') === 'team_whatsapp_drop' || !empty($t['dropped_by_emp_name'])): ?>
-                                        <div class="mt-1">
-                                            <span class="badge" style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 3px;" title="Forwarded via Team WhatsApp">
-                                                <i data-lucide="user-check" style="width: 10px; height: 10px;"></i>
-                                                Drop: <?php echo htmlspecialchars($t['dropped_by_emp_name'] ?? 'Team Member'); ?>
-                                            </span>
-                                        </div>
-                                    <?php endif; ?>
+                                    <?php 
+                                        $cNameDisplay = trim($t['customer_name'] ?? '');
+                                        if (stripos($cNameDisplay, 'Client (') === 0) {
+                                            $cNameDisplay = '';
+                                        }
+                                    ?>
+                                    <strong class="text-main block text-sm"><?php echo htmlspecialchars(!empty($cNameDisplay) ? $cNameDisplay : '-'); ?></strong>
+                                    <span class="text-xs text-muted font-mono">ID: <?php echo htmlspecialchars(!empty($t['lead_id']) ? $t['lead_id'] : 'NA'); ?></span>
                                 </td>
                                 <td>
                                     <?php 
                                         $phoneNum = trim(!empty($t['callback_number']) ? $t['callback_number'] : ($t['phone'] ?? ''));
                                         $cleanPhone = preg_replace('/[^0-9+]/', '', $phoneNum);
+                                        $displayPhone = preg_replace('/^\+?91/', '', $cleanPhone);
+                                        if (strlen($displayPhone) !== 10) {
+                                            $displayPhone = $cleanPhone;
+                                        }
                                         $telPayload = 'tel:' . $cleanPhone;
-                                        $cNameEsc = htmlspecialchars(addslashes($t['customer_name'] ?? 'Client'), ENT_QUOTES, 'UTF-8');
+                                        $cNameEsc = htmlspecialchars(addslashes(!empty($cNameDisplay) ? $cNameDisplay : 'Client'), ENT_QUOTES, 'UTF-8');
                                     ?>
                                     <div class="flex align-center gap-1.5">
-                                        <span class="font-mono text-xs text-main font-semibold"><?php echo htmlspecialchars($phoneNum ?: '-'); ?></span>
+                                        <span class="font-mono text-xs text-main font-semibold"><?php echo htmlspecialchars($displayPhone ?: '-'); ?></span>
                                         <?php if (!empty($cleanPhone)): ?>
                                             <button type="button" class="btn text-xs p-1" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; border-radius: 6px; padding: 2px 6px; cursor: pointer;" title="Scan QR to call on smartphone dial pad" onclick="openCallQrModal('<?php echo $cNameEsc; ?>', '<?php echo $cleanPhone; ?>', '<?php echo urlencode($telPayload); ?>')">
                                                 <i data-lucide="qr-code" style="width: 12px; height: 12px; vertical-align: middle;"></i>
@@ -800,10 +802,24 @@ if ($db_connected && $pdo) {
                                     </div>
                                 </td>
                                 <td style="max-width: 250px;">
-                                    <strong class="text-xs text-main block"><?php echo htmlspecialchars(!empty($t['problem']) ? $t['problem'] : ($t['subject'] ?? 'Technical Support')); ?></strong>
-                                    <span class="text-xs text-muted" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                                        <?php echo htmlspecialchars(!empty($t['resolution']) ? ('Solution: ' . $t['resolution']) : ($t['subject'] ?? '')); ?>
-                                    </span>
+                                    <?php 
+                                        $dispProb = trim($t['problem'] ?? '');
+                                        if (stripos($dispProb, 'Client lead forwarded by') === 0) {
+                                            $dispProb = '';
+                                        }
+                                        $dispSubj = trim($t['subject'] ?? '');
+                                        if (stripos($dispSubj, 'Support Lead: Client') === 0) {
+                                            $dispSubj = 'Technical Support';
+                                        }
+                                        $primaryText = !empty($dispProb) ? $dispProb : (!empty($dispSubj) ? $dispSubj : 'Technical Support');
+                                        $secondaryText = !empty($t['resolution']) ? ('Solution: ' . $t['resolution']) : ((!empty($dispProb) && !empty($dispSubj) && $dispProb !== $dispSubj) ? $dispSubj : '');
+                                    ?>
+                                    <strong class="text-xs text-main block"><?php echo htmlspecialchars($primaryText); ?></strong>
+                                    <?php if (!empty($secondaryText)): ?>
+                                        <span class="text-xs text-muted" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                                            <?php echo htmlspecialchars($secondaryText); ?>
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
                                 <td><span class="badge text-xs" style="--badge-bg: var(--accent-light); --badge-color: var(--accent);"><?php echo htmlspecialchars($t['product'] ?? 'Marg ERP'); ?></span></td>
                                 <td>
@@ -1126,7 +1142,7 @@ if ($db_connected && $pdo) {
                         <!-- Item 6: Party Status -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Party Status</span>
-                            <span id="edit-v-status" class="badge text-xs" style="--badge-bg: rgba(16,185,129,0.12); --badge-color: #10b981; width: fit-content;">Running</span>
+                            <span id="edit-v-status" class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted); width: fit-content;">-</span>
                         </div>
 
                         <!-- Item 7: Software Type -->
@@ -1190,7 +1206,7 @@ if ($db_connected && $pdo) {
                         <!-- Item 16: Total Contract Value -->
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.04em;">Total Contract Value</span>
-                            <strong id="edit-v-amount" class="text-success font-mono font-bold" style="font-size: 0.85rem;">₹0.00</strong>
+                            <strong id="edit-v-amount" class="text-success font-mono font-bold" style="font-size: 0.85rem;">-</strong>
                         </div>
 
                         <!-- Item 17: Sub Partner (span 2) -->
@@ -1218,8 +1234,8 @@ if ($db_connected && $pdo) {
 
                     <div class="grid grid-2 gap-3">
                         <div class="form-group m-0">
-                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Problem Description * (Client Reported)</label>
-                            <textarea name="problem" id="edit-ticket-problem" required rows="3" class="form-control text-xs" style="border-radius: 8px; resize: vertical;" placeholder="Client's detailed query or issue notes..."></textarea>
+                            <label class="form-label text-xs font-bold" style="color: var(--text-main);">Problem Description (Client Reported)</label>
+                            <textarea name="problem" id="edit-ticket-problem" rows="3" class="form-control text-xs" style="border-radius: 8px; resize: vertical;" placeholder="Client's query or issue notes (fill when calling client)..."></textarea>
                         </div>
 
                         <div class="form-group m-0">
@@ -1601,22 +1617,36 @@ document.addEventListener('click', function(e) {
 });
 
 function updateClientCompactView(data) {
-    const pName = data.customer_name || data.party_name || '-';
-    const contact = data.contact_person || pName;
-    const mob = data.phone || data.mobile || '-';
-    const em = data.email || '-';
-    const prod = data.product || data.software_type || 'Marg ERP';
-    const swType = data.sw_type || 'Marg';
-    const uType = (data.user_type || 'Multi User') + ' (' + (data.no_of_users || 1) + ')';
-    const numComp = data.no_of_companies || 250;
-    const stat = data.party_status || 'Running';
-    const trade = data.software_trade || 'Business Services';
-    const homeUser = data.home_user || 'No';
-    const amt = '₹' + parseFloat(data.total_amount || 0).toFixed(2);
+    let rawName = (data.customer_name || data.party_name || '').trim();
+    if (rawName.startsWith('Client (') && rawName.endsWith(')')) {
+        rawName = '';
+    }
+    const hasParty = !!(rawName && rawName !== '-');
+    const pName = hasParty ? rawName : '-';
+    const contact = (data.contact_person && data.contact_person.trim() !== '') ? data.contact_person.trim() : (hasParty ? pName : '-');
+    
+    let mob = data.phone || data.mobile || '-';
+    if (mob && mob !== '-') {
+        const cleanDigits = String(mob).replace(/[^0-9]/g, '');
+        if (cleanDigits.length === 12 && cleanDigits.startsWith('91')) {
+            mob = cleanDigits.substring(2);
+        } else if (cleanDigits.length === 10) {
+            mob = cleanDigits;
+        }
+    }
+    const em = (data.email && data.email !== 'N/A') ? data.email : '-';
+    const prod = data.product || data.software_type || (hasParty ? 'Marg ERP' : '-');
+    const swType = data.sw_type || (hasParty ? 'Marg' : '-');
+    const uType = (data.user_type || data.no_of_users) ? ((data.user_type || 'Multi User') + (data.no_of_users ? ' (' + data.no_of_users + ')' : '')) : (hasParty ? 'Multi User (1)' : '-');
+    const numComp = data.no_of_companies || (hasParty ? 250 : '-');
+    const stat = data.party_status || (hasParty ? 'Running' : '-');
+    const trade = data.software_trade || (hasParty ? 'Business Services' : '-');
+    const homeUser = data.home_user || (hasParty ? 'No' : '-');
+    const amt = (data.total_amount && parseFloat(data.total_amount) > 0) ? ('₹' + parseFloat(data.total_amount).toFixed(2)) : (hasParty ? '₹0.00' : '-');
     const ren = data.renewal_date || data.due_on || '-';
     const actOn = data.act_on || '-';
     const lastHit = data.last_hit_date || '-';
-    const subPartner = (data.sub_partner_code || '-') + ' / ' + (data.sub_partner_name || '-');
+    const subPartner = (data.sub_partner_code || data.sub_partner_name) ? ((data.sub_partner_code || '-') + ' / ' + (data.sub_partner_name || '-')) : '-';
     
     // Full Address combination
     let fullAddr = data.address || '';
@@ -1658,10 +1688,19 @@ function updateClientCompactView(data) {
     // Populate Call Back No. (Never mistakenly fallback to Reg Mobile)
     const currentCbInput = document.getElementById('edit-ticket-callback');
     const existingCbInputVal = currentCbInput ? currentCbInput.value.trim() : '';
-    const cbNum = (data.callback_number && data.callback_number.trim() !== '') ? data.callback_number.trim() 
+    let cbNum = (data.callback_number && data.callback_number.trim() !== '') ? data.callback_number.trim() 
                 : ((data.callback_no && data.callback_no.trim() !== '') ? data.callback_no.trim() 
                 : ((data.call_back_number && data.call_back_number.trim() !== '') ? data.call_back_number.trim() 
                 : (existingCbInputVal !== '' ? existingCbInputVal : '-')));
+
+    if (cbNum && cbNum !== '-') {
+        const cleanCb = String(cbNum).replace(/[^0-9]/g, '');
+        if (cleanCb.length === 12 && cleanCb.startsWith('91')) {
+            cbNum = cleanCb.substring(2);
+        } else if (cleanCb.length === 10) {
+            cbNum = cleanCb;
+        }
+    }
 
     const vCb = document.getElementById('edit-v-callback'); if (vCb) vCb.innerText = cbNum;
     const vCbQrBtn = document.getElementById('edit-v-callback-qr-btn');
@@ -1682,7 +1721,17 @@ function updateClientCompactView(data) {
     const vSwType = document.getElementById('edit-v-swtype'); if (vSwType) vSwType.innerText = swType;
     const vUType = document.getElementById('edit-v-usertype'); if (vUType) vUType.innerText = uType;
     const vCompNum = document.getElementById('edit-v-companies'); if (vCompNum) vCompNum.innerText = numComp;
-    const vStat = document.getElementById('edit-v-status'); if (vStat) vStat.innerText = stat;
+    const vStat = document.getElementById('edit-v-status');
+    if (vStat) {
+        vStat.innerText = stat;
+        if (stat === 'Running' || stat === 'Active') {
+            vStat.style.setProperty('--badge-bg', 'rgba(16,185,129,0.12)');
+            vStat.style.setProperty('--badge-color', '#10b981');
+        } else {
+            vStat.style.setProperty('--badge-bg', 'var(--border-card)');
+            vStat.style.setProperty('--badge-color', 'var(--text-muted)');
+        }
+    }
     const vTrade = document.getElementById('edit-v-trade'); if (vTrade) vTrade.innerText = trade;
     const vHome = document.getElementById('edit-v-homeuser'); if (vHome) vHome.innerText = homeUser;
     const vAmt = document.getElementById('edit-v-amount'); if (vAmt) vAmt.innerText = amt;
@@ -1852,7 +1901,12 @@ function openEditTicketModal(ticket) {
     // Set callback input right away before view update
     const cbInput = document.getElementById('edit-ticket-callback');
     if (cbInput) {
-        cbInput.value = ticket.callback_number || "";
+        let cleanCb = (ticket.callback_number || "").trim();
+        const digits = cleanCb.replace(/[^0-9]/g, '');
+        if (digits.length === 12 && digits.startsWith('91')) {
+            cleanCb = digits.substring(2);
+        }
+        cbInput.value = cleanCb;
     }
 
     // Set initial compact view from ticket fields
@@ -1868,10 +1922,18 @@ function openEditTicketModal(ticket) {
     
     // Populate Subject, Problem Summary & Employee Resolution/Solution
     const subjElem = document.getElementById('edit-ticket-subject');
-    if (subjElem) subjElem.value = ticket.subject || "";
+    let curSubj = ticket.subject || "";
+    if (curSubj.startsWith('Support Lead: Client')) {
+        curSubj = "";
+    }
+    if (subjElem) subjElem.value = curSubj;
     
     const probElem = document.getElementById('edit-ticket-problem');
-    if (probElem) probElem.value = ticket.problem || "";
+    let curProb = ticket.problem || "";
+    if (curProb.startsWith('Client lead forwarded by')) {
+        curProb = "";
+    }
+    if (probElem) probElem.value = curProb;
 
     const resElem = document.getElementById('edit-ticket-resolution');
     if (resElem) resElem.value = ticket.resolution || "";
