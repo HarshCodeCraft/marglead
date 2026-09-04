@@ -187,7 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($db_connected && $pdo) {
             try {
                 // Fetch original ticket details for validation checks
-                $origStmt = $pdo->prepare("SELECT lead_id, assigned_to, status, phone, callback_number FROM support_tickets WHERE id = ?");
+                $origStmt = $pdo->prepare("SELECT lead_id, assigned_to, status, phone, callback_number, source_channel, emp_name, emp_code, emp_phone FROM support_tickets WHERE id = ?");
                 $origStmt->execute([$ticketId]);
                 $orig = $origStmt->fetch(PDO::FETCH_ASSOC);
                 
@@ -242,6 +242,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             // Ignore timeline FK error for client_directory records
                         }
                     }
+
+                    // Check if ticket originated from Team WhatsApp Drop
+                    $isTeamDrop = (($orig['source_channel'] ?? '') === 'Team WhatsApp Drop') && !empty($orig['emp_phone']);
+                    $empPhone = $orig['emp_phone'] ?? '';
+                    $clientPhone = !empty($phone) ? $phone : ($orig['phone'] ?? ($orig['callback_number'] ?? ''));
+                    $techActor = $_SESSION['user_name'] ?? 'Technical Support';
                     
                     // If the assignee changed, insert transfer notifications
                     if ($orig['assigned_to'] !== $assigned_to) {
@@ -254,6 +260,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, type) VALUES ('Admin', 'Ticket Transferred', ?, 'info')");
                         $adminNotifMsg = "Ticket " . $ticketId . " was transferred from " . $orig['assigned_to'] . " to " . $assigned_to;
                         $adminNotifStmt->execute([$adminNotifMsg]);
+
+                        // Reverse WhatsApp loop to referring Team Member if engineer claimed it
+                        if ($isTeamDrop && !empty($assigned_to) && strtolower($assigned_to) !== 'unassigned') {
+                            try {
+                                require_once __DIR__ . '/../api/whatsapp-api.php';
+                                $whatsappObj = new WhatsAppAPI($pdo);
+                                $assignMsg = "👨‍💻 *Update on Ticket #{$ticketId}*\n\n" .
+                                             "📱 *Client:* +91 {$clientPhone}\n" .
+                                             "👤 *Working Engineer:* *{$assigned_to}*\n" .
+                                             "📝 *Note:* Is ticket par abhi kaam shuru kar diya gaya hai aur party ko call kiya ja raha hai.";
+                                $whatsappObj->sendText($empPhone, $assignMsg);
+                            } catch (Throwable $eWa) {}
+                        }
+                    }
+
+                    // Interim status update for Team WhatsApp Drop (e.g. Call Back, Pending, In Progress)
+                    if ($isTeamDrop && $orig['status'] !== $status && !in_array(strtolower($status), ['resolved', 'closed'])) {
+                        try {
+                            require_once __DIR__ . '/../api/whatsapp-api.php';
+                            $whatsappObj = new WhatsAppAPI($pdo);
+                            $statusDisplay = ucfirst(str_replace('_', ' ', $status));
+                            $remarkText = !empty($resolution) ? $resolution : (!empty($problem) ? $problem : 'Party requested follow-up / call back.');
+                            $interimMsg = "📞 *Update on Ticket #{$ticketId}*\n\n" .
+                                          "📱 *Client:* +91 {$clientPhone}\n" .
+                                          "⏳ *Status:* *{$statusDisplay}*\n" .
+                                          "📝 *Remark:* {$remarkText}\n" .
+                                          "👨‍💻 *Updated By:* {$techActor} (Tech Team)";
+                            $whatsappObj->sendText($empPhone, $interimMsg);
+                        } catch (Throwable $eWa) {}
                     }
                     
                     // If ticket is resolved or closed, send automated WhatsApp resolution notification
@@ -262,20 +297,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $adminNotifMsg = "Ticket " . $ticketId . " has been marked as Resolved by " . ($_SESSION['user_name'] ?? 'System User');
                         $adminNotifStmt->execute([$adminNotifMsg]);
 
-                        // Send WhatsApp notification to customer
-                        try {
-                            require_once __DIR__ . '/../api/whatsapp-api.php';
-                            $whatsappObj = new WhatsAppAPI($pdo);
-                            $custPhone = !empty($callback_number) ? $callback_number : (!empty($orig['phone']) ? $orig['phone'] : ($orig['callback_number'] ?? null));
-                            if (!empty($custPhone)) {
-                                $resMsg = "✅ *Issue Resolved*\n\n" .
-                                          "Dear Customer, your support ticket *{$ticketId}* has been resolved.\n\n" .
-                                          "Thank you for contacting Marg Soft Solution! 🙏\n\n" .
-                                          "If you face any issues in the future, simply send *'Hi'* or *'Help'* on WhatsApp for instant support.";
-                                $whatsappObj->sendText($custPhone, $resMsg);
+                        if ($isTeamDrop) {
+                            // CASE A: Team WhatsApp Drop ticket -> Send resolution strictly to Team Member (Client receives NO message)
+                            try {
+                                require_once __DIR__ . '/../api/whatsapp-api.php';
+                                $whatsappObj = new WhatsAppAPI($pdo);
+                                $closeRemark = !empty($resolution) ? $resolution : 'Problem resolved successfully';
+                                $closedMsg = "🎉 *Resolved! Ticket #{$ticketId} Closed/Done*\n\n" .
+                                             "📱 *Client:* +91 {$clientPhone}\n" .
+                                             "📝 *Remark:* {$closeRemark}\n" .
+                                             "👨‍💻 *Closed By:* {$techActor} (Tech Team)\n\n" .
+                                             "Aapka drop kiya gaya ticket successfully close ho gaya hai! ✅";
+                                $whatsappObj->sendText($empPhone, $closedMsg);
+                            } catch (Throwable $eWa) {
+                                write_log('error', "Failed sending team drop resolution WhatsApp message: " . $eWa->getMessage());
                             }
-                        } catch (Throwable $eWa) {
-                            write_log('error', "Failed sending resolution WhatsApp message: " . $eWa->getMessage());
+                        } else {
+                            // CASE B: Standard Customer Ticket -> Send resolution notification to customer
+                            try {
+                                require_once __DIR__ . '/../api/whatsapp-api.php';
+                                $whatsappObj = new WhatsAppAPI($pdo);
+                                $custPhone = !empty($callback_number) ? $callback_number : (!empty($orig['phone']) ? $orig['phone'] : ($orig['callback_number'] ?? null));
+                                if (!empty($custPhone)) {
+                                    $resMsg = "✅ *Issue Resolved*\n\n" .
+                                              "Dear Customer, your support ticket *{$ticketId}* has been resolved.\n\n" .
+                                              "Thank you for contacting Marg Soft Solution! 🙏\n\n" .
+                                              "If you face any issues in the future, simply send *'Hi'* or *'Help'* on WhatsApp for instant support.";
+                                    $whatsappObj->sendText($custPhone, $resMsg);
+                                }
+                            } catch (Throwable $eWa) {
+                                write_log('error', "Failed sending resolution WhatsApp message: " . $eWa->getMessage());
+                            }
                         }
                     }
                     
@@ -719,6 +771,14 @@ if ($db_connected && $pdo) {
                                 <td>
                                     <strong class="text-main block text-sm"><?php echo htmlspecialchars($t['customer_name']); ?></strong>
                                     <span class="text-xs text-muted font-mono">ID: <?php echo htmlspecialchars($t['lead_id'] ?? 'NA'); ?></span>
+                                    <?php if (($t['source_channel'] ?? '') === 'Team WhatsApp Drop'): ?>
+                                        <div class="mt-1">
+                                            <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; font-weight: 700; font-size: 0.68rem; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;" title="Dropped by <?php echo htmlspecialchars($t['emp_name'] . ' (' . $t['emp_phone'] . ')'); ?>">
+                                                <i data-lucide="message-square" style="width: 10px; height: 10px;"></i>
+                                                Team Drop: <?php echo htmlspecialchars($t['emp_name'] ?: ($t['emp_code'] ?: 'Staff')); ?>
+                                            </span>
+                                        </div>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php 

@@ -942,6 +942,9 @@ switch ($page) {
     case 'policy_manager':
         $module_path = __DIR__ . '/modules/admin/policy_manager.php';
         break;
+    case 'team_agents':
+        $module_path = __DIR__ . '/modules/admin/team_agents.php';
+        break;
     case 'customer_kyc':
     case 'customer_kyc_admin':
         $module_path = __DIR__ . '/modules/customer_kyc_admin.php';
