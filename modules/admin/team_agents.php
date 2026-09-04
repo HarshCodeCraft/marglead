@@ -125,7 +125,7 @@ try {
                SUM(CASE WHEN st.status = 'open' THEN 1 ELSE 0 END) AS open_tickets,
                SUM(CASE WHEN st.status IN ('resolved', 'closed') THEN 1 ELSE 0 END) AS resolved_tickets
         FROM team_agents ta
-        LEFT JOIN support_tickets st ON st.dropped_by_emp_id = ta.id OR RIGHT(st.dropped_by_emp_phone, 10) = RIGHT(ta.whatsapp_phone, 10)
+        LEFT JOIN support_tickets st ON st.dropped_by_emp_id = ta.id OR (st.dropped_by_emp_phone COLLATE utf8mb4_general_ci = ta.whatsapp_phone COLLATE utf8mb4_general_ci)
         GROUP BY ta.id
         ORDER BY ta.status ASC, ta.name ASC
     ");
