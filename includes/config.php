@@ -963,6 +963,13 @@ if (!function_exists('getCsrfToken')) {
     }
 }
 
+if (!function_exists('csrfField')) {
+    function csrfField() {
+        $token = getCsrfToken();
+        return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token) . '">';
+    }
+}
+
 if (!function_exists('verifyCsrfToken')) {
     function verifyCsrfToken($token) {
         if (empty($token) || empty($_SESSION['csrf_token'])) {

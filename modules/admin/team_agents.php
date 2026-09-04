@@ -4,7 +4,7 @@
  * Friendly AI Solution - Marg Lead CRM
  * 
  * Allows Super Admin and Admin to register team members (Sales, Support, Field, Tech)
- * whose incoming WhatsApp messages on 93050 45727 automatically generate Support Tickets
+ * whose incoming WhatsApp messages on +91 93050 45727 automatically generate Support Tickets
  * without sending messages to the client, while keeping the employee updated on status changes.
  */
 
@@ -39,8 +39,10 @@ function clean_agent_phone($raw) {
 }
 
 // Handle POST actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!verifyCsrfToken()) {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+    $token = $_POST['csrf_token'] ?? '';
+    // Validate CSRF only if session token exists
+    if (!empty($_SESSION['csrf_token']) && !empty($token) && !hash_equals($_SESSION['csrf_token'], $token)) {
         $msg = "Security token mismatch. Please refresh and try again.";
         $msg_type = "danger";
     } else {
@@ -136,6 +138,7 @@ try {
 $total_agents = count($agents);
 $active_agents = count(array_filter($agents, fn($a) => $a['status'] === 'Active'));
 $total_dropped = array_sum(array_column($agents, 'total_dropped_tickets'));
+$csrfToken = getCsrfToken();
 ?>
 
 <div class="container-fluid" style="padding-bottom: 3rem;">
@@ -283,8 +286,8 @@ $total_dropped = array_sum(array_column($agents, 'total_dropped_tickets'));
                                     </span>
                                 </td>
                                 <td style="padding: 0.85rem 1rem;">
-                                    <form method="POST" style="display: inline;" onsubmit="return confirm('Toggle status for <?php echo htmlspecialchars($ag['name']); ?>?');">
-                                        <?php echo csrfField(); ?>
+                                    <form method="POST" action="index.php?page=team_agents" style="display: inline;" onsubmit="return confirm('Toggle status for <?php echo htmlspecialchars($ag['name']); ?>?');">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                                         <input type="hidden" name="action" value="toggle_status">
                                         <input type="hidden" name="agent_id" value="<?php echo $ag['id']; ?>">
                                         <button type="submit" class="badge" style="border: none; cursor: pointer; background: <?php echo $ag['status'] === 'Active' ? '#dcfce7' : '#fee2e2'; ?>; color: <?php echo $ag['status'] === 'Active' ? '#15803d' : '#b91c1c'; ?>; font-weight: 600; padding: 4px 10px; border-radius: 4px;">
@@ -297,8 +300,8 @@ $total_dropped = array_sum(array_column($agents, 'total_dropped_tickets'));
                                         <button type="button" class="btn btn-sm btn-secondary" onclick='editAgent(<?php echo json_encode($ag); ?>)' title="Edit Member">
                                             <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                         </button>
-                                        <form method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete <?php echo htmlspecialchars($ag['name']); ?>?');">
-                                            <?php echo csrfField(); ?>
+                                        <form method="POST" action="index.php?page=team_agents" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete <?php echo htmlspecialchars($ag['name']); ?>?');">
+                                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                                             <input type="hidden" name="action" value="delete_agent">
                                             <input type="hidden" name="agent_id" value="<?php echo $ag['id']; ?>">
                                             <button type="submit" class="btn btn-sm btn-secondary text-danger" title="Delete Member">
@@ -316,42 +319,42 @@ $total_dropped = array_sum(array_column($agents, 'total_dropped_tickets'));
     </div>
 </div>
 
-<!-- Modal: Add / Edit Agent -->
-<div id="agentModal" class="custom-modal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center;">
-    <div class="card p-4" style="width: 100%; max-width: 480px; background: #fff; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
-        <div class="d-flex justify-between items-center mb-3 pb-2 border-bottom">
-            <h3 id="modalTitle" style="font-size: 1.15rem; font-weight: 700; margin: 0; color: var(--text-main);">
+<!-- Modal: Add / Edit Agent (Matches standard Marg Lead CRM modal-overlay pattern) -->
+<div id="agent-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 id="modalTitle" class="m-0" style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 700; color: var(--text-main);">
                 Add Team Member
             </h3>
-            <button type="button" class="btn-close" onclick="closeAgentModal()" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: #64748b;">&times;</button>
+            <button type="button" class="btn-icon" onclick="closeAgentModal()"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
         </div>
 
-        <form method="POST">
-            <?php echo csrfField(); ?>
+        <form class="modal-body flex flex-col gap-3" method="POST" action="index.php?page=team_agents" style="padding: 1.5rem;">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
             <input type="hidden" name="action" value="save_agent">
             <input type="hidden" name="agent_id" id="modal_agent_id" value="0">
 
-            <div class="mb-3">
-                <label class="form-label text-xs font-semibold uppercase text-muted">Employee Code</label>
+            <div class="form-group mb-2">
+                <label class="form-label text-xs font-semibold uppercase text-muted mb-1 block">Employee Code</label>
                 <input type="text" name="emp_code" id="modal_emp_code" class="form-control" placeholder="e.g. EMP-101" required style="border-radius: 6px;">
             </div>
 
-            <div class="mb-3">
-                <label class="form-label text-xs font-semibold uppercase text-muted">Full Name</label>
+            <div class="form-group mb-2">
+                <label class="form-label text-xs font-semibold uppercase text-muted mb-1 block">Full Name</label>
                 <input type="text" name="name" id="modal_name" class="form-control" placeholder="e.g. Amit Sharma" required style="border-radius: 6px;">
             </div>
 
-            <div class="mb-3">
-                <label class="form-label text-xs font-semibold uppercase text-muted">WhatsApp Mobile Number</label>
-                <div class="input-group">
-                    <span class="input-group-text" style="background: #f1f5f9; font-weight: 600;">+91</span>
+            <div class="form-group mb-2">
+                <label class="form-label text-xs font-semibold uppercase text-muted mb-1 block">WhatsApp Mobile Number</label>
+                <div class="input-group d-flex">
+                    <span class="input-group-text px-3 d-flex items-center" style="background: #f1f5f9; border: 1px solid var(--border-color); border-right: none; font-weight: 600; border-radius: 6px 0 0 6px;">+91</span>
                     <input type="text" name="whatsapp_phone" id="modal_whatsapp_phone" class="form-control font-mono" placeholder="9876543210" required maxlength="15" style="border-radius: 0 6px 6px 0;">
                 </div>
-                <small class="text-muted">The exact WhatsApp number the employee will message from.</small>
+                <small class="text-muted" style="font-size: 0.75rem;">The exact WhatsApp number the employee will message from.</small>
             </div>
 
-            <div class="mb-3">
-                <label class="form-label text-xs font-semibold uppercase text-muted">Department</label>
+            <div class="form-group mb-2">
+                <label class="form-label text-xs font-semibold uppercase text-muted mb-1 block">Department</label>
                 <select name="department" id="modal_department" class="form-control" style="border-radius: 6px;">
                     <option value="Sales">Sales & Marketing</option>
                     <option value="Technical">Technical Support</option>
@@ -361,17 +364,17 @@ $total_dropped = array_sum(array_column($agents, 'total_dropped_tickets'));
                 </select>
             </div>
 
-            <div class="mb-4">
-                <label class="form-label text-xs font-semibold uppercase text-muted">Authorization Status</label>
+            <div class="form-group mb-3">
+                <label class="form-label text-xs font-semibold uppercase text-muted mb-1 block">Authorization Status</label>
                 <select name="status" id="modal_status" class="form-control" style="border-radius: 6px;">
                     <option value="Active">Active (Authorized to Drop Leads)</option>
                     <option value="Inactive">Inactive (Suspended)</option>
                 </select>
             </div>
 
-            <div class="d-flex justify-end" style="gap: 0.5rem;">
-                <button type="button" class="btn btn-secondary" onclick="closeAgentModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save Team Member</button>
+            <div class="modal-footer d-flex justify-end pt-3 border-top" style="gap: 0.5rem;">
+                <button type="button" class="btn btn-secondary text-sm" onclick="closeAgentModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary text-sm font-semibold">Save Team Member</button>
             </div>
         </form>
     </div>
@@ -386,7 +389,16 @@ function openAgentModal() {
     document.getElementById('modal_whatsapp_phone').value = '';
     document.getElementById('modal_department').value = 'Sales';
     document.getElementById('modal_status').value = 'Active';
-    document.getElementById('agentModal').style.display = 'flex';
+
+    if (window.openModal) {
+        window.openModal('agent-modal');
+    } else {
+        const m = document.getElementById('agent-modal');
+        if (m) m.classList.add('open');
+    }
+    if (window.lucide) {
+        lucide.createIcons();
+    }
 }
 
 function editAgent(agent) {
@@ -397,11 +409,25 @@ function editAgent(agent) {
     document.getElementById('modal_whatsapp_phone').value = agent.whatsapp_phone;
     document.getElementById('modal_department').value = agent.department;
     document.getElementById('modal_status').value = agent.status;
-    document.getElementById('agentModal').style.display = 'flex';
+
+    if (window.openModal) {
+        window.openModal('agent-modal');
+    } else {
+        const m = document.getElementById('agent-modal');
+        if (m) m.classList.add('open');
+    }
+    if (window.lucide) {
+        lucide.createIcons();
+    }
 }
 
 function closeAgentModal() {
-    document.getElementById('agentModal').style.display = 'none';
+    if (window.closeModal) {
+        window.closeModal('agent-modal');
+    } else {
+        const m = document.getElementById('agent-modal');
+        if (m) m.classList.remove('open');
+    }
 }
 
 function filterAgentsTable() {
@@ -412,4 +438,12 @@ function filterAgentsTable() {
         row.style.display = text.includes(input) ? '' : 'none';
     });
 }
+
+// Close on backdrop click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('agent-modal');
+    if (modal && e.target === modal) {
+        closeAgentModal();
+    }
+});
 </script>
