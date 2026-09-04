@@ -106,10 +106,10 @@ function initCRMCharts() {
         window.crmChartInstances['leadSourcesChart'] = new Chart(ctxSources, {
             type: 'doughnut',
             data: {
-                labels: chartData.sourcesLabels || ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions'],
+                labels: chartData.sourcesLabels || ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'Self', 'Door to Door'],
                 datasets: [{
-                    data: chartData.sourcesData || [35, 25, 18, 12, 10],
-                    backgroundColor: [primaryColor, accentColor, successColor, warningColor, dangerColor],
+                    data: chartData.sourcesData || [30, 20, 15, 12, 10, 8, 5],
+                    backgroundColor: [primaryColor, accentColor, successColor, warningColor, dangerColor, '#8b5cf6', '#f59e0b'],
                     borderWidth: isDark ? 2 : 1,
                     borderColor: isDark ? '#121826' : '#ffffff'
                 }]

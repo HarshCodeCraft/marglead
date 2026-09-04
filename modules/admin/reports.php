@@ -4,9 +4,8 @@ require_once __DIR__ . '/../../includes/db.php';
 
 // Check Admin view access
 if ($_SESSION['user_role'] !== 'Admin' && $_SESSION['user_role'] !== 'Super Admin') {
-    $_GET['requested'] = 'reports';
-    include_once __DIR__ . '/../access_denied.php';
-    return;
+    header('Location: ../../index.php?page=dashboard');
+    exit;
 }
 
 // 1. Fetch system users and distinct assigned operators for filter dropdowns

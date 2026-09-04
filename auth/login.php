@@ -203,141 +203,178 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Marg Soft Solution</title>
+    <title>Sign In - Friendly AI & Marg Solution</title>
     
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
     <!-- CSS -->
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/components.css">
-    <link rel="stylesheet" href="../assets/css/modules/auth.css">
+    <link rel="stylesheet" href="../assets/css/modules/auth.css?v=<?php echo time(); ?>">
     
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="auth-body">
+    <!-- Ambient Decor Elements -->
+    <div class="auth-bg-decor-1"></div>
+    <div class="auth-bg-decor-2"></div>
+
+    <!-- Top Navigation Bar with Back to Home -->
+    <div class="auth-top-bar">
+        <a href="../landing.php" class="auth-back-btn" title="Go to Main Website">
+            <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+            <span>Back to Home</span>
+        </a>
+        <div class="auth-top-nav-links">
+            <a href="../landing.php" class="auth-nav-link">Home</a>
+            <a href="../features.php" class="auth-nav-link">Features</a>
+            <a href="../pricing.php" class="auth-nav-link">Pricing</a>
+            <a href="../contact.php" class="auth-nav-link">Contact</a>
+            <a href="register.php" class="auth-nav-link" style="color: #2563eb; font-weight: 600;">Create Account</a>
+        </div>
+    </div>
+
     <div class="auth-wrapper">
         <!-- Left Panel: Promo Info -->
         <div class="auth-panel-left">
-            <div class="auth-brand">
-                <img src="../assets/image.png" alt="Marg Logo" style="width: 28px; height: 28px; object-fit: contain;">
-                <span>Marg Soft Solution</span>
-            </div>
+            <a href="../landing.php" class="auth-brand" title="Friendly AI Solution">
+                <img src="../assets/image.png" alt="Marg Logo">
+                <span>Friendly AI Solution</span>
+            </a>
             
             <div class="auth-promo-content">
-                <h1>Supercharge Your Sales Pipeline</h1>
+                <h1>Supercharge Your Marg Sales & CRM Operations</h1>
                 <p>Engage leads, automate follow-ups, dispatch quotes, monitor installations, and drive renewals inside a single unified dashboard.</p>
                 
                 <div class="auth-promo-features">
                     <div class="promo-feature-item">
-                        <i data-lucide="check-circle-2" style="width: 18px; height: 18px; color: #34d399;"></i>
+                        <i data-lucide="check-circle-2" style="width: 20px; height: 20px;"></i>
                         <span>16-Stage Interactive Lead Pipeline</span>
                     </div>
                     <div class="promo-feature-item">
-                        <i data-lucide="check-circle-2" style="width: 18px; height: 18px; color: #34d399;"></i>
-                        <span>Dynamic Quotation & Invoicing Engines</span>
+                        <i data-lucide="check-circle-2" style="width: 20px; height: 20px;"></i>
+                        <span>Official WhatsApp Cloud API & Invoicing</span>
                     </div>
                     <div class="promo-feature-item">
-                        <i data-lucide="check-circle-2" style="width: 18px; height: 18px; color: #34d399;"></i>
+                        <i data-lucide="check-circle-2" style="width: 20px; height: 20px;"></i>
                         <span>Role-Based Multi-Panel Workspace</span>
                     </div>
                 </div>
+
+                <div class="auth-trust-badges">
+                    <span class="trust-badge-pill">
+                        <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> 256-Bit SSL Safe
+                    </span>
+                    <span class="trust-badge-pill" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.35); color: #bfdbfe;">
+                        <i data-lucide="zap" style="width: 14px; height: 14px;"></i> 99.9% Uptime
+                    </span>
+                </div>
             </div>
             
-            <div class="text-xs text-muted" style="color: rgba(255, 255, 255, 0.5);">
-                © 2026 Marg ERP Limited. All rights reserved.
+            <div class="auth-panel-footer">
+                <span>© <?php echo date('Y'); ?> Friendly AI Solution.</span>
+                <a href="../landing.php">Visit Main Portal</a>
             </div>
         </div>
         
         <!-- Right Panel: Login Form -->
         <div class="auth-panel-right">
-            <div class="auth-header">
-                <h2>Welcome Back</h2>
-                <p>Sign in to access your dashboard workspace</p>
+            <div class="auth-form-container">
+                <div class="auth-header">
+                    <h2>Welcome Back</h2>
+                    <p>Sign in to access your dashboard workspace</p>
+                </div>
+                
+                <?php if (!empty($message)): ?>
+                    <div class="badge-alert <?php echo htmlspecialchars($message_type); ?>">
+                        <i data-lucide="<?php echo $message_type === 'success' ? 'check-circle' : ($message_type === 'warning' ? 'alert-triangle' : 'alert-circle'); ?>" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+                        <span><?php echo $message; ?></span>
+                    </div>
+                <?php endif; ?>
+                
+                <form action="login.php" method="POST" class="flex flex-col gap-4">
+                    <input type="hidden" name="csrf_token" value="<?php echo getCsrfToken(); ?>">
+                    <div class="form-group m-0">
+                        <label for="email" class="form-label">Username, Email or Company Code <span style="color: #ef4444;">*</span></label>
+                        <div class="input-icon-wrapper">
+                            <i data-lucide="mail" style="width: 18px; height: 18px;"></i>
+                            <input type="text" id="email" name="email" class="form-control" placeholder="Email or Company Code (e.g. poshak)" required autofocus>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group m-0">
+                        <div class="flex justify-between align-center mb-1">
+                            <label for="password" class="form-label m-0">Password <span style="color: #ef4444;">*</span></label>
+                            <a href="forgot-password.php" class="text-xs font-semibold hover-underline" style="color: #2563eb; text-decoration: none;">Forgot password?</a>
+                        </div>
+                        <div class="input-icon-wrapper">
+                            <i data-lucide="lock" style="width: 18px; height: 18px;"></i>
+                            <input type="password" id="password" name="password" class="form-control" placeholder="Enter your password" required>
+                            <button type="button" class="password-toggle-btn" aria-label="Toggle Password Visibility">
+                                <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex align-center justify-between mt-1">
+                        <label class="flex align-center gap-2 pointer text-sm" style="color: #64748b; font-size: 0.85rem;">
+                            <input type="checkbox" style="accent-color: #2563eb; width: 15px; height: 15px;">
+                            <span>Keep me logged in</span>
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-full mt-2">
+                        <span>Sign In to Dashboard</span>
+                        <i data-lucide="arrow-right" style="width: 18px; height: 18px;"></i>
+                    </button>
+                </form>
+                
+                <div class="auth-switch-text">
+                    Need an account? <a href="register.php">Create Account</a>
+                </div>
             </div>
             
-            <?php if (!empty($message)): ?>
-                <div class="badge mb-4" style="--badge-bg: var(--<?php echo $message_type; ?>-light); --badge-color: var(--<?php echo $message_type; ?>); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); width: 100%; justify-content: flex-start; display: flex; text-align: left; font-size: 0.825rem;">
-                    <?php echo $message; ?>
-                </div>
-            <?php endif; ?>
-            
-            <form action="login.php" method="POST" class="flex flex-col gap-4">
-                <input type="hidden" name="csrf_token" value="<?php echo getCsrfToken(); ?>">
-                <div class="form-group m-0">
-                    <label for="email" class="form-label text-sm">Username or Email / Company Code</label>
-                    <div class="input-icon-wrapper">
-                        <i data-lucide="mail" style="width: 18px; height: 18px;"></i>
-                        <input type="text" id="email" name="email" class="form-control" placeholder="Email or Company Code (e.g. poshak)" required>
-                    </div>
-                </div>
-                
-                <div class="form-group m-0">
-                    <div class="flex justify-between align-center mb-2">
-                        <label for="password" class="form-label text-sm m-0">Password</label>
-                        <a href="forgot-password.php" class="text-xs text-primary font-semibold">Forgot password?</a>
-                    </div>
-                    <div class="input-icon-wrapper">
-                        <i data-lucide="lock" style="width: 18px; height: 18px;"></i>
-                        <input type="password" id="password" name="password" class="form-control" placeholder="••••••••" required>
-                        <button type="button" class="password-toggle-btn" aria-label="Toggle Password Visibility">
-                            <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="flex align-center justify-between mt-2">
-                    <label class="flex align-center gap-2 pointer text-sm text-muted">
-                        <input type="checkbox" style="accent-color: var(--primary);">
-                        <span>Keep me logged in</span>
-                    </label>
-                </div>
-                
-                <button type="submit" class="btn btn-primary w-full mt-4" style="padding: 0.8rem;">
-                    <span>Sign In</span>
-                    <i data-lucide="arrow-right" style="width: 18px; height: 18px;"></i>
-                </button>
-            </form>
-            
-            <div class="text-center mt-6 text-xs text-muted">
-                Need an account? <a href="register.php" class="text-primary font-semibold">Create account</a>
-            </div>
-            
-            <div class="text-center mt-4 text-xs text-muted flex justify-center gap-3" style="color: #64748b; font-size: 0.75rem;">
-                <a href="../privacy.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Privacy Policy</a> • 
-                <a href="../terms.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Terms & Conditions</a> • 
-                <a href="../refund.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Refund Policy</a>
+            <!-- Anchored Bottom Footer -->
+            <div class="auth-panel-footer-right">
+                <a href="../landing.php">Home Page</a> • 
+                <a href="../privacy.php" target="_blank">Privacy</a> • 
+                <a href="../terms.php" target="_blank">Terms</a> • 
+                <a href="../contact.php" target="_blank">Contact Support</a>
             </div>
         </div>
     </div>
     
-    <!-- Script for password toggle -->
+    <!-- Script for password toggle & Lucide Icons -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') {
                 lucide.createIcons();
             }
             
-            const passwordField = document.getElementById('password');
-            const toggleButton = document.querySelector('.password-toggle-btn');
-            
-            if (toggleButton && passwordField) {
-                toggleButton.addEventListener('click', () => {
-                    const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
-                    passwordField.setAttribute('type', type);
-                    
-                    const icon = toggleButton.querySelector('i');
-                    if (icon) {
-                        icon.setAttribute('data-lucide', type === 'password' ? 'eye' : 'eye-off');
-                        lucide.createIcons();
+            document.querySelectorAll('.password-toggle-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const wrapper = this.closest('.input-icon-wrapper');
+                    const input = wrapper ? wrapper.querySelector('input') : null;
+                    if (input) {
+                        const isPass = input.getAttribute('type') === 'password';
+                        input.setAttribute('type', isPass ? 'text' : 'password');
+                        this.innerHTML = `<i data-lucide="${isPass ? 'eye-off' : 'eye'}" style="width: 18px; height: 18px;"></i>`;
+                        if (typeof lucide !== 'undefined') {
+                            lucide.createIcons();
+                        }
                     }
                 });
-            }
+            });
         });
     </script>
 </body>

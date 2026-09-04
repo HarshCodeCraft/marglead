@@ -74,83 +74,124 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forgot Password - Marg Soft Solution</title>
+    <title>Forgot Password - Friendly AI Solution</title>
     
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
     <!-- CSS -->
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/components.css">
-    <link rel="stylesheet" href="../assets/css/modules/auth.css">
+    <link rel="stylesheet" href="../assets/css/modules/auth.css?v=<?php echo time(); ?>">
     
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="auth-body">
+    <!-- Ambient Decor Elements -->
+    <div class="auth-bg-decor-1"></div>
+    <div class="auth-bg-decor-2"></div>
+
+    <!-- Top Navigation Bar with Back to Home -->
+    <div class="auth-top-bar">
+        <a href="../landing.php" class="auth-back-btn" title="Go to Main Website">
+            <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+            <span>Back to Home</span>
+        </a>
+        <div class="auth-top-nav-links">
+            <a href="../landing.php" class="auth-nav-link">Home</a>
+            <a href="login.php" class="auth-nav-link" style="color: #2563eb; font-weight: 600;">Sign In</a>
+            <a href="register.php" class="auth-nav-link">Sign Up</a>
+            <a href="../contact.php" class="auth-nav-link">Contact</a>
+        </div>
+    </div>
+
     <div class="auth-wrapper">
         <!-- Left Panel: Promo Info -->
         <div class="auth-panel-left">
-            <div class="auth-brand">
-                <img src="../assets/image.png" alt="Marg Logo" style="width: 28px; height: 28px; object-fit: contain;">
-                <span>Marg Soft Solution</span>
-            </div>
+            <a href="../landing.php" class="auth-brand" title="Friendly AI Solution">
+                <img src="../assets/image.png" alt="Marg Logo">
+                <span>Friendly AI Solution</span>
+            </a>
             
             <div class="auth-promo-content">
-                <h1>Secure Recovery Protocol</h1>
-                <p>Forgot your login credentials? No worries. We use verification security methods to keep your data safe and assist you in regaining system access.</p>
+                <h1>Secure Account Recovery Protocol</h1>
+                <p>Forgot your login credentials? No worries. We use strict verification security methods to protect your data and restore account access safely.</p>
                 
                 <div class="auth-promo-features">
                     <div class="promo-feature-item">
-                        <i data-lucide="shield-alert" style="width: 18px; height: 18px; color: #34d399;"></i>
+                        <i data-lucide="shield-alert" style="width: 20px; height: 20px;"></i>
                         <span>Encrypted Session Identifiers</span>
                     </div>
                     <div class="promo-feature-item">
-                        <i data-lucide="clock" style="width: 18px; height: 18px; color: #34d399;"></i>
+                        <i data-lucide="clock" style="width: 20px; height: 20px;"></i>
                         <span>10-Minute OTP Expiration Window</span>
                     </div>
                 </div>
+
+                <div class="auth-trust-badges">
+                    <span class="trust-badge-pill">
+                        <i data-lucide="lock" style="width: 14px; height: 14px;"></i> Device Guarded
+                    </span>
+                    <span class="trust-badge-pill" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.35); color: #bfdbfe;">
+                        <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> Safe & Instant
+                    </span>
+                </div>
             </div>
             
-            <div class="text-xs text-muted" style="color: rgba(255, 255, 255, 0.5);">
-                © 2026 Marg ERP Limited. All rights reserved.
+            <div class="auth-panel-footer">
+                <span>© <?php echo date('Y'); ?> Friendly AI Solution.</span>
+                <a href="../landing.php">Visit Main Portal</a>
             </div>
         </div>
         
         <!-- Right Panel: Password Recovery Request -->
         <div class="auth-panel-right">
-            <div class="auth-header">
-                <h2>Forgot Password?</h2>
-                <p>Enter your email below to receive a secure recovery code</p>
-            </div>
-            
-            <?php if (!empty($message)): ?>
-                <div class="badge mb-4" style="--badge-bg: var(--<?php echo $message_type; ?>-light); --badge-color: var(--<?php echo $message_type; ?>); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); width: 100%; justify-content: flex-start; display: flex; text-align: left; font-size: 0.825rem;">
-                    <?php echo $message; ?>
-                </div>
-            <?php endif; ?>
-            
-            <form action="forgot-password.php" method="POST" class="flex flex-col gap-4">
-                <div class="form-group m-0">
-                    <label for="email" class="form-label text-sm">Registered Email</label>
-                    <div class="input-icon-wrapper">
-                        <i data-lucide="mail" style="width: 18px; height: 18px;"></i>
-                        <input type="email" id="email" name="email" class="form-control" placeholder="name@company.com" required>
-                    </div>
+            <div class="auth-form-container">
+                <div class="auth-header">
+                    <h2>Reset password</h2>
+                    <p>Enter your email to receive a secure recovery code</p>
                 </div>
                 
-                <button type="submit" class="btn btn-primary w-full mt-4" style="padding: 0.8rem;">
-                    <span>Send Verification Code</span>
-                    <i data-lucide="send" style="width: 18px; height: 18px;"></i>
-                </button>
-            </form>
-            
-            <div class="text-center mt-6 text-xs text-muted">
-                Remember your password? <a href="login.php" class="text-primary font-semibold">Sign In</a>
+                <?php if (!empty($message)): ?>
+                    <div class="badge-alert <?php echo htmlspecialchars($message_type); ?>">
+                        <i data-lucide="<?php echo $message_type === 'success' ? 'check-circle' : ($message_type === 'warning' ? 'alert-triangle' : 'alert-circle'); ?>" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+                        <span><?php echo $message; ?></span>
+                    </div>
+                <?php endif; ?>
+                
+                <form action="forgot-password.php" method="POST" class="flex flex-col gap-4">
+                    <div class="form-group m-0">
+                        <label for="email" class="form-label">Registered Email Address <span style="color: #ef4444;">*</span></label>
+                        <div class="input-icon-wrapper">
+                            <i data-lucide="mail" style="width: 18px; height: 18px;"></i>
+                            <input type="email" id="email" name="email" class="form-control" placeholder="name@company.com" required autofocus>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-full mt-2">
+                        <span>Send Verification Code</span>
+                        <i data-lucide="send" style="width: 18px; height: 18px;"></i>
+                    </button>
+                </form>
+                
+                <div class="auth-switch-text">
+                    Remember your password? <a href="login.php">Sign In</a>
+                </div>
+            </div>
+
+            <!-- Anchored Bottom Footer -->
+            <div class="auth-panel-footer-right">
+                <a href="../landing.php">Home Page</a> • 
+                <a href="../privacy.php" target="_blank">Privacy</a> • 
+                <a href="../terms.php" target="_blank">Terms</a> • 
+                <a href="../contact.php" target="_blank">Contact Support</a>
             </div>
         </div>
     </div>

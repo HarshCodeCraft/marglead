@@ -13,9 +13,8 @@ $user_name = $_SESSION['user_name'] ?? '';
 
 // Permission Check
 if (!hasAccess('training', $user_role)) {
-    $_GET['requested'] = 'training';
-    include_once __DIR__ . '/access_denied.php';
-    return;
+    header('Location: ../index.php?page=dashboard');
+    exit;
 }
 
 $canCreate = hasActionAccess('can_create');

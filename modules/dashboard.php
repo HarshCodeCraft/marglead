@@ -64,7 +64,7 @@ if ($db_connected && $pdo) {
             $todaysFollowups = $pdo->query("SELECT COUNT(*) FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE()")->fetchColumn();
             $todaysFollowupsCompleted = $pdo->query("SELECT COUNT(*) FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'completed'")->fetchColumn();
 
-            $missedFollowups = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND scheduled_at < NOW()")->fetchColumn();
+            $missedFollowups = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND scheduled_at < NOW() AND lead_id NOT IN (SELECT id FROM leads WHERE LOWER(TRIM(status)) = 'dropped' OR LOWER(TRIM(group_stage)) = 'not required')")->fetchColumn();
 
             $hotLeads = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(priority) = 'hot'")->fetchColumn();
 
@@ -118,7 +118,7 @@ if ($db_connected && $pdo) {
             $stmt->execute([$user_name, $user_name]);
             $todaysFollowupsCompleted = $stmt->fetchColumn();
 
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM followups WHERE (assigned_to = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'pending' AND scheduled_at < NOW()");
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM followups WHERE (assigned_to = ? OR lead_id IN (SELECT id FROM leads WHERE assigned_to = ?)) AND status = 'pending' AND scheduled_at < NOW() AND lead_id NOT IN (SELECT id FROM leads WHERE LOWER(TRIM(status)) = 'dropped' OR LOWER(TRIM(group_stage)) = 'not required')");
             $stmt->execute([$user_name, $user_name]);
             $missedFollowups = $stmt->fetchColumn();
 

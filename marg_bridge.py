@@ -38,32 +38,49 @@ def get_config():
 
 LIVE_SAAS_API = "https://friendlyaisolution.com/api/marg_erp_gateway.php"
 
-# Smart PDF Finder jo client ke Marg folder ko scan karega
-def find_pdf(target_dir):
-    if not target_dir or not os.path.exists(target_dir):
-        log_msg(f"Error: Target Marg PDF directory not found: {target_dir}")
-        return None
+# Smart PDF Finder jo Marg ke sabhi standard folders ko scan karega
+def find_pdf(target_dir=""):
+    search_dirs = []
+    if target_dir and os.path.exists(target_dir):
+        search_dirs.append(target_dir)
+        
+    # Standard Marg PDF locations
+    common_marg_dirs = [
+        r"C:\Users\Public\MARG",
+        r"C:\MARG\emailserver",
+        r"C:\MARG",
+        r"C:\MARGERP07",
+        r"C:\MARGERP1",
+        r"D:\MARG\emailserver",
+        r"D:\MARG",
+        r"E:\MARG\emailserver",
+        r"E:\MARG"
+    ]
+    for d in common_marg_dirs:
+        if os.path.exists(d) and d not in search_dirs:
+            search_dirs.append(d)
         
     latest_file = None
     latest_time = 0
     current_time = time.time()
     
-    try:
-        for root, dirs, files in os.walk(target_dir):
-            for file in files:
-                if file.lower().endswith('.pdf'):
-                    pdf_full_path = os.path.join(root, file)
-                    try:
-                        mtime = os.path.getmtime(pdf_full_path)
-                        # Agar file pichle 60 seconds mein bani hai
-                        if current_time - mtime < 60:
-                            if mtime > latest_time:
-                                latest_time = mtime
-                                latest_file = pdf_full_path
-                    except Exception as e:
-                        pass
-    except Exception as e:
-        log_msg(f"Error scanning directory: {e}")
+    for s_dir in search_dirs:
+        try:
+            for root, dirs, files in os.walk(s_dir):
+                for file in files:
+                    if file.lower().endswith('.pdf'):
+                        pdf_full_path = os.path.join(root, file)
+                        try:
+                            mtime = os.path.getmtime(pdf_full_path)
+                            # Agar file pichle 180 seconds (3 mins) mein bani/update hui hai
+                            if current_time - mtime < 180:
+                                if mtime > latest_time:
+                                    latest_time = mtime
+                                    latest_file = pdf_full_path
+                        except Exception as e:
+                            pass
+        except Exception as e:
+            log_msg(f"Error scanning directory {s_dir}: {e}")
         
     return latest_file
 

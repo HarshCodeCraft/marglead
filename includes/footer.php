@@ -65,7 +65,7 @@
     </div>
 
     <!-- Core Javascript Code -->
-    <script src="assets/js/main.js"></script>
+    <script src="assets/js/main.js?v=<?php echo file_exists(__DIR__ . '/../assets/js/main.js') ? filemtime(__DIR__ . '/../assets/js/main.js') : time(); ?>"></script>
 
     <!-- Contextual Module JS imports -->
     <?php
@@ -157,49 +157,71 @@
     </style>
     <?php endif; ?>
 
-    <!-- Real-Time Dual Floating Reminder Notifications (5-Min Warning & Exact-Time Alert) -->
-    <div id="reminder-toast-container" style="position: fixed; bottom: 24px; right: 24px; z-index: 9999999; display: flex; flex-direction: column; gap: 12px; max-width: 380px; width: calc(100vw - 32px); pointer-events: none;"></div>
+    <!-- Real-Time Floating Reminder Notifications Panel -->
+    <div id="reminder-widget-wrapper" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999999; display: flex; flex-direction: column; width: 380px; max-width: calc(100vw - 32px); pointer-events: none;">
+        
+        <!-- Header Bar when multiple reminders exist -->
+        <div id="reminder-header-bar" style="display: none; pointer-events: auto; background: #ffffff; border: 1px solid #e2e8f0; border-bottom: none; border-radius: 12px 12px 0 0; padding: 10px 14px; margin-bottom: -1px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #ef4444; color: #fff; font-size: 11px; font-weight: 800;" id="reminder-total-count">0</span>
+                <span style="font-size: 0.82rem; font-weight: 700; color: #0f172a; letter-spacing: 0.01em;">Pending Reminders</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 0.72rem; color: #64748b;">Scroll to view</span>
+                <button type="button" onclick="dismissAllReminderToasts()" style="background: #fee2e2; border: 1px solid #fca5a5; color: #b91c1c; border-radius: 6px; padding: 3px 9px; font-size: 0.7rem; font-weight: 700; cursor: pointer; transition: all 0.15s ease;">Clear All</button>
+            </div>
+        </div>
+
+        <!-- Scrollable Cards Container -->
+        <div id="reminder-toast-container" style="display: flex; flex-direction: column; gap: 10px; max-height: min(78vh, 600px); overflow-y: auto; overflow-x: hidden; padding: 4px 2px 4px 2px; pointer-events: auto; scroll-behavior: smooth;"></div>
+    </div>
 
     <style>
-    .reminder-toast-card {
-        pointer-events: auto;
-        background: rgba(15, 23, 42, 0.96);
-        border-radius: 16px;
-        padding: 16px;
-        color: #ffffff;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(16px);
-        animation: reminderSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        font-family: 'Inter', system-ui, sans-serif;
+    /* Custom Sleek Scrollbar for Reminders */
+    #reminder-toast-container::-webkit-scrollbar {
+        width: 5px;
+    }
+    #reminder-toast-container::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    #reminder-toast-container::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+    }
+    #reminder-toast-container::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
     }
 
     .reminder-toast-card {
         pointer-events: auto;
-        background: rgba(15, 23, 42, 0.95);
-        border-radius: 16px;
-        padding: 16px 18px;
-        color: #ffffff;
-        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.12);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        animation: reminderSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        font-family: 'Inter', system-ui, sans-serif;
+        position: relative;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 14px 16px;
+        color: #1e293b;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+        animation: reminderSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        border-left: 5px solid #2563eb;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .reminder-toast-card:hover {
+        box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.18), 0 10px 12px -5px rgba(0, 0, 0, 0.1);
     }
 
     .reminder-toast-card.alert-5min {
-        border-left: 4px solid #06b6d4;
-        background: linear-gradient(135deg, rgba(6, 182, 212, 0.18) 0%, rgba(15, 23, 42, 0.97) 100%);
-        box-shadow: 0 15px 35px rgba(6, 182, 212, 0.2), 0 0 0 1px rgba(6, 182, 212, 0.3);
+        border-left-color: #0284c7;
+        background: #ffffff;
     }
 
     .reminder-toast-card.alert-duenow {
-        border-left: 4px solid #3b82f6;
-        background: linear-gradient(135deg, rgba(59, 130, 246, 0.22) 0%, rgba(15, 23, 42, 0.97) 100%);
-        box-shadow: 0 15px 35px rgba(59, 130, 246, 0.25), 0 0 0 1px rgba(59, 130, 246, 0.35);
+        border-left-color: #dc2626;
+        background: #ffffff;
     }
 
     @keyframes reminderSlideUp {
-        from { transform: translateY(50px) scale(0.95); opacity: 0; }
+        from { transform: translateY(30px) scale(0.97); opacity: 0; }
         to { transform: translateY(0) scale(1); opacity: 1; }
     }
     </style>
@@ -229,9 +251,7 @@
                 
                 osc1.start(now);
                 osc1.stop(now + 0.45);
-            } catch (e) {
-                // Audio context blocked or unsupported
-            }
+            } catch (e) {}
         }
 
         // Request browser notification permission on page load
@@ -250,6 +270,21 @@
             }
         }
 
+        function updateReminderHeader() {
+            const container = document.getElementById('reminder-toast-container');
+            const headerBar = document.getElementById('reminder-header-bar');
+            const countSpan = document.getElementById('reminder-total-count');
+            if (!container || !headerBar) return;
+
+            const cards = container.querySelectorAll('.reminder-toast-card');
+            if (cards.length > 1) {
+                headerBar.style.display = 'flex';
+                if (countSpan) countSpan.textContent = cards.length;
+            } else {
+                headerBar.style.display = 'none';
+            }
+        }
+
         async function checkPendingReminders() {
             const container = document.getElementById('reminder-toast-container');
             if (!container) return;
@@ -264,6 +299,8 @@
                 const data = await res.json();
 
                 if (data.success && Array.isArray(data.reminders) && data.reminders.length > 0) {
+                    let hasNewChime = false;
+
                     data.reminders.forEach(item => {
                         const alertKey = `reminded_${item.alert_type}_${item.reminder_kind}_${item.id}`;
                         const snoozeUntil = sessionStorage.getItem(alertKey);
@@ -286,54 +323,115 @@
                         const card = document.createElement('div');
                         card.className = `reminder-toast-card ${isDueNow ? 'alert-duenow' : 'alert-5min'}`;
                         card.id = cardId;
+                        card.setAttribute('data-alert-key', alertKey);
 
-                        let badgeTitle = isDueNow ? '🔔 REMINDER DUE NOW!' : `⏳ 5 MIN WARNING (${item.mins_left}m left)`;
-                        let badgeColor = isDueNow ? '#3b82f6' : '#06b6d4';
+                        let badgeTitle = isDueNow ? 'Action Required Now!' : `Upcoming in ${item.mins_left}m`;
+                        let badgeBg = isDueNow ? '#fee2e2' : '#e0f2fe';
+                        let badgeColor = isDueNow ? '#b91c1c' : '#0369a1';
+                        let badgeBorder = isDueNow ? '#fca5a5' : '#bae6fd';
+
+                        let cleanPhone = (item.phone || '').replace(/[^0-9+]/g, '');
+                        if (cleanPhone && !cleanPhone.startsWith('+') && cleanPhone.length === 10) cleanPhone = '+91' + cleanPhone;
 
                         const formattedTime = new Date(item.scheduled_at.replace(' ', 'T')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
                         card.innerHTML = `
-                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                                <div style="display: flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 800; color: ${badgeColor}; text-transform: uppercase; letter-spacing: 0.05em;">
-                                    <i data-lucide="${isDueNow ? 'bell-ring' : 'clock'}" style="width: 14px; height: 14px;"></i>
+                            <!-- Top Header Line -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <div style="display: inline-flex; align-items: center; gap: 5px; background: ${badgeBg}; border: 1px solid ${badgeBorder}; color: ${badgeColor}; border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;">
+                                    <i data-lucide="${isDueNow ? 'bell' : 'clock'}" style="width: 13px; height: 13px;"></i>
                                     <span>${badgeTitle}</span>
                                 </div>
-                                <button type="button" onclick="dismissReminderToast('${card.id}', '${alertKey}')" title="Dismiss" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 2px 6px;">&times;</button>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">${formattedTime}</span>
+                                    <button type="button" onclick="dismissReminderToast('${card.id}', '${alertKey}')" title="Dismiss" style="background: #f1f5f9; border: 1px solid #e2e8f0; color: #64748b; cursor: pointer; width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; line-height: 1; transition: all 0.15s ease;">&times;</button>
+                                </div>
                             </div>
-                            <div style="font-weight: 700; font-size: 0.95rem; color: #ffffff; margin-bottom: 2px;">
-                                ${escapeHtml(item.lead_name || 'Scheduled Task')} ${item.company ? `<span style="color: #94a3b8; font-weight: 400; font-size: 0.85rem;">(${escapeHtml(item.company)})</span>` : ''}
+
+                            <!-- Lead & Client Name -->
+                            <div style="font-weight: 700; font-size: 0.98rem; color: #0f172a; line-height: 1.3; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                                <i data-lucide="user" style="width: 15px; height: 15px; color: #0284c7; flex-shrink: 0;"></i>
+                                <span style="font-weight: 700;">${escapeHtml(item.lead_name || 'Prospect Client')}</span>
+                                ${item.company ? `<span style="color: #64748b; font-weight: 500; font-size: 0.82rem;">(${escapeHtml(item.company)})</span>` : ''}
                             </div>
-                            <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 8px;">
-                                🎯 <strong>${escapeHtml(item.action_type || 'Follow-up')}</strong> &bull; Scheduled at <strong>${formattedTime}</strong>
+
+                            <!-- Task / Action Description & Phone -->
+                            <div style="font-size: 0.8rem; color: #475569; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                <span style="background: #f1f5f9; border: 1px solid #e2e8f0; color: #334155; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;">
+                                    ${escapeHtml(item.action_type || 'Follow-up')}
+                                </span>
+                                ${cleanPhone ? `
+                                    <span style="color: #64748b; font-size: 0.78rem;">&bull;</span>
+                                    <a href="tel:${cleanPhone}" style="color: #0284c7; text-decoration: none; font-weight: 600; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 3px;">
+                                        <i data-lucide="phone" style="width: 12px; height: 12px;"></i> ${cleanPhone}
+                                    </a>
+                                ` : ''}
                             </div>
-                            ${item.remarks ? `<div style="font-size: 0.775rem; color: #94a3b8; background: rgba(0,0,0,0.3); padding: 6px 10px; border-radius: 8px; margin-bottom: 10px; border-left: 2px solid ${badgeColor}; line-height: 1.3;">"${escapeHtml(item.remarks)}"</div>` : ''}
-                            <div style="display: flex; align-items: center; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
-                                ${item.lead_id ? `<a href="index.php?page=lead_details&id=${encodeURIComponent(item.lead_id)}" class="btn btn-xs btn-secondary" style="padding: 4px 10px; font-size: 0.75rem;">View Lead</a>` : ''}
-                                <button type="button" onclick="snoozeReminderToast('${card.id}', '${alertKey}')" class="btn btn-xs btn-outline-secondary" style="padding: 4px 10px; font-size: 0.75rem;">Snooze 5m</button>
-                                ${item.reminder_kind === 'followup' ? `<button type="button" onclick="completeReminderFollowup(${item.id}, '${card.id}', '${alertKey}')" class="btn btn-xs btn-cyan" style="padding: 4px 10px; font-size: 0.75rem;">Mark Done</button>` : ''}
+
+                            <!-- Remarks / Notes Box -->
+                            ${item.remarks ? `<div style="font-size: 0.78rem; color: #334155; background: #f8fafc; padding: 8px 10px; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #cbd5e1; line-height: 1.4;">"${escapeHtml(item.remarks)}"</div>` : ''}
+
+                            <!-- Action Buttons Toolbar -->
+                            <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px;">
+                                ${cleanPhone ? `
+                                    <a href="tel:${cleanPhone}" class="btn" style="background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 5px 10px; font-size: 0.75rem; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                        <i data-lucide="phone-call" style="width: 12px; height: 12px; color: #16a34a;"></i> Call
+                                    </a>
+                                    <a href="https://wa.me/${cleanPhone.replace(/[^0-9]/g, '')}" target="_blank" class="btn" style="background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 5px 10px; font-size: 0.75rem; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                        <i data-lucide="message-circle" style="width: 12px; height: 12px; color: #16a34a;"></i> WhatsApp
+                                    </a>
+                                ` : ''}
+                                ${item.lead_id ? `<a href="index.php?page=lead_details&id=${encodeURIComponent(item.lead_id)}" class="btn" style="background: #f8fafc; border: 1px solid #cbd5e1; color: #334155; padding: 5px 10px; font-size: 0.75rem; border-radius: 6px; text-decoration: none; font-weight: 600;">View Lead</a>` : ''}
+                                <button type="button" onclick="snoozeReminderToast('${card.id}', '${alertKey}')" class="btn" style="background: #f8fafc; border: 1px solid #cbd5e1; color: #475569; padding: 5px 10px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; font-weight: 600;">Snooze 5m</button>
+                                ${item.reminder_kind === 'followup' ? `<button type="button" onclick="completeReminderFollowup(${item.id}, '${card.id}', '${alertKey}')" class="btn" style="background: #10b981; border: 1px solid #059669; color: #ffffff; padding: 5px 12px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">✓ Done</button>` : ''}
                             </div>
                         `;
 
                         container.appendChild(card);
-                        playReminderChime(isDueNow);
+                        hasNewChime = true;
                         showDesktopNotification(badgeTitle, `${item.lead_name || 'Followup'} - ${item.action_type || 'Task'} scheduled at ${formattedTime}`);
-                        if (window.lucide) lucide.createIcons();
                     });
+
+                    if (hasNewChime) {
+                        playReminderChime(true);
+                    }
+                    updateReminderHeader();
+                    if (window.lucide) lucide.createIcons();
+                } else {
+                    updateReminderHeader();
                 }
-            } catch (e) {
-                // Ignore background fetch errors
-            }
+            } catch (e) {}
         }
 
         window.dismissReminderToast = function(cardId, alertKey) {
             if (alertKey) sessionStorage.setItem(alertKey, 'dismissed');
             const card = document.getElementById(cardId);
             if (card) {
-                card.style.transition = 'all 0.3s ease';
+                card.style.transition = 'all 0.25s ease';
                 card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                setTimeout(() => card.remove(), 300);
+                card.style.transform = 'translateY(15px) scale(0.95)';
+                setTimeout(() => {
+                    card.remove();
+                    updateReminderHeader();
+                }, 250);
             }
+        };
+
+        window.dismissAllReminderToasts = function() {
+            const container = document.getElementById('reminder-toast-container');
+            if (!container) return;
+            const cards = container.querySelectorAll('.reminder-toast-card');
+            cards.forEach(card => {
+                const alertKey = card.getAttribute('data-alert-key');
+                if (alertKey) sessionStorage.setItem(alertKey, 'dismissed');
+                card.style.transition = 'all 0.25s ease';
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(15px) scale(0.95)';
+            });
+            setTimeout(() => {
+                container.innerHTML = '';
+                updateReminderHeader();
+            }, 250);
         };
 
         window.snoozeReminderToast = function(cardId, alertKey) {

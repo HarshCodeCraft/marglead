@@ -97,81 +97,35 @@ if ($db_connected && $pdo && !empty($email)) {
 }
 ?>
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verify Email OTP - Marg Soft Solution</title>
+    <title>Verify Email OTP - Friendly AI Solution</title>
     
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
     <!-- CSS -->
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/components.css">
-    <link rel="stylesheet" href="../assets/css/modules/auth.css">
+    <link rel="stylesheet" href="../assets/css/modules/auth.css?v=<?php echo time(); ?>">
     
     <style>
-    .auth-wrapper {
-        background: rgba(15, 23, 42, 0.65);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        backdrop-filter: blur(25px);
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(59, 130, 246, 0.05);
-        border-radius: 16px;
-    }
-    .auth-panel-left {
-        background: linear-gradient(135deg, rgba(37, 99, 235, 0.85) 0%, rgba(124, 58, 237, 0.85) 100%), 
-                    url('https://images.unsplash.com/photo-1557804506-669a67965ba0?q=80&w=1000') center/cover no-repeat !important;
-        padding: 3.5rem 3rem;
-    }
-    .auth-panel-right {
-        background-color: rgba(9, 15, 28, 0.9) !important;
-        padding: 4rem 3rem;
-    }
-    .btn-primary {
-        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
-        box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.3) !important;
-        height: 46px !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem;
-        color: #ffffff !important;
-        cursor: pointer;
-    }
-    .btn-primary:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 20px 0 rgba(59, 130, 246, 0.4) !important;
-        background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%) !important;
-    }
-    .promo-feature-item {
-        background: rgba(255, 255, 255, 0.08) !important;
-        padding: 12px 16px !important;
-        border-radius: 10px !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(5px);
-        margin-bottom: 0.5rem;
-    }
-    .auth-header h2 {
-        font-family: 'Outfit', sans-serif;
-        color: #ffffff;
-    }
     .resend-btn {
         background: none;
         border: none;
-        color: #3b82f6;
+        color: #2563eb;
         font-weight: 600;
-        font-size: 0.8rem;
+        font-size: 0.825rem;
         cursor: pointer;
         text-decoration: underline;
         padding: 0;
     }
     .resend-btn:disabled {
-        color: #64748b;
+        color: #94a3b8;
         cursor: not-allowed;
         text-decoration: none;
     }
@@ -181,87 +135,120 @@ if ($db_connected && $pdo && !empty($email)) {
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="auth-body">
+    <!-- Ambient Decor Elements -->
+    <div class="auth-bg-decor-1"></div>
+    <div class="auth-bg-decor-2"></div>
+
+    <!-- Top Navigation Bar with Back to Home -->
+    <div class="auth-top-bar">
+        <a href="../landing.php" class="auth-back-btn" title="Go to Main Website">
+            <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+            <span>Back to Home</span>
+        </a>
+        <div class="auth-top-nav-links">
+            <a href="../landing.php" class="auth-nav-link">Home</a>
+            <a href="login.php" class="auth-nav-link" style="color: #2563eb; font-weight: 600;">Sign In</a>
+            <a href="register.php" class="auth-nav-link">Register</a>
+            <a href="../contact.php" class="auth-nav-link">Contact</a>
+        </div>
+    </div>
+
     <div class="auth-wrapper">
         <!-- Left Panel: Info -->
         <div class="auth-panel-left">
-            <div class="auth-brand">
-                <img src="../assets/image.png" alt="Marg Logo" style="width: 28px; height: 28px; object-fit: contain;">
-                <span>Marg Soft Solution</span>
-            </div>
+            <a href="../landing.php" class="auth-brand" title="Friendly AI Solution">
+                <img src="../assets/image.png" alt="Marg Logo">
+                <span>Friendly AI Solution</span>
+            </a>
             
             <div class="auth-promo-content">
-                <h1>Verify Email OTP</h1>
-                <p>We've dispatched a 6-digit verification security code to your registered email address. This ensures valid ownership of your account before administrator authorization.</p>
+                <h1>Verify Email Ownership</h1>
+                <p>We've dispatched a 6-digit verification code to your registered email address. This ensures valid ownership of your account before administrator authorization.</p>
                 
                 <div class="auth-promo-features">
                     <div class="promo-feature-item">
-                        <i data-lucide="mail-check" style="width: 18px; height: 18px; color: #34d399;"></i>
+                        <i data-lucide="mail-check" style="width: 20px; height: 20px;"></i>
                         <span>Email Verification Guard</span>
                     </div>
                     <div class="promo-feature-item">
-                        <i data-lucide="shield-check" style="width: 18px; height: 18px; color: #34d399;"></i>
+                        <i data-lucide="shield-check" style="width: 20px; height: 20px;"></i>
                         <span>10-Minute Expiring OTP Tokens</span>
                     </div>
                 </div>
+
+                <div class="auth-trust-badges">
+                    <span class="trust-badge-pill">
+                        <i data-lucide="lock" style="width: 14px; height: 14px;"></i> Secure Validation
+                    </span>
+                    <span class="trust-badge-pill" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.35); color: #bfdbfe;">
+                        <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> Anti-Abuse Protected
+                    </span>
+                </div>
             </div>
             
-            <div class="text-xs text-muted" style="color: rgba(255, 255, 255, 0.5);">
-                © 2026 Marg Soft Solutions. All rights reserved.
+            <div class="auth-panel-footer">
+                <span>© <?php echo date('Y'); ?> Friendly AI Solution.</span>
+                <a href="../landing.php">Visit Main Portal</a>
             </div>
         </div>
         
         <!-- Right Panel: OTP Verification -->
         <div class="auth-panel-right">
-            <div class="auth-header">
-                <h2>Verify Email Address</h2>
-                <p>We sent a 6-digit code to <strong><?php echo htmlspecialchars(!empty($email) ? $email : 'your email'); ?></strong></p>
-            </div>
-            
-            <?php if (!empty($message)): ?>
-                <div class="badge mb-4" style="--badge-bg: var(--<?php echo $message_type; ?>-light); --badge-color: var(--<?php echo $message_type; ?>); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); width: 100%; justify-content: flex-start; display: flex; text-align: left; font-size: 0.825rem;">
-                    <?php echo $message; ?>
-                </div>
-            <?php endif; ?>
-            
-            <form id="otp-form" action="verify-otp.php?email=<?php echo urlencode($email); ?>" method="POST" class="flex flex-col gap-4">
-                <input type="hidden" name="email" value="<?php echo htmlspecialchars($email); ?>">
-                <!-- OTP Digit Box Grid -->
-                <div class="otp-container">
-                    <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
-                    <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
-                    <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
-                    <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
-                    <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
-                    <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
+            <div class="auth-form-container">
+                <div class="auth-header">
+                    <h2>Verify email address</h2>
+                    <p>Enter the 6-digit code sent to <strong style="color: #2563eb;"><?php echo htmlspecialchars(!empty($email) ? $email : 'your email'); ?></strong></p>
                 </div>
                 
-                <div class="timer-container flex justify-between align-center">
-                    <span class="flex align-center gap-1 text-xs text-muted">
-                        <i data-lucide="clock" style="width: 16px; height: 16px;"></i>
-                        <span id="countdown-timer">Resend available in: 02:00</span>
-                    </span>
+                <?php if (!empty($message)): ?>
+                    <div class="badge-alert <?php echo htmlspecialchars($message_type); ?>">
+                        <i data-lucide="<?php echo $message_type === 'success' ? 'check-circle' : ($message_type === 'warning' ? 'alert-triangle' : 'alert-circle'); ?>" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+                        <span><?php echo $message; ?></span>
+                    </div>
+                <?php endif; ?>
+                
+                <form id="otp-form" action="verify-otp.php?email=<?php echo urlencode($email); ?>" method="POST" class="flex flex-col gap-4">
+                    <input type="hidden" name="email" value="<?php echo htmlspecialchars($email); ?>">
+                    <!-- OTP Digit Box Grid -->
+                    <div class="otp-container">
+                        <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
+                        <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
+                        <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
+                        <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
+                        <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
+                        <input type="text" name="otp[]" class="otp-input" maxlength="1" pattern="[0-9]" inputmode="numeric" required autocomplete="off">
+                    </div>
                     
-                    <button type="button" id="resend-code-btn" class="resend-btn" onclick="document.getElementById('resend-form').submit();" disabled>Resend Code</button>
-                </div>
-                
-                <button type="submit" class="btn btn-primary w-full mt-2" style="padding: 0.8rem;">
-                    <span>Verify & Continue</span>
-                    <i data-lucide="check-circle" style="width: 18px; height: 18px;"></i>
-                </button>
-            </form>
+                    <div class="timer-container flex justify-between align-center" style="margin: 0.5rem 0 1rem 0;">
+                        <span class="flex align-center gap-1 text-xs" style="color: #64748b;">
+                            <i data-lucide="clock" style="width: 14px; height: 14px;"></i>
+                            <span id="countdown-timer">Resend available in: 02:00</span>
+                        </span>
+                        
+                        <button type="button" id="resend-code-btn" class="resend-btn" onclick="document.getElementById('resend-form').submit();" disabled>Resend Code</button>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-full mt-1">
+                        <span>Verify & Activate Account</span>
+                        <i data-lucide="arrow-right" style="width: 18px; height: 18px;"></i>
+                    </button>
+                </form>
 
-            <!-- Separate Resend Form (Not Nested) -->
-            <form id="resend-form" action="verify-otp.php?email=<?php echo urlencode($email); ?>" method="POST" style="display: none;">
-                <input type="hidden" name="action" value="resend">
-            </form>
-            
-            <div class="text-center mt-6 text-xs text-muted">
-                Need to change your email or try again? <a href="register.php" class="text-primary font-semibold">Back to Signup</a>
+                <!-- Separate Resend Form (Not Nested) -->
+                <form id="resend-form" action="verify-otp.php?email=<?php echo urlencode($email); ?>" method="POST" style="display: none;">
+                    <input type="hidden" name="action" value="resend">
+                </form>
+                
+                <div class="auth-switch-text">
+                    Need to change email or try again? <a href="register.php">Back to Signup</a>
+                </div>
             </div>
 
-            <div class="text-center mt-4 text-xs text-muted flex justify-center gap-3" style="color: #64748b; font-size: 0.75rem;">
-                <a href="../privacy.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Privacy Policy</a> • 
-                <a href="../terms.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Terms & Conditions</a>
+            <!-- Anchored Bottom Footer -->
+            <div class="auth-panel-footer-right">
+                <a href="../landing.php">Home Page</a> • 
+                <a href="../privacy.php" target="_blank">Privacy</a> • 
+                <a href="../terms.php" target="_blank">Terms</a>
             </div>
         </div>
     </div>

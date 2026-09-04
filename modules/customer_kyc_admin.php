@@ -11,7 +11,7 @@ if (!defined('APP_NAME')) {
 
 // Security Check: Only staff/admin with access
 if (!hasAccess('clients', $_SESSION['user_role'] ?? 'Admin') && !hasAccess('leads', $_SESSION['user_role'] ?? 'Admin')) {
-    require_once __DIR__ . '/access_denied.php';
+    header('Location: ../index.php?page=dashboard');
     exit;
 }
 

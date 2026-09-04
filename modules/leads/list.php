@@ -59,6 +59,11 @@ $today_str = date('Y-m-d');
 $tomorrow_str = date('Y-m-d', strtotime('+1 day'));
 $nextday_str = date('Y-m-d', strtotime('+2 days'));
 
+// Past 3 dates for Upcoming Expired Leads
+$yesterday_str = date('Y-m-d', strtotime('-1 day'));
+$day_before_str = date('Y-m-d', strtotime('-2 days'));
+$three_days_ago_str = date('Y-m-d', strtotime('-3 days'));
+
 // Fetch live metrics dynamically
 $liveMetrics = getLiveMetricCounts($pdo, $is_admin, $user_identifiers);
 $expired_counts = $liveMetrics['expired'];
@@ -107,12 +112,11 @@ if ($db_connected && $pdo) {
 
         $filter_date = trim($_GET['lead_date'] ?? $_GET['date'] ?? '');
         if (!empty($filter_date)) {
-            $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = ?) OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = ?) OR DATE(leads.created_at) = ?)";
-            $query_params[] = $filter_date;
+            $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = ? AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = ? AND status = 'scheduled'))";
             $query_params[] = $filter_date;
             $query_params[] = $filter_date;
         } elseif (!empty($_GET['filter']) && $_GET['filter'] === 'today') {
-            $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE()) OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE()) OR DATE(leads.created_at) = CURRENT_DATE())";
+            $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled'))";
         }
 
         $search_term = trim($_GET['search'] ?? $_GET['q'] ?? '');
@@ -150,10 +154,14 @@ if ($db_connected && $pdo) {
 
         if (!empty($_GET['assigned_to'])) {
             $req_op = trim($_GET['assigned_to']);
-            $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE ?)";
-            $query_params[] = $req_op;
-            $query_params[] = $req_op;
-            $query_params[] = '%' . $req_op . '%';
+            if (strtolower($req_op) === 'unassigned') {
+                $where_conditions[] = "(assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
+            } else {
+                $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE ?)";
+                $query_params[] = $req_op;
+                $query_params[] = $req_op;
+                $query_params[] = '%' . $req_op . '%';
+            }
         }
 
         if (!empty($_GET['priority'])) {
@@ -171,6 +179,9 @@ if ($db_connected && $pdo) {
                 $where_conditions[] = "LOWER(status) = ?";
                 $query_params[] = $st;
             }
+        } else {
+            // Default: hide Closed Won leads unless explicitly filtered
+            $where_conditions[] = "LOWER(status) NOT IN ('won', 'closed_won', 'install_pending', 'payment_pending')";
         }
 
         if (!empty($_GET['group_stage'])) {
@@ -178,42 +189,74 @@ if ($db_connected && $pdo) {
             $query_params[] = '%' . trim($_GET['group_stage']) . '%';
         }
 
+        // Quick Presets Dropdown Filter Handler
+        $quick_preset = trim($_GET['quick_preset'] ?? '');
+        if (!empty($quick_preset)) {
+            if ($quick_preset === 'created_today') {
+                $where_conditions[] = "DATE(leads.created_at) = CURRENT_DATE()";
+            } elseif ($quick_preset === 'assigned_today') {
+                $where_conditions[] = "(assigned_to IS NOT NULL AND TRIM(assigned_to) != '' AND LOWER(TRIM(assigned_to)) != 'unassigned' AND (DATE(leads.created_at) = CURRENT_DATE() OR DATE(leads.updated_at) = CURRENT_DATE()))";
+            } elseif ($quick_preset === 'updated_today') {
+                $where_conditions[] = "DATE(leads.updated_at) = CURRENT_DATE()";
+            } elseif ($quick_preset === 'not_updated_today') {
+                $where_conditions[] = "(leads.updated_at IS NULL OR DATE(leads.updated_at) < CURRENT_DATE())";
+            } elseif ($quick_preset === 'scheduled_today') {
+                $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled'))";
+            } elseif ($quick_preset === 'unassigned') {
+                $where_conditions[] = "(assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
+            } elseif ($quick_preset === 'unattended') {
+                // Leads where telecaller has NOT attended/called/updated today
+                $where_conditions[] = "(DATE(leads.updated_at) < CURRENT_DATE() OR leads.updated_at IS NULL) AND id NOT IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'completed')";
+            } elseif ($quick_preset === 'attended') {
+                // Leads attended / contacted / updated today
+                $where_conditions[] = "(DATE(leads.updated_at) = CURRENT_DATE() OR id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'completed'))";
+            }
+        }
+
         // Apply Metric Card Filter if clicked (only when explicit date filter is not chosen)
         if (!empty($active_filter) && !empty($active_day) && empty($filter_date)) {
-            if ($active_filter === 'expired') {
+        // Common exclusion: skip Dropped leads and Not Required group from all card filters
+        $card_exclude = "LOWER(TRIM(leads.status)) != 'dropped' AND LOWER(TRIM(leads.group_stage)) != 'not required'";
+
+        if ($active_filter === 'expired') {
+                $expiry_sub = "(action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')";
                 if ($active_day === 'all' || $active_day === 'total') {
-                    $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%' OR status = 'missed' OR scheduled_at <= NOW())) OR id IN (SELECT lead_id FROM renewals) OR LOWER(status) IN ('expired', 'trial_expired'))";
+                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_sub} OR status = 'missed' OR DATE(scheduled_at) < CURRENT_DATE())) OR id IN (SELECT lead_id FROM renewals) OR LOWER(status) IN ('expired', 'trial_expired'))";
                 } elseif ($active_day === 'today') {
-                    $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) <= ? AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%' OR status = 'missed' OR scheduled_at <= NOW())) OR id IN (SELECT lead_id FROM renewals WHERE DATE(expiry_date) <= ?))";
-                    $query_params[] = $today_str;
-                    $query_params[] = $today_str;
-                } else {
-                    $target_date = ($active_day === 'tomorrow') ? $tomorrow_str : $nextday_str;
-                    $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ? AND (action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')) OR id IN (SELECT lead_id FROM renewals WHERE DATE(expiry_date) = ?))";
-                    $query_params[] = $target_date;
-                    $query_params[] = $target_date;
+                    // Button 1: Yesterday
+                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
+                    $query_params[] = $yesterday_str;
+                } elseif ($active_day === 'tomorrow') {
+                    // Button 2: 2 Days Ago
+                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
+                    $query_params[] = $day_before_str;
+                } elseif ($active_day === 'next_day') {
+                    // Button 3: 3 Days Ago
+                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
+                    $query_params[] = $three_days_ago_str;
                 }
             } elseif ($active_filter === 'demo_scheduled') {
-                $demo_base = "(group_stage LIKE '%Demo Scheduled%' OR LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled') OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%')))";
+                $demo_base = "group_stage LIKE '%Demo Scheduled%'";
+                $demo_date_expr = "COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at))";
                 if ($active_day === 'all' || $active_day === 'total') {
-                    $where_conditions[] = $demo_base;
+                    $where_conditions[] = "({$card_exclude}) AND {$demo_base}";
                 } elseif ($active_day === 'today') {
-                    $where_conditions[] = "{$demo_base} AND COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' AND (action_type LIKE '%Demo%' OR remarks LIKE '%demo%') ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at)) <= ?";
+                    $where_conditions[] = "({$card_exclude}) AND {$demo_base} AND {$demo_date_expr} = ?";
                     $query_params[] = $today_str;
                 } else {
                     $target_date = ($active_day === 'tomorrow') ? $tomorrow_str : $nextday_str;
-                    $where_conditions[] = "{$demo_base} AND COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' AND (action_type LIKE '%Demo%' OR remarks LIKE '%demo%') ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at)) = ?";
+                    $where_conditions[] = "({$card_exclude}) AND {$demo_base} AND {$demo_date_expr} = ?";
                     $query_params[] = $target_date;
                 }
             } elseif ($active_filter === 'callback') {
                 if ($active_day === 'all' || $active_day === 'total') {
-                    $where_conditions[] = "id IN (SELECT lead_id FROM followups WHERE status = 'pending')";
+                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status = 'pending')";
                 } elseif ($active_day === 'today') {
-                    $where_conditions[] = "id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) <= ?)";
+                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = ?)";
                     $query_params[] = $today_str;
                 } else {
                     $target_date = ($active_day === 'tomorrow') ? $tomorrow_str : $nextday_str;
-                    $where_conditions[] = "id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = ?)";
+                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = ?)";
                     $query_params[] = $target_date;
                 }
             }
@@ -254,6 +297,7 @@ if ($db_connected && $pdo) {
         $db_leads = $stmt->fetchAll();
         $lead_ids = array_column($db_leads, 'id');
         $fup_dates = [];
+        $fup_datetimes = [];
         if (!empty($lead_ids)) {
             $in_placeholders = implode(',', array_fill(0, count($lead_ids), '?'));
             $fStmt = $pdo->prepare("SELECT lead_id, scheduled_at FROM followups WHERE lead_id IN ($in_placeholders) AND status = 'pending' ORDER BY scheduled_at ASC");
@@ -261,6 +305,7 @@ if ($db_connected && $pdo) {
             while ($fRow = $fStmt->fetch(PDO::FETCH_ASSOC)) {
                 if (!isset($fup_dates[$fRow['lead_id']])) {
                     $fup_dates[$fRow['lead_id']] = date('Y-m-d', strtotime($fRow['scheduled_at']));
+                    $fup_datetimes[$fRow['lead_id']] = date('d-m-Y h:i A', strtotime($fRow['scheduled_at']));
                 }
             }
         }
@@ -280,7 +325,9 @@ if ($db_connected && $pdo) {
                 'budget' => '₹' . number_format($l['budget'], 0),
                 'last_contact' => date('Y-m-d h:i A', strtotime($l['updated_at'])),
                 'created_date' => !empty($l['created_at']) ? date('Y-m-d', strtotime($l['created_at'])) : '',
+                'updated_date' => !empty($l['updated_at']) ? date('Y-m-d', strtotime($l['updated_at'])) : '',
                 'scheduled_date' => $fup_dates[$l['id']] ?? '',
+                'scheduled_datetime' => $fup_datetimes[$l['id']] ?? '',
                 'created_at' => $l['created_at'] ?? '',
                 'address' => $l['address'] ?? '',
                 'tags' => $l['tags'] ?? '',
@@ -341,10 +388,10 @@ if (empty($leads)) {
                 </a>
             <?php endif; ?>
             <?php if (hasActionAccess('can_export')): ?>
-                <a href="index.php?page=leads&action=export_csv" class="btn btn-secondary text-sm">
+                <button type="button" class="btn btn-secondary text-sm" onclick="openExportModal()" id="export-directory-btn">
                     <i data-lucide="file-up" style="width: 16px; height: 16px;"></i>
                     <span>Export Directory</span>
-                </a>
+                </button>
             <?php endif; ?>
             <?php if (hasActionAccess('can_create')): ?>
                 <a href="index.php?page=lead_form" class="btn btn-primary text-sm">
@@ -370,27 +417,27 @@ if (empty($leads)) {
             <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
                 <a href="<?php echo getFilterUrl('expired', 'today', $active_filter, $active_day); ?>"
                    style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'today', $active_filter, $active_day); ?>"
-                   title="Click to filter Upcoming Expired Lead for Today">
+                   title="Click to filter Upcoming Expired Lead for Yesterday (<?php echo date('d M', strtotime($yesterday_str)); ?>)">
                     <span id="cnt-expired-today" style="background-color: #e53935; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
                         <?php echo $expired_counts['today']; ?>
                     </span>
-                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Today</span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Yesterday</span>
                 </a>
                 <a href="<?php echo getFilterUrl('expired', 'tomorrow', $active_filter, $active_day); ?>"
                    style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'tomorrow', $active_filter, $active_day); ?>"
-                   title="Click to filter Upcoming Expired Lead for Tomorrow">
+                   title="Click to filter Upcoming Expired Lead for 2 Days Ago (<?php echo date('d M', strtotime($day_before_str)); ?>)">
                     <span id="cnt-expired-tomorrow" style="background-color: #f57c00; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
                         <?php echo $expired_counts['tomorrow']; ?>
                     </span>
-                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Tomorrow</span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">2 Days Ago</span>
                 </a>
                 <a href="<?php echo getFilterUrl('expired', 'next_day', $active_filter, $active_day); ?>"
                    style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; transition: all 0.2s ease; <?php echo getFilterStyle('expired', 'next_day', $active_filter, $active_day); ?>"
-                   title="Click to filter Upcoming Expired Lead for Next Day">
+                   title="Click to filter Upcoming Expired Lead for 3 Days Ago (<?php echo date('d M', strtotime($three_days_ago_str)); ?>)">
                     <span id="cnt-expired-nextday" style="background-color: #ffb300; color: #ffffff; font-weight: 700; font-size: 0.9rem; padding: 0.25rem 0.85rem; border-radius: 4px; min-width: 44px; display: inline-block; text-align: center;">
                         <?php echo $expired_counts['next_day']; ?>
                     </span>
-                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Next Day</span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--text-main);">3 Days Ago</span>
                 </a>
             </div>
         </div>
@@ -525,6 +572,89 @@ if (empty($leads)) {
                     </button>
                 <?php endif; ?>
             </div>
+
+            <!-- Quick Preset Filter Dropdown (Custom Funnel Icon Button) -->
+            <div style="position: relative;" id="quick-preset-dropdown-container">
+                <?php
+                $cur_preset = $_GET['quick_preset'] ?? '';
+                $preset_labels = [
+                    'created_today' => 'Created Today',
+                    'assigned_today' => 'Assigned Today',
+                    'updated_today' => 'Updated Today',
+                    'not_updated_today' => 'Not Updated Today',
+                    'scheduled_today' => 'Scheduled Today',
+                    'unassigned' => 'Unassigned',
+                    'unattended' => 'Unattended',
+                    'attended' => 'Attended'
+                ];
+                $is_preset_active = !empty($cur_preset) && isset($preset_labels[$cur_preset]);
+                ?>
+                <button type="button" class="btn text-xs" onclick="toggleQuickPresetMenu(event)" id="quick-preset-btn" style="background: <?php echo $is_preset_active ? 'var(--primary)' : '#2d3748'; ?>; color: #ffffff; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 0.55rem 0.85rem; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.15); cursor: pointer; font-weight: 600;" title="Quick Workflow Filters">
+                    <i data-lucide="filter" style="width: 14px; height: 14px; color: #ffffff;"></i>
+                    <i data-lucide="chevron-down" style="width: 12px; height: 12px; color: rgba(255,255,255,0.7);"></i>
+                    <?php if ($is_preset_active): ?>
+                        <span style="font-size: 11px; background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 4px;"><?php echo htmlspecialchars($preset_labels[$cur_preset]); ?></span>
+                        <span onclick="event.stopPropagation(); selectQuickPreset('');" style="margin-left: 2px; font-size: 12px; cursor: pointer;" title="Clear filter">✕</span>
+                    <?php endif; ?>
+                </button>
+
+                <div id="quick-preset-menu" class="hidden" style="position: absolute; top: calc(100% + 6px); left: 0; min-width: 210px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.18); padding: 0.5rem 0; z-index: 1060;">
+                    <div style="display: flex; flex-direction: column;">
+                        <a href="javascript:void(0)" onclick="selectQuickPreset('created_today')" class="quick-preset-item <?php echo $cur_preset === 'created_today' ? 'active-preset' : ''; ?>">
+                            <span>Created Today</span>
+                        </a>
+                        <a href="javascript:void(0)" onclick="selectQuickPreset('assigned_today')" class="quick-preset-item <?php echo $cur_preset === 'assigned_today' ? 'active-preset' : ''; ?>">
+                            <span>Assigned Today</span>
+                        </a>
+                        <a href="javascript:void(0)" onclick="selectQuickPreset('updated_today')" class="quick-preset-item <?php echo $cur_preset === 'updated_today' ? 'active-preset' : ''; ?>">
+                            <span>Updated Today</span>
+                        </a>
+                        <a href="javascript:void(0)" onclick="selectQuickPreset('not_updated_today')" class="quick-preset-item <?php echo $cur_preset === 'not_updated_today' ? 'active-preset' : ''; ?>">
+                            <span>Not Updated Today</span>
+                        </a>
+                        <a href="javascript:void(0)" onclick="selectQuickPreset('scheduled_today')" class="quick-preset-item <?php echo $cur_preset === 'scheduled_today' ? 'active-preset' : ''; ?>">
+                            <span>Scheduled Today</span>
+                        </a>
+                        <a href="javascript:void(0)" onclick="selectQuickPreset('unassigned')" class="quick-preset-item <?php echo $cur_preset === 'unassigned' ? 'active-preset' : ''; ?>">
+                            <span>Unassigned</span>
+                        </a>
+                        <a href="javascript:void(0)" onclick="selectQuickPreset('unattended')" class="quick-preset-item <?php echo $cur_preset === 'unattended' ? 'active-preset' : ''; ?>">
+                            <span>Unattended</span>
+                        </a>
+                        <a href="javascript:void(0)" onclick="selectQuickPreset('attended')" class="quick-preset-item <?php echo $cur_preset === 'attended' ? 'active-preset' : ''; ?>">
+                            <span>Attended</span>
+                        </a>
+                        <div style="border-top: 1px solid var(--border-color); margin: 0.35rem 0;"></div>
+                        <a href="javascript:void(0)" onclick="openCustomFilterDrawer()" class="quick-preset-item font-bold" style="color: #004d40;">
+                            <span style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                                <span>Custom Filter</span>
+                                <i data-lucide="sliders-horizontal" style="width: 13px; height: 13px;"></i>
+                            </span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <style>
+                .quick-preset-item {
+                    display: block;
+                    padding: 0.55rem 1.1rem;
+                    color: var(--text-main);
+                    text-decoration: none;
+                    font-size: 0.82rem;
+                    transition: background 0.15s ease, color 0.15s ease;
+                }
+                .quick-preset-item:hover {
+                    background-color: var(--border-card);
+                    color: var(--primary);
+                }
+                .quick-preset-item.active-preset {
+                    background-color: rgba(0, 77, 64, 0.08);
+                    color: var(--primary);
+                    font-weight: 700;
+                }
+            </style>
+
             <button class="btn btn-secondary text-xs" style="padding: 0.55rem 1rem;" onclick="document.getElementById('advanced-filter-drawer').classList.toggle('hidden');">
                 <i data-lucide="filter" style="width: 14px; height: 14px;"></i>
                 <span>Advanced Filters</span>
@@ -650,7 +780,7 @@ if (empty($leads)) {
                     <option value="">All Sources</option>
                     <?php 
                     $cur_src = $_GET['source'] ?? '';
-                    $src_list = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Imported'];
+                    $src_list = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Self', 'Door to Door', 'Imported'];
                     foreach ($src_list as $srcItem): 
                     ?>
                         <option value="<?php echo htmlspecialchars($srcItem); ?>" <?php echo (strcasecmp($cur_src, $srcItem) === 0) ? 'selected' : ''; ?>><?php echo htmlspecialchars($srcItem); ?></option>
@@ -688,8 +818,9 @@ if (empty($leads)) {
                     <option value="">All Employees</option>
                     <?php 
                     $cur_ass = $_GET['assigned_to'] ?? '';
-                    foreach ($operators as $op): 
                     ?>
+                    <option value="Unassigned" <?php echo (strcasecmp($cur_ass, 'Unassigned') === 0) ? 'selected' : ''; ?>>Unassigned (Not Assigned)</option>
+                    <?php foreach ($operators as $op): ?>
                         <option value="<?php echo htmlspecialchars($op); ?>" <?php echo (strcasecmp($cur_ass, $op) === 0) ? 'selected' : ''; ?>><?php echo htmlspecialchars($op); ?></option>
                     <?php endforeach; ?>
                 </select>
@@ -787,10 +918,11 @@ if (empty($leads)) {
                         <th class="col-status">Status</th>
                         <th class="col-priority">Priority</th>
                         <th class="col-source">Source</th>
-                        <th class="col-enq-for" style="display: none;">Enq For</th>
-                        <th class="col-tags" style="display: none;">Tags</th>
-                        <th class="col-address" style="display: none;">Address</th>
-                        <th class="col-remarks" style="display: none;">Remarks</th>
+                        <th class="col-enq-for">Enq For</th>
+                        <th class="col-tags">Tags</th>
+                        <th class="col-address">Address</th>
+                        <th class="col-remarks">Remarks</th>
+                        <th class="col-scheduled-fup">Scheduled Follow-up</th>
                         <th class="col-activity">Last Activity</th>
                         <th style="text-align: right;">Actions</th>
                     </tr>
@@ -802,7 +934,7 @@ if (empty($leads)) {
                         $sno = ($limit === 'all') ? ($loop_idx + 1) : ($offset + $loop_idx + 1);
                         $loop_idx++;
                     ?>
-                        <tr data-source="<?php echo htmlspecialchars($lead['source']); ?>" data-priority="<?php echo htmlspecialchars($lead['priority']); ?>" data-status="<?php echo htmlspecialchars($lead['status']); ?>" data-assigned="<?php echo htmlspecialchars($lead['assigned']); ?>" data-group="<?php echo htmlspecialchars($lead['group_stage'] ?? ''); ?>" data-date="<?php echo htmlspecialchars(!empty($lead['scheduled_date']) ? $lead['scheduled_date'] : $lead['created_date']); ?>" data-fupdate="<?php echo htmlspecialchars($lead['scheduled_date'] ?? ''); ?>" data-createdate="<?php echo htmlspecialchars($lead['created_date'] ?? ''); ?>">
+                        <tr data-source="<?php echo htmlspecialchars($lead['source']); ?>" data-priority="<?php echo htmlspecialchars($lead['priority']); ?>" data-status="<?php echo htmlspecialchars($lead['status']); ?>" data-assigned="<?php echo htmlspecialchars($lead['assigned']); ?>" data-group="<?php echo htmlspecialchars($lead['group_stage'] ?? ''); ?>" data-date="<?php echo htmlspecialchars($lead['scheduled_date'] ?? ''); ?>" data-fupdate="<?php echo htmlspecialchars($lead['scheduled_date'] ?? ''); ?>" data-createdate="<?php echo htmlspecialchars($lead['created_date'] ?? ''); ?>" data-updatedate="<?php echo htmlspecialchars($lead['updated_date'] ?? ''); ?>">
                             <td style="text-align: center; vertical-align: middle;">
                                 <input type="checkbox" class="lead-checkbox" value="<?php echo $lead['id']; ?>" style="accent-color: var(--primary);">
                             </td>
@@ -870,17 +1002,27 @@ if (empty($leads)) {
                             <td class="col-source" style="vertical-align: middle;">
                                 <span class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted);"><?php echo htmlspecialchars(!empty($lead['source']) ? $lead['source'] : 'NA'); ?></span>
                             </td>
-                            <td class="col-enq-for text-xs" style="vertical-align: middle; display: none;">
+                            <td class="col-enq-for text-xs" style="vertical-align: middle;">
                                 <?php echo htmlspecialchars(!empty($lead['enq_for']) ? $lead['enq_for'] : 'NA'); ?>
                             </td>
-                            <td class="col-tags text-xs" style="vertical-align: middle; display: none;">
+                            <td class="col-tags text-xs" style="vertical-align: middle;">
                                 <span class="badge text-xs"><?php echo htmlspecialchars(!empty($lead['tags']) ? $lead['tags'] : 'NA'); ?></span>
                             </td>
-                            <td class="col-address text-xs text-muted" style="vertical-align: middle; display: none;">
+                            <td class="col-address text-xs text-muted" style="vertical-align: middle;">
                                 <?php echo htmlspecialchars(!empty($lead['address']) ? $lead['address'] : 'NA'); ?>
                             </td>
-                            <td class="col-remarks text-xs text-muted" style="vertical-align: middle; display: none;">
+                            <td class="col-remarks text-xs text-muted" style="vertical-align: middle;">
                                 <?php echo htmlspecialchars(!empty($lead['remarks']) ? $lead['remarks'] : 'NA'); ?>
+                            </td>
+                            <td class="col-scheduled-fup text-xs font-semibold" style="vertical-align: middle;">
+                                <?php if (!empty($lead['scheduled_datetime'])): ?>
+                                    <span class="badge" style="background: rgba(37, 99, 235, 0.1); color: var(--primary); border: 1px solid rgba(37, 99, 235, 0.25); padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+                                        <i data-lucide="calendar" style="width: 12px; height: 12px;"></i>
+                                        <?php echo htmlspecialchars($lead['scheduled_datetime']); ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span class="text-muted text-xs">No Follow-up</span>
+                                <?php endif; ?>
                             </td>
                             <td class="col-activity text-xs text-muted" style="vertical-align: middle;">
                                 <?php echo $lead['last_contact']; ?>
@@ -1000,7 +1142,7 @@ if (empty($leads)) {
                     <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Group</label>
-                            <select name="company" id="qf-company" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
+                            <select name="group_stage" id="qf-group-stage" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
                                 <option value="Fresh">Fresh</option>
                                 <option value="Followup">Followup</option>
                                 <option value="Demo Scheduled">Demo Scheduled</option>
@@ -1072,6 +1214,8 @@ if (empty($leads)) {
                                 <option value="Exhibitions">Exhibitions</option>
                                 <option value="HO">HO</option>
                                 <option value="Office">Office</option>
+                                <option value="Self">Self</option>
+                                <option value="Door to Door">Door to Door</option>
                                 <option value="Imported">Imported</option>
                             </select>
                         </div>
@@ -1280,6 +1424,10 @@ if (empty($leads)) {
                     <span class="text-xs font-semibold">Remarks</span>
                     <input type="checkbox" id="cb_col_remarks" class="col-toggle-cb" data-target="col-remarks" onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
                 </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_scheduled_fup')">
+                    <span class="text-xs font-semibold">Scheduled Follow-up</span>
+                    <input type="checkbox" id="cb_col_scheduled_fup" class="col-toggle-cb" data-target="col-scheduled-fup" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
                 <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_activity')">
                     <span class="text-xs font-semibold">Last Activity</span>
                     <input type="checkbox" id="cb_col_activity" class="col-toggle-cb" data-target="col-activity" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
@@ -1331,7 +1479,8 @@ if (empty($leads)) {
                 // Set lead properties in form with safety checks
                 if (document.getElementById('qf-lead-id')) document.getElementById('qf-lead-id').value = lead.id || '';
                 if (document.getElementById('qf-modal-title')) document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name || ''}</strong> ( ${lead.phone || ''} )`;
-                if (document.getElementById('qf-company')) document.getElementById('qf-company').value = lead.company || '';
+                if (document.getElementById('qf-group-stage')) document.getElementById('qf-group-stage').value = lead.group_stage || lead.company || 'Fresh';
+                if (document.getElementById('qf-company')) document.getElementById('qf-company').value = lead.group_stage || lead.company || 'Fresh';
                 if (document.getElementById('qf-status')) document.getElementById('qf-status').value = lead.status || 'new';
                 const assignedList = (lead.assigned || '').split(',').map(s => s.trim().toLowerCase());
                 document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
@@ -1479,14 +1628,32 @@ if (empty($leads)) {
     });
     
     // Advanced Realtime Multi-Criteria Table Filtering
+    let _activeFetchController = null; // AbortController for cancelling in-flight requests
+
     function fetchLeadsPartialWithoutReload(targetUrl, pushState = true) {
         if (!targetUrl) return Promise.resolve(false);
-        
+
+        // Cancel any previous in-flight request immediately
+        if (_activeFetchController) {
+            _activeFetchController.abort();
+        }
+        _activeFetchController = new AbortController();
+        const signal = _activeFetchController.signal;
+
         if (pushState && history.pushState) {
             history.pushState(null, '', targetUrl);
         }
 
+        // Show loading overlay on table immediately
+        const tableCard = document.querySelector('#leads-table-card');
+        if (tableCard) {
+            tableCard.style.opacity = '0.45';
+            tableCard.style.pointerEvents = 'none';
+            tableCard.style.transition = 'opacity 0.15s ease';
+        }
+
         return fetch(targetUrl, {
+            signal,
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' }
         })
         .then(res => {
@@ -1530,18 +1697,40 @@ if (empty($leads)) {
                 }
             });
 
-            // 5. Re-initialize Lucide Icons & Column preferences
+            // 5. Sync Quick Preset Filter Button & Dropdown state
+            const newPresetContainer = doc.querySelector('#quick-preset-dropdown-container');
+            const curPresetContainer = document.querySelector('#quick-preset-dropdown-container');
+            if (newPresetContainer && curPresetContainer) {
+                curPresetContainer.innerHTML = newPresetContainer.innerHTML;
+            }
+
+            // 6. Re-initialize Lucide Icons & Column preferences
             if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
                 lucide.createIcons();
             }
-            if (typeof loadDirColumnPreferences === 'function') {
-                loadDirColumnPreferences();
+            if (typeof loadColumnPreferences === 'function') {
+                loadColumnPreferences();
             }
 
-            applyAdvancedFilters(false);
+            // Restore table visibility
+            if (tableCard) {
+                tableCard.style.opacity = '';
+                tableCard.style.pointerEvents = '';
+            }
+
+            // NOTE: Do NOT call applyAdvancedFilters() here — data is already server-filtered
             return true;
         })
         .catch(err => {
+            if (err.name === 'AbortError') {
+                // Request was intentionally cancelled — not an error
+                return false;
+            }
+            // Restore table on real error too
+            if (tableCard) {
+                tableCard.style.opacity = '';
+                tableCard.style.pointerEvents = '';
+            }
             console.error('AJAX partial update failed:', err);
             return false;
         });
@@ -1602,17 +1791,29 @@ if (empty($leads)) {
             const rGroup = (row.getAttribute('data-group') || '').toLowerCase();
 
             const matchSearch = !searchVal || text.includes(searchVal);
-            const matchDate = !dateVal || rDate === dateVal || rFupDate === dateVal || rCreateDate === dateVal || rDate.startsWith(dateVal);
+            const matchDate = !dateVal || (rFupDate && rFupDate === dateVal);
             const matchSource = !sourceVal || rSource.includes(sourceVal) || text.includes(sourceVal);
             const matchPriority = !priorityVal || rPriority === priorityVal;
-            const matchAssigned = !assignedVal || rAssigned.includes(assignedVal);
+            let matchAssigned = true;
+            if (assignedVal) {
+                if (assignedVal === 'unassigned') {
+                    matchAssigned = (!rAssigned || rAssigned === 'unassigned' || rAssigned.trim() === '');
+                } else {
+                    matchAssigned = rAssigned.includes(assignedVal);
+                }
+            }
             const matchGroup = !groupVal || rGroup === groupVal || rGroup.includes(groupVal);
+
+            const closedWonStatuses = ['won', 'closed_won', 'install_pending', 'payment_pending'];
 
             let matchStatus = false;
             if (statusVal === 'dropped') {
                 matchStatus = (rStatus === 'dropped');
+            } else if (statusVal === 'won') {
+                matchStatus = closedWonStatuses.includes(rStatus);
             } else if (statusVal === '') {
-                matchStatus = (rStatus !== 'dropped');
+                // Default: hide Dropped AND Closed Won leads
+                matchStatus = (rStatus !== 'dropped' && !closedWonStatuses.includes(rStatus));
             } else {
                 matchStatus = (rStatus === statusVal);
             }
@@ -1691,6 +1892,53 @@ if (empty($leads)) {
                 e.preventDefault();
                 fetchLeadsPartialWithoutReload(href, true);
             }
+        }
+    });
+
+    // Quick Presets Dropdown Functions
+    function toggleQuickPresetMenu(e) {
+        e.stopPropagation();
+        const menu = document.getElementById('quick-preset-menu');
+        if (menu) menu.classList.toggle('hidden');
+    }
+    window.toggleQuickPresetMenu = toggleQuickPresetMenu;
+
+    function selectQuickPreset(presetKey) {
+        const menu = document.getElementById('quick-preset-menu');
+        if (menu) menu.classList.add('hidden');
+
+        const url = new URL(window.location.href);
+        if (presetKey) {
+            url.searchParams.set('quick_preset', presetKey);
+            // Clear other date / status / search specific conflicts if choosing preset
+            url.searchParams.delete('lead_date');
+            url.searchParams.delete('date');
+            url.searchParams.delete('filter');
+            url.searchParams.delete('card_filter');
+            url.searchParams.delete('filter_card');
+            url.searchParams.delete('day');
+        } else {
+            url.searchParams.delete('quick_preset');
+        }
+        url.searchParams.set('p', '1');
+        fetchLeadsPartialWithoutReload(url.toString(), true);
+    }
+    window.selectQuickPreset = selectQuickPreset;
+
+    function openCustomFilterDrawer() {
+        const menu = document.getElementById('quick-preset-menu');
+        if (menu) menu.classList.add('hidden');
+        const drawer = document.getElementById('advanced-filter-drawer');
+        if (drawer) drawer.classList.remove('hidden');
+    }
+    window.openCustomFilterDrawer = openCustomFilterDrawer;
+
+    // Close quick preset menu when clicking anywhere outside
+    document.addEventListener('click', function(e) {
+        const container = document.getElementById('quick-preset-dropdown-container');
+        if (container && !container.contains(e.target)) {
+            const menu = document.getElementById('quick-preset-menu');
+            if (menu) menu.classList.add('hidden');
         }
     });
 
@@ -1887,33 +2135,48 @@ if (empty($leads)) {
         const cb = document.getElementById(checkboxId);
         if (cb) {
             cb.checked = !cb.checked;
-            toggleColumnByCheckbox(cb);
+            applyColumnStylesFromCheckboxes();
         }
     }
 
     function toggleColumnByCheckbox(cb) {
-        const targetClass = cb.getAttribute('data-target');
-        const isChecked = cb.checked;
-        const cells = document.querySelectorAll('.' + targetClass);
-        cells.forEach(cell => {
-            if (isChecked) {
-                cell.style.setProperty('display', 'table-cell', 'important');
-            } else {
-                cell.style.setProperty('display', 'none', 'important');
+        applyColumnStylesFromCheckboxes();
+    }
+
+    function applyColumnStylesFromCheckboxes() {
+        const checkboxes = document.querySelectorAll('.col-toggle-cb');
+        let hideRules = [];
+        checkboxes.forEach(cb => {
+            const targetClass = cb.getAttribute('data-target');
+            if (!cb.checked && targetClass) {
+                hideRules.push('.' + targetClass + ' { display: none !important; }');
             }
         });
+
+        let styleEl = document.getElementById('lead-columns-dynamic-style');
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'lead-columns-dynamic-style';
+            document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = hideRules.join('\n');
     }
 
     function toggleColumnSelectorDrawer() {
         const modal = document.getElementById('column-selector-modal');
         if (modal) {
-            // Sync checkbox state with current visible columns
+            // Sync modal checkboxes strictly from saved localStorage preferences or active style
+            const saved = localStorage.getItem('lead_table_column_prefs');
+            let prefs = {};
+            if (saved) {
+                try { prefs = JSON.parse(saved); } catch(e) {}
+            }
+
             const checkboxes = document.querySelectorAll('.col-toggle-cb');
             checkboxes.forEach(cb => {
                 const targetClass = cb.getAttribute('data-target');
-                const th = document.querySelector('th.' + targetClass);
-                if (th) {
-                    cb.checked = (window.getComputedStyle(th).display !== 'none');
+                if (prefs.hasOwnProperty(targetClass)) {
+                    cb.checked = !!prefs[targetClass];
                 }
             });
 
@@ -1936,8 +2199,8 @@ if (empty($leads)) {
         const checkboxes = document.querySelectorAll('.col-toggle-cb');
         checkboxes.forEach(cb => {
             cb.checked = selectState;
-            toggleColumnByCheckbox(cb);
         });
+        applyColumnStylesFromCheckboxes();
     }
 
     function applyColumnPreferences() {
@@ -1948,10 +2211,10 @@ if (empty($leads)) {
             const targetClass = cb.getAttribute('data-target');
             const isChecked = cb.checked;
             prefs[targetClass] = isChecked;
-            toggleColumnByCheckbox(cb);
         });
 
         localStorage.setItem('lead_table_column_prefs', JSON.stringify(prefs));
+        applyColumnStylesFromCheckboxes();
         closeColumnSelectorDrawer();
     }
 
@@ -1959,23 +2222,25 @@ if (empty($leads)) {
         const saved = localStorage.getItem('lead_table_column_prefs');
         const checkboxes = document.querySelectorAll('.col-toggle-cb');
 
-        let prefs = {};
+        let prefs = null;
         if (saved) {
             try {
                 prefs = JSON.parse(saved);
-            } catch(e) {}
+            } catch(e) {
+                prefs = null;
+            }
         }
 
         checkboxes.forEach(cb => {
             const targetClass = cb.getAttribute('data-target');
-            let isChecked = cb.checked;
-            if (saved && prefs.hasOwnProperty(targetClass)) {
-                isChecked = prefs[targetClass];
-                cb.checked = isChecked;
+            if (prefs && prefs.hasOwnProperty(targetClass)) {
+                cb.checked = Boolean(prefs[targetClass]);
             }
-            toggleColumnByCheckbox(cb);
         });
+
+        applyColumnStylesFromCheckboxes();
     }
+    window.loadColumnPreferences = loadColumnPreferences;
 
     // Load saved user column visibility preferences on initialization
     if (document.readyState === 'loading') {
@@ -2045,4 +2310,550 @@ function openCallQrModal(name, phone, telEncoded) {
     
     window.openModal('call-qr-modal');
 }
+</script>
+
+<!-- ===== EXPORT DIRECTORY MODAL ===== -->
+<style>
+#export-modal-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(6px);
+    align-items: center; justify-content: center;
+    padding: 16px;
+}
+#export-modal-overlay.open { display: flex; }
+
+#export-modal-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 22px;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.38), 0 0 0 1px rgba(255,255,255,0.05);
+    width: 820px; max-width: 98vw;
+    max-height: 94vh; overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0;
+    animation: exportModalIn 0.28s cubic-bezier(.22,1,.36,1);
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+#export-modal-box::-webkit-scrollbar { width: 5px; }
+#export-modal-box::-webkit-scrollbar-track { background: transparent; }
+#export-modal-box::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
+
+@keyframes exportModalIn {
+    from { opacity: 0; transform: translateY(32px) scale(0.96); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* Header */
+.export-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.6rem 2rem 1.35rem;
+    background: linear-gradient(135deg, #004d40 0%, #00695c 55%, #00897b 100%);
+    border-radius: 22px 22px 0 0;
+    color: #fff;
+    position: sticky; top: 0; z-index: 10;
+    box-shadow: 0 4px 16px rgba(0,77,64,0.25);
+}
+.export-modal-header-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: rgba(255,255,255,0.15);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+.export-modal-close-btn {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #fff; border-radius: 10px;
+    width: 36px; height: 36px; cursor: pointer;
+    font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, transform 0.15s;
+    flex-shrink: 0;
+}
+.export-modal-close-btn:hover { background: rgba(255,255,255,0.22); transform: scale(1.08); }
+
+/* Body */
+.export-modal-body { padding: 1.75rem 2rem; display: flex; flex-direction: column; gap: 1.5rem; }
+
+/* Section title */
+.export-section-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.7rem; font-weight: 800; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin: 0 0 0.75rem;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--border-color);
+}
+.export-section-title span.etitle-icon { font-size: 0.95rem; }
+
+/* Scope Cards */
+.export-scope-cards {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+}
+.export-scope-card {
+    border: 2px solid var(--border-color);
+    border-radius: 14px; padding: 1.25rem 1rem;
+    text-align: center; cursor: pointer;
+    transition: all 0.2s cubic-bezier(.22,1,.36,1);
+    background: var(--bg-app);
+    position: relative; overflow: hidden;
+}
+.export-scope-card::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(0,77,64,0.06) 0%, transparent 60%);
+    opacity: 0; transition: opacity 0.2s;
+}
+.export-scope-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,77,64,0.12); }
+.export-scope-card:hover::before { opacity: 1; }
+.export-scope-card.selected {
+    border-color: var(--primary);
+    background: rgba(0,77,64,0.07);
+    box-shadow: 0 0 0 3px rgba(0,77,64,0.15), 0 8px 24px rgba(0,77,64,0.1);
+    transform: translateY(-1px);
+}
+.export-scope-card.selected::before { opacity: 1; }
+.export-scope-card .scope-icon {
+    width: 46px; height: 46px; border-radius: 13px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 0.8rem;
+    background: linear-gradient(135deg, var(--primary) 0%, #00897b 100%);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(0,77,64,0.3);
+}
+.export-scope-card h4 { font-size: 0.88rem; font-weight: 800; margin: 0 0 4px; color: var(--text-main); }
+.export-scope-card p { font-size: 0.72rem; color: var(--text-muted); margin: 0; line-height: 1.4; }
+.export-scope-card.selected::after {
+    content: '✓';
+    position: absolute; top: 10px; right: 11px;
+    width: 20px; height: 20px;
+    background: var(--primary); color: #fff;
+    border-radius: 50%; font-size: 11px; font-weight: 900;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 20px; text-align: center;
+    box-shadow: 0 2px 6px rgba(0,77,64,0.4);
+}
+
+/* Custom Filter Section */
+#export-custom-section {
+    display: none;
+    animation: exportFadeIn 0.22s cubic-bezier(.22,1,.36,1);
+}
+#export-custom-section.visible { display: block; }
+@keyframes exportFadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+}
+
+.export-filter-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+}
+.export-filter-group {}
+.export-filter-group label {
+    display: block; font-size: 0.68rem; font-weight: 800;
+    color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.07em; margin-bottom: 5px;
+}
+.export-filter-group select,
+.export-filter-group input[type="date"] {
+    width: 100%;
+    padding: 0.52rem 0.85rem;
+    border: 1.5px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-app);
+    color: var(--text-main);
+    font-size: 0.82rem;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    appearance: auto;
+}
+.export-filter-group select:focus,
+.export-filter-group input[type="date"]:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0,77,64,0.1);
+}
+
+/* Followup Pills */
+.export-followup-pills {
+    display: flex; gap: 8px; flex-wrap: wrap;
+}
+.export-fup-pill {
+    border: 2px solid var(--border-color);
+    border-radius: 50px; padding: 6px 18px;
+    font-size: 0.78rem; font-weight: 700;
+    cursor: pointer; transition: all 0.18s ease;
+    background: var(--bg-app); color: var(--text-muted);
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+}
+.export-fup-pill:hover { border-color: var(--primary); color: var(--primary); background: rgba(0,77,64,0.05); }
+.export-fup-pill.selected {
+    border-color: var(--primary);
+    background: linear-gradient(135deg, rgba(0,77,64,0.12), rgba(0,137,123,0.1));
+    color: var(--primary);
+    box-shadow: 0 2px 8px rgba(0,77,64,0.15);
+}
+
+/* Columns Checkboxes */
+.export-col-checkboxes {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+}
+.export-col-cb-label {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.78rem; font-weight: 500; cursor: pointer;
+    padding: 5px 8px; border-radius: 8px;
+    transition: background 0.13s; user-select: none;
+    color: var(--text-main);
+}
+.export-col-cb-label:hover { background: rgba(0,77,64,0.06); }
+.export-col-cb-label input[type="checkbox"] { accent-color: var(--primary); width: 14px; height: 14px; flex-shrink: 0; }
+
+/* Divider between sections */
+.export-section-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--border-color), transparent);
+    margin: 0;
+}
+
+/* Footer */
+.export-modal-footer {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 1.1rem 2rem 1.35rem;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-app);
+    border-radius: 0 0 22px 22px;
+    position: sticky; bottom: 0;
+}
+.export-preview-badge {
+    display: flex; align-items: center; gap: 7px;
+    background: rgba(0,77,64,0.08); border: 1px solid rgba(0,77,64,0.2);
+    border-radius: 8px; padding: 6px 12px;
+    font-size: 0.78rem; color: var(--primary); font-weight: 60</style>
+
+<div id="export-modal-overlay" onclick="if(event.target===this)closeExportModal()">
+    <div id="export-modal-box">
+
+        <!-- ── Header ── -->
+        <div class="export-modal-header">
+            <div style="display:flex;align-items:center;gap:14px;">
+                <div class="export-modal-header-icon">
+                    <i data-lucide="file-up" style="width:22px;height:22px;color:#fff;"></i>
+                </div>
+                <div>
+                    <div style="font-size:1.12rem;font-weight:800;letter-spacing:-0.025em;line-height:1.2;">Export Directory</div>
+                    <div style="font-size:0.75rem;opacity:0.75;margin-top:3px;font-weight:400;">Customizable CSV — choose scope, filters &amp; columns</div>
+                </div>
+            </div>
+            <button class="export-modal-close-btn" onclick="closeExportModal()" title="Close">&times;</button>
+        </div>
+
+        <!-- ── Body ── -->
+        <div class="export-modal-body">
+
+            <!-- SCOPE -->
+            <div>
+                <div class="export-section-title"><span class="etitle-icon">📋</span> Export Scope</div>
+                <div class="export-scope-cards">
+                    <div class="export-scope-card selected" id="scope-card-current" onclick="selectExportScope('current')">
+                        <div class="scope-icon"><i data-lucide="monitor" style="width:20px;height:20px;"></i></div>
+                        <h4>Current View</h4>
+                        <p>Leads visible on screen with active filters</p>
+                    </div>
+                    <div class="export-scope-card" id="scope-card-all" onclick="selectExportScope('all')">
+                        <div class="scope-icon"><i data-lucide="database" style="width:20px;height:20px;"></i></div>
+                        <h4>All Leads</h4>
+                        <p>Export every lead in the system</p>
+                    </div>
+                    <div class="export-scope-card" id="scope-card-custom" onclick="selectExportScope('custom')">
+                        <div class="scope-icon"><i data-lucide="sliders-horizontal" style="width:20px;height:20px;"></i></div>
+                        <h4>Custom Filter</h4>
+                        <p>Pick your own date, group, source &amp; more</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="export-section-divider"></div>
+
+            <!-- CUSTOM FILTERS (visible only on custom scope) -->
+            <div id="export-custom-section">
+                <div class="export-section-title"><span class="etitle-icon">🎯</span> Custom Filters</div>
+                <div class="export-filter-grid">
+                    <div class="export-filter-group">
+                        <label>Date From</label>
+                        <input type="date" id="exp-date-from" max="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                    <div class="export-filter-group">
+                        <label>Date To</label>
+                        <input type="date" id="exp-date-to" value="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                    <div class="export-filter-group">
+                        <label>Group / Stage</label>
+                        <select id="exp-group">
+                            <option value="">All Groups</option>
+                            <?php foreach ($available_groups as $grp): ?>
+                                <option value="<?php echo htmlspecialchars($grp); ?>"><?php echo htmlspecialchars($grp); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="export-filter-group">
+                        <label>Priority</label>
+                        <select id="exp-priority">
+                            <option value="">All Priorities</option>
+                            <option value="hot">🔴 Hot</option>
+                            <option value="warm">🟠 Warm</option>
+                            <option value="cold">🔵 Cold</option>
+                        </select>
+                    </div>
+                    <div class="export-filter-group">
+                        <label>Source</label>
+                        <select id="exp-source">
+                            <option value="">All Sources</option>
+                            <?php
+                            $src_opts = [];
+                            if ($db_connected && $pdo) {
+                                try {
+                                    $srcStmt = $pdo->query("SELECT DISTINCT source FROM leads WHERE source IS NOT NULL AND TRIM(source) != '' ORDER BY source ASC");
+                                    $src_opts = $srcStmt->fetchAll(PDO::FETCH_COLUMN);
+                                } catch (PDOException $e) {}
+                            }
+                            if (empty($src_opts)) $src_opts = ['Direct', 'Reference', 'Online', 'Walk-in', 'Cold Call'];
+                            foreach ($src_opts as $src): ?>
+                                <option value="<?php echo htmlspecialchars($src); ?>"><?php echo htmlspecialchars($src); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="export-filter-group">
+                        <label>Assigned To</label>
+                        <select id="exp-assigned">
+                            <option value="">All Executives</option>
+                            <?php foreach ($operators as $op): ?>
+                                <option value="<?php echo htmlspecialchars($op); ?>"><?php echo htmlspecialchars($op); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="export-filter-group" style="grid-column: span 2;">
+                        <label>Status</label>
+                        <select id="exp-status">
+                            <option value="">All Status</option>
+                            <option value="new">New</option>
+                            <option value="open">Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="pending">Pending</option>
+                            <option value="closed">Closed</option>
+                            <option value="dropped">Dropped</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Follow-up for custom scope -->
+                <div style="margin-top:1.25rem;">
+                    <div class="export-section-title"><span class="etitle-icon">📞</span> Follow-up Reminders (per Lead)</div>
+                    <div class="export-followup-pills">
+                        <div class="export-fup-pill selected" id="fup-pill-0" onclick="selectFupCount(0)">None</div>
+                        <div class="export-fup-pill" id="fup-pill-1" onclick="selectFupCount(1)">Last 1</div>
+                        <div class="export-fup-pill" id="fup-pill-2" onclick="selectFupCount(2)">Last 2</div>
+                        <div class="export-fup-pill" id="fup-pill-3" onclick="selectFupCount(3)">Last 3</div>
+                        <div class="export-fup-pill" id="fup-pill-all" onclick="selectFupCount('all')">All (separate rows)</div>
+                    </div>
+                    <p style="font-size:0.69rem;color:var(--text-muted);margin-top:7px;line-height:1.5;">
+                        💡 <b>None</b> = lead info only &nbsp;|&nbsp; <b>Last 1/2/3</b> = extra columns on same row &nbsp;|&nbsp; <b>All</b> = one row per followup
+                    </p>
+                </div>
+                <div class="export-section-divider" style="margin-top:1.25rem;"></div>
+            </div>
+
+            <!-- FOLLOW-UP for Current View / All Leads -->
+            <div id="export-fup-section-simple">
+                <div class="export-section-title"><span class="etitle-icon">📞</span> Follow-up Reminders (per Lead)</div>
+                <div class="export-followup-pills">
+                    <div class="export-fup-pill selected" id="fup-simple-pill-0" onclick="selectSimpleFupCount(0)">None</div>
+                    <div class="export-fup-pill" id="fup-simple-pill-1" onclick="selectSimpleFupCount(1)">Last 1</div>
+                    <div class="export-fup-pill" id="fup-simple-pill-2" onclick="selectSimpleFupCount(2)">Last 2</div>
+                    <div class="export-fup-pill" id="fup-simple-pill-3" onclick="selectSimpleFupCount(3)">Last 3</div>
+                    <div class="export-fup-pill" id="fup-simple-pill-all" onclick="selectSimpleFupCount('all')">All (separate rows)</div>
+                </div>
+                <p style="font-size:0.69rem;color:var(--text-muted);margin-top:7px;line-height:1.5;">
+                    💡 <b>None</b> = lead info only &nbsp;|&nbsp; <b>Last 1/2/3</b> = extra columns on same row &nbsp;|&nbsp; <b>All</b> = one row per followup
+                </p>
+            </div>
+
+            <div class="export-section-divider"></div>
+
+            <!-- COLUMNS -->
+            <div>
+                <div class="export-section-title" style="justify-content:space-between;">
+                    <span style="display:flex;align-items:center;gap:8px;"><span class="etitle-icon">📊</span> Columns to Export</span>
+                    <span style="font-size:0.7rem;font-weight:700;cursor:pointer;color:var(--primary);text-transform:none;letter-spacing:0;border-bottom:1px dashed var(--primary);" onclick="toggleAllExportCols()">Select / Deselect All</span>
+                </div>
+                <div class="export-col-checkboxes">
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="id" checked> Lead ID</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="name" checked> Customer Name</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="contact_person" checked> Contact Person</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="company" checked> Company</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="phone" checked> Phone</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="email" checked> Email</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="address"> Address</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="source" checked> Source</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="priority" checked> Priority</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="status" checked> Status</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="group_stage" checked> Group / Stage</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="assigned_to" checked> Assigned To</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="budget"> Budget</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="enq_for"> Enq For</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="tags"> Tags</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="remarks"> Remarks</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="created_at" checked> Created Date</label>
+                    <label class="export-col-cb-label"><input type="checkbox" class="exp-col-cb" value="updated_at"> Updated Date</label>
+                </div>
+            </div>
+
+        </div><!-- /.export-modal-body -->
+
+        <!-- ── Footer ── -->
+        <div class="export-modal-footer">
+            <div class="export-preview-badge">
+                <i data-lucide="info" style="width:14px;height:14px;flex-shrink:0;"></i>
+                <span id="export-preview-text">Exporting: Current View leads</span>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <button class="btn btn-secondary text-sm" onclick="closeExportModal()" style="padding:0.52rem 1.1rem;">Cancel</button>
+                <button class="btn btn-primary text-sm" id="do-export-btn" onclick="doExport()" style="gap:8px;padding:0.52rem 1.4rem;font-weight:700;">
+                    <i data-lucide="download" style="width:15px;height:15px;"></i>
+                    Download CSV
+                </button>
+            </div>
+        </div>
+
+    </div><!-- /#export-modal-box -->
+</div><!-- /#export-modal-overlay -->
+utton>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===== Export Modal State =====
+let exportScope = 'current';
+let exportFupCount = 0;
+let exportSimpleFupCount = 0;
+
+function openExportModal() {
+    document.getElementById('export-modal-overlay').classList.add('open');
+    // Pre-fill current view URL params for scope=current
+    updateExportPreview();
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeExportModal() {
+    document.getElementById('export-modal-overlay').classList.remove('open');
+}
+
+function selectExportScope(scope) {
+    exportScope = scope;
+    ['current','all','custom'].forEach(s => {
+        document.getElementById('scope-card-'+s).classList.toggle('selected', s === scope);
+    });
+    const customSection = document.getElementById('export-custom-section');
+    const simpleSection = document.getElementById('export-fup-section-simple');
+    if (scope === 'custom') {
+        customSection.classList.add('visible');
+        simpleSection.style.display = 'none';
+    } else {
+        customSection.classList.remove('visible');
+        simpleSection.style.display = 'block';
+    }
+    updateExportPreview();
+}
+
+function selectFupCount(count) {
+    exportFupCount = count;
+    ['0','1','2','3','all'].forEach(v => {
+        document.getElementById('fup-pill-'+v)?.classList.toggle('selected', String(v) === String(count));
+    });
+}
+
+function selectSimpleFupCount(count) {
+    exportSimpleFupCount = count;
+    ['0','1','2','3','all'].forEach(v => {
+        document.getElementById('fup-simple-pill-'+v)?.classList.toggle('selected', String(v) === String(count));
+    });
+}
+
+function updateExportPreview() {
+    const labels = { current: 'Current View', all: 'All Leads', custom: 'Custom Filtered' };
+    document.getElementById('export-preview-text').textContent = 'Exporting: ' + (labels[exportScope] || exportScope) + ' leads';
+}
+
+function toggleAllExportCols() {
+    const cbs = document.querySelectorAll('.exp-col-cb');
+    const anyUnchecked = [...cbs].some(cb => !cb.checked);
+    cbs.forEach(cb => cb.checked = anyUnchecked);
+}
+
+function doExport() {
+    const btn = document.getElementById('do-export-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-2" style="width:15px;height:15px;animation:spin 1s linear infinite;"></i> Preparing...';
+
+    const cols = [...document.querySelectorAll('.exp-col-cb:checked')].map(cb => cb.value);
+    if (cols.length === 0) {
+        alert('Please select at least one column to export.');
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="download" style="width:15px;height:15px;"></i> Download CSV';
+        return;
+    }
+
+    const fupCount = exportScope === 'custom' ? exportFupCount : exportSimpleFupCount;
+
+    const params = new URLSearchParams();
+    params.set('action', 'export_csv_advanced');
+    params.set('exp_scope', exportScope);
+    params.set('exp_cols', cols.join(','));
+    params.set('exp_fup', String(fupCount));
+
+    // Current view: pass existing URL filters
+    if (exportScope === 'current') {
+        const urlParams = new URLSearchParams(window.location.search);
+        for (const [k, v] of urlParams.entries()) {
+            if (k !== 'action' && k !== 'p') params.set('exp_url_' + k, v);
+        }
+    }
+
+    // Custom filters
+    if (exportScope === 'custom') {
+        const df = document.getElementById('exp-date-from').value;
+        const dt = document.getElementById('exp-date-to').value;
+        const grp = document.getElementById('exp-group').value;
+        const pri = document.getElementById('exp-priority').value;
+        const src = document.getElementById('exp-source').value;
+        const asg = document.getElementById('exp-assigned').value;
+        const sts = document.getElementById('exp-status').value;
+        if (df) params.set('exp_date_from', df);
+        if (dt) params.set('exp_date_to', dt);
+        if (grp) params.set('exp_group', grp);
+        if (pri) params.set('exp_priority', pri);
+        if (src) params.set('exp_source', src);
+        if (asg) params.set('exp_assigned', asg);
+        if (sts) params.set('exp_status', sts);
+    }
+
+    const url = 'index.php?' + params.toString();
+    window.location.href = url;
+
+    setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="download" style="width:15px;height:15px;"></i> Download CSV';
+        if (window.lucide) lucide.createIcons();
+        closeExportModal();
+    }, 2000);
+}
+
+// Spin animation for loader icon
+const exportSpinStyle = document.createElement('style');
+exportSpinStyle.textContent = '@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }';
+document.head.appendChild(exportSpinStyle);
 </script>

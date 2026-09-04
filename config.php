@@ -521,6 +521,12 @@ function hasAccess($module, $role) {
         return true;
     }
 
+    // 2b. Dashboard is always accessible to every logged-in user
+    // It is a base landing page - content adapts based on tenant permissions
+    if ($module === 'dashboard') {
+        return true;
+    }
+
     // 3. System Administrator ALWAYS gets 100% full access to all pages on Master CRM
     if (isSystemAdminRole($role) && empty($_SESSION['impersonate_tenant_db'])) {
         return true;
@@ -775,6 +781,10 @@ if (!function_exists('getLiveMetricCounts')) {
         $tomorrow_str = date('Y-m-d', strtotime('+1 day'));
         $nextday_str = date('Y-m-d', strtotime('+2 days'));
 
+        $yesterday_str = date('Y-m-d', strtotime('-1 day'));
+        $day_before_str = date('Y-m-d', strtotime('-2 days'));
+        $three_days_ago_str = date('Y-m-d', strtotime('-3 days'));
+
         $expired_counts = ['total' => 0, 'today' => 0, 'tomorrow' => 0, 'next_day' => 0];
         $demo_counts = ['total' => 0, 'today' => 0, 'tomorrow' => 0, 'next_day' => 0];
         $callback_counts = ['total' => 0, 'today' => 0, 'tomorrow' => 0, 'next_day' => 0];
@@ -797,11 +807,15 @@ if (!function_exists('getLiveMetricCounts')) {
         }
         $user_idents = array_values(array_unique(array_filter($user_idents)));
 
+        // Exclude Dropped leads and Not Required group from all counts
+        $exclude_lead_ids_subq = "lead_id NOT IN (SELECT id FROM leads WHERE LOWER(TRIM(status)) = 'dropped' OR LOWER(TRIM(group_stage)) = 'not required')";
+        $exclude_lead_direct  = "LOWER(TRIM(status)) != 'dropped' AND LOWER(TRIM(group_stage)) != 'not required'";
+
         if ($is_admin || empty($user_idents)) {
-            $exec_where_fup = "";
-            $exec_where_dm = "";
-            $exec_where_lead_demo = "";
-            $lead_exec_where = "";
+            $exec_where_fup = " AND {$exclude_lead_ids_subq}";
+            $exec_where_dm = " AND {$exclude_lead_ids_subq}";
+            $exec_where_lead_demo = " AND {$exclude_lead_direct}";
+            $lead_exec_where = " AND {$exclude_lead_direct}";
         } else {
             $fup_clauses = [];
             $dm_clauses = [];
@@ -813,11 +827,11 @@ if (!function_exists('getLiveMetricCounts')) {
                 $dm_clauses[] = "(LOWER(TRIM(engineer)) = LOWER(TRIM({$qIdt})) OR FIND_IN_SET(LOWER(TRIM({$qIdt})), LOWER(REPLACE(engineer, ', ', ','))) OR engineer LIKE {$qLike})";
                 $lead_clauses[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM({$qIdt})) OR FIND_IN_SET(LOWER(TRIM({$qIdt})), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE {$qLike})";
             }
-            $lead_sub = "lead_id IN (SELECT id FROM leads WHERE " . implode(" OR ", $lead_clauses) . ")";
-            $exec_where_fup = " AND (" . implode(" OR ", $fup_clauses) . " OR {$lead_sub})";
-            $exec_where_dm = " AND (" . implode(" OR ", $dm_clauses) . " OR {$lead_sub})";
-            $exec_where_lead_demo = " AND (" . implode(" OR ", $lead_clauses) . ")";
-            $lead_exec_where = " AND (" . implode(" OR ", $lead_clauses) . ")";
+            $lead_sub = "lead_id IN (SELECT id FROM leads WHERE " . implode(" OR ", $lead_clauses) . " AND {$exclude_lead_direct})";
+            $exec_where_fup = " AND {$exclude_lead_ids_subq} AND (" . implode(" OR ", $fup_clauses) . " OR {$lead_sub})";
+            $exec_where_dm = " AND {$exclude_lead_ids_subq} AND (" . implode(" OR ", $dm_clauses) . " OR {$lead_sub})";
+            $exec_where_lead_demo = " AND {$exclude_lead_direct} AND (" . implode(" OR ", $lead_clauses) . ")";
+            $lead_exec_where = " AND {$exclude_lead_direct} AND (" . implode(" OR ", $lead_clauses) . ")";
         }
 
         // Check optional renewals table safely
@@ -828,11 +842,11 @@ if (!function_exists('getLiveMetricCounts')) {
         } catch (PDOException $e) {}
 
         $ren_q_tot = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE 1=1" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_tod = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) <= '{$today_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_tom = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$tomorrow_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_nxt = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$nextday_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
+        $ren_q_yest = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$yesterday_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
+        $ren_q_2day = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$day_before_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
+        $ren_q_3day = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$three_days_ago_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
 
-        // 1. Upcoming Expired Lead
+        // 1. Upcoming Expired Lead (Past 3 Days: Yesterday, 2 Days Ago, 3 Days Ago)
         $expiry_where = "(action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')";
         try {
             $res = $pdo->query("SELECT {$ren_q_tot} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup})");
@@ -840,23 +854,26 @@ if (!function_exists('getLiveMetricCounts')) {
         } catch (PDOException $e) {}
 
         try {
-            $res = $pdo->query("SELECT {$ren_q_tod} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) <= '{$today_str}' AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup})");
+            // Yesterday - kisi bhi pending/missed followup jo kl tak pending reh gayi
+            $res = $pdo->query("SELECT {$ren_q_yest} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$yesterday_str}' {$exec_where_fup})");
             if ($res) $expired_counts['today'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            $res = $pdo->query("SELECT {$ren_q_tom} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$tomorrow_str}' AND {$expiry_where} {$exec_where_fup})");
+            // 2 Days Ago
+            $res = $pdo->query("SELECT {$ren_q_2day} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$day_before_str}' {$exec_where_fup})");
             if ($res) $expired_counts['tomorrow'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            $res = $pdo->query("SELECT {$ren_q_nxt} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$nextday_str}' AND {$expiry_where} {$exec_where_fup})");
+            // 3 Days Ago
+            $res = $pdo->query("SELECT {$ren_q_3day} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$three_days_ago_str}' {$exec_where_fup})");
             if ($res) $expired_counts['next_day'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         // 2. Demo Scheduled
-        $demo_base = "(group_stage LIKE '%Demo Scheduled%' OR LOWER(status) = 'demo_scheduled' OR id IN (SELECT lead_id FROM demos WHERE status = 'scheduled') OR id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND (action_type LIKE '%Demo%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR action_type LIKE '%Demonstration%')))";
-        $demo_date_expr = "COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' AND (action_type LIKE '%Demo%' OR remarks LIKE '%demo%') ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at))";
+        $demo_base = "group_stage LIKE '%Demo Scheduled%'";
+        $demo_date_expr = "COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at))";
 
         try {
             $res = $pdo->query("SELECT COUNT(*) FROM leads WHERE {$demo_base} {$exec_where_lead_demo}");
@@ -864,7 +881,8 @@ if (!function_exists('getLiveMetricCounts')) {
         } catch (PDOException $e) {}
 
         try {
-            $res = $pdo->query("SELECT COUNT(*) FROM leads WHERE {$demo_base} AND {$demo_date_expr} <= '{$today_str}' {$exec_where_lead_demo}");
+            // Demo Scheduled Today - strictly aaj ki date
+            $res = $pdo->query("SELECT COUNT(*) FROM leads WHERE {$demo_base} AND {$demo_date_expr} = '{$today_str}' {$exec_where_lead_demo}");
             if ($res) $demo_counts['today'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
@@ -878,14 +896,14 @@ if (!function_exists('getLiveMetricCounts')) {
             if ($res) $demo_counts['next_day'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
-        // 3. Call Back
+        // 3. Call Back (Strictly by Date: today, tomorrow, next day - kisi bhi group ki ho)
         try {
             $res = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' {$exec_where_fup}");
             if ($res) $callback_counts['total'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            $res = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND DATE(scheduled_at) <= '{$today_str}' {$exec_where_fup}");
+            $res = $pdo->query("SELECT COUNT(*) FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = '{$today_str}' {$exec_where_fup}");
             if ($res) $callback_counts['today'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 

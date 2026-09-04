@@ -17,9 +17,8 @@ $is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
 // Access Security Check: Verify user has permission to view Clients module
 $can_view_client = $is_admin || hasAccess('clients', $user_role);
 if (!$can_view_client) {
-    $_GET['requested'] = 'clients';
-    include_once __DIR__ . '/access_denied.php';
-    return;
+    header('Location: ../index.php?page=dashboard');
+    exit;
 }
 
 // Client Edit Permission: Strictly restricted to Super Admin, Admin, or users with explicit clients_edit privilege
@@ -583,6 +582,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                         software_type = ?,
                         user_type = ?,
                         no_of_users = ?,
+                        no_of_companies = ?,
+                        subpartner_code = ?,
+                        subpartner_name = ?,
                         nature_of_business = ?,
                         software_trade = ?,
                         total_amount = ?,
@@ -594,7 +596,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                         online_zip_code = ?,
                         due_on = ?,
                         act_on = ?,
-                        software_hit_date = ?
+                        software_hit_date = ?,
+                        version = ?,
+                        company_using = ?,
+                        home_user = ?,
+                        transferred_party = ?,
+                        wallet_id = ?
                     WHERE id = ?
                 ");
                 
@@ -610,6 +617,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                     !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
                     !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
                     intval($_POST['no_of_users'] ?? 1),
+                    isset($_POST['no_of_companies']) && $_POST['no_of_companies'] !== '' ? intval($_POST['no_of_companies']) : null,
+                    !empty($_POST['subpartner_code']) ? trim($_POST['subpartner_code']) : null,
+                    !empty($_POST['subpartner_name']) ? trim($_POST['subpartner_name']) : null,
                     !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
                     !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
                     floatval($_POST['total_amount'] ?? 0.00),
@@ -622,6 +632,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                     !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
                     !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
                     !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
+                    !empty($_POST['version']) ? trim($_POST['version']) : null,
+                    !empty($_POST['company_using']) ? trim($_POST['company_using']) : null,
+                    !empty($_POST['home_user']) ? trim($_POST['home_user']) : null,
+                    !empty($_POST['transferred_party']) ? trim($_POST['transferred_party']) : null,
+                    !empty($_POST['wallet_id']) ? trim($_POST['wallet_id']) : null,
                     $id
                 ]);
                 
@@ -653,15 +668,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                         INSERT INTO client_directory (
                             sno, sw_type, customer_id, category, party_name,
                             mobile, alt_mobile, email, contact_person, software_type, user_type,
-                            no_of_users, nature_of_business, software_trade, total_amount, party_status,
+                            no_of_users, no_of_companies, subpartner_code, subpartner_name,
+                            nature_of_business, software_trade, total_amount, party_status,
                             address, area, city, state, online_zip_code,
-                            due_on, act_on, software_hit_date
+                            due_on, act_on, software_hit_date,
+                            version, company_using, home_user, transferred_party, wallet_id
                         ) VALUES (
                             ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?,
+                            ?, ?, ?, ?,
                             ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?,
-                            ?, ?, ?
+                            ?, ?, ?,
+                            ?, ?, ?, ?, ?
                         )
                     ");
                     
@@ -678,6 +697,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                         !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
                         !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
                         intval($_POST['no_of_users'] ?? 1),
+                        isset($_POST['no_of_companies']) && $_POST['no_of_companies'] !== '' ? intval($_POST['no_of_companies']) : null,
+                        !empty($_POST['subpartner_code']) ? trim($_POST['subpartner_code']) : null,
+                        !empty($_POST['subpartner_name']) ? trim($_POST['subpartner_name']) : null,
                         !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
                         !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
                         floatval($_POST['total_amount'] ?? 0.00),
@@ -689,7 +711,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                         !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
                         !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
                         !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
-                        !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null
+                        !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
+                        !empty($_POST['version']) ? trim($_POST['version']) : null,
+                        !empty($_POST['company_using']) ? trim($_POST['company_using']) : null,
+                        !empty($_POST['home_user']) ? trim($_POST['home_user']) : null,
+                        !empty($_POST['transferred_party']) ? trim($_POST['transferred_party']) : null,
+                        !empty($_POST['wallet_id']) ? trim($_POST['wallet_id']) : null
                     ]);
                     
                     $import_result = [
@@ -2338,7 +2365,7 @@ function highlightProductPill(which) {
 
 <!-- Modal 4: Add / Edit Client Directory Record Modal — Modern Premium Redesign -->
 <div id="edit-client-record-modal" class="modal-overlay">
-    <div class="modal-container" style="max-width: 680px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-main); border-radius: 18px; border: 1px solid var(--border-color); box-shadow: 0 24px 48px -12px rgba(0,0,0,0.5); overflow: hidden;">
+    <div class="modal-container" style="max-width: 860px; width: 96%; max-height: 92vh; display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-main); border-radius: 18px; border: 1px solid var(--border-color); box-shadow: 0 24px 48px -12px rgba(0,0,0,0.5); overflow: hidden;">
         
         <!-- HEADER (Fixed Top) -->
         <div style="flex-shrink: 0; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); padding: 0.9rem 1.25rem;" class="flex align-center justify-between">
@@ -2404,23 +2431,23 @@ function highlightProductPill(which) {
 
                         <!-- Row 1: Party Name (Full) -->
                         <div class="form-group" style="margin-bottom: 12px;">
-                            <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Party Name (Firm / Company) *</label>
-                            <input type="text" id="edit_party_name" name="party_name" required placeholder="e.g. Apex Medical Store" class="form-control text-xs" style="height: 38px; border-radius: 8px;">
+                            <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Party Name (Firm / Company) *</label>
+                            <input type="text" id="edit_party_name" name="party_name" required placeholder="e.g. Apex Medical Store" class="form-control text-xs" style="height: 40px; border-radius: 8px;">
                         </div>
 
                         <!-- Row 2: Customer ID & Category -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label id="edit_customer_id_label" style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+                                <label id="edit_customer_id_label" style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
                                     <span>Customer ID *</span>
-                                    <span id="customer_id_live_status" style="font-size: 0.68rem; font-weight: 700;"></span>
-                                    <span id="edit_customer_id_locked_badge" class="badge" style="display:none; --badge-bg: rgba(239,68,68,0.1); --badge-color: #dc2626; font-size: 0.65rem; margin-left: 4px;">🔒 Locked</span>
+                                    <span id="customer_id_live_status" style="font-size: 0.72rem; font-weight: 700;"></span>
+                                    <span id="edit_customer_id_locked_badge" class="badge" style="display:none; --badge-bg: rgba(239,68,68,0.1); --badge-color: #dc2626; font-size: 0.68rem; margin-left: 4px;">🔒 Locked</span>
                                 </label>
-                                <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;" oninput="onCustomerIdInput(this.value)" onblur="onCustomerIdInput(this.value)">
+                                <input type="text" id="edit_customer_id" name="customer_id" placeholder="e.g. 1352947" class="form-control text-xs font-mono" style="height: 40px; border-radius: 8px;" oninput="onCustomerIdInput(this.value)" onblur="onCustomerIdInput(this.value)">
                             </div>
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Category</label>
-                                <select id="edit_category" name="category" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Category</label>
+                                <select id="edit_category" name="category" class="form-control text-xs font-semibold" style="height: 40px; border-radius: 8px;">
                                     <option value="Category A">A - Premium</option>
                                     <option value="Category B">B - Standard</option>
                                     <option value="Category C">C - General</option>
@@ -2431,8 +2458,8 @@ function highlightProductPill(which) {
                         <!-- Row 3: S/W Type & Edition -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">S/W Type *</label>
-                                <select id="edit_sw_type" name="sw_type" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onchange="onSwTypeChange(this.value)">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">S/W Type *</label>
+                                <select id="edit_sw_type" name="sw_type" class="form-control text-xs font-semibold" style="height: 40px; border-radius: 8px;" onchange="onSwTypeChange(this.value)">
                                     <option value="">-- Select S/W Type --</option>
                                     <?php foreach (array_keys($sw_types_map) as $swName): ?>
                                         <option value="<?php echo htmlspecialchars($swName); ?>"><?php echo htmlspecialchars($swName); ?></option>
@@ -2440,8 +2467,8 @@ function highlightProductPill(which) {
                                 </select>
                             </div>
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Edition *</label>
-                                <select id="edit_software_type" name="software_type" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Edition *</label>
+                                <select id="edit_software_type" name="software_type" class="form-control text-xs font-semibold" style="height: 40px; border-radius: 8px;">
                                     <option value="">-- Select S/W Type First --</option>
                                 </select>
                             </div>
@@ -2450,23 +2477,27 @@ function highlightProductPill(which) {
                         <!-- Row 4: User License Type & No. of Users -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">User License Type</label>
-                                <select id="edit_user_type" name="user_type" class="form-control text-xs" style="height: 38px; border-radius: 8px;">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">User License Type</label>
+                                <select id="edit_user_type" name="user_type" class="form-control text-xs" style="height: 40px; border-radius: 8px;">
                                     <option value="Single User">Single User</option>
                                     <option value="Multi User">Multi User</option>
                                 </select>
                             </div>
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">No. of Users</label>
-                                <input type="number" id="edit_no_of_users" name="no_of_users" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">No. of Users</label>
+                                <input type="number" id="edit_no_of_users" name="no_of_users" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="height: 40px; border-radius: 8px;">
                             </div>
                         </div>
 
-                        <!-- Row 5: Nature of Business & Software Trade -->
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <!-- Row 5: No. of Companies & Nature of Business -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Nature of Business</label>
-                                <select id="edit_nature_of_business" name="nature_of_business" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">No. of Companies</label>
+                                <input type="number" id="edit_no_of_companies" name="no_of_companies" min="1" placeholder="e.g. 1" class="form-control text-xs font-mono" style="height: 40px; border-radius: 8px;">
+                            </div>
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Nature of Business</label>
+                                <select id="edit_nature_of_business" name="nature_of_business" class="form-control text-xs font-semibold" style="height: 40px; border-radius: 8px;">
                                     <option value="">-- Select Nature of Business --</option>
                                     <?php foreach ($nature_of_business_list as $nob): ?>
                                         <option value="<?php echo htmlspecialchars($nob); ?>"><?php echo htmlspecialchars($nob); ?></option>
@@ -2474,13 +2505,25 @@ function highlightProductPill(which) {
                                 </select>
                             </div>
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Trade</label>
-                                <select id="edit_software_trade" name="software_trade" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Trade</label>
+                                <select id="edit_software_trade" name="software_trade" class="form-control text-xs font-semibold" style="height: 40px; border-radius: 8px;">
                                     <option value="">-- Select Software Trade --</option>
                                     <?php foreach ($software_trades_list as $trade): ?>
                                         <option value="<?php echo htmlspecialchars($trade); ?>"><?php echo htmlspecialchars($trade); ?></option>
                                     <?php endforeach; ?>
                                 </select>
+                            </div>
+                        </div>
+
+                        <!-- Row 6: Sub Partner Code & Sub Partner Name -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Sub Partner Code</label>
+                                <input type="text" id="edit_subpartner_code" name="subpartner_code" placeholder="e.g. SP-001" class="form-control text-xs font-mono" style="height: 40px; border-radius: 8px;">
+                            </div>
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Sub Partner Name</label>
+                                <input type="text" id="edit_subpartner_name" name="subpartner_name" placeholder="e.g. Ravi Distributors" class="form-control text-xs" style="height: 40px; border-radius: 8px;">
                             </div>
                         </div>
 
@@ -2608,13 +2651,48 @@ function highlightProductPill(which) {
                             </div>
                         </div>
 
-                        <!-- Row 3: Hit Date -->
+                        <!-- Row 3: Hit Date & Version -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Hit Date</label>
+                                <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="height: 40px; border-radius: 8px;">
+                            </div>
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Version</label>
+                                <input type="text" id="edit_version" name="version" placeholder="e.g. 9.0" class="form-control text-xs font-mono" style="height: 40px; border-radius: 8px;">
+                            </div>
+                        </div>
+
+                        <!-- Row 4: Company Using & Home User -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Company Using</label>
+                                <input type="text" id="edit_company_using" name="company_using" placeholder="e.g. Apex Medical Pvt Ltd" class="form-control text-xs" style="height: 40px; border-radius: 8px;">
+                            </div>
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Home User</label>
+                                <select id="edit_home_user" name="home_user" class="form-control text-xs font-semibold" style="height: 40px; border-radius: 8px;">
+                                    <option value="">-- Select --</option>
+                                    <option value="Yes">Yes</option>
+                                    <option value="No">No</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Row 5: Transferred Party & Wallet ID -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Software Hit Date</label>
-                                <input type="date" id="edit_software_hit_date" name="software_hit_date" class="form-control text-xs font-mono no-quick" data-no-quick="true" style="height: 38px; border-radius: 8px;">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Transferred Party</label>
+                                <select id="edit_transferred_party" name="transferred_party" class="form-control text-xs font-semibold" style="height: 40px; border-radius: 8px;">
+                                    <option value="">-- Select --</option>
+                                    <option value="Yes">Yes</option>
+                                    <option value="No">No</option>
+                                </select>
                             </div>
-                            <div class="form-group m-0"></div>
+                            <div class="form-group m-0">
+                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Wallet ID</label>
+                                <input type="text" id="edit_wallet_id" name="wallet_id" placeholder="e.g. WAL-00123" class="form-control text-xs font-mono" style="height: 40px; border-radius: 8px;">
+                            </div>
                         </div>
 
                     </div>
@@ -3484,6 +3562,24 @@ function populateClientModalData(client) {
     document.getElementById('edit_due_on').value = client.due_on || '';
     document.getElementById('edit_act_on').value = client.act_on || '';
     document.getElementById('edit_software_hit_date').value = client.software_hit_date || '';
+
+    var noCompEl = document.getElementById('edit_no_of_companies');
+    if (noCompEl) noCompEl.value = client.no_of_companies || '';
+    var spCodeEl = document.getElementById('edit_subpartner_code');
+    if (spCodeEl) spCodeEl.value = client.subpartner_code || '';
+    var spNameEl = document.getElementById('edit_subpartner_name');
+    if (spNameEl) spNameEl.value = client.subpartner_name || '';
+
+    var versionEl = document.getElementById('edit_version');
+    if (versionEl) versionEl.value = client.version || '';
+    var compUsingEl = document.getElementById('edit_company_using');
+    if (compUsingEl) compUsingEl.value = client.company_using || '';
+    var homeUserEl = document.getElementById('edit_home_user');
+    if (homeUserEl) homeUserEl.value = client.home_user || '';
+    var transferredEl = document.getElementById('edit_transferred_party');
+    if (transferredEl) transferredEl.value = client.transferred_party || '';
+    var walletEl = document.getElementById('edit_wallet_id');
+    if (walletEl) walletEl.value = client.wallet_id || '';
 }
 window.populateClientModalData = populateClientModalData;
 
@@ -3565,6 +3661,24 @@ function openAddClientModal() {
     document.getElementById('edit_due_on').value = '';
     document.getElementById('edit_act_on').value = '';
     document.getElementById('edit_software_hit_date').value = '';
+
+    var noCompEl = document.getElementById('edit_no_of_companies');
+    if (noCompEl) noCompEl.value = '';
+    var spCodeEl = document.getElementById('edit_subpartner_code');
+    if (spCodeEl) spCodeEl.value = '';
+    var spNameEl = document.getElementById('edit_subpartner_name');
+    if (spNameEl) spNameEl.value = '';
+
+    var versionEl = document.getElementById('edit_version');
+    if (versionEl) versionEl.value = '';
+    var compUsingEl = document.getElementById('edit_company_using');
+    if (compUsingEl) compUsingEl.value = '';
+    var homeUserEl = document.getElementById('edit_home_user');
+    if (homeUserEl) homeUserEl.value = '';
+    var transferredEl = document.getElementById('edit_transferred_party');
+    if (transferredEl) transferredEl.value = '';
+    var walletEl = document.getElementById('edit_wallet_id');
+    if (walletEl) walletEl.value = '';
 
     switchClientModalTab('profile');
 

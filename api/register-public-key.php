@@ -23,7 +23,7 @@ if (!file_exists($pubKeyPath)) {
 
 $publicKeyPem = file_get_contents($pubKeyPath);
 
-$phoneId = '1361533150369205';
+$phoneId = defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : '1370757916110578';
 $wabaId = '1363197648586760';
 $flowId = '869669339414580';
 

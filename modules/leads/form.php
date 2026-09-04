@@ -127,7 +127,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'save_followup' && $_SERVER['R
 // Process Lead creation/edit (POST)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['action'] !== 'save_followup')) {
     $name = trim($_POST['name'] ?? '');
-    $phone = trim($_POST['phone'] ?? '');
+    $country_code = trim($_POST['country_code'] ?? '+91');
+    $phone_raw = trim($_POST['phone'] ?? '');
+    // Combine country code + phone for storage (e.g. +919876543210)
+    $phone = preg_replace('/[^0-9]/', '', $phone_raw);
+    // Store with country code prefix for international numbers
+    $phone = $country_code . $phone;
     $email = trim($_POST['email'] ?? '');
     $assigned_to_raw = $_POST['assigned_to'] ?? '';
     $assigned_to = is_array($assigned_to_raw) ? implode(', ', array_filter(array_map('trim', $assigned_to_raw))) : trim($assigned_to_raw);
@@ -141,9 +146,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
     $contact_person = $_POST['contact_person'] ?? '';
     $remark = $_POST['remark'] ?? '';
 
-    $clean_phone = preg_replace('/[^0-9]/', '', $phone);
-    if (empty($phone) || (strlen($clean_phone) !== 10 && strlen($clean_phone) !== 12)) {
-        $message = "<strong>Invalid Contact Phone!</strong> Phone number must be exactly 10 or 12 digits (numeric only).";
+    $clean_phone = preg_replace('/[^0-9]/', '', $phone_raw);
+    if (empty($phone_raw) || strlen($clean_phone) !== 10) {
+        $message = "<strong>Invalid Contact Phone!</strong> Phone number must be exactly 10 digits (country code is selected separately).";
         $message_type = "danger";
     } elseif ($db_connected && $pdo) {
         try {
@@ -374,7 +379,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                 </div>
                 <div class="form-group m-0" style="position: relative;">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Contact Phone <span style="color: var(--danger);">*</span></label>
-                    <input type="tel" name="phone" id="lead-phone-input" class="form-control form-control-focus" placeholder="E.g. 9876543210 or 919876543210" required maxlength="12" pattern="[0-9]{10}|[0-9]{12}" title="Contact Phone must be exactly 10 or 12 digits" value="<?php echo htmlspecialchars($editLead['phone'] ?? ''); ?>">
+                    <?php
+                    // Parse existing phone: if starts with +, separate country code
+                    $existing_phone_full = $editLead['phone'] ?? '';
+                    $existing_cc = '+91';
+                    $existing_phone_num = $existing_phone_full;
+                    if (preg_match('/^(\+\d{1,4})(\d{10})$/', $existing_phone_full, $pm)) {
+                        $existing_cc = $pm[1];
+                        $existing_phone_num = $pm[2];
+                    }
+                    $cc_options = [
+                        '+91' => '🇮🇳 +91 India',
+                        '+1'  => '🇺🇸 +1 USA/Canada',
+                        '+44' => '🇬🇧 +44 UK',
+                        '+61' => '🇦🇺 +61 Australia',
+                        '+971' => '🇦🇪 +971 UAE',
+                        '+966' => '🇸🇦 +966 Saudi Arabia',
+                        '+65' => '🇸🇬 +65 Singapore',
+                        '+60' => '🇲🇾 +60 Malaysia',
+                        '+880' => '🇧🇩 +880 Bangladesh',
+                        '+977' => '🇳🇵 +977 Nepal',
+                        '+94'  => '🇱🇰 +94 Sri Lanka',
+                        '+92'  => '🇵🇰 +92 Pakistan',
+                        '+49'  => '🇩🇪 +49 Germany',
+                        '+33'  => '🇫🇷 +33 France',
+                        '+81'  => '🇯🇵 +81 Japan',
+                        '+86'  => '🇨🇳 +86 China',
+                    ];
+                    ?>
+                    <div style="display:flex; gap:0.5rem; align-items:stretch;">
+                        <select name="country_code" id="lead-country-code" class="form-control form-control-focus" style="width:auto; min-width:155px; flex-shrink:0; font-size:0.82rem; padding-left:0.5rem; padding-right:0.5rem;">
+                            <?php foreach ($cc_options as $cc_val => $cc_label): ?>
+                                <option value="<?php echo $cc_val; ?>" <?php echo ($existing_cc === $cc_val) ? 'selected' : ''; ?>><?php echo $cc_label; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input type="tel" name="phone" id="lead-phone-input" class="form-control form-control-focus" placeholder="10-digit number" required maxlength="10" pattern="[0-9]{10}" title="Enter exactly 10 digits (country code selected separately)" value="<?php echo htmlspecialchars($existing_phone_num); ?>" style="flex:1;">
+                    </div>
                     <div id="phone-dup-inline-alert" class="hidden mt-2 text-xs" style="display: none; flex-direction: column; gap: 0.5rem; color: var(--danger); background: var(--danger-light); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--danger); transition: all 0.2s ease;">
                         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
                             <span style="display: flex; align-items: center; gap: 0.35rem; font-weight: 600; flex: 1; min-width: 200px;">
@@ -519,7 +559,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Source</label>
                     <?php 
                     $cur_src = $editLead['source'] ?? 'Website';
-                    $src_options = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Imported'];
+                    $src_options = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Self', 'Door to Door', 'Imported'];
                     if (!empty($cur_src) && !in_array($cur_src, $src_options)) {
                         $src_options[] = $cur_src;
                     }
@@ -664,6 +704,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                         <option value="Exhibitions">Exhibitions</option>
                         <option value="HO">HO</option>
                         <option value="Office">Office</option>
+                        <option value="Self">Self</option>
+                        <option value="Door to Door">Door to Door</option>
                         <option value="Imported">Imported</option>
                     </select>
                 </div>
@@ -979,7 +1021,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     userConfirmedDuplicate = false;
                     if (confirmInput) confirmInput.value = '0';
 
-                    let url = 'index.php?action=check_phone&phone=' + encodeURIComponent(phoneVal);
+                    let ccEl = document.getElementById('lead-country-code');
+                    let fullPhone = (ccEl ? ccEl.value : '+91') + phoneVal;
+                    let url = 'index.php?action=check_phone&phone=' + encodeURIComponent(fullPhone);
                     if (isEditMode && currentLeadId) {
                         url += '&exclude_id=' + encodeURIComponent(currentLeadId);
                     }
@@ -1096,10 +1140,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     const phoneVal = phoneInput.value.trim();
                     const cleanPhone = phoneVal.replace(/[^0-9]/g, '');
 
-                    if (cleanPhone.length !== 10 && cleanPhone.length !== 12) {
+                    if (cleanPhone.length !== 10) {
                         e.preventDefault();
                         e.stopPropagation();
-                        phoneInput.setCustomValidity('Contact Phone must be exactly 10 or 12 digits.');
+                        phoneInput.setCustomValidity('Enter exactly 10 digits. Country code is selected separately.');
                         phoneInput.reportValidity();
                         return false;
                     } else {
@@ -1244,15 +1288,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     }
 
                     if (pincodeContainer) pincodeContainer.style.display = 'block';
-
-                    // Auto-fill area name into address if current input is just the 6-digit PIN code
-                    if (addressInput) {
-                        const val = addressInput.value.trim();
-                        if (val === pincode) {
-                            const primaryArea = postOffices[0].Name;
-                            addressInput.value = `${pincode} - ${primaryArea}, ${district} (${state})`;
-                        }
-                    }
+                    // NOTE: Auto-fill removed intentionally — address fills ONLY when user clicks a locality chip below
 
                     if (typeof lucide !== 'undefined') lucide.createIcons();
                 } else {

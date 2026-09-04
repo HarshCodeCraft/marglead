@@ -62,9 +62,9 @@ $is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
 if ($db_connected && $pdo) {
     try {
         if ($is_admin) {
-            $stmtFup = $pdo->query("SELECT f.*, l.name as lead_name, l.company as lead_company, l.priority as lead_priority, l.phone as lead_phone, l.email as lead_email FROM followups f JOIN leads l ON f.lead_id = l.id WHERE f.status != 'rescheduled' ORDER BY f.scheduled_at ASC");
+            $stmtFup = $pdo->query("SELECT f.*, l.name as lead_name, l.company as lead_company, l.priority as lead_priority, l.phone as lead_phone, l.email as lead_email FROM followups f JOIN leads l ON f.lead_id = l.id WHERE f.status != 'rescheduled' AND LOWER(TRIM(l.status)) != 'dropped' AND LOWER(TRIM(l.group_stage)) != 'not required' AND LOWER(TRIM(l.status)) NOT IN ('won', 'closed_won', 'install_pending', 'payment_pending') ORDER BY f.scheduled_at ASC");
         } else {
-            $stmtFup = $pdo->prepare("SELECT f.*, l.name as lead_name, l.company as lead_company, l.priority as lead_priority, l.phone as lead_phone, l.email as lead_email FROM followups f JOIN leads l ON f.lead_id = l.id WHERE f.status != 'rescheduled' AND (LOWER(TRIM(f.assigned_to)) = LOWER(TRIM(?)) OR LOWER(TRIM(l.assigned_to)) = LOWER(TRIM(?))) ORDER BY f.scheduled_at ASC");
+            $stmtFup = $pdo->prepare("SELECT f.*, l.name as lead_name, l.company as lead_company, l.priority as lead_priority, l.phone as lead_phone, l.email as lead_email FROM followups f JOIN leads l ON f.lead_id = l.id WHERE f.status != 'rescheduled' AND LOWER(TRIM(l.status)) != 'dropped' AND LOWER(TRIM(l.group_stage)) != 'not required' AND LOWER(TRIM(l.status)) NOT IN ('won', 'closed_won', 'install_pending', 'payment_pending') AND (LOWER(TRIM(f.assigned_to)) = LOWER(TRIM(?)) OR LOWER(TRIM(l.assigned_to)) = LOWER(TRIM(?))) ORDER BY f.scheduled_at ASC");
             $stmtFup->execute([$user_name, $user_name]);
         }
         $db_fups = $stmtFup->fetchAll(PDO::FETCH_ASSOC);
@@ -772,7 +772,8 @@ if (!function_exists('getFilterStyle')) {
                     
                     if (document.getElementById('qf-lead-id')) document.getElementById('qf-lead-id').value = lead.id || '';
                     if (document.getElementById('qf-modal-title')) document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name || ''}</strong> ( ${lead.phone || ''} )`;
-                    if (document.getElementById('qf-company')) document.getElementById('qf-company').value = lead.company || '';
+                    if (document.getElementById('qf-group-stage')) document.getElementById('qf-group-stage').value = lead.group_stage || lead.company || 'Fresh';
+                    if (document.getElementById('qf-company')) document.getElementById('qf-company').value = lead.group_stage || lead.company || 'Fresh';
                     if (document.getElementById('qf-status')) document.getElementById('qf-status').value = lead.status || 'new';
                     const assignedList = (lead.assigned || '').split(',').map(s => s.trim().toLowerCase());
                     document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
@@ -959,7 +960,7 @@ if (!function_exists('getFilterStyle')) {
                     <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Group</label>
-                            <select name="company" id="qf-company" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
+                            <select name="group_stage" id="qf-group-stage" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
                                 <option value="Fresh">Fresh</option>
                                 <option value="Followup">Followup</option>
                                 <option value="Demo Scheduled">Demo Scheduled</option>
@@ -1007,6 +1008,8 @@ if (!function_exists('getFilterStyle')) {
                                 <option value="Exhibitions">Exhibitions</option>
                                 <option value="HO">HO</option>
                                 <option value="Office">Office</option>
+                                <option value="Self">Self</option>
+                                <option value="Door to Door">Door to Door</option>
                                 <option value="Imported">Imported</option>
                             </select>
                         </div>

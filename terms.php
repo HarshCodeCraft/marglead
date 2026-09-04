@@ -1,512 +1,503 @@
 <?php
 /**
- * Public Standalone Terms & Conditions Page - Marg ERP CRM
- * Publicly accessible for compliance verification and system users.
+ * Friendly AI Solution - Terms of Use & Continuation Policy
+ * Enterprise Legal Policy Portal - Flipkart & Top Brand Standard Layout
+ * 
+ * Clean document architecture:
+ * - Neutral light gray canvas (#f1f3f6)
+ * - Left enterprise policy navigation sidebar (Terms, Privacy, Refund, Grievance)
+ * - Right crisp white official paper document with readable typography (#212121)
+ * - Dynamic policy clauses from database with Super Admin Add/Edit support
  */
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+$requested_page = 'terms';
+
 require_once __DIR__ . '/includes/config.php';
+require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/policy_helper.php';
+
+// Fetch points dynamically from database (with fallback)
+$policy_points = get_policy_points('terms', true);
+$last_updated_date = "August 28, 2026";
 ?>
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terms & Conditions - Marg Soft Solutions</title>
-    
+    <title>Terms of Use & Continuation Policy | Friendly AI Solution</title>
+    <meta name="description" content="Terms of Use and Service Continuation Policy for Friendly AI Solution - Official Marg ERP 9+ automation and Meta WhatsApp Cloud API suite.">
+    <meta name="keywords" content="Friendly AI Solution Terms of Use, Marg ERP Integration Policy, WhatsApp Cloud API Terms, Continuation Policy">
+
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <style>
-        :root {
-            --bg-main: #0b0f19;
-            --bg-card: rgba(18, 24, 38, 0.75);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --primary: #3b82f6;
-            --primary-glow: rgba(59, 130, 246, 0.25);
-            --accent: #10b981;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --font-heading: 'Outfit', sans-serif;
-            --font-body: 'Inter', sans-serif;
-        }
+    <!-- Base SaaS Theme -->
+    <link rel="stylesheet" href="assets/css/public_theme.css?v=<?php echo time(); ?>">
 
-        * {
+    <style>
+        /* Big-Brand Corporate Policy Layout (Flipkart / Enterprise Style) */
+        body {
+            background-color: #f1f3f6 !important;
+            color: #212121 !important;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            font-size: 14px !important;
+            line-height: 1.7 !important;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
         }
 
-        body {
-            background-color: var(--bg-main);
-            background-image: 
-                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(124, 58, 237, 0.08) 0px, transparent 50%);
-            background-attachment: fixed;
-            color: var(--text-main);
-            font-family: var(--font-body);
-            line-height: 1.6;
-            padding-bottom: 4rem;
+        /* Top Breadcrumb Bar */
+        .policy-breadcrumb-bar {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0.75rem 0;
+            font-size: 0.82rem;
+            color: #878787;
         }
-
-        .header-bar {
-            border-bottom: 1px solid var(--border-color);
-            background: rgba(11, 15, 25, 0.8);
-            backdrop-filter: blur(16px);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            padding: 1rem 2rem;
-        }
-
-        .header-container {
-            max-width: 1200px;
+        .policy-breadcrumb-container {
+            max-width: 1240px;
             margin: 0 auto;
+            padding: 0 1.25rem;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .brand-logo {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            text-decoration: none;
-            color: var(--text-main);
-            font-family: var(--font-heading);
-            font-weight: 700;
-            font-size: 1.25rem;
-        }
-
-        .brand-logo img {
-            width: 28px;
-            height: 28px;
-            object-fit: contain;
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 1.5rem;
-            align-items: center;
-        }
-
-        .nav-links a {
-            color: var(--text-muted);
-            text-decoration: none;
-            font-size: 0.9rem;
-            font-weight: 500;
-            transition: color 0.2s ease;
-        }
-
-        .nav-links a:hover, .nav-links a.active {
-            color: var(--primary);
-        }
-
-        .btn-back {
-            display: inline-flex;
             align-items: center;
             gap: 0.5rem;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-color);
-            color: var(--text-main);
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            font-weight: 600;
+        }
+        .policy-breadcrumb-container a {
+            color: #2874f0;
             text-decoration: none;
-            transition: all 0.2s ease;
+        }
+        .policy-breadcrumb-container a:hover {
+            text-decoration: underline;
+        }
+        .policy-breadcrumb-sep {
+            color: #c2c2c2;
+            font-size: 0.75rem;
         }
 
-        .btn-back:hover {
-            background: var(--primary);
-            border-color: var(--primary);
-            box-shadow: 0 0 15px var(--primary-glow);
-        }
-
-        .hero-banner {
-            text-align: center;
-            padding: 4rem 1.5rem 3rem 1.5rem;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: rgba(124, 58, 237, 0.1);
-            border: 1px solid rgba(124, 58, 237, 0.25);
-            color: #a78bfa;
-            padding: 0.35rem 0.9rem;
-            border-radius: 50px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            margin-bottom: 1.25rem;
-        }
-
-        .hero-title {
-            font-family: var(--font-heading);
-            font-size: 2.75rem;
-            font-weight: 800;
-            line-height: 1.2;
-            margin-bottom: 1rem;
-            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .hero-subtitle {
-            color: var(--text-muted);
-            font-size: 1.05rem;
-        }
-
-        .policy-container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 0 1.5rem;
+        /* Two-Column Corporate Layout */
+        .policy-main-container {
+            max-width: 1240px;
+            margin: 1.5rem auto 3.5rem auto;
+            padding: 0 1.25rem;
             display: grid;
-            grid-template-columns: 260px 1fr;
-            gap: 2.5rem;
+            grid-template-columns: 270px 1fr;
+            gap: 1.25rem;
+            align-items: start;
         }
-
         @media (max-width: 900px) {
-            .policy-container {
+            .policy-main-container {
                 grid-template-columns: 1fr;
             }
-            .toc-sidebar {
-                display: none;
+        }
+
+        /* Left Navigation Sidebar (Consumer Policy Menu) */
+        .policy-sidebar {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            position: sticky;
+            top: 5rem;
+        }
+        .policy-sidebar-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #878787;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .policy-sidebar-nav {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .policy-sidebar-item {
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .policy-sidebar-item:last-child {
+            border-bottom: none;
+        }
+        .policy-sidebar-link {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.85rem 1.25rem;
+            color: #212121;
+            font-size: 0.88rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+        .policy-sidebar-link:hover {
+            background: #fafafa;
+            color: #2874f0;
+        }
+        .policy-sidebar-link.active {
+            background: #f5f9ff;
+            color: #2874f0;
+            font-weight: 700;
+            border-left: 3px solid #2874f0;
+            padding-left: calc(1.25rem - 3px);
+        }
+        .policy-sidebar-badge {
+            font-size: 0.72rem;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: #eef2ff;
+            color: #2874f0;
+            font-weight: 600;
+        }
+
+        /* Sidebar In-Page Clause Directory */
+        .clause-index-box {
+            padding: 1rem 1.25rem;
+            background: #fbfbfb;
+            border-top: 1px solid #e0e0e0;
+        }
+        .clause-index-title {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: #878787;
+            text-transform: uppercase;
+            margin-bottom: 0.65rem;
+        }
+        .clause-index-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            max-height: 280px;
+            overflow-y: auto;
+        }
+        .clause-index-link {
+            font-size: 0.78rem;
+            color: #565656;
+            text-decoration: none;
+            line-height: 1.4;
+            display: block;
+            padding: 2px 0;
+        }
+        .clause-index-link:hover {
+            color: #2874f0;
+            text-decoration: underline;
+        }
+
+        /* Right Content: Official White Paper Document */
+        .policy-document-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 2.5rem 3rem;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        @media (max-width: 600px) {
+            .policy-document-card {
+                padding: 1.5rem;
             }
         }
 
-        .toc-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 1.25rem;
-            position: sticky;
-            top: 5rem;
-            backdrop-filter: blur(12px);
-        }
-
-        .toc-title {
-            font-size: 0.85rem;
+        /* Document Header */
+        .doc-title {
+            font-size: 1.5rem;
             font-weight: 700;
+            color: #212121;
+            margin: 0 0 0.5rem 0;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            margin-bottom: 1rem;
+            letter-spacing: 0.02em;
+        }
+        .doc-meta {
+            font-size: 0.82rem;
+            color: #878787;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #e0e0e0;
             display: flex;
             align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
             gap: 0.5rem;
         }
-
-        .toc-list {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
+        .doc-preamble {
+            font-size: 0.88rem;
+            color: #565656;
+            margin-bottom: 1.75rem;
+            line-height: 1.75;
+            font-style: italic;
+            background: #f9f9f9;
+            padding: 1rem 1.25rem;
+            border-left: 3px solid #2874f0;
+            border-radius: 2px;
         }
 
-        .toc-list a {
-            color: var(--text-muted);
-            text-decoration: none;
-            font-size: 0.875rem;
-            padding: 0.4rem 0.6rem;
-            border-radius: 6px;
-            display: block;
-            transition: all 0.2s ease;
-        }
-
-        .toc-list a:hover {
-            color: var(--text-main);
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .content-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 2.5rem;
-            backdrop-filter: blur(12px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        }
-
-        .last-updated {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border-color);
+        /* Document Clauses */
+        .doc-section {
             margin-bottom: 2rem;
+            padding-bottom: 1.75rem;
+            border-bottom: 1px solid #f0f0f0;
+            scroll-margin-top: 5rem;
         }
-
-        .section-block {
-            margin-bottom: 2.5rem;
-            scroll-margin-top: 6rem;
+        .doc-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
         }
-
-        .section-block:last-child {
+        .doc-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+        .doc-section-h2 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #212121;
+            margin: 0;
+            line-height: 1.4;
+        }
+        .doc-section-badge {
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: #2874f0;
+            background: #f0f5ff;
+            padding: 2px 8px;
+            border-radius: 3px;
+        }
+        .doc-section-content {
+            font-size: 0.9rem;
+            color: #333333;
+            line-height: 1.75;
+        }
+        .doc-section-content p {
+            margin-bottom: 0.85rem;
+        }
+        .doc-section-content p:last-child {
             margin-bottom: 0;
         }
-
-        .section-heading {
-            font-family: var(--font-heading);
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: var(--text-main);
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
+        .doc-section-content ul, .doc-section-content ol {
+            padding-left: 1.5rem;
+            margin: 0.75rem 0;
+        }
+        .doc-section-content li {
+            margin-bottom: 0.45rem;
+        }
+        .doc-section-content strong {
+            color: #212121;
+        }
+        .doc-section-content code {
+            background: #f1f3f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            color: #2874f0;
         }
 
-        .section-heading i {
-            color: var(--primary);
-        }
-
-        .section-body {
-            color: #cbd5e1;
-            font-size: 0.95rem;
-            line-height: 1.7;
-        }
-
-        .section-body p {
-            margin-bottom: 1rem;
-        }
-
-        .section-body ul {
-            margin-left: 1.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .section-body li {
-            margin-bottom: 0.4rem;
-        }
-
-        .highlight-box {
-            background: rgba(124, 58, 237, 0.08);
-            border-left: 4px solid #8b5cf6;
-            border-radius: 0 8px 8px 0;
-            padding: 1.25rem;
-            margin: 1.25rem 0;
-            font-size: 0.9rem;
-            color: #e2e8f0;
-        }
-
-        .footer-legal {
-            margin-top: 4rem;
-            border-top: 1px solid var(--border-color);
-            padding-top: 2rem;
-            text-align: center;
-            color: var(--text-muted);
+        /* Grievance & Registered Address Card (Flipkart Corporate Footer Box) */
+        .doc-grievance-box {
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 1.5rem;
+            margin-top: 2.5rem;
             font-size: 0.85rem;
         }
-
-        .footer-links {
-            display: flex;
-            justify-content: center;
-            gap: 1.5rem;
-            margin-top: 1rem;
+        .doc-grievance-title {
+            font-weight: 700;
+            color: #212121;
+            font-size: 0.95rem;
+            margin-bottom: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
-
-        .footer-links a {
-            color: var(--text-muted);
+        .doc-grievance-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+            margin-top: 0.75rem;
+            color: #565656;
+        }
+        @media (max-width: 650px) {
+            .doc-grievance-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .doc-grievance-grid strong {
+            color: #212121;
+        }
+        .doc-grievance-grid a {
+            color: #2874f0;
             text-decoration: none;
-            transition: color 0.2s ease;
+        }
+        .doc-grievance-grid a:hover {
+            text-decoration: underline;
         }
 
-        .footer-links a:hover {
-            color: var(--primary);
+        @media print {
+            .policy-breadcrumb-bar, .policy-sidebar, .public-nav, .public-footer {
+                display: none !important;
+            }
+            .policy-main-container {
+                grid-template-columns: 1fr !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            .policy-document-card {
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+            }
         }
     </style>
 </head>
 <body>
 
-    <!-- Header Navigation -->
-    <header class="header-bar">
-        <div class="header-container">
-            <a href="index.php" class="brand-logo">
-                <img src="assets/image.png" alt="Marg Logo">
-                <span>Marg Soft Solution</span>
-            </a>
-            <div class="nav-links">
-                <a href="privacy.php">Privacy Policy</a>
-                <a href="terms.php" class="active">Terms & Conditions</a>
-                <a href="refund.php">Refund Policy</a>
-            </div>
-            <a href="index.php" class="btn-back">
-                <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
-                <span>Back to App</span>
-            </a>
-        </div>
-    </header>
+    <!-- Shared Navigation -->
+    <?php require_once __DIR__ . '/includes/public_nav.php'; ?>
 
-    <!-- Hero Banner -->
-    <section class="hero-banner">
-        <div class="hero-badge">
-            <i data-lucide="file-text" style="width: 16px; height: 16px;"></i>
-            <span>Terms of Service Agreement</span>
+    <!-- Breadcrumb Bar -->
+    <div class="policy-breadcrumb-bar">
+        <div class="policy-breadcrumb-container">
+            <a href="index.php">Home</a>
+            <span class="policy-breadcrumb-sep">/</span>
+            <span>Policies</span>
+            <span class="policy-breadcrumb-sep">/</span>
+            <span style="color: #212121; font-weight: 600;">Terms of Use</span>
         </div>
-        <h1 class="hero-title">Terms & Conditions</h1>
-        <p class="hero-subtitle">Governing terms for accessing and operating the Marg ERP CRM platform and automated services.</p>
-    </section>
+    </div>
 
-    <!-- Main Content Layout -->
-    <div class="policy-container">
+    <!-- Main Content Layout (Sidebar + Document) -->
+    <main class="policy-main-container">
         
-        <!-- Navigation Table of Contents -->
-        <aside class="toc-sidebar">
-            <div class="toc-card">
-                <div class="toc-title">
-                    <i data-lucide="list" style="width: 16px; height: 16px;"></i>
-                    <span>Terms Index</span>
+        <!-- Left Sidebar (Consumer Policy Links) -->
+        <aside class="policy-sidebar">
+            <div class="policy-sidebar-header">
+                <span>Consumer Policy</span>
+            </div>
+            <ul class="policy-sidebar-nav">
+                <li class="policy-sidebar-item">
+                    <a href="terms.php" class="policy-sidebar-link active">
+                        <span>Terms of Use</span>
+                        <span class="policy-sidebar-badge"><?php echo count($policy_points); ?></span>
+                    </a>
+                </li>
+                <li class="policy-sidebar-item">
+                    <a href="privacy.php" class="policy-sidebar-link">
+                        <span>Privacy Policy</span>
+                        <span class="policy-sidebar-badge">Meta / DPDP</span>
+                    </a>
+                </li>
+                <li class="policy-sidebar-item">
+                    <a href="refund.php" class="policy-sidebar-link">
+                        <span>Cancellation & Returns</span>
+                        <span class="policy-sidebar-badge">7-Day Guarantee</span>
+                    </a>
+                </li>
+                <li class="policy-sidebar-item">
+                    <a href="contact.php" class="policy-sidebar-link">
+                        <span>Help Centre & Support</span>
+                    </a>
+                </li>
+                <li class="policy-sidebar-item">
+                    <a href="#grievance-officer" class="policy-sidebar-link">
+                        <span>Grievance Redressal</span>
+                    </a>
+                </li>
+            </ul>
+
+            <!-- Quick Table of Clauses -->
+            <div class="clause-index-box">
+                <div class="clause-index-title">Directory of Clauses</div>
+                <div class="clause-index-list">
+                    <?php foreach ($policy_points as $pt): ?>
+                        <a href="#clause-<?php echo $pt['id']; ?>" class="clause-index-link">
+                            <?php echo $pt['section_number']; ?>. <?php echo htmlspecialchars($pt['section_title']); ?>
+                        </a>
+                    <?php endforeach; ?>
                 </div>
-                <ul class="toc-list">
-                    <li><a href="#acceptance">1. Acceptance of Terms</a></li>
-                    <li><a href="#accounts">2. Accounts & Role Responsibilities</a></li>
-                    <li><a href="#acceptable-use">3. Acceptable Use Policy</a></li>
-                    <li><a href="#system-availability">4. System Availability & SLA</a></li>
-                    <li><a href="#intellectual-property">5. Intellectual Property Rights</a></li>
-                    <li><a href="#liability">6. Limitation of Liability</a></li>
-                    <li><a href="#termination">7. Account Termination</a></li>
-                    <li><a href="#governing-law">8. Governing Law & Jurisdiction</a></li>
-                </ul>
             </div>
         </aside>
 
-        <!-- Document Content -->
-        <main class="content-card">
-            <div class="last-updated">
-                <i data-lucide="calendar" style="width: 16px; height: 16px; color: var(--primary);"></i>
-                <span>Effective Date: August 5, 2026 | Document Version 1.0.0</span>
+        <!-- Right Main Document Paper -->
+        <article class="policy-document-card">
+            
+            <h1 class="doc-title">Terms of Use & Continuation Policy</h1>
+            
+            <div class="doc-meta">
+                <div>
+                    <span>Last Updated: <strong><?php echo $last_updated_date; ?></strong></span>
+                    <span style="margin: 0 0.5rem;">•</span>
+                    <span>Applicable to: <strong>Marg ERP 9+ Middleware & WhatsApp Cloud API</strong></span>
+                </div>
             </div>
 
-            <!-- Section 1 -->
-            <section id="acceptance" class="section-block">
-                <h2 class="section-heading">
-                    <i data-lucide="check-circle-2" style="width: 20px; height: 20px;"></i>
-                    1. Acceptance of Terms
-                </h2>
-                <div class="section-body">
-                    <p>By registering an account, logging into, or utilizing the Marg ERP CRM & Lead Management System provided by Marg Soft Solutions Inc., you agree to be bound by these Terms and Conditions ("Terms"). If you do not accept these terms in full, you must refrain from accessing or using the platform.</p>
-                    <p>These terms apply to all corporate accounts, regional administrators, sales executives, telecallers, support engineers, and third-party API integrations.</p>
-                </div>
-            </section>
+            <div class="doc-preamble">
+                Please read the following terms and conditions carefully before subscribing to, accessing, or utilizing the <strong>Friendly AI Solution</strong> platform, Marg ERP 9+ Desktop Connector Bridge, or Meta WhatsApp Business API relays. By using our website or subscribing to our services, you expressly acknowledge and agree to be governed by the terms set forth herein.
+            </div>
 
-            <!-- Section 2 -->
-            <section id="accounts" class="section-block">
-                <h2 class="section-heading">
-                    <i data-lucide="users" style="width: 20px; height: 20px;"></i>
-                    2. User Accounts & Role Responsibilities
-                </h2>
-                <div class="section-body">
-                    <p>Subscribers and registered operators must maintain accurate account information and safeguard authentication credentials:</p>
-                    <ul>
-                        <li><strong>Credential Security:</strong> Users are responsible for maintaining the confidentiality of their login password and session tokens. Sharing credentials outside authorized organization roles is strictly prohibited.</li>
-                        <li><strong>Role Authorization:</strong> System operations (such as lead dropping, quotation approval, tenant database impersonation, and batch exports) are strictly gated by permission matrices. Attempting to bypass role-based security is a violation of these terms.</li>
-                        <li><strong>Administrator Duties:</strong> Super Admin and Admin account holders are responsible for verifying operator status upon registration (`Pending Approval` status) before granting workspace privileges.</li>
-                    </ul>
-                </div>
-            </section>
+            <!-- Dynamic Policy Clauses -->
+            <?php foreach ($policy_points as $point): ?>
+                <section class="doc-section" id="clause-<?php echo $point['id']; ?>">
+                    <div class="doc-section-header">
+                        <h2 class="doc-section-h2">
+                            <?php echo htmlspecialchars($point['section_number']); ?>. <?php echo htmlspecialchars($point['section_title']); ?>
+                        </h2>
+                        <?php if (!empty($point['section_badge'])): ?>
+                            <span class="doc-section-badge">
+                                <?php echo htmlspecialchars($point['section_badge']); ?>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                    <div class="doc-section-content">
+                        <?php echo $point['content']; ?>
+                    </div>
+                </section>
+            <?php endforeach; ?>
 
-            <!-- Section 3 -->
-            <section id="acceptable-use" class="section-block">
-                <h2 class="section-heading">
-                    <i data-lucide="shield-alert" style="width: 20px; height: 20px;"></i>
-                    3. Acceptable Use Policy
-                </h2>
-                <div class="section-body">
-                    <p>When operating the CRM, lead directory, team inbox, and communication tools, you agree not to:</p>
-                    <ul>
-                        <li>Use the messaging tools (WhatsApp API, SMS Gateway, Emailer) to transmit unsolicited commercial spam, unlawful content, or deceptive communications.</li>
-                        <li>Attempt automated scraping, unauthorized reverse-engineering, or unauthorized penetration testing of system endpoints.</li>
-                        <li>Upload malicious payloads, XLSX viruses, or corrupt data streams via batch upload tools.</li>
-                        <li>Harvest or extract third-party client directory records for unauthorized redistribution.</li>
-                    </ul>
-                    <div class="highlight-box">
-                        <strong>Anti-Spam Policy:</strong> Violating Meta WhatsApp Business Messaging Policies or sending bulk unsolicited messages through system gateways will result in immediate suspension of messaging features without notice.
+            <!-- Corporate Registered Office & Grievance Address -->
+            <div class="doc-grievance-box" id="grievance-officer">
+                <div class="doc-grievance-title">Grievance Officer & Registered Office Address</div>
+                <p style="margin-bottom: 0.5rem;">
+                    In accordance with the Information Technology Act, 2000 and the Consumer Protection (E-Commerce) Rules, 2020, the contact details of the Grievance Officer and Corporate Operations Desk are published below:
+                </p>
+                <div class="doc-grievance-grid">
+                    <div>
+                        <strong>Grievance Officer:</strong><br>
+                        Deepak Awasthi<br>
+                        Compliance & Legal Directorate<br>
+                        Email: <a href="mailto:privacy@friendlyaisolution.com">privacy@friendlyaisolution.com</a><br>
+                        Helpline: <a href="tel:+919170897089">+91 91708 97089</a><br>
+                        Support Hours: Mon – Sat (10:00 AM to 06:30 PM IST)
+                    </div>
+                    <div>
+                        <strong>Registered Office Address:</strong><br>
+                        Friendly AI Solution<br>
+                        Marg ERP & WhatsApp Cloud API Suite<br>
+                        Civil Lines / Mall Road<br>
+                        Kanpur Nagar, Uttar Pradesh - 208001, India<br>
+                        Website: <a href="https://friendlyaisolution.com">friendlyaisolution.com</a>
                     </div>
                 </div>
-            </section>
+            </div>
 
-            <!-- Section 4 -->
-            <section id="system-availability" class="section-block">
-                <h2 class="section-heading">
-                    <i data-lucide="server" style="width: 20px; height: 20px;"></i>
-                    4. System Availability & Service Level Agreement (SLA)
-                </h2>
-                <div class="section-body">
-                    <p>Marg Soft Solution endeavors to maintain 99.9% uptime for core CRM modules and background database auto-sync engines. Scheduled maintenance windows will be communicated via top header banner notifications. We are not responsible for delays caused by upstream carrier networks, third-party internet service disruptions, or Meta WhatsApp Cloud API outages.</p>
-                </div>
-            </section>
+        </article>
 
-            <!-- Section 5 -->
-            <section id="intellectual-property" class="section-block">
-                <h2 class="section-heading">
-                    <i data-lucide="award" style="width: 20px; height: 20px;"></i>
-                    5. Intellectual Property Rights
-                </h2>
-                <div class="section-body">
-                    <p>All software code, database architecture, design systems, glassmorphism UI layouts, logos, trademarks, and documentation associated with Marg ERP CRM are the exclusive intellectual property of Marg Soft Solutions Inc. Clients retain full proprietary rights over their customer lead data, quotations, and commercial records stored within their database instance.</p>
-                </div>
-            </section>
+    </main>
 
-            <!-- Section 6 -->
-            <section id="liability" class="section-block">
-                <h2 class="section-heading">
-                    <i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i>
-                    6. Limitation of Liability
-                </h2>
-                <div class="section-body">
-                    <p>To the maximum extent permitted by applicable law, Marg Soft Solutions Inc. shall not be liable for any indirect, incidental, special, consequential, or punitive damages (including loss of profits, loss of business opportunities, or data loss) arising out of your use of or inability to use the CRM software.</p>
-                </div>
-            </section>
+    <!-- Shared Footer -->
+    <?php require_once __DIR__ . '/includes/public_footer.php'; ?>
 
-            <!-- Section 7 -->
-            <section id="termination" class="section-block">
-                <h2 class="section-heading">
-                    <i data-lucide="user-x" style="width: 20px; height: 20px;"></i>
-                    7. Account Termination & Data Export
-                </h2>
-                <div class="section-body">
-                    <p>Subscribers may terminate their subscription at any time by providing written notice. Upon termination, client accounts can export all stored lead records, client directories, and invoices via native CSV/XLSX export tools. Marg Soft Solution reserves the right to suspend or terminate accounts that breach these Terms or engage in fraudulent activities.</p>
-                </div>
-            </section>
-
-            <!-- Section 8 -->
-            <section id="governing-law" class="section-block">
-                <h2 class="section-heading">
-                    <i data-lucide="globe" style="width: 20px; height: 20px;"></i>
-                    8. Governing Law & Jurisdiction
-                </h2>
-                <div class="section-body">
-                    <p>These Terms shall be governed by and construed in accordance with the laws of India. Any disputes arising in connection with these terms shall be subject to the exclusive jurisdiction of the competent courts located in New Delhi, India.</p>
-                </div>
-            </section>
-
-        </main>
-    </div>
-
-    <!-- Footer -->
-    <footer class="footer-legal">
-        <p>© 2026 Marg Soft Solutions Inc. All rights reserved.</p>
-        <div class="footer-links">
-            <a href="privacy.php">Privacy Policy</a> • 
-            <a href="terms.php">Terms & Conditions</a> • 
-            <a href="refund.php">Refund Policy</a> • 
-            <a href="index.php">CRM Dashboard</a>
-        </div>
-    </footer>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            if (typeof lucide !== 'undefined') {
-                lucide.createIcons();
-            }
-        });
-    </script>
 </body>
 </html>

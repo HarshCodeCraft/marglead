@@ -71,212 +71,155 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register Operator - Marg Soft Solution</title>
+    <title>Create Account - Friendly AI Solution</title>
     
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
     <!-- CSS -->
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/components.css">
-    <link rel="stylesheet" href="../assets/css/modules/auth.css">
-    
-    <!-- Premium Styles Upgrade -->
-    <style>
-    /* Glassmorphism Auth Wrapper */
-    .auth-wrapper {
-        background: rgba(15, 23, 42, 0.65);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        backdrop-filter: blur(25px);
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(59, 130, 246, 0.05);
-        border-radius: 16px;
-    }
-
-    /* Beautiful Left Panel Gradient overlay */
-    .auth-panel-left {
-        background: linear-gradient(135deg, rgba(37, 99, 235, 0.85) 0%, rgba(124, 58, 237, 0.85) 100%), 
-                    url('https://images.unsplash.com/photo-1557804506-669a67965ba0?q=80&w=1000') center/cover no-repeat !important;
-        padding: 3.5rem 3rem;
-    }
-
-    /* Auth right panel premium layout */
-    .auth-panel-right {
-        background-color: rgba(9, 15, 28, 0.9) !important;
-        padding: 4rem 3rem;
-    }
-
-    /* Input boxes adjustments */
-    .form-control {
-        background: rgba(15, 23, 42, 0.5) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        color: #f8fafc !important;
-        border-radius: 8px !important;
-        height: 44px !important;
-        font-size: 0.9rem !important;
-        transition: all 0.3s ease !important;
-    }
-    .form-control:focus {
-        background: rgba(15, 23, 42, 0.7) !important;
-        border-color: #3b82f6 !important;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
-    }
-
-    .input-icon-wrapper i,
-    .input-icon-wrapper svg {
-        position: absolute !important;
-        left: 1rem !important;
-        color: #64748b !important;
-        pointer-events: none !important;
-        transition: color 0.3s ease;
-    }
-    .input-icon-wrapper:focus-within i,
-    .input-icon-wrapper:focus-within svg {
-        color: #3b82f6 !important;
-    }
-    .input-icon-wrapper .form-control {
-        padding-left: 2.75rem !important;
-    }
-
-    /* Form Label premium spacing */
-    .form-label {
-        color: #94a3b8 !important;
-        font-weight: 600 !important;
-        margin-bottom: 0.5rem !important;
-        display: inline-block;
-    }
-
-    /* Submit Button premium style */
-    .btn-primary {
-        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
-        box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.3) !important;
-        height: 46px !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem;
-        color: #ffffff !important;
-        cursor: pointer;
-    }
-    .btn-primary:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 20px 0 rgba(59, 130, 246, 0.4) !important;
-        background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%) !important;
-    }
-
-    .promo-feature-item {
-        background: rgba(255, 255, 255, 0.08) !important;
-        padding: 12px 16px !important;
-        border-radius: 10px !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(5px);
-        margin-bottom: 0.5rem;
-    }
-    .auth-header h2 {
-        font-family: 'Outfit', sans-serif;
-        color: #ffffff;
-    }
-    </style>
+    <link rel="stylesheet" href="../assets/css/modules/auth.css?v=<?php echo time(); ?>">
 
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="auth-body">
+    <!-- Ambient Decor Elements -->
+    <div class="auth-bg-decor-1"></div>
+    <div class="auth-bg-decor-2"></div>
+
+    <!-- Top Navigation Bar with Back to Home -->
+    <div class="auth-top-bar">
+        <a href="../landing.php" class="auth-back-btn" title="Go to Main Website">
+            <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+            <span>Back to Home</span>
+        </a>
+        <div class="auth-top-nav-links">
+            <a href="../landing.php" class="auth-nav-link">Home</a>
+            <a href="../features.php" class="auth-nav-link">Features</a>
+            <a href="../pricing.php" class="auth-nav-link">Pricing</a>
+            <a href="../contact.php" class="auth-nav-link">Contact</a>
+            <a href="login.php" class="auth-nav-link" style="color: #2563eb; font-weight: 600;">Sign In</a>
+        </div>
+    </div>
+
     <div class="auth-wrapper">
         <!-- Left Panel: Promo Info -->
         <div class="auth-panel-left">
-            <div class="auth-brand">
-                <img src="../assets/image.png" alt="Marg Logo" style="width: 28px; height: 28px; object-fit: contain;">
-                <span>Marg Soft Solution</span>
-            </div>
+            <a href="../landing.php" class="auth-brand" title="Friendly AI Solution">
+                <img src="../assets/image.png" alt="Marg Logo">
+                <span>Friendly AI Solution</span>
+            </a>
             
             <div class="auth-promo-content">
-                <h1>Join the CRM Workspace</h1>
-                <p>Register as an operator. After completion, your regional head or site administrator will authorize permissions mapping for your profile.</p>
+                <h1>Accelerate Sales with Marg ERP & WhatsApp Automation</h1>
+                <p>Register as an operator. We will dispatch a verification OTP to your email, and your administrator will activate your access permissions.</p>
                 
                 <div class="auth-promo-features">
                     <div class="promo-feature-item">
-                        <i data-lucide="shield-check" style="width: 18px; height: 18px; color: #34d399;"></i>
-                        <span>Role-Based Operational Access</span>
+                        <i data-lucide="shield-check" style="width: 20px; height: 20px;"></i>
+                        <span>Role-Based Operational Access Control</span>
                     </div>
                     <div class="promo-feature-item">
-                        <i data-lucide="shield-check" style="width: 18px; height: 18px; color: #34d399;"></i>
-                        <span>Audit Log Signature Records</span>
+                        <i data-lucide="zap" style="width: 20px; height: 20px;"></i>
+                        <span>Real-time Multi-User Pipeline Sync</span>
                     </div>
+                    <div class="promo-feature-item">
+                        <i data-lucide="lock" style="width: 20px; height: 20px;"></i>
+                        <span>End-to-End Encrypted Audit Trail</span>
+                    </div>
+                </div>
+
+                <div class="auth-trust-badges">
+                    <span class="trust-badge-pill">
+                        <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> Meta Certified Partner
+                    </span>
+                    <span class="trust-badge-pill" style="background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.35); color: #bfdbfe;">
+                        <i data-lucide="clock" style="width: 14px; height: 14px;"></i> Instant Setup
+                    </span>
                 </div>
             </div>
             
-            <div class="text-xs text-muted" style="color: rgba(255, 255, 255, 0.5);">
-                © 2026 Marg Soft Solutions. All rights reserved.
+            <div class="auth-panel-footer">
+                <span>© <?php echo date('Y'); ?> Friendly AI Solution.</span>
+                <a href="../landing.php">Visit Main Portal</a>
             </div>
         </div>
         
         <!-- Right Panel: Registration Form -->
         <div class="auth-panel-right">
-            <div class="auth-header">
-                <h2>Account Signup</h2>
-                <p>Create your operational system credentials</p>
-            </div>
-            
-            <?php if (!empty($message)): ?>
-                <div class="badge mb-4" style="--badge-bg: var(--<?php echo $message_type; ?>-light); --badge-color: var(--<?php echo $message_type; ?>); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); width: 100%; justify-content: flex-start; display: flex; text-align: left; font-size: 0.825rem;">
-                    <?php echo $message; ?>
-                </div>
-            <?php endif; ?>
-            
-            <form action="register.php" method="POST" class="flex flex-col gap-4">
-                <div class="form-group m-0">
-                    <label for="name" class="form-label text-sm">Full Name</label>
-                    <div class="input-icon-wrapper">
-                        <i data-lucide="user" style="width: 18px; height: 18px;"></i>
-                        <input type="text" id="name" name="name" class="form-control" placeholder="E.g. Vikas Patel" required>
-                    </div>
+            <div class="auth-form-container">
+                <div class="auth-header">
+                    <h2>Create an account</h2>
+                    <p>Start your operator workspace onboarding</p>
                 </div>
                 
-                <div class="form-group m-0">
-                    <label for="email" class="form-label text-sm">Company Email</label>
-                    <div class="input-icon-wrapper">
-                        <i data-lucide="mail" style="width: 18px; height: 18px;"></i>
-                        <input type="email" id="email" name="email" class="form-control" placeholder="name@marglead.com" required>
+                <?php if (!empty($message)): ?>
+                    <div class="badge-alert <?php echo htmlspecialchars($message_type); ?>">
+                        <i data-lucide="<?php echo $message_type === 'success' ? 'check-circle' : ($message_type === 'warning' ? 'alert-triangle' : 'alert-circle'); ?>" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+                        <span><?php echo $message; ?></span>
                     </div>
-                </div>
-
-                <div class="form-group m-0">
-                    <label for="password" class="form-label text-sm">Password</label>
-                    <div class="input-icon-wrapper">
-                        <i data-lucide="lock" style="width: 18px; height: 18px;"></i>
-                        <input type="password" id="password" name="password" class="form-control" placeholder="••••••••" required>
-                    </div>
-                </div>
+                <?php endif; ?>
                 
-                <div class="mt-2">
-                    <label class="flex align-center gap-2 pointer text-xs text-muted" style="color: #94a3b8; font-size: 0.78rem;">
-                        <input type="checkbox" required style="accent-color: #3b82f6;">
-                        <span>I agree to the <a href="../terms.php" target="_blank" style="color: #3b82f6; text-decoration: underline;">Terms & Conditions</a> and <a href="../privacy.php" target="_blank" style="color: #3b82f6; text-decoration: underline;">Privacy Policy</a></span>
-                    </label>
-                </div>
+                <form action="register.php" method="POST" class="flex flex-col gap-4">
+                    <div class="form-group m-0">
+                        <label for="name" class="form-label">Full Name <span style="color: #ef4444;">*</span></label>
+                        <div class="input-icon-wrapper">
+                            <i data-lucide="user" style="width: 18px; height: 18px;"></i>
+                            <input type="text" id="name" name="name" class="form-control" placeholder="E.g. Rajesh Sharma" required autofocus>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group m-0">
+                        <label for="email" class="form-label">Email Address <span style="color: #ef4444;">*</span></label>
+                        <div class="input-icon-wrapper">
+                            <i data-lucide="mail" style="width: 18px; height: 18px;"></i>
+                            <input type="email" id="email" name="email" class="form-control" placeholder="name@company.com" required>
+                        </div>
+                    </div>
 
-                <button type="submit" class="btn btn-primary w-full mt-4" style="padding: 0.8rem;">
-                    <span>Create Account</span>
-                    <i data-lucide="user-plus" style="width: 18px; height: 18px;"></i>
-                </button>
-            </form>
-            
-            <div class="text-center mt-6 text-xs text-muted">
-                Already have an account? <a href="login.php" class="text-primary font-semibold">Sign In</a>
+                    <div class="form-group m-0">
+                        <label for="password" class="form-label">Password <span style="color: #ef4444;">*</span></label>
+                        <div class="input-icon-wrapper">
+                            <i data-lucide="lock" style="width: 18px; height: 18px;"></i>
+                            <input type="password" id="password" name="password" class="form-control" placeholder="Minimum 6 characters" required>
+                            <button type="button" class="password-toggle-btn" aria-label="Toggle Password Visibility">
+                                <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-1">
+                        <label class="flex align-center gap-2 pointer text-xs" style="color: #64748b; font-size: 0.825rem; line-height: 1.45;">
+                            <input type="checkbox" required style="accent-color: #2563eb; width: 15px; height: 15px;">
+                            <span>I agree to the <a href="../terms.php" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">Terms & Conditions</a> and <a href="../privacy.php" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">Privacy Policy</a></span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-full mt-2">
+                        <span>Create Account & Send OTP</span>
+                        <i data-lucide="arrow-right" style="width: 18px; height: 18px;"></i>
+                    </button>
+                </form>
+                
+                <div class="auth-switch-text">
+                    Already have an account? <a href="login.php">Sign In</a>
+                </div>
             </div>
 
-            <div class="text-center mt-4 text-xs text-muted flex justify-center gap-3" style="color: #64748b; font-size: 0.75rem;">
-                <a href="../privacy.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Privacy Policy</a> • 
-                <a href="../terms.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Terms & Conditions</a> • 
-                <a href="../refund.php" target="_blank" style="color: #94a3b8; text-decoration: none;">Refund Policy</a>
+            <!-- Anchored Bottom Footer -->
+            <div class="auth-panel-footer-right">
+                <a href="../landing.php">Home Page</a> • 
+                <a href="../privacy.php" target="_blank">Privacy</a> • 
+                <a href="../terms.php" target="_blank">Terms</a> • 
+                <a href="../contact.php" target="_blank">Contact Support</a>
             </div>
         </div>
     </div>
@@ -286,6 +229,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (typeof lucide !== 'undefined') {
                 lucide.createIcons();
             }
+            
+            document.querySelectorAll('.password-toggle-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const wrapper = this.closest('.input-icon-wrapper');
+                    const input = wrapper ? wrapper.querySelector('input') : null;
+                    if (input) {
+                        const isPass = input.getAttribute('type') === 'password';
+                        input.setAttribute('type', isPass ? 'text' : 'password');
+                        this.innerHTML = `<i data-lucide="${isPass ? 'eye-off' : 'eye'}" style="width: 18px; height: 18px;"></i>`;
+                        if (typeof lucide !== 'undefined') {
+                            lucide.createIcons();
+                        }
+                    }
+                });
+            });
         });
     </script>
 </body>

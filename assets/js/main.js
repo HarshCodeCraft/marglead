@@ -43,16 +43,148 @@ function initMainApp() {
         lucide.createIcons();
     }
 
-    // Collapsible Sidebar
+    // ----------------------------------------------------
+    // Auto-Hiding & Collapsible Sidebar System
+    // ----------------------------------------------------
     const sidebar = document.querySelector('.sidebar');
     const sidebarToggle = document.querySelector('.sidebar-toggle');
+    const autohideToggle = document.getElementById('sidebar-autohide-btn');
+    
+    // Auto-Hide is enabled by default (saved in localStorage)
+    let isAutoHideEnabled = localStorage.getItem('sidebar_autohide_enabled') !== 'false';
+    const AUTO_HIDE_SECONDS = 5; // 5 seconds of inactivity
+    let sidebarTimer = null;
+    
+    function isSidebarOpen() {
+        if (!sidebar) return false;
+        const isMobile = window.innerWidth <= 1024;
+        if (isMobile) {
+            return sidebar.classList.contains('open');
+        } else {
+            return !sidebar.classList.contains('collapsed');
+        }
+    }
+
+    function collapseSidebar() {
+        if (!sidebar) return;
+        const isMobile = window.innerWidth <= 1024;
+        if (isMobile) {
+            sidebar.classList.remove('open');
+        } else {
+            sidebar.classList.add('collapsed');
+        }
+        clearTimeout(sidebarTimer);
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 300);
+    }
+
+    function expandSidebar() {
+        if (!sidebar) return;
+        const isMobile = window.innerWidth <= 1024;
+        if (isMobile) {
+            sidebar.classList.add('open');
+        } else {
+            sidebar.classList.remove('collapsed');
+        }
+        resetSidebarTimer();
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 300);
+    }
+
+    function resetSidebarTimer() {
+        clearTimeout(sidebarTimer);
+        if (!isAutoHideEnabled) return;
+        if (!isSidebarOpen()) return;
+
+        // Auto-close after AUTO_HIDE_SECONDS without interaction
+        sidebarTimer = setTimeout(() => {
+            if (isSidebarOpen()) {
+                collapseSidebar();
+            }
+        }, AUTO_HIDE_SECONDS * 1000);
+    }
+
+    function updateAutohideUI() {
+        if (!autohideToggle) return;
+        if (isAutoHideEnabled) {
+            autohideToggle.classList.add('active');
+            autohideToggle.title = 'Auto-Hide Active (5s Inactivity) - Click to Pin';
+            autohideToggle.innerHTML = '<i data-lucide="timer" style="width: 15px; height: 15px;"></i>';
+        } else {
+            autohideToggle.classList.remove('active');
+            autohideToggle.title = 'Sidebar Pinned (Always Open) - Click for Auto-Hide';
+            autohideToggle.innerHTML = '<i data-lucide="pin" style="width: 15px; height: 15px;"></i>';
+        }
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
+
+    if (sidebar) {
+        // Reset timer on any user interaction inside sidebar
+        ['mousemove', 'mouseenter', 'click', 'scroll', 'touchstart', 'keydown'].forEach(evt => {
+            sidebar.addEventListener(evt, () => {
+                if (isSidebarOpen()) {
+                    resetSidebarTimer();
+                }
+            }, { passive: true });
+        });
+
+        // When mouse leaves sidebar, trigger/restart timer
+        sidebar.addEventListener('mouseleave', () => {
+            if (isSidebarOpen() && isAutoHideEnabled) {
+                resetSidebarTimer();
+            }
+        });
+
+        // Auto-close sidebar when clicking outside on main content
+        const mainContent = document.querySelector('.main-content');
+        if (mainContent) {
+            mainContent.addEventListener('click', (e) => {
+                if (isAutoHideEnabled && isSidebarOpen() && !e.target.closest('.sidebar-toggle') && !e.target.closest('.sidebar')) {
+                    collapseSidebar();
+                }
+            });
+        }
+
+        // Initialize autohide UI state
+        updateAutohideUI();
+        if (isSidebarOpen() && isAutoHideEnabled) {
+            resetSidebarTimer();
+        }
+    }
+
     if (sidebarToggle && sidebar) {
-        sidebarToggle.addEventListener('click', () => {
-            sidebar.classList.toggle('collapsed');
-            sidebar.classList.toggle('open');
-            setTimeout(() => {
-                window.dispatchEvent(new Event('resize'));
-            }, 300);
+        sidebarToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (isSidebarOpen()) {
+                collapseSidebar();
+            } else {
+                expandSidebar();
+            }
+        });
+    }
+
+    if (autohideToggle) {
+        autohideToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            isAutoHideEnabled = !isAutoHideEnabled;
+            localStorage.setItem('sidebar_autohide_enabled', isAutoHideEnabled ? 'true' : 'false');
+            updateAutohideUI();
+            
+            if (isAutoHideEnabled) {
+                resetSidebarTimer();
+                if (typeof window.alert === 'function') {
+                    window.alert('⚡ Sidebar Auto-Hide Enabled (Auto-closes after 5s of inactivity)');
+                }
+            } else {
+                clearTimeout(sidebarTimer);
+                if (typeof window.alert === 'function') {
+                    window.alert('📌 Sidebar Pinned (Will stay open)');
+                }
+            }
         });
     }
 
@@ -277,6 +409,16 @@ function isUserFillingForm() {
     // 3. Check typing state
     if (isTypingInForm) return true;
 
+    // 4. Prevent auto-sync if user has selected rows/checkboxes or is doing Batch Actions
+    const checkedRows = document.querySelectorAll('.lead-checkbox:checked, .client-checkbox:checked, input[type="checkbox"][name*="id"]:checked');
+    if (checkedRows.length > 0) return true;
+
+    // 5. Prevent auto-sync if batch action dropdown or employee menu is open/selected
+    const batchActionSelect = document.getElementById('batch-action-select');
+    if (batchActionSelect && batchActionSelect.value !== '') return true;
+    const batchEmpMenu = document.getElementById('batch-emp-dropdown-menu');
+    if (batchEmpMenu && !batchEmpMenu.classList.contains('hidden')) return true;
+
     return false;
 }
 
@@ -353,8 +495,28 @@ function refreshDataWithoutReload(force = false) {
 
             currentEls.forEach((el, idx) => {
                 if (newEls[idx] && el.innerHTML !== newEls[idx].innerHTML) {
+                    // Remember checked items before replacement in table
+                    const checkedValues = new Set(
+                        Array.from(el.querySelectorAll('.lead-checkbox:checked, .client-checkbox:checked, input[type="checkbox"]:checked'))
+                            .map(cb => cb.value)
+                    );
+                    const isSelectAllChecked = el.querySelector('#select-all-leads')?.checked;
+
                     el.innerHTML = newEls[idx].innerHTML;
                     updatedAny = true;
+
+                    // Restore checked items
+                    if (checkedValues.size > 0) {
+                        el.querySelectorAll('.lead-checkbox, .client-checkbox, input[type="checkbox"]').forEach(cb => {
+                            if (checkedValues.has(cb.value)) {
+                                cb.checked = true;
+                            }
+                        });
+                    }
+                    if (isSelectAllChecked) {
+                        const selectAll = el.querySelector('#select-all-leads');
+                        if (selectAll) selectAll.checked = true;
+                    }
                 }
             });
         });
@@ -389,6 +551,9 @@ function refreshDataWithoutReload(force = false) {
             }
             if (typeof loadDirColumnPreferences === 'function') {
                 loadDirColumnPreferences();
+            }
+            if (typeof loadColumnPreferences === 'function') {
+                loadColumnPreferences();
             }
             if (typeof window.initCRMCharts === 'function') {
                 window.initCRMCharts();

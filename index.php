@@ -6,22 +6,35 @@ require_once __DIR__ . '/includes/mailer.php';
 
 // Check authentication and routing for public landing vs authenticated dashboard
 $requested_page = $_GET['page'] ?? '';
+$is_authenticated = isset($_SESSION['user_id']);
 
 // Public Standalone Pages routing
-if (in_array($requested_page, ['privacy', 'privacy_policy'])) {
+if ($requested_page === 'privacy' || (!$is_authenticated && in_array($requested_page, ['privacy_policy']))) {
     require_once __DIR__ . '/privacy.php';
     exit;
 }
-if (in_array($requested_page, ['terms', 'terms_of_service'])) {
+if ($requested_page === 'terms' || (!$is_authenticated && in_array($requested_page, ['terms_of_service', 'terms_conditions']))) {
     require_once __DIR__ . '/terms.php';
     exit;
 }
-if (in_array($requested_page, ['refund', 'refund_policy'])) {
+if ($requested_page === 'refund' || (!$is_authenticated && in_array($requested_page, ['refund_policy', 'cancellation']))) {
     require_once __DIR__ . '/refund.php';
     exit;
 }
 if ($requested_page === 'contact') {
     require_once __DIR__ . '/contact.php';
+    exit;
+}
+if (in_array($requested_page, ['pricing', 'plans'])) {
+    require_once __DIR__ . '/pricing.php';
+    exit;
+}
+if (in_array($requested_page, ['features', 'solutions'])) {
+    require_once __DIR__ . '/features.php';
+    exit;
+}
+if (in_array($requested_page, ['whatsapp', 'whatsapp_api', 'waba'])) {
+    require_once __DIR__ . '/whatsapp.php';
     exit;
 }
 if (in_array($requested_page, ['kyc', 'customer_kyc_form'])) {
@@ -70,7 +83,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'stop_impersonation') {
     exit;
 }
 
-// Export Leads CSV File Receiver
+// Export Leads CSV File Receiver (Legacy - all leads)
 if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     if ($db_connected && $pdo) {
         try {
@@ -118,6 +131,182 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
         die("Database offline. Cannot export.");
     }
 }
+
+// ===== ADVANCED EXPORT CSV HANDLER =====
+if (isset($_GET['action']) && $_GET['action'] === 'export_csv_advanced') {
+    if (!$db_connected || !$pdo) die("Database offline. Cannot export.");
+
+    $exp_scope   = $_GET['exp_scope'] ?? 'all';
+    $exp_cols    = !empty($_GET['exp_cols']) ? explode(',', $_GET['exp_cols']) : ['id','name','phone','company','group_stage','assigned_to','created_at'];
+    $exp_fup     = $_GET['exp_fup'] ?? '0'; // '0','1','2','3','all'
+
+    // Allowed column map: key => SQL column or alias
+    $allowed_cols = [
+        'id'             => ['label' => 'Lead ID',         'col' => 'leads.id'],
+        'name'           => ['label' => 'Customer Name',   'col' => 'leads.name'],
+        'contact_person' => ['label' => 'Contact Person',  'col' => 'leads.contact_person'],
+        'company'        => ['label' => 'Company',         'col' => 'leads.company'],
+        'phone'          => ['label' => 'Phone',           'col' => 'leads.phone'],
+        'email'          => ['label' => 'Email',           'col' => 'leads.email'],
+        'address'        => ['label' => 'Address',         'col' => 'leads.address'],
+        'source'         => ['label' => 'Source',          'col' => 'leads.source'],
+        'priority'       => ['label' => 'Priority',        'col' => 'leads.priority'],
+        'status'         => ['label' => 'Status',          'col' => 'leads.status'],
+        'group_stage'    => ['label' => 'Group / Stage',   'col' => 'leads.group_stage'],
+        'assigned_to'    => ['label' => 'Assigned To',     'col' => 'leads.assigned_to'],
+        'budget'         => ['label' => 'Budget',          'col' => 'leads.budget'],
+        'enq_for'        => ['label' => 'Enq For',         'col' => 'leads.enq_for'],
+        'tags'           => ['label' => 'Tags',            'col' => 'leads.tags'],
+        'remarks'        => ['label' => 'Remarks',         'col' => 'leads.remarks'],
+        'created_at'     => ['label' => 'Created Date',    'col' => 'leads.created_at'],
+        'updated_at'     => ['label' => 'Updated Date',    'col' => 'leads.updated_at'],
+    ];
+
+    // Validate requested columns
+    $selected_cols = array_filter($exp_cols, fn($c) => isset($allowed_cols[$c]));
+    if (empty($selected_cols)) $selected_cols = ['id','name','phone','company','created_at'];
+
+    $select_parts = array_map(fn($c) => $allowed_cols[$c]['col'] . ' AS ' . $c, $selected_cols);
+    $sql_select = implode(', ', $select_parts);
+
+    // Build WHERE conditions based on scope
+    $where = [];
+    $params = [];
+
+    if ($exp_scope === 'current') {
+        // Replay URL filter params (prefixed with exp_url_)
+        foreach ($_GET as $k => $v) {
+            if (strpos($k, 'exp_url_') !== 0 || empty($v)) continue;
+            $orig = substr($k, 8); // strip 'exp_url_'
+            if ($orig === 'search' || $orig === 'q') {
+                $where[] = "(leads.name LIKE ? OR leads.company LIKE ? OR leads.phone LIKE ? OR leads.email LIKE ?)";
+                $like = '%' . $v . '%';
+                $params = array_merge($params, [$like, $like, $like, $like]);
+            } elseif ($orig === 'group_stage') {
+                $where[] = "leads.group_stage LIKE ?";
+                $params[] = '%' . $v . '%';
+            } elseif ($orig === 'filter_priority' || $orig === 'priority') {
+                $where[] = "leads.priority = ?"; $params[] = $v;
+            } elseif ($orig === 'filter_source' || $orig === 'source') {
+                $where[] = "leads.source = ?"; $params[] = $v;
+            } elseif ($orig === 'filter_status' || $orig === 'status') {
+                $where[] = "leads.status = ?"; $params[] = $v;
+            } elseif ($orig === 'filter_assigned' || $orig === 'assigned') {
+                $where[] = "leads.assigned_to LIKE ?"; $params[] = '%' . $v . '%';
+            }
+        }
+    } elseif ($exp_scope === 'custom') {
+        if (!empty($_GET['exp_date_from'])) {
+            $where[] = "DATE(leads.created_at) >= ?"; $params[] = $_GET['exp_date_from'];
+        }
+        if (!empty($_GET['exp_date_to'])) {
+            $where[] = "DATE(leads.created_at) <= ?"; $params[] = $_GET['exp_date_to'];
+        }
+        if (!empty($_GET['exp_group'])) {
+            $where[] = "leads.group_stage LIKE ?"; $params[] = '%' . $_GET['exp_group'] . '%';
+        }
+        if (!empty($_GET['exp_priority'])) {
+            $where[] = "LOWER(leads.priority) = ?"; $params[] = strtolower($_GET['exp_priority']);
+        }
+        if (!empty($_GET['exp_source'])) {
+            $where[] = "leads.source = ?"; $params[] = $_GET['exp_source'];
+        }
+        if (!empty($_GET['exp_assigned'])) {
+            $where[] = "leads.assigned_to LIKE ?"; $params[] = '%' . $_GET['exp_assigned'] . '%';
+        }
+        if (!empty($_GET['exp_status'])) {
+            $where[] = "leads.status = ?"; $params[] = $_GET['exp_status'];
+        }
+    }
+    // scope='all' -> no extra WHERE
+
+    $where_sql = !empty($where) ? ' WHERE ' . implode(' AND ', $where) : '';
+    $final_sql = "SELECT {$sql_select} FROM leads {$where_sql} ORDER BY leads.created_at DESC";
+
+    try {
+        $stmt = $pdo->prepare($final_sql);
+        $stmt->execute($params);
+        $leads_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        die("Export query error: " . $e->getMessage());
+    }
+
+    // Fetch followup data if needed
+    $fup_data = []; // lead_id => [ [date, remarks, action_type], ... ]
+    $max_fup_cols = 0;
+    if ($exp_fup !== '0' && $exp_fup !== 0) {
+        $lead_ids = array_column($leads_data, 'id');
+        if (!empty($lead_ids)) {
+            $in_clause = implode(',', array_fill(0, count($lead_ids), '?'));
+            try {
+                $fstmt = $pdo->prepare("SELECT lead_id, action_type, remarks, DATE_FORMAT(scheduled_at, '%d-%m-%Y %H:%i') as fup_dt FROM followups WHERE lead_id IN ($in_clause) ORDER BY lead_id ASC, scheduled_at DESC");
+                $fstmt->execute($lead_ids);
+                $all_fups = $fstmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($all_fups as $f) {
+                    $fup_data[$f['lead_id']][] = $f;
+                }
+            } catch (PDOException $e) {}
+        }
+
+        if ($exp_fup !== 'all') {
+            $max_fup_cols = (int)$exp_fup;
+        }
+    }
+
+    // Build header row
+    $header_row = array_map(fn($c) => $allowed_cols[$c]['label'], $selected_cols);
+    if ($exp_fup !== '0' && $exp_fup !== 0 && $exp_fup !== 'all') {
+        for ($i = 1; $i <= $max_fup_cols; $i++) {
+            $header_row[] = "Followup {$i} Date";
+            $header_row[] = "Followup {$i} Type";
+            $header_row[] = "Followup {$i} Remarks";
+        }
+    } elseif ($exp_fup === 'all') {
+        $header_row[] = 'Followup Date';
+        $header_row[] = 'Followup Type';
+        $header_row[] = 'Followup Remarks';
+    }
+
+    // Send headers and write CSV
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=Leads_Export_' . strtoupper($exp_scope) . '_' . date('Y-m-d_H-i') . '.csv');
+    $output = fopen('php://output', 'w');
+    fputs($output, "\xEF\xBB\xBF"); // BOM for Excel
+
+    fputcsv($output, $header_row);
+
+    foreach ($leads_data as $lead) {
+        $row = array_map(fn($c) => $lead[$c] ?? '', $selected_cols);
+        $lead_fups = $fup_data[$lead['id']] ?? [];
+
+        if ($exp_fup === '0' || $exp_fup === 0) {
+            fputcsv($output, $row);
+        } elseif ($exp_fup === 'all') {
+            if (empty($lead_fups)) {
+                $row[] = ''; $row[] = ''; $row[] = '';
+                fputcsv($output, $row);
+            } else {
+                foreach ($lead_fups as $fup) {
+                    $fup_row = array_merge($row, [$fup['fup_dt'] ?? '', $fup['action_type'] ?? '', $fup['remarks'] ?? '']);
+                    fputcsv($output, $fup_row);
+                }
+            }
+        } else {
+            // Last N followups as extra columns on same row
+            for ($i = 0; $i < $max_fup_cols; $i++) {
+                $fup = $lead_fups[$i] ?? null;
+                $row[] = $fup ? ($fup['fup_dt'] ?? '') : '';
+                $row[] = $fup ? ($fup['action_type'] ?? '') : '';
+                $row[] = $fup ? ($fup['remarks'] ?? '') : '';
+            }
+            fputcsv($output, $row);
+        }
+    }
+
+    fclose($output);
+    exit;
+}
+
 
 // Batch Actions AJAX Receiver
 if (isset($_POST['action']) && $_POST['action'] === 'batch_update') {
@@ -302,6 +491,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_lead_json') {
                         'id' => $l['id'],
                         'name' => $l['name'],
                         'company' => $l['company'],
+                        'group_stage' => $l['group_stage'] ?? '',
                         'city' => $l['city'] ?? '',
                         'phone' => $l['phone'],
                         'email' => $l['email'] ?? '',
@@ -339,7 +529,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($db_connected && $pdo) {
         try {
             $lead_id = $_POST['lead_id'] ?? '';
-            $company = $_POST['company'] ?? '';
+            $group_stage = trim($_POST['group_stage'] ?? ($_POST['company'] ?? ''));
             $status = $_POST['status'] ?? '';
             $assigned_to_raw = $_POST['assigned_to'] ?? '';
             $assigned_to = is_array($assigned_to_raw) ? implode(', ', array_filter(array_map('trim', $assigned_to_raw))) : trim($assigned_to_raw);
@@ -353,13 +543,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $contact_person = $_POST['contact_person'] ?? '';
             $remarks = $_POST['remarks'] ?? '';
             
-            // 1. Update leads table
+            // 1. Update leads table (Properly update group_stage)
             if (!empty($status)) {
-                $upd = $pdo->prepare("UPDATE leads SET company = ?, status = ?, assigned_to = ?, tags = ?, address = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
-                $upd->execute([$company, $status, $assigned_to, $tags, $address, $source, $enq_for, $contact_person, $remarks, $lead_id]);
+                $upd = $pdo->prepare("UPDATE leads SET group_stage = ?, status = ?, assigned_to = ?, tags = ?, address = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
+                $upd->execute([$group_stage, $status, $assigned_to, $tags, $address, $source, $enq_for, $contact_person, $remarks, $lead_id]);
             } else {
-                $upd = $pdo->prepare("UPDATE leads SET company = ?, assigned_to = ?, tags = ?, address = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
-                $upd->execute([$company, $assigned_to, $tags, $address, $source, $enq_for, $contact_person, $remarks, $lead_id]);
+                $upd = $pdo->prepare("UPDATE leads SET group_stage = ?, assigned_to = ?, tags = ?, address = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
+                $upd->execute([$group_stage, $assigned_to, $tags, $address, $source, $enq_for, $contact_person, $remarks, $lead_id]);
             }
             
             // 2. Insert or update follow-up reminder
@@ -619,8 +809,26 @@ $page = isset($_GET['page']) ? $_GET['page'] : 'dashboard';
 
 // Enforce role-based access security check
 if (!hasAccess($page, $_SESSION['user_role'])) {
-    $_SESSION['access_denied_page'] = $page;
-    $page = 'access_denied';
+    // Find first accessible page for this user and redirect silently
+    $role = $_SESSION['user_role'] ?? '';
+    $candidate_pages = ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings'];
+    $redirect_to = null;
+    foreach ($candidate_pages as $candidate) {
+        // Skip the current page to avoid infinite redirect loop
+        if ($candidate === $page) continue;
+        if (hasAccess($candidate, $role)) {
+            $redirect_to = $candidate;
+            break;
+        }
+    }
+    if ($redirect_to !== null) {
+        header("Location: index.php?page=" . urlencode($redirect_to));
+    } else {
+        // No accessible page found - session may be corrupt, force re-login
+        session_destroy();
+        header("Location: auth/login.php");
+    }
+    exit;
 }
 
 $module_path = '';
@@ -731,6 +939,9 @@ switch ($page) {
     case 'refund_policy':
         $module_path = __DIR__ . '/modules/refund_policy.php';
         break;
+    case 'policy_manager':
+        $module_path = __DIR__ . '/modules/admin/policy_manager.php';
+        break;
     case 'customer_kyc':
     case 'customer_kyc_admin':
         $module_path = __DIR__ . '/modules/customer_kyc_admin.php';
@@ -791,16 +1002,27 @@ if ($is_tenant_session) {
                     }
 
                     if (!$is_allowed) {
-                        include_once __DIR__ . '/includes/header.php';
-                        echo '
-                        <div class="card p-6 text-center" style="max-width: 520px; margin: 4rem auto; border: 1px solid var(--danger); background: var(--bg-card);">
-                            <i data-lucide="shield-off" style="width: 54px; height: 54px; color: var(--danger); margin: 0 auto 1.25rem auto;"></i>
-                            <h2 class="mb-2" style="font-family: var(--font-heading); color: var(--danger);">Module Access Restricted</h2>
-                            <p class="text-muted text-sm mb-4">Access to the <strong>' . htmlspecialchars($page) . '</strong> workspace module has been disabled for your subscription by the Administrator.</p>
-                            <a href="index.php?page=dashboard" class="btn btn-primary text-xs">Return to Workspace Dashboard</a>
-                        </div>';
-                        include_once __DIR__ . '/includes/footer.php';
-                        return;
+                        // Redirect to first accessible module instead of showing restriction message
+                        $role = $_SESSION['user_role'] ?? '';
+                        $tenant_mods = $_SESSION['tenant_allowed_modules'] ?? [];
+                        $candidate_pages = ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings'];
+                        $redirect_to = null;
+                        foreach ($candidate_pages as $candidate) {
+                            // Skip current page to avoid infinite redirect loop
+                            if ($candidate === $page) continue;
+                            if (!empty($tenant_mods) && in_array($candidate, $tenant_mods) && hasAccess($candidate, $role)) {
+                                $redirect_to = $candidate;
+                                break;
+                            }
+                        }
+                        if ($redirect_to !== null) {
+                            header("Location: index.php?page=" . urlencode($redirect_to));
+                        } else {
+                            // Tenant has no accessible modules - force re-login
+                            session_destroy();
+                            header("Location: auth/login.php");
+                        }
+                        exit;
                     }
                 }
             }

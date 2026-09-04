@@ -381,7 +381,7 @@ try {
     <div>
         <h1 style="font-size: 1.6rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: flex; align-items: center; gap: 10px;">
             <i data-lucide="qr-code" style="width: 28px; height: 28px; color: var(--primary);"></i>
-            Marg ERP 9+ WhatsApp Gateway &amp; WABA Setup
+            WhatsApp Gateway &amp; WABA Setup
         </h1>
         <p style="color: var(--text-muted); font-size: 0.9rem;">
             Configure your Meta WhatsApp Cloud API or Self-Hosted WhatsApp Web API (100% No Third Party APIs).
@@ -432,7 +432,7 @@ try {
                     <span class="badge" style="background: #f59e0b; color: white; font-size: 0.75rem; font-weight: 700;">Not Connected</span>
                 </div>
                 <p style="margin: 4px 0 0 0; font-size: 0.825rem; color: var(--text-muted);">
-                    Connect your official WhatsApp Business number below to send Marg ERP 9+ invoices and bills directly to your customers.
+                    Connect your official WhatsApp Business number below to send invoices and bills directly to your customers.
                 </p>
             </div>
         </div>
@@ -449,7 +449,7 @@ try {
                 <i data-lucide="bar-chart-3" style="width: 20px; height: 20px;"></i>
             </div>
             <div>
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--text-main);">WhatsApp Message Analytics &amp; Sending Quota</h3>
+                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--text-main);">WhatsApp Message Analytics</h3>
                 <span style="font-size: 0.75rem; color: var(--text-muted);">Real-time dispatch metrics for linked WhatsApp Number: <strong style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars($wabaSettings['business_phone'] ?: 'Active Session'); ?></strong></span>
             </div>
         </div>
@@ -458,8 +458,8 @@ try {
         </span>
     </div>
 
-    <!-- 4-Stat Metric Cards Grid -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px;">
+    <!-- Metric Cards Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
         <!-- Stat 1: Today Sent -->
         <div style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
@@ -472,7 +472,7 @@ try {
                 <?php echo number_format($todaySentCount); ?> <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-muted);">msgs</span>
             </div>
             <span style="font-size: 0.7rem; color: #10b981; font-weight: 600; display: block; margin-top: 4px;">
-                ✓ Dispatched via Marg ERP
+                ✓ Dispatched via WhatsApp Gateway
             </span>
         </div>
 
@@ -489,22 +489,6 @@ try {
             </div>
             <span style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-top: 4px;">
                 <?php echo date('F Y'); ?> Cycle
-            </span>
-        </div>
-
-        <!-- Stat 3: Total All-Time -->
-        <div style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Lifetime Messages</span>
-                <span style="width: 28px; height: 28px; border-radius: 8px; background: rgba(139, 92, 246, 0.12); color: #8b5cf6; display: flex; align-items: center; justify-content: center;">
-                    <i data-lucide="check-check" style="width: 14px; height: 14px;"></i>
-                </span>
-            </div>
-            <div style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); font-family: var(--font-heading);">
-                <?php echo number_format($totalSentCount); ?> <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-muted);">total</span>
-            </div>
-            <span style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-top: 4px;">
-                All-time Bills &amp; Tests
             </span>
         </div>
     </div>
@@ -555,17 +539,16 @@ try {
             </p>
         </div>
 
-        <!-- Option 2: WhatsApp Web API (Self-Hosted) -->
+        <!-- Option 2: WhatsApp Web API -->
         <div id="card-gateway-web" onclick="selectGateway('web_api')" style="cursor: pointer; padding: 18px; border-radius: 14px; border: 2px solid <?php echo ($current_gateway === 'web_api') ? '#10b981' : 'var(--border-color)'; ?>; background: <?php echo ($current_gateway === 'web_api') ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-app)'; ?>; transition: all 0.2s ease;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <i data-lucide="smartphone" style="width: 24px; height: 24px; color: #10b981;"></i>
-                    <strong style="font-size: 1rem; color: var(--text-main);">Option 2: WhatsApp Web API (Self-Hosted)</strong>
+                    <strong style="font-size: 1rem; color: var(--text-main);">Option 2: WhatsApp Web API</strong>
                 </div>
-                <span class="badge" style="background: #10b981; color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700;">100% Self-Made / No External API</span>
             </div>
             <p style="font-size: 0.825rem; color: var(--text-muted); margin: 0; line-height: 1.5;">
-                Connect regular WhatsApp by scanning QR Code or 8-digit Phone Pairing Code. Runs 100% on your own server. Invoices send automatically!
+                Connect regular WhatsApp by scanning QR Code or 8-digit Phone Pairing Code. Invoices send automatically!
             </p>
         </div>
     </div>
@@ -727,7 +710,7 @@ try {
     <div id="panel-gateway-web" style="display: <?php echo ($current_gateway === 'web_api') ? 'block' : 'none'; ?>; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
         <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--text-main); margin-top: 0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
             <i data-lucide="smartphone" style="width: 22px; height: 22px; color: #10b981;"></i>
-            Self-Hosted WhatsApp Web API Settings &amp; Phone Pairing Console
+            WhatsApp Web API Settings &amp; Phone Pairing Console
         </h3>
 
         <!-- QR Code Pairing & Account Console -->

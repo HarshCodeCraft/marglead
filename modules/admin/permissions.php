@@ -14,9 +14,8 @@ $is_admin = ($role === 'Super Admin' || $role === 'Admin');
 
 // Security check: Only Admins can access employee permissions management
 if (!$is_admin) {
-    $_GET['requested'] = 'admin_permissions';
-    include_once __DIR__ . '/../access_denied.php';
-    return;
+    header('Location: ../../index.php?page=dashboard');
+    exit;
 }
 
 $message = '';

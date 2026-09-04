@@ -1,11 +1,16 @@
 /* ==========================================================================
-   Dashboard Styles (KPI Cards & Charts Grid Layout)
+   Friendly AI Solution - Modern CRM Dashboard Module Styles
+   Clean SaaS Aesthetic, balanced spacing, soft elevations, and readable metrics.
    ========================================================================== */
+
+.dashboard-container {
+    padding-bottom: 2.5rem;
+}
 
 /* 12 KPI Cards Grid */
 .kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 1.25rem;
     margin-bottom: 2rem;
 }
@@ -13,14 +18,14 @@
 .kpi-card {
     display: flex;
     align-items: center;
-    gap: 1.25rem;
+    gap: 1.15rem;
     position: relative;
-    border-radius: var(--border-radius-md);
+    border-radius: var(--border-radius-lg, 16px);
     background-color: var(--bg-card);
-    border: 1px solid var(--border-card);
-    padding: 1.25rem;
-    box-shadow: var(--shadow-sm);
-    transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+    border: 1px solid var(--border-card, #e2e8f0);
+    padding: 1.35rem 1.25rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
 }
 
@@ -32,46 +37,52 @@
     width: 4px;
     height: 100%;
     background-color: var(--kpi-border, var(--primary));
-    opacity: 0.8;
+    opacity: 0.85;
 }
 
 .kpi-card:hover {
     transform: translateY(-3px);
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);
     border-color: var(--kpi-border, var(--primary));
 }
 
 .kpi-icon-box {
     width: 48px;
     height: 48px;
-    border-radius: var(--border-radius-md);
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--kpi-bg, var(--primary-light));
+    background-color: var(--kpi-bg, rgba(37, 99, 235, 0.08));
     color: var(--kpi-color, var(--primary));
+    flex-shrink: 0;
 }
 
 .kpi-info {
     display: flex;
     flex-direction: column;
+    min-width: 0;
 }
 
 .kpi-title {
-    font-size: 0.825rem;
+    font-size: 0.78rem;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
     margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .kpi-value {
     font-size: 1.75rem;
-    font-weight: 700;
+    font-weight: 800;
     font-family: var(--font-heading);
-    line-height: 1;
+    line-height: 1.1;
     color: var(--text-main);
+    letter-spacing: -0.02em;
 }
 
 .kpi-trend {
@@ -83,9 +94,9 @@
     font-weight: 600;
 }
 
-.kpi-trend.positive { color: var(--success); }
-.kpi-trend.negative { color: var(--danger); }
-.kpi-trend.neutral { color: var(--text-muted); }
+.kpi-trend.positive { color: var(--success, #10b981); }
+.kpi-trend.negative { color: var(--danger, #ef4444); }
+.kpi-trend.neutral { color: var(--text-muted, #64748b); }
 
 /* Charts Grid */
 .charts-grid {
@@ -96,25 +107,32 @@
 
 .chart-card {
     background-color: var(--bg-card);
-    border: 1px solid var(--border-card);
-    border-radius: var(--border-radius-md);
+    border: 1px solid var(--border-card, #e2e8f0);
+    border-radius: var(--border-radius-lg, 16px);
     padding: 1.5rem;
-    box-shadow: var(--shadow-sm);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     display: flex;
     flex-direction: column;
-    height: 380px;
+    height: 390px;
+    transition: box-shadow 0.2s ease;
+}
+
+.chart-card:hover {
+    box-shadow: 0 8px 20px -4px rgba(15, 23, 42, 0.06);
 }
 
 .chart-card-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.25rem;
 }
 
 .chart-card-title {
-    font-size: 1.1rem;
-    font-weight: 600;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-main);
+    font-family: var(--font-heading);
 }
 
 .chart-canvas-container {
@@ -122,6 +140,7 @@
     position: relative;
     width: 100%;
     height: 100%;
+    min-height: 0;
 }
 
 /* Specific chart card scaling */

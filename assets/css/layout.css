@@ -28,10 +28,42 @@
     height: var(--header-height);
     display: flex;
     align-items: center;
-    padding: 0 1.5rem;
+    justify-content: space-between;
+    padding: 0 1.25rem;
     border-bottom: 1px solid var(--border-color);
     overflow: hidden;
     white-space: nowrap;
+}
+
+.sidebar-autohide-toggle {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    width: 28px;
+    height: 28px;
+    border-radius: var(--border-radius-sm, 6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.sidebar-autohide-toggle:hover {
+    background: var(--border-card);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.sidebar-autohide-toggle.active {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--primary);
+    border-color: rgba(59, 130, 246, 0.4);
+}
+
+.sidebar.collapsed .sidebar-autohide-toggle {
+    display: none;
 }
 
 .sidebar-brand {
