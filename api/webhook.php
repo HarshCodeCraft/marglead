@@ -328,15 +328,19 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     ]);
 
                     // NOTE: NO MESSAGE IS SENT TO THE CLIENT!
-                    // Send Instant Confirmation Receipt ONLY to the Team Member:
-                    $ackMsg = "✅ *Ticket Created Successfully!*\n\n" .
-                              "🎟️ Ticket ID: *#{$ticketId}*\n" .
-                              "📞 Client No: *{$clientPhoneClean}*\n" .
-                              (!empty($partyName) ? "🏢 Party: *{$partyName}*\n" : "") .
-                              (!empty($problemNote) ? "📝 Note: _{$problemNote}_\n" : "") .
-                              "👨‍💻 Queue: *Technical Support Team*\n" .
-                              "👤 Forwarded By: *{$teamAgent['name']} ({$teamAgent['emp_code']})*\n\n" .
-                              "⚡ _Technical team ko ticket assign ho chuki hai. Jab wo call karenge ya status update karenge, aapko yahan alert mil jayega._";
+                    // Send Clean Professional Confirmation Receipt ONLY to the Team Member:
+                    $nowStr = date('d M Y, h:i A');
+                    $ackMsg = "*SUPPORT TICKET LOGGED*\n" .
+                              "──────────────────────────\n" .
+                              "*Ticket ID:* #{$ticketId}\n" .
+                              "*Contact No:* {$clientPhoneClean}\n" .
+                              (!empty($partyName) ? "*Party Name:* {$partyName}\n" : "") .
+                              (!empty($problemNote) ? "*Notes:* {$problemNote}\n" : "") .
+                              "*Forwarded By:* {$teamAgent['name']} ({$teamAgent['emp_code']})\n" .
+                              "*Status:* Queued (Unassigned Pool)\n" .
+                              "*Logged At:* {$nowStr}\n" .
+                              "──────────────────────────\n" .
+                              "_Ticket has been logged in the support queue. You will receive real-time updates as an engineer claims and works on this request._";
                     $whatsapp->sendText($from, $ackMsg);
 
                 } catch (Throwable $e) {

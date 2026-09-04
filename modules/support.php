@@ -97,13 +97,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         require_once __DIR__ . '/../api/whatsapp-api.php';
                         $whatsappObj = new WhatsAppAPI($pdo);
                         $clientDisplayPhone = !empty($origTicket['callback_number']) ? $origTicket['callback_number'] : ($origTicket['phone'] ?? '');
-                        $clientDisplayName = !empty($origTicket['customer_name']) ? $origTicket['customer_name'] : 'Client';
+                        $clientDisplayName = trim($origTicket['customer_name'] ?? '');
+                        $clientInfo = $clientDisplayPhone;
+                        if (!empty($clientDisplayName) && $clientDisplayName !== 'Client' && $clientDisplayName !== '-' && strpos($clientDisplayName, 'Client (') !== 0) {
+                            $clientInfo .= " (" . $clientDisplayName . ")";
+                        }
 
-                        $takeMsg = "👨‍💻 *Ticket Update on #{$ticketId}*\n\n" .
-                                   "📞 Client: *{$clientDisplayPhone}*" . (!empty($clientDisplayName) && $clientDisplayName !== '-' ? " ({$clientDisplayName})" : "") . "\n" .
-                                   "🔄 Status: *In Progress (Taken)*\n" .
-                                   "👤 Handled By: *{$currentUserName} (Technical Team)*\n\n" .
-                                   "⚡ _Aapki bheji hui ticket par {$currentUserName} ne kaam shuru kar diya hai._";
+                        $nowStr = date('d M Y, h:i A');
+                        $takeMsg = "*SUPPORT TICKET ACCEPTED*\n" .
+                                   "──────────────────────────\n" .
+                                   "*Ticket ID:* #{$ticketId}\n" .
+                                   "*Client:* {$clientInfo}\n" .
+                                   "*Status:* In Progress\n" .
+                                   "*Assigned Engineer:* {$currentUserName} (Technical Support)\n" .
+                                   "*Timestamp:* {$nowStr}\n" .
+                                   "──────────────────────────\n" .
+                                   "_{$currentUserName} has accepted this ticket and initiated technical support._";
                         $whatsappObj->sendText($empDropPhone, $takeMsg);
                     } catch (Throwable $eWa) {
                         write_log('error', "Failed sending team agent take update: " . $eWa->getMessage());
@@ -403,7 +412,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $empDropPhone = $orig['dropped_by_emp_phone'] ?? '';
                     $techAgentName = $_SESSION['user_name'] ?? 'Technical Support Engineer';
                     $clientDisplayPhone = !empty($phone) ? $phone : ($orig['phone'] ?? $callback_number ?? '');
-                    $clientDisplayName = !empty($customer_name) ? $customer_name : ($orig['customer_name'] ?? 'Client');
+                    $clientDisplayName = trim(!empty($customer_name) ? $customer_name : ($orig['customer_name'] ?? ''));
+                    $clientInfo = $clientDisplayPhone;
+                    if (!empty($clientDisplayName) && $clientDisplayName !== 'Client' && $clientDisplayName !== '-' && strpos($clientDisplayName, 'Client (') !== 0) {
+                        $clientInfo .= " (" . $clientDisplayName . ")";
+                    }
+                    $nowStr = date('d M Y, h:i A');
 
                     if (!empty($empDropPhone)) {
                         try {
@@ -412,14 +426,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                             if ($status === 'resolved' || $status === 'closed') {
                                 if ($orig['status'] !== $status) {
-                                    $resNote = !empty($resolution) ? $resolution : "Issue marked as resolved by technical team.";
-                                    $empClosureMsg = "🎉 *Ticket Resolved & Closed!*\n\n" .
-                                                     "🎟️ Ticket ID: *#{$ticketId}*\n" .
-                                                     "📞 Client: *{$clientDisplayPhone}* ({$clientDisplayName})\n" .
-                                                     "✅ Status: *Closed / Resolved*\n" .
-                                                     "📝 Resolution: _{$resNote}_\n" .
-                                                     "👨‍💻 Closed By: *{$techAgentName} (Technical Team)*\n\n" .
-                                                     "_Aapka bheja hua client successfully resolve ho gaya hai. Thank you!_ 🙏";
+                                    $resNote = !empty($resolution) ? $resolution : "Issue marked as resolved.";
+                                    $empClosureMsg = "*SUPPORT TICKET RESOLVED*\n" .
+                                                     "──────────────────────────\n" .
+                                                     "*Ticket ID:* #{$ticketId}\n" .
+                                                     "*Client:* {$clientInfo}\n" .
+                                                     "*Status:* Resolved & Closed\n" .
+                                                     "*Resolved By:* {$techAgentName} (Technical Support)\n" .
+                                                     "*Resolution Details:* {$resNote}\n" .
+                                                     "*Closed At:* {$nowStr}\n" .
+                                                     "──────────────────────────\n" .
+                                                     "_The service request has been successfully resolved and closed in the CRM._";
                                     $whatsappObj->sendText($empDropPhone, $empClosureMsg);
                                 }
                             } else {
@@ -429,13 +446,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 
                                 if ($statusChanged || $remarksChanged) {
                                     $statusLabel = ucwords(str_replace('_', ' ', $status));
-                                    $resNote = !empty($resolution) ? $resolution : (!empty($problem) ? $problem : "Ticket status updated.");
-                                    $empUpdateMsg = "📞 *Ticket Update on #{$ticketId}*\n\n" .
-                                                    "📞 Client: *{$clientDisplayPhone}* ({$clientDisplayName})\n" .
-                                                    "🔄 Status: *{$statusLabel}*\n" .
-                                                    "📝 Remarks: _{$resNote}_\n" .
-                                                    "👨‍💻 Handled By: *{$techAgentName} (Technical Team)*\n\n" .
-                                                    "⚡ _Technical team is actively following up on this client._";
+                                    $resNote = !empty($resolution) ? $resolution : (!empty($problem) ? $problem : "Status updated by technician.");
+                                    $empUpdateMsg = "*SUPPORT TICKET UPDATE*\n" .
+                                                    "──────────────────────────\n" .
+                                                    "*Ticket ID:* #{$ticketId}\n" .
+                                                    "*Client:* {$clientInfo}\n" .
+                                                    "*Current Status:* {$statusLabel}\n" .
+                                                    "*Handled By:* {$techAgentName} (Technical Support)\n" .
+                                                    "*Remarks:* {$resNote}\n" .
+                                                    "*Timestamp:* {$nowStr}\n" .
+                                                    "──────────────────────────\n" .
+                                                    "_Technical support team has updated the status for this ticket._";
                                     $whatsappObj->sendText($empDropPhone, $empUpdateMsg);
                                 }
                             }
