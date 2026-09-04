@@ -219,10 +219,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         
         $customer_name = trim($_POST['customer_name'] ?? '');
+        if (empty($customer_name) && !empty($_POST['client_search_input'])) {
+            $customer_name = trim($_POST['client_search_input']);
+        }
+        if (empty($customer_name) && !empty($_POST['phone'])) {
+            $customer_name = 'Client (' . preg_replace('/[^\d]/', '', $_POST['phone']) . ')';
+        }
+
         $lead_id = trim($_POST['lead_id'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
         $email = trim($_POST['email'] ?? '');
-        $product = trim($_POST['product'] ?? '');
+        $product = trim($_POST['product'] ?? 'Marg ERP');
         $renewal_date = empty($_POST['renewal_date']) ? null : $_POST['renewal_date'];
         $address = trim($_POST['address'] ?? '');
         
@@ -230,7 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $status = trim($_POST['status'] ?? 'open');
         $subject = trim($_POST['subject'] ?? '');
         $problem = trim($_POST['problem'] ?? '');
-        $assigned_to = trim($_POST['assigned_to'] ?? '');
+        $assigned_to = trim($_POST['assigned_to'] ?? 'Unassigned');
         $due_date = empty($_POST['due_date']) ? null : $_POST['due_date'];
         $callback_number = trim($_POST['callback_number'] ?? '');
         
@@ -282,12 +289,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $ticketId = trim($_POST['ticket_id']);
         $priority = trim($_POST['priority']);
         $status = trim($_POST['status']);
-        $subject = trim($_POST['subject']);
-        $problem = trim($_POST['problem']);
+        $subject = trim($_POST['subject'] ?? '');
+        $problem = trim($_POST['problem'] ?? '');
         $resolution = trim($_POST['resolution'] ?? '');
         $assigned_to = trim($_POST['assigned_to'] ?? '');
         $due_date = empty($_POST['due_date']) ? null : $_POST['due_date'];
-        $callback_number = trim($_POST['callback_number']);
+        $callback_number = trim($_POST['callback_number'] ?? '');
         $lead_id = trim($_POST['lead_id'] ?? '');
         $customer_name = trim($_POST['customer_name'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
@@ -299,11 +306,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($db_connected && $pdo) {
             try {
                 // Fetch original ticket details for validation checks
-                $origStmt = $pdo->prepare("SELECT lead_id, assigned_to, status, phone, callback_number, resolution, problem, dropped_by_emp_phone, dropped_by_emp_name, source, customer_name FROM support_tickets WHERE id = ?");
+                $origStmt = $pdo->prepare("SELECT * FROM support_tickets WHERE id = ?");
                 $origStmt->execute([$ticketId]);
                 $orig = $origStmt->fetch(PDO::FETCH_ASSOC);
                 
                 if ($orig) {
+                    // Preserve existing values if POST parameter was blank
+                    if (empty($customer_name) && !empty($orig['customer_name'])) {
+                        $customer_name = $orig['customer_name'];
+                    }
+                    if (empty($lead_id) && !empty($orig['lead_id'])) {
+                        $lead_id = $orig['lead_id'];
+                    }
+                    if (empty($phone) && !empty($orig['phone'])) {
+                        $phone = $orig['phone'];
+                    }
+                    if (empty($email) && !empty($orig['email'])) {
+                        $email = $orig['email'];
+                    }
+                    if (empty($product) && !empty($orig['product'])) {
+                        $product = $orig['product'];
+                    }
+                    if (empty($renewal_date) && !empty($orig['renewal_date'])) {
+                        $renewal_date = $orig['renewal_date'];
+                    }
+                    if (empty($address) && !empty($orig['address'])) {
+                        $address = $orig['address'];
+                    }
+                    if (empty($callback_number) && !empty($orig['callback_number'])) {
+                        $callback_number = $orig['callback_number'];
+                    }
+                    if (empty($subject) && !empty($orig['subject'])) {
+                        $subject = $orig['subject'];
+                    }
+                    if (empty($problem) && !empty($orig['problem'])) {
+                        $problem = $orig['problem'];
+                    }
+
                     $origAssigned = strtolower(trim($orig['assigned_to'] ?? ''));
                     $currentUser = strtolower(trim($user_name ?? ''));
                     $isAssignedToMe = !empty($origAssigned) && $origAssigned !== 'unassigned' && ($origAssigned === $currentUser);
@@ -935,9 +974,6 @@ if ($db_connected && $pdo) {
                                 <td>
                                     <?php 
                                         $cNameDisplay = trim($t['customer_name'] ?? '');
-                                        if (stripos($cNameDisplay, 'Client (') === 0) {
-                                            $cNameDisplay = '';
-                                        }
                                     ?>
                                     <strong class="text-main block text-sm"><?php echo htmlspecialchars(!empty($cNameDisplay) ? $cNameDisplay : '-'); ?></strong>
                                     <span class="text-xs text-muted font-mono">ID: <?php echo htmlspecialchars(!empty($t['lead_id']) ? $t['lead_id'] : 'NA'); ?></span>
@@ -966,15 +1002,9 @@ if ($db_connected && $pdo) {
                                 <td style="max-width: 250px;">
                                     <?php 
                                         $dispProb = trim($t['problem'] ?? '');
-                                        if (stripos($dispProb, 'Client lead forwarded by') === 0) {
-                                            $dispProb = '';
-                                        }
                                         $dispSubj = trim($t['subject'] ?? '');
-                                        if (stripos($dispSubj, 'Support Lead: Client') === 0) {
-                                            $dispSubj = 'Technical Support';
-                                        }
-                                        $primaryText = !empty($dispProb) ? $dispProb : (!empty($dispSubj) ? $dispSubj : 'Technical Support');
-                                        $secondaryText = !empty($t['resolution']) ? ('Solution: ' . $t['resolution']) : ((!empty($dispProb) && !empty($dispSubj) && $dispProb !== $dispSubj) ? $dispSubj : '');
+                                        $primaryText = !empty($dispSubj) ? $dispSubj : (!empty($dispProb) ? $dispProb : 'Technical Support');
+                                        $secondaryText = !empty($t['resolution']) ? ('Solution: ' . $t['resolution']) : ((!empty($dispProb) && $dispProb !== $dispSubj) ? $dispProb : '');
                                     ?>
                                     <strong class="text-xs text-main block"><?php echo htmlspecialchars($primaryText); ?></strong>
                                     <?php if (!empty($secondaryText)): ?>
@@ -1079,7 +1109,7 @@ if ($db_connected && $pdo) {
                     <div class="form-group m-0" style="grid-column: span 1; position: relative;">
                         <label class="form-label text-xs font-bold text-main">Client Name</label>
                         <div style="position: relative;">
-                            <input type="text" id="client-search-input" class="form-control text-xs font-semibold" placeholder="Select client" autocomplete="off" oninput="filterClientSearchDropdown()" onfocus="showClientSearchDropdown()" style="background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main); padding-right: 2rem;">
+                            <input type="text" id="client-search-input" name="client_search_input" class="form-control text-xs font-semibold" placeholder="Select or type client name" autocomplete="off" oninput="document.getElementById('new-ticket-client-name').value = this.value; filterClientSearchDropdown();" onfocus="showClientSearchDropdown()" style="background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main); padding-right: 2rem;">
                             <i data-lucide="chevron-down" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted); pointer-events: none;"></i>
                         </div>
                         
@@ -1091,11 +1121,11 @@ if ($db_connected && $pdo) {
 
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-semibold text-main">Client id</label>
-                        <input type="text" name="lead_id" id="new-ticket-client-id" class="form-control text-xs font-mono" readonly style="background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main); opacity: 0.9;">
+                        <input type="text" name="lead_id" id="new-ticket-client-id" class="form-control text-xs font-mono" placeholder="Optional / Auto-filled" style="background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main);">
                     </div>
                     
                     <div class="form-group m-0">
-                        <label class="form-label text-xs font-semibold text-main">Mobile no.</label>
+                        <label class="form-label text-xs font-semibold text-main">Mobile no.*</label>
                         <input type="text" name="phone" id="new-ticket-phone" class="form-control text-xs font-mono" required style="background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main);">
                     </div>
 
@@ -1125,7 +1155,7 @@ if ($db_connected && $pdo) {
                     <div class="form-group m-0" style="grid-column: span 2;">
                         <label class="form-label text-xs font-semibold text-main">Address</label>
                         <textarea name="address" id="new-ticket-address" class="form-control text-xs" rows="2" style="background-color: var(--bg-card); border-color: var(--border-color); color: var(--text-main);"></textarea>
-                        <input type="hidden" name="customer_name" id="new-ticket-client-name" required>
+                        <input type="hidden" name="customer_name" id="new-ticket-client-name">
                     </div>
                 </div>
             </div>
@@ -1797,13 +1827,9 @@ document.addEventListener('click', function(e) {
 });
 
 function updateClientCompactView(data) {
-    let rawName = (data.customer_name || data.party_name || '').trim();
-    if (rawName.startsWith('Client (') && rawName.endsWith(')')) {
-        rawName = '';
-    }
-    const hasParty = !!(rawName && rawName !== '-');
-    const pName = hasParty ? rawName : '-';
-    const contact = (data.contact_person && data.contact_person.trim() !== '') ? data.contact_person.trim() : (hasParty ? pName : '-');
+    let pName = (data.customer_name || data.party_name || '').trim();
+    if (!pName) pName = '-';
+    const contact = (data.contact_person && data.contact_person.trim() !== '') ? data.contact_person.trim() : (pName !== '-' ? pName : '-');
     
     let mob = data.phone || data.mobile || '-';
     if (mob && mob !== '-') {
@@ -1815,14 +1841,14 @@ function updateClientCompactView(data) {
         }
     }
     const em = (data.email && data.email !== 'N/A') ? data.email : '-';
-    const prod = data.product || data.software_type || (hasParty ? 'Marg ERP' : '-');
-    const swType = data.sw_type || (hasParty ? 'Marg' : '-');
-    const uType = (data.user_type || data.no_of_users) ? ((data.user_type || 'Multi User') + (data.no_of_users ? ' (' + data.no_of_users + ')' : '')) : (hasParty ? 'Multi User (1)' : '-');
-    const numComp = data.no_of_companies || (hasParty ? 250 : '-');
-    const stat = data.party_status || (hasParty ? 'Running' : '-');
-    const trade = data.software_trade || (hasParty ? 'Business Services' : '-');
-    const homeUser = data.home_user || (hasParty ? 'No' : '-');
-    const amt = (data.total_amount && parseFloat(data.total_amount) > 0) ? ('₹' + parseFloat(data.total_amount).toFixed(2)) : (hasParty ? '₹0.00' : '-');
+    const prod = data.product || data.software_type || (pName !== '-' ? 'Marg ERP' : '-');
+    const swType = data.sw_type || (pName !== '-' ? 'Marg' : '-');
+    const uType = (data.user_type || data.no_of_users) ? ((data.user_type || 'Multi User') + (data.no_of_users ? ' (' + data.no_of_users + ')' : '')) : (pName !== '-' ? 'Multi User (1)' : '-');
+    const numComp = data.no_of_companies || (pName !== '-' ? 250 : '-');
+    const stat = data.party_status || (pName !== '-' ? 'Running' : '-');
+    const trade = data.software_trade || (pName !== '-' ? 'Business Services' : '-');
+    const homeUser = data.home_user || (pName !== '-' ? 'No' : '-');
+    const amt = (data.total_amount && parseFloat(data.total_amount) > 0) ? ('₹' + parseFloat(data.total_amount).toFixed(2)) : (pName !== '-' ? '₹0.00' : '-');
     const ren = data.renewal_date || data.due_on || '-';
     const actOn = data.act_on || '-';
     const lastHit = data.last_hit_date || '-';
@@ -1838,13 +1864,13 @@ function updateClientCompactView(data) {
     if (data.online_zip_code) fullAddr += ' - ' + data.online_zip_code;
     if (!fullAddr) fullAddr = '-';
 
-    // Hidden inputs for POST form submit
-    const elName = document.getElementById('edit-ticket-client-name'); if (elName) elName.value = pName !== '-' ? pName : '';
-    const elPhone = document.getElementById('edit-ticket-phone'); if (elPhone) elPhone.value = mob !== '-' ? mob : '';
-    const elEmail = document.getElementById('edit-ticket-email'); if (elEmail) elEmail.value = em !== '-' ? em : '';
-    const elProd = document.getElementById('edit-ticket-product'); if (elProd) elProd.value = prod !== '-' ? prod : '';
-    const elRen = document.getElementById('edit-ticket-renewal'); if (elRen) elRen.value = ren !== '-' ? ren : '';
-    const elAddr = document.getElementById('edit-ticket-address'); if (elAddr) elAddr.value = fullAddr !== '-' ? fullAddr : '';
+    // Hidden inputs for POST form submit - only set if valid
+    const elName = document.getElementById('edit-ticket-client-name'); if (elName && pName !== '-') elName.value = pName;
+    const elPhone = document.getElementById('edit-ticket-phone'); if (elPhone && mob !== '-') elPhone.value = mob;
+    const elEmail = document.getElementById('edit-ticket-email'); if (elEmail && em !== '-') elEmail.value = em;
+    const elProd = document.getElementById('edit-ticket-product'); if (elProd && prod !== '-') elProd.value = prod;
+    const elRen = document.getElementById('edit-ticket-renewal'); if (elRen && ren !== '-') elRen.value = ren;
+    const elAddr = document.getElementById('edit-ticket-address'); if (elAddr && fullAddr !== '-') elAddr.value = fullAddr;
 
     // Compact summary view labels
     const vComp = document.getElementById('edit-v-company'); if (vComp) vComp.innerText = pName;
@@ -2078,10 +2104,18 @@ function openEditTicketModal(ticket) {
     document.getElementById('edit-ticket-id-display').innerText = ticket.id;
     document.getElementById('edit-ticket-client-id').value = ticket.lead_id || "";
 
+    // Set hidden inputs directly from ticket FIRST so existing values are preserved
+    if (document.getElementById('edit-ticket-client-name')) document.getElementById('edit-ticket-client-name').value = ticket.customer_name || "";
+    if (document.getElementById('edit-ticket-phone')) document.getElementById('edit-ticket-phone').value = ticket.phone || "";
+    if (document.getElementById('edit-ticket-email')) document.getElementById('edit-ticket-email').value = ticket.email || "";
+    if (document.getElementById('edit-ticket-product')) document.getElementById('edit-ticket-product').value = ticket.product || "";
+    if (document.getElementById('edit-ticket-renewal')) document.getElementById('edit-ticket-renewal').value = ticket.renewal_date || "";
+    if (document.getElementById('edit-ticket-address')) document.getElementById('edit-ticket-address').value = ticket.address || "";
+
     // Set callback input right away before view update
     const cbInput = document.getElementById('edit-ticket-callback');
     if (cbInput) {
-        let cleanCb = (ticket.callback_number || "").trim();
+        let cleanCb = (ticket.callback_number || ticket.phone || "").trim();
         const digits = cleanCb.replace(/[^0-9]/g, '');
         if (digits.length === 12 && digits.startsWith('91')) {
             cleanCb = digits.substring(2);
@@ -2092,9 +2126,21 @@ function openEditTicketModal(ticket) {
     // Set initial compact view from ticket fields
     updateClientCompactView(ticket);
 
-    // Auto-fetch fresh Client Directory data if lead_id exists
+    // Auto-fetch fresh Client Directory data if lead_id or phone exists
     if (ticket.lead_id) {
         autoFetchClientDetails();
+    } else if (ticket.phone || ticket.callback_number) {
+        const lookupPhone = (ticket.phone || ticket.callback_number).replace(/[^0-9]/g, '').slice(-10);
+        if (lookupPhone && typeof masterClientsData !== 'undefined' && masterClientsData) {
+            const match = masterClientsData.find(c => {
+                const mob = String(c.mobile || '').replace(/[^0-9]/g, '').slice(-10);
+                return mob === lookupPhone;
+            });
+            if (match) {
+                if (document.getElementById('edit-ticket-client-id')) document.getElementById('edit-ticket-client-id').value = match.customer_id || '';
+                updateClientCompactView(match);
+            }
+        }
     }
     
     // Editable Ticket Parameters
@@ -2102,18 +2148,10 @@ function openEditTicketModal(ticket) {
     
     // Populate Subject, Problem Summary & Employee Resolution/Solution
     const subjElem = document.getElementById('edit-ticket-subject');
-    let curSubj = ticket.subject || "";
-    if (curSubj.startsWith('Support Lead: Client')) {
-        curSubj = "";
-    }
-    if (subjElem) subjElem.value = curSubj;
+    if (subjElem) subjElem.value = ticket.subject || "";
     
     const probElem = document.getElementById('edit-ticket-problem');
-    let curProb = ticket.problem || "";
-    if (curProb.startsWith('Client lead forwarded by')) {
-        curProb = "";
-    }
-    if (probElem) probElem.value = curProb;
+    if (probElem) probElem.value = ticket.problem || "";
 
     const resElem = document.getElementById('edit-ticket-resolution');
     if (resElem) resElem.value = ticket.resolution || "";
@@ -2153,8 +2191,8 @@ function openEditTicketModal(ticket) {
     }
     
     document.getElementById('edit-ticket-due-date').value = ticket.due_date || "";
-    if (cbInput) {
-        cbInput.value = ticket.callback_number || "";
+    if (cbInput && !cbInput.value) {
+        cbInput.value = ticket.callback_number || ticket.phone || "";
     }
     
     // Load ticket activity & assignment history
