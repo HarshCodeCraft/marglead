@@ -272,18 +272,20 @@ $role = $_SESSION['user_role'];
                             <span>CRM Clients</span>
                         </a>
                     </li>
-                    <li class="sidebar-item <?php echo isActivePage('team_agents'); ?>">
-                        <a href="index.php?page=team_agents">
-                            <i data-lucide="user-check" style="width: 18px; height: 18px; color: #10b981;"></i>
-                            <span>Team WhatsApp Agents</span>
-                        </a>
-                    </li>
                 <?php endif; ?>
                 <?php if (hasAccess('admin_users', $role)): ?>
                     <li class="sidebar-item <?php echo isActivePage('admin_users'); ?>">
                         <a href="index.php?page=admin_users">
                             <i data-lucide="users-round" style="width: 18px; height: 18px;"></i>
                             <span>Manage Users</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if ($isSuperAdminUser || hasAccess('admin_users', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('team_agents'); ?>">
+                        <a href="index.php?page=team_agents">
+                            <i data-lucide="user-plus" style="width: 18px; height: 18px; color: #10b981;"></i>
+                            <span>Team WhatsApp Agents</span>
                         </a>
                     </li>
                 <?php endif; ?>
@@ -348,14 +350,6 @@ $role = $_SESSION['user_role'];
                     <span>Refund Policy</span>
                 </a>
             </li>
-            <?php if ($isSuperAdminUser): ?>
-                <li class="sidebar-item <?php echo isActivePage('policy_manager'); ?>">
-                    <a href="index.php?page=policy_manager">
-                        <i data-lucide="shield-alert" style="width: 18px; height: 18px; color: var(--primary);"></i>
-                        <span>Policy Master CMS</span>
-                    </a>
-                </li>
-            <?php endif; ?>
         </ul>
 
     </div>

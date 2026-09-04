@@ -35,7 +35,7 @@ window.alert = function(msg) {
 function initMainApp() {
     // Initial Theme Setup
     const htmlEl = document.documentElement;
-    const currentTheme = localStorage.getItem('theme') || 'light';
+    const currentTheme = localStorage.getItem('theme') || 'dark';
     htmlEl.setAttribute('data-theme', currentTheme);
 
     // Initialize Lucide Icons if available (failsafe check)

@@ -1,10 +1,11 @@
 <?php
 /**
- * SaaS Super Admin - Team & Employee WhatsApp Directory
- * Friendly AI Solution
+ * SaaS Super Admin - Team WhatsApp Agents Directory
+ * Friendly AI Solution - Marg Lead CRM
  * 
- * Manages authorized employees who can drop client phone numbers via WhatsApp
- * to bot (+91 93050 45727) to auto-raise tickets and receive reverse status loops.
+ * Allows Super Admin and Admin to register team members (Sales, Support, Field, Tech)
+ * whose incoming WhatsApp messages on 93050 45727 automatically generate Support Tickets
+ * without sending messages to the client, while keeping the employee updated on status changes.
  */
 
 if (!defined('BASE_PATH')) {
@@ -16,10 +17,10 @@ require_once BASE_PATH . '/includes/db.php';
 // Access Control: Only Super Admin and Admin
 $user_role = $_SESSION['user_role'] ?? '';
 if (!in_array($user_role, ['Super Admin', 'Admin'])) {
-    echo '<div class="card p-6 text-center" style="max-width: 500px; margin: 4rem auto; border: 1px solid var(--border-color); background: var(--bg-card);">';
+    echo '<div class="card p-6 text-center" style="max-width: 500px; margin: 4rem auto; border: 1px solid var(--border-color);">';
     echo '<i data-lucide="shield-alert" style="width: 48px; height: 48px; color: var(--danger); margin: 0 auto 1.5rem auto;"></i>';
-    echo '<h2 class="mb-2" style="font-family: var(--font-heading); color: var(--text-main);">Access Restricted</h2>';
-    echo '<p class="text-muted mb-4">Only SaaS Super Administrators can manage team employee directory.</p>';
+    echo '<h2 class="mb-2" style="font-family: var(--font-heading);">Access Restricted</h2>';
+    echo '<p class="text-muted mb-4">Only SaaS Super Administrators can manage Team WhatsApp Agents.</p>';
     echo '<a href="index.php?page=dashboard" class="btn btn-primary">Return to Dashboard</a>';
     echo '</div>';
     return;
@@ -28,7 +29,16 @@ if (!in_array($user_role, ['Super Admin', 'Admin'])) {
 $msg = null;
 $msg_type = 'success';
 
-// Handle Form Actions
+// Clean phone digits helper
+function clean_agent_phone($raw) {
+    $digits = preg_replace('/[^\d]/', '', $raw);
+    if (strlen($digits) > 10 && str_starts_with($digits, '91')) {
+        $digits = substr($digits, 2);
+    }
+    return $digits;
+}
+
+// Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrfToken()) {
         $msg = "Security token mismatch. Please refresh and try again.";
@@ -36,333 +46,262 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $action = $_POST['action'] ?? '';
 
-        // Helper to normalize Indian phone number (10 digits)
-        $cleanPhone = function($rawPhone) {
-            $digits = preg_replace('/\D/', '', $rawPhone);
-            if (strlen($digits) > 10 && str_starts_with($digits, '91')) {
-                $digits = substr($digits, 2);
-            } elseif (strlen($digits) > 10 && str_starts_with($digits, '0')) {
-                $digits = substr($digits, 1);
-            }
-            return substr($digits, -10);
-        };
-
-        if ($action === 'save_employee') {
-            $id = (int)($_POST['emp_id'] ?? 0);
+        if ($action === 'save_agent') {
+            $agent_id = (int)($_POST['agent_id'] ?? 0);
             $emp_code = strtoupper(trim($_POST['emp_code'] ?? ''));
             $name = trim($_POST['name'] ?? '');
-            $phone = $cleanPhone($_POST['phone'] ?? '');
-            $department = trim($_POST['department'] ?? 'Technical');
-            $status = in_array($_POST['status'] ?? '', ['Active', 'Inactive']) ? $_POST['status'] : 'Active';
+            $raw_phone = trim($_POST['whatsapp_phone'] ?? '');
+            $department = trim($_POST['department'] ?? 'Sales');
+            $status = $_POST['status'] ?? 'Active';
+            
+            $phone = clean_agent_phone($raw_phone);
 
-            if (empty($emp_code) || empty($name) || strlen($phone) !== 10) {
-                $msg = "Please provide a valid Employee Code, Full Name, and 10-digit WhatsApp number.";
+            if (empty($emp_code) || empty($name) || empty($phone)) {
+                $msg = "Please fill in Employee Code, Name, and a valid WhatsApp Number.";
+                $msg_type = "danger";
+            } elseif (strlen($phone) < 10) {
+                $msg = "WhatsApp phone number must be at least 10 digits.";
                 $msg_type = "danger";
             } else {
                 try {
-                    if ($id > 0) {
-                        // Check uniqueness for other rows
-                        $chk = $pdo->prepare("SELECT id FROM team_employees WHERE (emp_code = ? OR phone = ?) AND id != ?");
-                        $chk->execute([$emp_code, $phone, $id]);
-                        if ($chk->fetch()) {
-                            $msg = "Another employee with this Code or Phone number already exists.";
-                            $msg_type = "danger";
-                        } else {
-                            $stmt = $pdo->prepare("UPDATE team_employees SET emp_code = ?, name = ?, phone = ?, department = ?, status = ? WHERE id = ?");
-                            $stmt->execute([$emp_code, $name, $phone, $department, $status, $id]);
-                            $msg = "Employee '{$name}' updated successfully.";
-                            $msg_type = "success";
-                        }
+                    // Check duplicates
+                    $dupStmt = $pdo->prepare("SELECT id FROM team_agents WHERE (emp_code = ? OR whatsapp_phone = ?) AND id != ?");
+                    $dupStmt->execute([$emp_code, $phone, $agent_id]);
+                    if ($dupStmt->fetch()) {
+                        $msg = "An employee with this Employee Code or WhatsApp Number already exists.";
+                        $msg_type = "danger";
                     } else {
-                        // Check uniqueness
-                        $chk = $pdo->prepare("SELECT id FROM team_employees WHERE emp_code = ? OR phone = ?");
-                        $chk->execute([$emp_code, $phone]);
-                        if ($chk->fetch()) {
-                            $msg = "An employee with this Code or Phone number already exists.";
-                            $msg_type = "danger";
+                        if ($agent_id > 0) {
+                            $stmt = $pdo->prepare("UPDATE team_agents SET emp_code = ?, name = ?, whatsapp_phone = ?, department = ?, status = ? WHERE id = ?");
+                            $stmt->execute([$emp_code, $name, $phone, $department, $status, $agent_id]);
+                            $msg = "Team member {$name} ({$emp_code}) updated successfully!";
                         } else {
-                            $stmt = $pdo->prepare("INSERT INTO team_employees (emp_code, name, phone, department, status) VALUES (?, ?, ?, ?, ?)");
+                            $stmt = $pdo->prepare("INSERT INTO team_agents (emp_code, name, whatsapp_phone, department, status) VALUES (?, ?, ?, ?, ?)");
                             $stmt->execute([$emp_code, $name, $phone, $department, $status]);
-                            $msg = "Employee '{$name}' ({$emp_code}) added successfully. They can now drop client numbers via WhatsApp!";
-                            $msg_type = "success";
+                            $msg = "Team member {$name} ({$emp_code}) added successfully!";
                         }
                     }
                 } catch (Exception $e) {
-                    $msg = "Database Error: " . $e->getMessage();
+                    $msg = "Database error: " . $e->getMessage();
                     $msg_type = "danger";
                 }
             }
         } elseif ($action === 'toggle_status') {
-            $id = (int)($_POST['emp_id'] ?? 0);
-            try {
-                $stmt = $pdo->prepare("UPDATE team_employees SET status = IF(status = 'Active', 'Inactive', 'Active') WHERE id = ?");
-                $stmt->execute([$id]);
-                $msg = "Employee status updated.";
-                $msg_type = "success";
-            } catch (Exception $e) {
-                $msg = "Error updating status: " . $e->getMessage();
-                $msg_type = "danger";
+            $agent_id = (int)($_POST['agent_id'] ?? 0);
+            if ($agent_id > 0) {
+                try {
+                    $stmt = $pdo->prepare("UPDATE team_agents SET status = IF(status = 'Active', 'Inactive', 'Active') WHERE id = ?");
+                    $stmt->execute([$agent_id]);
+                    $msg = "Team member status updated.";
+                } catch (Exception $e) {
+                    $msg = "Error: " . $e->getMessage();
+                    $msg_type = "danger";
+                }
             }
-        } elseif ($action === 'delete_employee') {
-            $id = (int)($_POST['emp_id'] ?? 0);
-            try {
-                $stmt = $pdo->prepare("DELETE FROM team_employees WHERE id = ?");
-                $stmt->execute([$id]);
-                $msg = "Employee removed from WhatsApp team directory.";
-                $msg_type = "success";
-            } catch (Exception $e) {
-                $msg = "Error deleting employee: " . $e->getMessage();
-                $msg_type = "danger";
+        } elseif ($action === 'delete_agent') {
+            $agent_id = (int)($_POST['agent_id'] ?? 0);
+            if ($agent_id > 0) {
+                try {
+                    $stmt = $pdo->prepare("DELETE FROM team_agents WHERE id = ?");
+                    $stmt->execute([$agent_id]);
+                    $msg = "Team member removed successfully.";
+                } catch (Exception $e) {
+                    $msg = "Error deleting member: " . $e->getMessage();
+                    $msg_type = "danger";
+                }
             }
         }
     }
 }
 
-// Fetch search and filter parameters
-$search = trim($_GET['q'] ?? '');
-$dept_filter = trim($_GET['dept'] ?? '');
-
-$where_clauses = [];
-$params = [];
-
-if (!empty($search)) {
-    $where_clauses[] = "(name LIKE ? OR emp_code LIKE ? OR phone LIKE ?)";
-    $params[] = "%{$search}%";
-    $params[] = "%{$search}%";
-    $params[] = "%{$search}%";
+// Fetch all registered team agents with their ticket stats
+$agents = [];
+try {
+    $stmt = $pdo->query("
+        SELECT ta.*,
+               COUNT(st.id) AS total_dropped_tickets,
+               SUM(CASE WHEN st.status = 'open' THEN 1 ELSE 0 END) AS open_tickets,
+               SUM(CASE WHEN st.status IN ('resolved', 'closed') THEN 1 ELSE 0 END) AS resolved_tickets
+        FROM team_agents ta
+        LEFT JOIN support_tickets st ON st.dropped_by_emp_id = ta.id OR RIGHT(st.dropped_by_emp_phone, 10) = RIGHT(ta.whatsapp_phone, 10)
+        GROUP BY ta.id
+        ORDER BY ta.status ASC, ta.name ASC
+    ");
+    $agents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $agents = [];
 }
 
-if (!empty($dept_filter)) {
-    $where_clauses[] = "department = ?";
-    $params[] = $dept_filter;
-}
-
-$where_sql = !empty($where_clauses) ? "WHERE " . implode(" AND ", $where_clauses) : "";
-
-// Fetch Employees list with ticket drop counts (with explicit collation matching)
-$query = "
-    SELECT e.*, 
-           (SELECT COUNT(*) FROM support_tickets st WHERE (st.emp_phone COLLATE utf8mb4_general_ci = e.phone COLLATE utf8mb4_general_ci OR st.emp_code COLLATE utf8mb4_general_ci = e.emp_code COLLATE utf8mb4_general_ci)) AS total_drops,
-           (SELECT COUNT(*) FROM support_tickets st WHERE (st.emp_phone COLLATE utf8mb4_general_ci = e.phone COLLATE utf8mb4_general_ci OR st.emp_code COLLATE utf8mb4_general_ci = e.emp_code COLLATE utf8mb4_general_ci) AND st.status IN ('Closed', 'Resolved')) AS closed_drops
-    FROM team_employees e
-    {$where_sql}
-    ORDER BY e.created_at DESC
-";
-$stmt = $pdo->prepare($query);
-$stmt->execute($params);
-$employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Summary Metrics
-$total_emps = count($employees);
-$active_emps = 0;
-$total_dropped_tickets = 0;
-$total_closed_tickets = 0;
-
-foreach ($employees as $emp) {
-    if ($emp['status'] === 'Active') $active_emps++;
-    $total_dropped_tickets += (int)$emp['total_drops'];
-    $total_closed_tickets += (int)$emp['closed_drops'];
-}
+// Summary statistics
+$total_agents = count($agents);
+$active_agents = count(array_filter($agents, fn($a) => $a['status'] === 'Active'));
+$total_dropped = array_sum(array_column($agents, 'total_dropped_tickets'));
 ?>
 
-<div class="support-container" style="max-width: 1400px; margin: 0 auto;">
-
-    <!-- Top Header & Action Controls -->
-    <div class="flex justify-between align-center mb-6 flex-wrap gap-4">
+<div class="container-fluid" style="padding-bottom: 3rem;">
+    <!-- Page Header -->
+    <div class="d-flex justify-between items-center mb-4 flex-wrap" style="gap: 1rem;">
         <div>
-            <div class="flex align-center gap-2 text-xs text-muted mb-1">
-                <span>Team & Operations</span>
-                <i data-lucide="chevron-right" style="width: 12px; height: 12px;"></i>
-                <span class="font-semibold text-main">WhatsApp Employee Directory</span>
-            </div>
-            <h1 class="text-2xl font-bold text-main m-0" style="font-family: var(--font-heading); display: flex; align-items: center; gap: 8px;">
-                <i data-lucide="users" style="width: 26px; height: 26px; color: var(--primary);"></i>
-                Team WhatsApp Directory & Auto-Ticket Setup
-            </h1>
-            <p class="text-xs text-muted mt-1 m-0">
-                Manage authorized staff members who can drop client numbers to bot (<strong>+91 93050 45727</strong>) for automatic technical ticket generation and live reverse status loops.
+            <h2 style="font-family: var(--font-heading); margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-main);">
+                Team WhatsApp Agents Directory
+            </h2>
+            <p class="text-muted text-sm mb-0">
+                Register authorized team phone numbers so when they forward client numbers to WhatsApp Bot (<code>+91 93050 45727</code>), tickets are generated automatically without notifying the client, and live progress updates loop back to the agent.
             </p>
         </div>
         <div>
-            <button type="button" class="btn btn-primary text-xs" style="padding: 0.65rem 1.25rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;" onclick="openAddEmployeeModal()">
-                <i data-lucide="user-plus" style="width: 16px; height: 16px;"></i>
-                <span>Register Team Member</span>
+            <button type="button" class="btn btn-primary" onclick="openAgentModal()">
+                <i data-lucide="user-plus" style="width: 16px; height: 16px; margin-right: 6px;"></i>
+                Add Team Member
             </button>
         </div>
     </div>
 
-    <?php if (!empty($msg)): ?>
-        <div class="alert alert-<?php echo $msg_type; ?> mb-4" style="padding: 0.85rem 1.25rem; border-radius: var(--border-radius-sm); font-size: 0.85rem; display: flex; align-items: center; gap: 8px;">
-            <i data-lucide="<?php echo $msg_type === 'success' ? 'check-circle' : 'alert-triangle'; ?>" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+    <!-- Alert Message -->
+    <?php if ($msg): ?>
+        <div class="alert alert-<?php echo $msg_type; ?> mb-4 d-flex items-center" style="gap: 0.75rem; border-radius: 8px;">
+            <i data-lucide="<?php echo $msg_type === 'success' ? 'check-circle' : 'alert-circle'; ?>" style="width: 20px; height: 20px;"></i>
             <span><?php echo htmlspecialchars($msg); ?></span>
         </div>
     <?php endif; ?>
 
-    <!-- Workflow Explainer Callout Card -->
-    <div class="card mb-6" style="background-color: var(--bg-card); border: 1px solid var(--border-card); border-left: 4px solid var(--primary); border-radius: var(--border-radius-md); padding: 1.25rem 1.5rem;">
-        <div class="flex align-center gap-3">
-            <div style="background: var(--primary-light, rgba(37,99,235,0.1)); color: var(--primary); width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <i data-lucide="zap" style="width: 22px; height: 22px;"></i>
+    <!-- Workflow Instructions Banner -->
+    <div class="card p-4 mb-4" style="background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%); border: 1px solid #bfdbfe; border-radius: 10px;">
+        <div class="d-flex items-start" style="gap: 1rem;">
+            <div style="background: #2563eb; color: #fff; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <i data-lucide="bot" style="width: 22px; height: 22px;"></i>
             </div>
-            <div style="flex-grow: 1;">
-                <h4 style="margin: 0 0 0.35rem 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main); font-family: var(--font-heading);">
-                    How WhatsApp Group Clutter Is Automated:
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 0.35rem 0; font-size: 1rem; color: #1e3a8a; font-weight: 700;">
+                    How Team Lead-to-Ticket Automation Works:
                 </h4>
-                <div style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
-                    <strong>1. Member Drops Number:</strong> Any registered team member sends client number (e.g. <code>9876543210 Marg error issue</code>) to WhatsApp Bot <strong>+91 93050 45727</strong>.<br>
-                    <strong>2. Client Never Disturbed:</strong> Ticket is generated for Tech Team. <strong>Client receives 0 messages</strong>.<br>
-                    <strong>3. Real-Time Reverse Loop:</strong> When Tech Team updates ticket status (<em>Call Back</em>, <em>In Progress</em>, or <em>Closed</em>), the <strong>Team Member gets instant WhatsApp updates</strong> with engineer remarks!
+                <div style="font-size: 0.85rem; color: #334155; line-height: 1.6;">
+                    <strong>Step 1:</strong> Add your sales, support, or field team members below with their active WhatsApp numbers.<br>
+                    <strong>Step 2:</strong> Whenever they get a client call/lead, they just send the client's 10-digit number (e.g. <code>9876543210</code> or <code>9876543210 Marg printer error</code>) to the bot at <strong>+91 93050 45727</strong>.<br>
+                    <strong>Step 3:</strong> The system creates an internal <strong>Support Ticket</strong> instantly. <em>Client ko koi message nahi jayega.</em><br>
+                    <strong>Step 4:</strong> Technical team calls the client from the CRM. Whenever tech updates the ticket (Call Back, In Progress, Closed), the submitting team member automatically receives real-time WhatsApp updates!
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Stats Counter Grid -->
-    <div class="grid mb-6" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
-        <div class="card p-4" style="background-color: var(--bg-card); border: 1px solid var(--border-card); border-left: 4px solid var(--primary); border-radius: var(--border-radius-md);">
-            <div class="text-xs text-muted font-semibold text-uppercase" style="letter-spacing: 0.03em;">Total Team Agents</div>
-            <div class="flex align-center gap-2 mt-1">
-                <span class="text-2xl font-bold text-main font-mono"><?php echo $total_emps; ?></span>
-                <span class="text-xs text-muted">registered</span>
-            </div>
-        </div>
-        <div class="card p-4" style="background-color: var(--bg-card); border: 1px solid var(--border-card); border-left: 4px solid var(--success, #10b981); border-radius: var(--border-radius-md);">
-            <div class="text-xs text-muted font-semibold text-uppercase" style="letter-spacing: 0.03em;">Active WhatsApp Access</div>
-            <div class="flex align-center gap-2 mt-1">
-                <span class="text-2xl font-bold font-mono" style="color: var(--success, #10b981);"><?php echo $active_emps; ?></span>
-                <span class="text-xs text-muted">agents active</span>
-            </div>
-        </div>
-        <div class="card p-4" style="background-color: var(--bg-card); border: 1px solid var(--border-card); border-left: 4px solid var(--warning, #f59e0b); border-radius: var(--border-radius-md);">
-            <div class="text-xs text-muted font-semibold text-uppercase" style="letter-spacing: 0.03em;">Tickets Raised via WhatsApp</div>
-            <div class="flex align-center gap-2 mt-1">
-                <span class="text-2xl font-bold font-mono" style="color: var(--warning, #f59e0b);"><?php echo $total_dropped_tickets; ?></span>
-                <span class="text-xs text-muted">auto-tickets</span>
-            </div>
-        </div>
-        <div class="card p-4" style="background-color: var(--bg-card); border: 1px solid var(--border-card); border-left: 4px solid var(--accent, #6366f1); border-radius: var(--border-radius-md);">
-            <div class="text-xs text-muted font-semibold text-uppercase" style="letter-spacing: 0.03em;">Closed / Resolved Loops</div>
-            <div class="flex align-center gap-2 mt-1">
-                <span class="text-2xl font-bold font-mono" style="color: var(--accent, #6366f1);"><?php echo $total_closed_tickets; ?></span>
-                <span class="text-xs text-muted">successful updates</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Filter & Search Toolbar -->
-    <div class="card p-4 mb-6" style="background-color: var(--bg-card); border: 1px solid var(--border-card); border-radius: var(--border-radius-md);">
-        <form method="GET" action="index.php" class="flex gap-3 align-center flex-wrap">
-            <input type="hidden" name="page" value="team_agents">
-            <div style="flex-grow: 1; min-width: 250px;">
-                <input type="text" name="q" value="<?php echo htmlspecialchars($search); ?>" class="form-control text-xs" placeholder="Search by name, employee code (e.g. EMP101), or phone...">
+    <!-- Metric Stat Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div class="card p-4 d-flex items-center" style="gap: 1rem; border-radius: 10px;">
+            <div style="background: #eff6ff; color: #2563eb; width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                <i data-lucide="users" style="width: 24px; height: 24px;"></i>
             </div>
             <div>
-                <select name="dept" class="form-control text-xs" style="min-width: 170px;">
-                    <option value="">All Departments</option>
-                    <option value="Technical" <?php echo $dept_filter === 'Technical' ? 'selected' : ''; ?>>Technical Team</option>
-                    <option value="Sales" <?php echo $dept_filter === 'Sales' ? 'selected' : ''; ?>>Sales Team</option>
-                    <option value="Support" <?php echo $dept_filter === 'Support' ? 'selected' : ''; ?>>Support / Helpdesk</option>
-                    <option value="Field Operations" <?php echo $dept_filter === 'Field Operations' ? 'selected' : ''; ?>>Field Operations</option>
-                    <option value="Accounts" <?php echo $dept_filter === 'Accounts' ? 'selected' : ''; ?>>Accounts / Billing</option>
-                </select>
+                <div class="text-xs text-muted font-semibold uppercase">Total Team Agents</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-main);"><?php echo $total_agents; ?></div>
             </div>
-            <button type="submit" class="btn btn-secondary text-xs" style="display: inline-flex; align-items: center; gap: 4px;">
-                <i data-lucide="search" style="width: 14px; height: 14px;"></i> Filter
-            </button>
-            <?php if (!empty($search) || !empty($dept_filter)): ?>
-                <a href="index.php?page=team_agents" class="btn btn-outline text-xs">Reset</a>
-            <?php endif; ?>
-        </form>
+        </div>
+        <div class="card p-4 d-flex items-center" style="gap: 1rem; border-radius: 10px;">
+            <div style="background: #ecfdf5; color: #059669; width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                <i data-lucide="user-check" style="width: 24px; height: 24px;"></i>
+            </div>
+            <div>
+                <div class="text-xs text-muted font-semibold uppercase">Active Authorized</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #059669;"><?php echo $active_agents; ?></div>
+            </div>
+        </div>
+        <div class="card p-4 d-flex items-center" style="gap: 1rem; border-radius: 10px;">
+            <div style="background: #fdf4ff; color: #9333ea; width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                <i data-lucide="ticket" style="width: 24px; height: 24px;"></i>
+            </div>
+            <div>
+                <div class="text-xs text-muted font-semibold uppercase">Total Leads Dropped</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #9333ea;"><?php echo $total_dropped; ?></div>
+            </div>
+        </div>
     </div>
 
-    <!-- Employees Directory Table -->
-    <div class="card p-0 mb-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-lg); overflow: hidden;">
-        <div class="p-4 flex justify-between align-center" style="border-bottom: 1px solid var(--border-color); background-color: var(--border-card);">
-            <div class="flex align-center gap-2">
-                <span class="text-sm font-bold text-main">Team Agents List:</span>
-                <span class="badge" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-weight: 700; font-size: 0.8rem;">
-                    <?php echo count($employees); ?> Registered
-                </span>
+    <!-- Team Members Table Card -->
+    <div class="card" style="border-radius: 10px; overflow: hidden;">
+        <div class="card-header d-flex justify-between items-center p-3 bg-light border-bottom">
+            <div class="d-flex items-center" style="gap: 0.5rem;">
+                <i data-lucide="shield-check" style="width: 18px; height: 18px; color: var(--primary);"></i>
+                <h3 style="font-size: 1rem; font-weight: 700; margin: 0; color: var(--text-main);">
+                    Registered Team Members
+                </h3>
+            </div>
+            <div>
+                <input type="text" id="tableFilter" placeholder="Search by name, code, phone..." class="form-control text-xs" style="width: 240px; border-radius: 6px;" onkeyup="filterAgentsTable()">
             </div>
         </div>
 
         <div class="table-responsive">
-            <table class="table mb-0" style="width: 100%; border-collapse: collapse;">
+            <table class="table mb-0" id="agentsTable">
                 <thead>
-                    <tr style="border-bottom: 1px solid var(--border-color); background: var(--border-card);">
-                        <th style="padding: 0.85rem 1rem; font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Emp Code</th>
-                        <th style="padding: 0.85rem 1rem; font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Employee Name</th>
-                        <th style="padding: 0.85rem 1rem; font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">WhatsApp Mobile</th>
-                        <th style="padding: 0.85rem 1rem; font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Department</th>
-                        <th style="padding: 0.85rem 1rem; font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Dropped Tickets</th>
-                        <th style="padding: 0.85rem 1rem; font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Status</th>
-                        <th style="padding: 0.85rem 1rem; font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; text-align: right;">Actions</th>
+                    <tr style="background: #f8fafc; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b;">
+                        <th style="padding: 0.85rem 1rem;">Code</th>
+                        <th style="padding: 0.85rem 1rem;">Member Name</th>
+                        <th style="padding: 0.85rem 1rem;">WhatsApp Number</th>
+                        <th style="padding: 0.85rem 1rem;">Department</th>
+                        <th style="padding: 0.85rem 1rem;">Dropped Tickets</th>
+                        <th style="padding: 0.85rem 1rem;">Status</th>
+                        <th style="padding: 0.85rem 1rem; text-align: right;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($employees)): ?>
+                    <?php if (empty($agents)): ?>
                         <tr>
-                            <td colspan="7" class="text-center text-muted py-8" style="padding: 3rem 1rem;">
-                                <i data-lucide="user-x" style="width: 42px; height: 42px; margin: 0 auto 0.75rem auto; color: var(--text-muted); display: block;"></i>
-                                <p class="text-sm font-semibold mb-1" style="color: var(--text-main);">No team members registered yet</p>
-                                <p class="text-xs text-muted mb-4">Add employees so they can start dropping client numbers to WhatsApp bot.</p>
-                                <button type="button" class="btn btn-primary text-xs" style="padding: 0.5rem 1rem;" onclick="openAddEmployeeModal()">Add First Employee</button>
+                            <td colspan="7" class="text-center p-5 text-muted">
+                                <i data-lucide="user-x" style="width: 36px; height: 36px; margin: 0 auto 0.5rem auto; color: #94a3b8;"></i>
+                                <div>No team members registered yet.</div>
+                                <button type="button" class="btn btn-sm btn-primary mt-2" onclick="openAgentModal()">
+                                    Add First Team Member
+                                </button>
                             </td>
                         </tr>
                     <?php else: ?>
-                        <?php foreach ($employees as $row): ?>
-                            <tr style="border-bottom: 1px solid var(--border-color);">
+                        <?php foreach ($agents as $ag): ?>
+                            <tr style="font-size: 0.88rem; vertical-align: middle;">
                                 <td style="padding: 0.85rem 1rem;">
-                                    <span class="font-bold text-primary font-mono text-xs block">
-                                        <?php echo htmlspecialchars($row['emp_code']); ?>
+                                    <span class="badge" style="background: #e2e8f0; color: #334155; font-family: monospace; font-weight: 600;">
+                                        <?php echo htmlspecialchars($ag['emp_code']); ?>
                                     </span>
                                 </td>
                                 <td style="padding: 0.85rem 1rem;">
-                                    <strong class="text-main block text-sm"><?php echo htmlspecialchars($row['name']); ?></strong>
-                                    <span class="text-xs text-muted">Registered: <?php echo date('d M Y', strtotime($row['created_at'])); ?></span>
+                                    <strong><?php echo htmlspecialchars($ag['name']); ?></strong>
                                 </td>
-                                <td style="padding: 0.85rem 1rem;">
-                                    <a href="https://wa.me/91<?php echo htmlspecialchars($row['phone']); ?>" target="_blank" style="color: var(--success, #10b981); font-weight: 600; text-decoration: none; font-size: 0.85rem; font-family: monospace; display: inline-flex; align-items: center; gap: 4px;">
-                                        <i data-lucide="message-circle" style="width: 14px; height: 14px;"></i>
-                                        +91 <?php echo htmlspecialchars($row['phone']); ?>
+                                <td style="padding: 0.85rem 1rem; font-family: monospace;">
+                                    <a href="https://wa.me/91<?php echo htmlspecialchars($ag['whatsapp_phone']); ?>" target="_blank" style="color: #059669; text-decoration: none; font-weight: 600;">
+                                        <i data-lucide="message-circle" style="width: 14px; height: 14px; display: inline-block; vertical-align: -2px;"></i>
+                                        +91 <?php echo htmlspecialchars($ag['whatsapp_phone']); ?>
                                     </a>
                                 </td>
                                 <td style="padding: 0.85rem 1rem;">
-                                    <span class="badge text-xs" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-weight: 600;">
-                                        <?php echo htmlspecialchars($row['department']); ?>
+                                    <span class="badge" style="background: #f1f5f9; color: #475569; font-weight: 600;">
+                                        <?php echo htmlspecialchars($ag['department']); ?>
                                     </span>
                                 </td>
                                 <td style="padding: 0.85rem 1rem;">
-                                    <div style="font-size: 0.85rem; font-weight: 600;">
-                                        <a href="index.php?page=support&emp_phone=<?php echo urlencode($row['phone']); ?>" style="color: var(--primary); text-decoration: none;">
-                                            <?php echo (int)$row['total_drops']; ?> tickets
-                                        </a>
-                                    </div>
+                                    <span style="font-weight: 700; color: #1e293b;"><?php echo (int)$ag['total_dropped_tickets']; ?></span>
                                     <span class="text-xs text-muted">
-                                        <?php echo (int)$row['closed_drops']; ?> resolved
+                                        (<?php echo (int)$ag['open_tickets']; ?> Open / <?php echo (int)$ag['resolved_tickets']; ?> Closed)
                                     </span>
                                 </td>
                                 <td style="padding: 0.85rem 1rem;">
-                                    <form method="POST" style="display: inline;">
-                                        <input type="hidden" name="csrf_token" value="<?php echo generateCsrfToken(); ?>">
+                                    <form method="POST" style="display: inline;" onsubmit="return confirm('Toggle status for <?php echo htmlspecialchars($ag['name']); ?>?');">
+                                        <?php echo csrfField(); ?>
                                         <input type="hidden" name="action" value="toggle_status">
-                                        <input type="hidden" name="emp_id" value="<?php echo $row['id']; ?>">
-                                        <button type="submit" class="badge text-xs" style="cursor: pointer; border: none; --badge-bg: <?php echo $row['status'] === 'Active' ? 'var(--success-light, #dcfce7)' : 'var(--border-card, #f1f5f9)'; ?>; --badge-color: <?php echo $row['status'] === 'Active' ? 'var(--success, #15803d)' : 'var(--text-muted, #64748b)'; ?>; font-weight: 700; padding: 4px 8px; border-radius: 4px;">
-                                            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: <?php echo $row['status'] === 'Active' ? '#22c55e' : '#94a3b8'; ?>; margin-right: 4px;"></span>
-                                            <?php echo $row['status']; ?>
+                                        <input type="hidden" name="agent_id" value="<?php echo $ag['id']; ?>">
+                                        <button type="submit" class="badge" style="border: none; cursor: pointer; background: <?php echo $ag['status'] === 'Active' ? '#dcfce7' : '#fee2e2'; ?>; color: <?php echo $ag['status'] === 'Active' ? '#15803d' : '#b91c1c'; ?>; font-weight: 600; padding: 4px 10px; border-radius: 4px;">
+                                            ● <?php echo $ag['status']; ?>
                                         </button>
                                     </form>
                                 </td>
                                 <td style="padding: 0.85rem 1rem; text-align: right;">
-                                    <div class="flex gap-1 justify-end">
-                                        <button type="button" class="btn btn-secondary text-xs p-1.5" title="Edit Employee" onclick='openEditEmployeeModal(<?php echo json_encode($row, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>)'>
-                                            <i data-lucide="edit-2" style="width: 14px; height: 14px;"></i>
+                                    <div class="d-flex justify-end items-center" style="gap: 0.35rem;">
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick='editAgent(<?php echo json_encode($ag); ?>)' title="Edit Member">
+                                            <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                         </button>
-                                        <form method="POST" style="display: inline;" onsubmit="return confirm('Remove <?php echo addslashes($row['name']); ?> from WhatsApp drop directory?');">
-                                            <input type="hidden" name="csrf_token" value="<?php echo generateCsrfToken(); ?>">
-                                            <input type="hidden" name="action" value="delete_employee">
-                                            <input type="hidden" name="emp_id" value="<?php echo $row['id']; ?>">
-                                            <button type="submit" class="btn btn-outline text-xs p-1.5" style="color: var(--danger); border-color: var(--danger-light);" title="Delete">
+                                        <form method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete <?php echo htmlspecialchars($ag['name']); ?>?');">
+                                            <?php echo csrfField(); ?>
+                                            <input type="hidden" name="action" value="delete_agent">
+                                            <input type="hidden" name="agent_id" value="<?php echo $ag['id']; ?>">
+                                            <button type="submit" class="btn btn-sm btn-secondary text-danger" title="Delete Member">
                                                 <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
                                             </button>
                                         </form>
@@ -375,105 +314,102 @@ foreach ($employees as $emp) {
             </table>
         </div>
     </div>
-
 </div>
 
-<!-- Native CRM Modal: Register / Edit Team Member -->
-<div id="employeeModal" class="modal-overlay">
-    <div class="modal-container" style="max-width: 520px;">
-        <div class="modal-header">
-            <h3 id="modalTitle" class="m-0 text-main" style="font-family: var(--font-heading);">Register Team Member</h3>
-            <button type="button" class="btn-icon" onclick="window.closeModal('employeeModal')">
-                <i data-lucide="x" style="width: 16px; height: 16px;"></i>
-            </button>
+<!-- Modal: Add / Edit Agent -->
+<div id="agentModal" class="custom-modal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center;">
+    <div class="card p-4" style="width: 100%; max-width: 480px; background: #fff; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+        <div class="d-flex justify-between items-center mb-3 pb-2 border-bottom">
+            <h3 id="modalTitle" style="font-size: 1.15rem; font-weight: 700; margin: 0; color: var(--text-main);">
+                Add Team Member
+            </h3>
+            <button type="button" class="btn-close" onclick="closeAgentModal()" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: #64748b;">&times;</button>
         </div>
 
-        <form class="modal-body flex flex-col gap-4" action="index.php?page=team_agents" method="POST">
-            <input type="hidden" name="csrf_token" value="<?php echo generateCsrfToken(); ?>">
-            <input type="hidden" name="action" value="save_employee">
-            <input type="hidden" name="emp_id" id="modal_emp_id" value="0">
+        <form method="POST">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="save_agent">
+            <input type="hidden" name="agent_id" id="modal_agent_id" value="0">
 
-            <div class="form-group m-0">
-                <label class="form-label text-xs font-semibold">Employee Code Slug *</label>
-                <input type="text" name="emp_code" id="modal_emp_code" class="form-control text-xs font-mono text-uppercase" placeholder="e.g. EMP-101 or SALES-01" required>
-                <small class="text-muted text-xs mt-1 block">Unique identifier code for tracking referrals.</small>
+            <div class="mb-3">
+                <label class="form-label text-xs font-semibold uppercase text-muted">Employee Code</label>
+                <input type="text" name="emp_code" id="modal_emp_code" class="form-control" placeholder="e.g. EMP-101" required style="border-radius: 6px;">
             </div>
 
-            <div class="form-group m-0">
-                <label class="form-label text-xs font-semibold">Employee Full Name *</label>
-                <input type="text" name="name" id="modal_name" class="form-control text-xs" placeholder="e.g. Amit Sharma" required>
+            <div class="mb-3">
+                <label class="form-label text-xs font-semibold uppercase text-muted">Full Name</label>
+                <input type="text" name="name" id="modal_name" class="form-control" placeholder="e.g. Amit Sharma" required style="border-radius: 6px;">
             </div>
 
-            <div class="form-group m-0">
-                <label class="form-label text-xs font-semibold">WhatsApp Mobile Number *</label>
-                <div class="flex align-center">
-                    <span style="background: var(--border-card); border: 1px solid var(--border-color); border-right: none; padding: 0.5rem 0.75rem; border-radius: var(--border-radius-sm) 0 0 var(--border-radius-sm); font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">+91</span>
-                    <input type="tel" name="phone" id="modal_phone" class="form-control text-xs font-mono" style="border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;" placeholder="9876543210" pattern="[6-9][0-9]{9}" maxlength="10" required>
+            <div class="mb-3">
+                <label class="form-label text-xs font-semibold uppercase text-muted">WhatsApp Mobile Number</label>
+                <div class="input-group">
+                    <span class="input-group-text" style="background: #f1f5f9; font-weight: 600;">+91</span>
+                    <input type="text" name="whatsapp_phone" id="modal_whatsapp_phone" class="form-control font-mono" placeholder="9876543210" required maxlength="15" style="border-radius: 0 6px 6px 0;">
                 </div>
-                <small class="text-muted text-xs mt-1 block">The mobile number they use to send messages to the bot (+91 93050 45727).</small>
+                <small class="text-muted">The exact WhatsApp number the employee will message from.</small>
             </div>
 
-            <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold">Department</label>
-                    <select name="department" id="modal_department" class="form-control text-xs">
-                        <option value="Technical">Technical Support</option>
-                        <option value="Sales">Sales & Marketing</option>
-                        <option value="Support">Customer Helpdesk</option>
-                        <option value="Field Operations">Field Operations</option>
-                        <option value="Accounts">Accounts / Billing</option>
-                    </select>
-                </div>
-
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold">Status</label>
-                    <select name="status" id="modal_status" class="form-control text-xs">
-                        <option value="Active">Active (Can drop)</option>
-                        <option value="Inactive">Inactive (Revoke)</option>
-                    </select>
-                </div>
+            <div class="mb-3">
+                <label class="form-label text-xs font-semibold uppercase text-muted">Department</label>
+                <select name="department" id="modal_department" class="form-control" style="border-radius: 6px;">
+                    <option value="Sales">Sales & Marketing</option>
+                    <option value="Technical">Technical Support</option>
+                    <option value="Field Support">Field Engineer / On-Site</option>
+                    <option value="Admin">Admin / Management</option>
+                    <option value="Billing">Billing & Accounts</option>
+                </select>
             </div>
 
-            <div class="modal-footer" style="padding-left: 0; padding-right: 0; padding-bottom: 0;">
-                <button type="button" class="btn btn-secondary text-xs" onclick="window.closeModal('employeeModal')">Cancel</button>
-                <button type="submit" class="btn btn-primary text-xs" id="modalSubmitBtn">Save Employee</button>
+            <div class="mb-4">
+                <label class="form-label text-xs font-semibold uppercase text-muted">Authorization Status</label>
+                <select name="status" id="modal_status" class="form-control" style="border-radius: 6px;">
+                    <option value="Active">Active (Authorized to Drop Leads)</option>
+                    <option value="Inactive">Inactive (Suspended)</option>
+                </select>
+            </div>
+
+            <div class="d-flex justify-end" style="gap: 0.5rem;">
+                <button type="button" class="btn btn-secondary" onclick="closeAgentModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Team Member</button>
             </div>
         </form>
     </div>
 </div>
 
 <script>
-function openAddEmployeeModal() {
-    document.getElementById('modalTitle').textContent = 'Register Team Member';
-    document.getElementById('modalSubmitBtn').textContent = 'Save Employee';
-    document.getElementById('modal_emp_id').value = '0';
+function openAgentModal() {
+    document.getElementById('modalTitle').innerText = 'Add Team Member';
+    document.getElementById('modal_agent_id').value = '0';
     document.getElementById('modal_emp_code').value = '';
     document.getElementById('modal_name').value = '';
-    document.getElementById('modal_phone').value = '';
-    document.getElementById('modal_department').value = 'Technical';
+    document.getElementById('modal_whatsapp_phone').value = '';
+    document.getElementById('modal_department').value = 'Sales';
     document.getElementById('modal_status').value = 'Active';
-    
-    if (typeof window.openModal === 'function') {
-        window.openModal('employeeModal');
-    } else {
-        document.getElementById('employeeModal').classList.add('open');
-    }
+    document.getElementById('agentModal').style.display = 'flex';
 }
 
-function openEditEmployeeModal(data) {
-    document.getElementById('modalTitle').textContent = 'Edit Team Member';
-    document.getElementById('modalSubmitBtn').textContent = 'Update Employee';
-    document.getElementById('modal_emp_id').value = data.id;
-    document.getElementById('modal_emp_code').value = data.emp_code;
-    document.getElementById('modal_name').value = data.name;
-    document.getElementById('modal_phone').value = data.phone;
-    document.getElementById('modal_department').value = data.department;
-    document.getElementById('modal_status').value = data.status;
-    
-    if (typeof window.openModal === 'function') {
-        window.openModal('employeeModal');
-    } else {
-        document.getElementById('employeeModal').classList.add('open');
-    }
+function editAgent(agent) {
+    document.getElementById('modalTitle').innerText = 'Edit Team Member';
+    document.getElementById('modal_agent_id').value = agent.id;
+    document.getElementById('modal_emp_code').value = agent.emp_code;
+    document.getElementById('modal_name').value = agent.name;
+    document.getElementById('modal_whatsapp_phone').value = agent.whatsapp_phone;
+    document.getElementById('modal_department').value = agent.department;
+    document.getElementById('modal_status').value = agent.status;
+    document.getElementById('agentModal').style.display = 'flex';
+}
+
+function closeAgentModal() {
+    document.getElementById('agentModal').style.display = 'none';
+}
+
+function filterAgentsTable() {
+    const input = document.getElementById('tableFilter').value.toLowerCase();
+    const rows = document.querySelectorAll('#agentsTable tbody tr');
+    rows.forEach(row => {
+        const text = row.innerText.toLowerCase();
+        row.style.display = text.includes(input) ? '' : 'none';
+    });
 }
 </script>

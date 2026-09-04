@@ -203,134 +203,123 @@ foreach ($data['entry'][0]['changes'] as $change) {
         }
 
         // =========================================================
-        // CASE 0: Authorized Team Member Client Number Drop & Auto-Ticket
+        // SPECIAL CASE: Check if sender is a Registered Team Agent
         // =========================================================
-        $senderLast10 = substr(preg_replace('/\D/', '', $from), -10);
-        $teamMember = null;
-        if ($pdo && strlen($senderLast10) === 10) {
+        $fromClean = preg_replace('/[^\d]/', '', $from);
+        $fromLast10 = substr($fromClean, -10);
+        $teamAgent = null;
+
+        if ($pdo && strlen($fromLast10) === 10) {
             try {
-                $empStmt = $pdo->prepare("SELECT * FROM team_employees WHERE phone = ? AND status = 'Active' LIMIT 1");
-                $empStmt->execute([$senderLast10]);
-                $teamMember = $empStmt->fetch(PDO::FETCH_ASSOC);
-            } catch (Throwable $e) {}
-        }
-
-        if ($teamMember && $msgType === 'text') {
-            $body = trim($msg['text']['body'] ?? '');
-            
-            // Check if message contains a 10-digit Indian mobile number
-            if (preg_match('/(?:(?:\+|0{0,2})91[\s-]*)?([6-9]\d{9})/', $body, $matches)) {
-                $clientPhone = $matches[1];
-                $problemText = trim(str_replace($matches[0], '', $body));
-                if (empty($problemText)) {
-                    $problemText = "Client contact dropped via WhatsApp by " . $teamMember['name'] . " (" . $teamMember['emp_code'] . ")";
-                }
-
-                // Look up client name in existing CRM leads or customers table
-                $clientName = "Client (" . $clientPhone . ")";
-                try {
-                    $cStmt = $pdo->prepare("SELECT name, company FROM leads WHERE phone LIKE ? ORDER BY id DESC LIMIT 1");
-                    $cStmt->execute(['%' . $clientPhone . '%']);
-                    $leadRow = $cStmt->fetch(PDO::FETCH_ASSOC);
-                    if ($leadRow && !empty($leadRow['name'])) {
-                        $clientName = $leadRow['name'] . (!empty($leadRow['company']) ? " - " . $leadRow['company'] : "");
-                    } else {
-                        $custStmt = $pdo->prepare("SELECT customer_name, firm_name FROM customers WHERE phone LIKE ? OR mobile LIKE ? ORDER BY id DESC LIMIT 1");
-                        $custStmt->execute(['%' . $clientPhone . '%', '%' . $clientPhone . '%']);
-                        $custRow = $custStmt->fetch(PDO::FETCH_ASSOC);
-                        if ($custRow && !empty($custRow['customer_name'])) {
-                            $clientName = $custRow['customer_name'] . (!empty($custRow['firm_name']) ? " - " . $custRow['firm_name'] : "");
-                        }
-                    }
-                } catch (Throwable $eLookup) {}
-
-                // Generate Ticket Number (TK-2026-XXXXXX)
-                $ticketNumber = generate_ticket_number($pdo);
-
-                // Insert into main CRM support_tickets table
-                try {
-                    $stmtSup = $pdo->prepare("
-                        INSERT INTO support_tickets 
-                        (id, customer_name, subject, priority, status, assigned_to, phone, email, problem, callback_number, source_channel, emp_code, emp_name, emp_phone, date_created) 
-                        VALUES (?, ?, ?, 'medium', 'open', 'Unassigned', ?, '', ?, ?, 'Team WhatsApp Drop', ?, ?, ?, NOW())
-                    ");
-                    $stmtSup->execute([
-                        $ticketNumber,
-                        $clientName,
-                        "Team Drop - " . $clientPhone,
-                        $clientPhone,
-                        $problemText,
-                        $clientPhone,
-                        $teamMember['emp_code'],
-                        $teamMember['name'],
-                        $teamMember['phone']
-                    ]);
-                } catch (Throwable $eSup) {
-                    write_log('error', "Failed to insert team dropped support_ticket: " . $eSup->getMessage());
-                }
-
-                // Also insert into tickets table for reporting/flows compatibility
-                try {
-                    $stmtTkt = $pdo->prepare("
-                        INSERT INTO tickets 
-                        (ticket_number, license_number, firm_name, customer_name, mobile, email, category, priority, description, status) 
-                        VALUES (?, 'TEAM-DROP', ?, ?, ?, '', 'Technical Support', 'Medium', ?, 'Open')
-                    ");
-                    $stmtTkt->execute([
-                        $ticketNumber,
-                        $clientName,
-                        $clientName,
-                        $clientPhone,
-                        $problemText
-                    ]);
-                } catch (Throwable $eTkt) {}
-
-                // Create Admin / Technical in-app notification
-                try {
-                    $adminNotifStmt = $pdo->prepare("
-                        INSERT INTO notifications (role, title, message, link, type) 
-                        VALUES ('Admin', 'New Team WhatsApp Ticket Raised', ?, 'index.php?page=support', 'warning')
-                    ");
-                    $adminNotifStmt->execute([
-                        "{$teamMember['name']} ({$teamMember['emp_code']}) dropped client {$clientPhone}. Ticket #{$ticketNumber} created."
-                    ]);
-                } catch (Throwable $eNotif) {}
-
-                // Send instant confirmation receipt STRICTLY to the Team Member (Client receives NO message)
-                $receiptMsg = "✅ *Ticket Ban Gayi!* 🎟️\n\n" .
-                              "📋 *Ticket No:* #{$ticketNumber}\n" .
-                              "📱 *Client:* +91 {$clientPhone}\n" .
-                              "👤 *Name:* {$clientName}\n" .
-                              "📝 *Note:* {$problemText}\n" .
-                              "⏳ *Status:* Open (Technical Queue)\n" .
-                              "👤 *Dropped By:* {$teamMember['name']} ({$teamMember['emp_code']})\n\n" .
-                              "Jaise hi Technical team call karegi ya status update karegi, aapko yahan live message mil jayega! 🚀";
-
-                $whatsapp->sendText($from, $receiptMsg);
-
-                // Exit processing for this message so customer greetings are never sent
-                continue;
-
-            } else {
-                // Team member sent a message without a 10-digit number (e.g. 'Hi' or random query)
-                $helpMsg = "👋 *Namaste {$teamMember['name']}* ({$teamMember['emp_code']})!\n\n" .
-                           "Aap Marg CRM Team Directory me verified hain. 🎯\n\n" .
-                           "📌 *Client Number Kaise Bhejein:*\n" .
-                           "Client ka 10-digit mobile number aur unka issue likhkar bhej dein.\n\n" .
-                           "Udaharan:\n" .
-                           "👉 *9876543210 Marg billing error 33*\n\n" .
-                           "Technical team ke dashboard par turant ticket ban jayegi aur aapko live updates milte rahenge.\n" .
-                           "*(Note: Client ko koi automated message nahi jayega).*";
-
-                $whatsapp->sendText($from, $helpMsg);
-
-                // Exit processing for this message
-                continue;
+                $stmtAgent = $pdo->prepare("SELECT id, emp_code, name, whatsapp_phone, department, status FROM team_agents WHERE status = 'Active' AND RIGHT(whatsapp_phone, 10) = ? LIMIT 1");
+                $stmtAgent->execute([$fromLast10]);
+                $teamAgent = $stmtAgent->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (Throwable $e) {
+                // Table might not exist or error, continue
             }
         }
 
+        if ($teamAgent && $msgType === 'text') {
+            $body = trim($msg['text']['body'] ?? '');
+
+            // Detect 10-digit Indian client mobile number
+            $clientPhone = null;
+            $clientPhoneClean = '';
+            if (preg_match('/(?:(?:\+|0{0,2})91[\s\-]*)?([6-9]\d{9})\b/', $body, $matches)) {
+                $clientPhoneClean = $matches[1];
+                $clientPhone = '+91 ' . $matches[1];
+            }
+
+            if (empty($clientPhone)) {
+                // Agent sent a message without a valid client phone number
+                $helpMsg = "👋 Hello *{$teamAgent['name']}* ({$teamAgent['emp_code']})!\n\n" .
+                           "⚠️ *Client Mobile Number Not Detected.*\n\n" .
+                           "Client ki automated ticket banane ke liye kripya unka 10-digit mobile number bhejein.\n\n" .
+                           "💡 *Example:*\n" .
+                           "• `9876543210`\n" .
+                           "• `9876543210 Marg printer error`\n" .
+                           "• `Client Sharma Ji 9876543210 urgent`\n\n" .
+                           "_Technical team ko ticket jayegi aur update hone par aapko yahan alert mil jayega._";
+                $whatsapp->sendText($from, $helpMsg);
+            } else {
+                // Valid Client Phone detected! Extract problem notes
+                $problemNote = trim(str_replace([$clientPhoneClean, '+91', '91' . $clientPhoneClean], '', $body));
+                $problemNote = preg_replace('/\s+/', ' ', $problemNote);
+                if (empty($problemNote) || strlen($problemNote) < 3) {
+                    $problemNote = "Client lead forwarded by " . $teamAgent['name'] . " (" . $teamAgent['emp_code'] . ")";
+                }
+
+                // Auto-lookup Party Name from client directory or leads
+                $partyName = "Client (" . $clientPhoneClean . ")";
+                try {
+                    $stmtParty = $pdo->prepare("SELECT party_name FROM client_directory WHERE mobile LIKE ? LIMIT 1");
+                    $stmtParty->execute(['%' . $clientPhoneClean . '%']);
+                    $pRow = $stmtParty->fetch(PDO::FETCH_ASSOC);
+                    if (!empty($pRow['party_name'])) {
+                        $partyName = $pRow['party_name'];
+                    } else {
+                        $stmtLead = $pdo->prepare("SELECT company, name FROM leads WHERE phone LIKE ? LIMIT 1");
+                        $stmtLead->execute(['%' . $clientPhoneClean . '%']);
+                        $lRow = $stmtLead->fetch(PDO::FETCH_ASSOC);
+                        if (!empty($lRow['company'])) {
+                            $partyName = $lRow['company'] . (!empty($lRow['name']) ? " (" . $lRow['name'] . ")" : "");
+                        }
+                    }
+                } catch (Throwable $e) {}
+
+                // Create Unique Support Ticket
+                $ticketId = 'TK-' . date('ymd') . '-' . rand(1000, 9999);
+                try {
+                    $stmtTicket = $pdo->prepare("
+                        INSERT INTO support_tickets (
+                            id, customer_name, subject, priority, status, assigned_to,
+                            phone, callback_number, problem, dropped_by_emp_id,
+                            dropped_by_emp_name, dropped_by_emp_phone, source, date_created
+                        ) VALUES (?, ?, ?, 'medium', 'open', 'Unassigned', ?, ?, ?, ?, ?, ?, 'team_whatsapp_drop', NOW())
+                    ");
+                    $stmtTicket->execute([
+                        $ticketId,
+                        $partyName,
+                        "Support Lead: " . $partyName,
+                        $clientPhone,
+                        $clientPhone,
+                        $problemNote,
+                        $teamAgent['id'],
+                        $teamAgent['name'] . ' (' . $teamAgent['emp_code'] . ')',
+                        $from
+                    ]);
+
+                    // Admin Topbar Notification
+                    $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, 'index.php?page=support', 'warning')");
+                    $stmtNotif->execute([
+                        "New Team Lead: " . $ticketId,
+                        "{$teamAgent['name']} ({$teamAgent['emp_code']}) dropped client {$clientPhone} ({$partyName})"
+                    ]);
+
+                    // NOTE: NO MESSAGE IS SENT TO THE CLIENT!
+                    // Send Instant Confirmation Receipt ONLY to the Team Member:
+                    $ackMsg = "✅ *Ticket Created Successfully!*\n\n" .
+                              "🎟️ Ticket ID: *#{$ticketId}*\n" .
+                              "📞 Client No: *{$clientPhone}*\n" .
+                              "🏢 Party: *{$partyName}*\n" .
+                              "📝 Note: _{$problemNote}_\n" .
+                              "👨‍💻 Queue: *Technical Support Team*\n" .
+                              "👤 Forwarded By: *{$teamAgent['name']} ({$teamAgent['emp_code']})*\n\n" .
+                              "⚡ _Technical team ko ticket assign ho gayi hai. Jaise hi wo call karenge, Call Back set karenge, ya ticket Close karenge — aapko yahan turant update mil jayega._";
+                    $whatsapp->sendText($from, $ackMsg);
+
+                } catch (Throwable $e) {
+                    write_log('error', "Failed to create team drop ticket: " . $e->getMessage());
+                    $whatsapp->sendText($from, "⚠️ Ticket generate karne me error aaya: " . $e->getMessage());
+                }
+            }
+
+            // Exit this message loop so normal customer flow is NOT triggered
+            continue;
+        }
+
         // =========================================================
-        // CASE 1: Standard Text Messages (Greetings like Hi, Support)
+        // CASE 1: Standard Customer Text Messages (Greetings like Hi, Support)
         // =========================================================
         if ($msgType === 'text') {
             $body = trim($msg['text']['body'] ?? '');

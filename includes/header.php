@@ -50,14 +50,9 @@ if ($db_connected && isset($_SESSION['user_id'])) {
         }
     } catch (\Exception $e) {}
 }
-
-if (isset($_GET['theme']) && in_array($_GET['theme'], ['light', 'dark'])) {
-    $_SESSION['theme'] = $_GET['theme'];
-}
-$current_theme = $_SESSION['theme'] ?? 'light';
 ?>
 <!DOCTYPE html>
-<html lang="en" data-theme="<?php echo $current_theme; ?>">
+<html lang="en" data-theme="<?php echo $_SESSION['theme']; ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
