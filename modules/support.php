@@ -109,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                    "*Ticket ID:* #{$ticketId}\n" .
                                    "*Client:* {$clientInfo}\n" .
                                    "*Status:* In Progress\n" .
-                                   "*Assigned Engineer:* {$currentUserName} (Technical Support)\n" .
+                                   "*Assigned Engineer:* {$currentUserName}\n" .
                                    "*Timestamp:* {$nowStr}\n" .
                                    "──────────────────────────\n" .
                                    "_{$currentUserName} has accepted this ticket and initiated technical support._";

@@ -327,21 +327,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
                         "{$teamAgent['name']} ({$teamAgent['emp_code']}) dropped client {$clientPhoneClean}" . (!empty($partyName) ? " ({$partyName})" : "")
                     ]);
 
-                    // NOTE: NO MESSAGE IS SENT TO THE CLIENT!
-                    // Send Clean Professional Confirmation Receipt ONLY to the Team Member:
-                    $nowStr = date('d M Y, h:i A');
-                    $ackMsg = "*SUPPORT TICKET LOGGED*\n" .
-                              "──────────────────────────\n" .
-                              "*Ticket ID:* #{$ticketId}\n" .
-                              "*Contact No:* {$clientPhoneClean}\n" .
-                              (!empty($partyName) ? "*Party Name:* {$partyName}\n" : "") .
-                              (!empty($problemNote) ? "*Notes:* {$problemNote}\n" : "") .
-                              "*Forwarded By:* {$teamAgent['name']} ({$teamAgent['emp_code']})\n" .
-                              "*Status:* Queued (Unassigned Pool)\n" .
-                              "*Logged At:* {$nowStr}\n" .
-                              "──────────────────────────\n" .
-                              "_Ticket has been logged in the support queue. You will receive real-time updates as an engineer claims and works on this request._";
-                    $whatsapp->sendText($from, $ackMsg);
+                    // Ticket is created silently in the pool; notifications are sent when an engineer takes/claims the ticket
 
                 } catch (Throwable $e) {
                     write_log('error', "Failed to create team drop ticket: " . $e->getMessage());
