@@ -234,7 +234,7 @@ if (!isset($_SESSION['login_role'])) {
     $_SESSION['login_role'] = 'Admin'; // Default login role for demonstration
 }
 if (!isset($_SESSION['theme'])) {
-    $_SESSION['theme'] = 'dark'; // Default premium dark theme
+    $_SESSION['theme'] = 'light'; // Default clean light theme
 }
 
 // Employee Roles List (Assignable operator roles for CRM businesses)
