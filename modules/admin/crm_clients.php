@@ -118,9 +118,54 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
 }
 
 // --------------------------------------------------------------------------
-// 1.1 Tenant WhatsApp Details Helper
+// 1.1 Batch Baileys Live Status Check Helper (Ultra-fast parallel query)
 // --------------------------------------------------------------------------
-function getTenantWabaDetails($pdo_master, $tenant) {
+function batchGetLiveBaileysStatus($clients) {
+    if (empty($clients)) return [];
+    
+    $engineUrl = defined('WHATSAPP_ENGINE_URL') ? WHATSAPP_ENGINE_URL : 'http://140.238.167.58:3000';
+    $mh = curl_multi_init();
+    $handles = [];
+    
+    foreach ($clients as $c) {
+        $uid = (int)($c['id'] ?? 0);
+        if ($uid <= 0) continue;
+        
+        $ch = curl_init(rtrim($engineUrl, '/') . '/status?user_id=' . $uid);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+        curl_multi_add_handle($mh, $ch);
+        $handles[$uid] = $ch;
+    }
+    
+    if (empty($handles)) return [];
+    
+    $running = null;
+    do {
+        curl_multi_exec($mh, $running);
+        curl_multi_select($mh, 0.05);
+    } while ($running > 0);
+    
+    $results = [];
+    foreach ($handles as $uid => $ch) {
+        $content = curl_multi_getcontent($ch);
+        $data = json_decode($content, true);
+        if (is_array($data)) {
+            $results[$uid] = $data;
+        }
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+    }
+    curl_multi_close($mh);
+    
+    return $results;
+}
+
+// --------------------------------------------------------------------------
+// 1.2 Tenant WhatsApp Details Helper (Exact Real-Time Status & Gateway Details)
+// --------------------------------------------------------------------------
+function getTenantWabaDetails($pdo_master, $tenant, $liveBaileysStatuses = []) {
     global $db_host, $db_port, $db_user, $db_pass;
     $tenantId = (int)($tenant['id'] ?? 0);
     $companyCode = $tenant['company_code'] ?? '';
@@ -150,7 +195,7 @@ function getTenantWabaDetails($pdo_master, $tenant) {
                         $stmtT2 = $pdo_master->query("SELECT * FROM `{$tbl}` ORDER BY id DESC LIMIT 1");
                         $tenantSettings = $stmtT2->fetch(PDO::FETCH_ASSOC);
                     }
-                    if ($tenantSettings && (!empty($tenantSettings['business_phone']) || ($tenantSettings['web_api_session_status'] ?? '') === 'connected' || !empty($tenantSettings['phone_number_id']))) {
+                    if ($tenantSettings) {
                         $settings = $tenantSettings;
                     }
                 } else {
@@ -159,7 +204,7 @@ function getTenantWabaDetails($pdo_master, $tenant) {
                     $stmtT = $tPdo->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? ORDER BY id DESC LIMIT 1");
                     $stmtT->execute([$tenantId]);
                     $tenantSettings = $stmtT->fetch(PDO::FETCH_ASSOC);
-                    if ($tenantSettings && (!empty($tenantSettings['business_phone']) || ($tenantSettings['web_api_session_status'] ?? '') === 'connected' || !empty($tenantSettings['phone_number_id']))) {
+                    if ($tenantSettings) {
                         $settings = $tenantSettings;
                     }
                 }
@@ -192,7 +237,7 @@ function getTenantWabaDetails($pdo_master, $tenant) {
         $apiKey = 'MARG-WABA-' . strtoupper(substr(md5('tenant_' . $tenantId . '_' . $companyCode), 0, 16));
         if ($pdo_master && $tenantId > 0) {
             try {
-                $stmtIns = $pdo_master->prepare("INSERT INTO merchant_waba_settings (user_id, tenant_api_key, webhook_verify_token, gateway_type, web_api_session_status) VALUES (?, ?, ?, 'meta', 'disconnected') ON DUPLICATE KEY UPDATE tenant_api_key = VALUES(tenant_api_key)");
+                $stmtIns = $pdo_master->prepare("INSERT INTO merchant_waba_settings (user_id, tenant_api_key, webhook_verify_token, gateway_type, web_api_session_status) VALUES (?, ?, ?, 'web_api', 'disconnected') ON DUPLICATE KEY UPDATE tenant_api_key = VALUES(tenant_api_key)");
                 $stmtIns->execute([$tenantId, $apiKey, bin2hex(random_bytes(8))]);
                 if (!$settings) $settings = [];
                 $settings['tenant_api_key'] = $apiKey;
@@ -200,32 +245,96 @@ function getTenantWabaDetails($pdo_master, $tenant) {
         }
     }
 
-    $gateway_type = !empty($settings['gateway_type']) ? $settings['gateway_type'] : 'meta';
-    $is_web_connected = (!empty($settings['web_api_session_status']) && $settings['web_api_session_status'] === 'connected');
-    $has_meta = (!empty($settings['phone_number_id']) && !empty($settings['access_token'])) || (!empty($metaConfig['phone_number_id']) && !empty($metaConfig['access_token']));
+    // Gateway type determination
+    $has_meta_creds = (!empty($settings['phone_number_id']) && !empty($settings['access_token'])) || (!empty($metaConfig['phone_number_id']) && !empty($metaConfig['access_token']));
     
-    $is_connected = ($gateway_type === 'web_api') ? $is_web_connected : $has_meta;
-    
+    if ($tenantId === 1 || $companyCode === 'master') {
+        $gateway_type = (!empty($settings['gateway_type'])) ? $settings['gateway_type'] : 'meta';
+    } else {
+        if (!empty($settings['gateway_type'])) {
+            $gateway_type = $settings['gateway_type'];
+        } elseif ($has_meta_creds) {
+            $gateway_type = 'meta';
+        } else {
+            $gateway_type = 'web_api';
+        }
+    }
+
+    // Real-Time Live Baileys Engine Status
+    $baileysLive = $liveBaileysStatuses[$tenantId] ?? null;
+    $engine_status = $baileysLive['status'] ?? null;
+    $engine_phone = $baileysLive['phone_number'] ?? ($baileysLive['phone'] ?? '');
+
+    $is_connected = false;
+    $session_state = 'not_paired'; // 'connected', 'logged_out', 'not_paired', 'meta_connected', 'not_configured'
     $phone = '';
-    if (!empty($settings['business_phone'])) {
-        $phone = $settings['business_phone'];
-    } elseif (!empty($metaConfig['display_phone_number'])) {
-        $phone = $metaConfig['display_phone_number'];
-    } elseif (!empty($tenant['phone'])) {
-        $phone = $tenant['phone'];
+    $last_phone = '';
+
+    if ($gateway_type === 'web_api') {
+        $db_saved_phone = !empty($settings['business_phone']) ? $settings['business_phone'] : '';
+        $db_status = $settings['web_api_session_status'] ?? 'disconnected';
+
+        if ($engine_status === 'connected' && !empty($engine_phone)) {
+            // Live Baileys session is active and verified
+            $is_connected = true;
+            $session_state = 'connected';
+            $phone = '+' . ltrim($engine_phone, '+');
+        } elseif ($engine_status === 'scan_qr' || $engine_status === 'disconnected') {
+            // Baileys server reported scan_qr or disconnected
+            if ($db_status === 'connected' || !empty($db_saved_phone)) {
+                // Previously had a connected phone, but user logged out from WhatsApp on mobile or session expired!
+                $is_connected = false;
+                $session_state = 'logged_out';
+                $last_phone = $db_saved_phone;
+                $phone = '';
+            } else {
+                // Fresh client, not yet paired
+                $is_connected = false;
+                $session_state = 'not_paired';
+                $phone = '';
+            }
+        } else {
+            // Engine unreachable / offline fallback to DB
+            if ($db_status === 'connected' && !empty($db_saved_phone)) {
+                $is_connected = true;
+                $session_state = 'connected';
+                $phone = $db_saved_phone;
+            } else {
+                $is_connected = false;
+                $session_state = !empty($db_saved_phone) ? 'logged_out' : 'not_paired';
+                $last_phone = $db_saved_phone;
+            }
+        }
+    } else {
+        // Meta Cloud WABA
+        if ($has_meta_creds) {
+            $is_connected = true;
+            $session_state = 'meta_connected';
+            if (!empty($settings['business_phone'])) {
+                $phone = $settings['business_phone'];
+            } elseif (!empty($metaConfig['display_phone_number'])) {
+                $phone = $metaConfig['display_phone_number'];
+            }
+        } else {
+            $is_connected = false;
+            $session_state = 'not_configured';
+        }
     }
 
     return [
-        'api_key' => $apiKey,
-        'gateway_type' => $gateway_type,
-        'is_connected' => $is_connected,
-        'phone' => $phone,
-        'phone_number_id' => $settings['phone_number_id'] ?? ($metaConfig['phone_number_id'] ?? ''),
-        'waba_id' => $settings['waba_id'] ?? ($metaConfig['waba_id'] ?? ''),
-        'access_token' => $settings['access_token'] ?? ($metaConfig['access_token'] ?? ''),
-        'web_api_url' => $settings['web_api_url'] ?? '',
-        'web_api_token' => $settings['web_api_token'] ?? '',
-        'web_api_instance_id' => $settings['web_api_instance_id'] ?? '',
+        'api_key'                => $apiKey,
+        'gateway_type'           => $gateway_type,
+        'is_connected'           => $is_connected,
+        'session_state'          => $session_state,
+        'phone'                  => $phone,
+        'last_phone'             => $last_phone,
+        'engine_status'          => $engine_status,
+        'phone_number_id'        => $settings['phone_number_id'] ?? ($metaConfig['phone_number_id'] ?? ''),
+        'waba_id'                => $settings['waba_id'] ?? ($metaConfig['waba_id'] ?? ''),
+        'access_token'           => $settings['access_token'] ?? ($metaConfig['access_token'] ?? ''),
+        'web_api_url'            => $settings['web_api_url'] ?? '',
+        'web_api_token'          => $settings['web_api_token'] ?? '',
+        'web_api_instance_id'    => $settings['web_api_instance_id'] ?? '',
         'web_api_session_status' => $settings['web_api_session_status'] ?? 'disconnected'
     ];
 }
@@ -661,6 +770,7 @@ if (isset($pdo_master)) {
     try {
         $stmtC = $pdo_master->query("SELECT * FROM tenant_companies ORDER BY id ASC");
         $clients = $stmtC->fetchAll(PDO::FETCH_ASSOC);
+        $liveBaileysStatuses = batchGetLiveBaileysStatus($clients);
         
         $total_clients = count($clients);
         foreach ($clients as $c) {
@@ -685,6 +795,51 @@ if (isset($pdo_master)) {
 ?>
 
 <div class="crm-clients-container">
+    <style>
+        .status-pill {
+            font-size: 0.725rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            line-height: 1.2;
+            letter-spacing: 0.02em;
+        }
+        .status-pill-connected {
+            background: rgba(16, 185, 129, 0.14);
+            color: #059669;
+            border: 1px solid rgba(16, 185, 129, 0.35);
+        }
+        .status-pill-loggedout {
+            background: rgba(239, 68, 68, 0.14);
+            color: #dc2626;
+            border: 1px solid rgba(239, 68, 68, 0.35);
+        }
+        .status-pill-notpaired {
+            background: rgba(245, 158, 11, 0.14);
+            color: #d97706;
+            border: 1px solid rgba(245, 158, 11, 0.35);
+        }
+        .pulse-dot-green {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #10b981;
+            display: inline-block;
+            box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+            animation: pulseGreen 1.8s infinite;
+        }
+        @keyframes pulseGreen {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        .client-row:hover {
+            background: rgba(59, 130, 246, 0.02) !important;
+        }
+    </style>
     <!-- Super Admin Impersonation Alert Banner -->
     <?php if (isset($_SESSION['impersonate_tenant_db']) && !empty($_SESSION['impersonate_tenant_db'])): ?>
         <div class="p-4 mb-6 flex align-center justify-between" style="background: rgba(245, 124, 0, 0.15); border: 2px dashed #f57c00; border-radius: var(--border-radius-md);">
@@ -807,19 +962,35 @@ if (isset($pdo_master)) {
                             if (!is_array($allowed_modules)) $allowed_modules = $default_all;
 
                             // Fetch live stats from tenant DB safely
-                            $tenant_users_cnt = 'N/A';
-                            $tenant_leads_cnt = 'N/A';
-                            try {
-                                $tDsnInst = "mysql:host=$db_host;port=$db_port;dbname={$cl['db_name']};charset=utf8mb4";
-                                $tPdoInst = new PDO($tDsnInst, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-                                $tenant_users_cnt = $tPdoInst->query("SELECT COUNT(*) FROM users")->fetchColumn();
-                                $tenant_leads_cnt = $tPdoInst->query("SELECT COUNT(*) FROM leads")->fetchColumn();
-                            } catch (PDOException $ex) {
-                                // DB down or unreadable
+                            $tenant_users_cnt = 0;
+                            $tenant_leads_cnt = 0;
+                            if ($cl['id'] == 1 || $cl['company_code'] === 'master') {
+                                try {
+                                    $tenant_users_cnt = (int)$pdo_master->query("SELECT COUNT(*) FROM users")->fetchColumn();
+                                    $tenant_leads_cnt = (int)$pdo_master->query("SELECT COUNT(*) FROM leads")->fetchColumn();
+                                } catch (Exception $ex) {}
+                            } elseif (!empty($cl['db_name']) && strpos($cl['db_name'], 't_') === 0) {
+                                try {
+                                    $uCnt = (int)$pdo_master->query("SELECT COUNT(*) FROM `{$cl['db_name']}users`")->fetchColumn();
+                                    $tenant_users_cnt = ($uCnt > 0) ? $uCnt : 1;
+                                } catch (Exception $ex) { $tenant_users_cnt = 1; }
+                                try {
+                                    $tenant_leads_cnt = (int)$pdo_master->query("SELECT COUNT(*) FROM `{$cl['db_name']}leads`")->fetchColumn();
+                                } catch (Exception $ex) { $tenant_leads_cnt = 0; }
+                            } else {
+                                try {
+                                    $tDsnInst = "mysql:host=$db_host;port=$db_port;dbname={$cl['db_name']};charset=utf8mb4";
+                                    $tPdoInst = new PDO($tDsnInst, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                                    $tenant_users_cnt = (int)$tPdoInst->query("SELECT COUNT(*) FROM users")->fetchColumn();
+                                    $tenant_leads_cnt = (int)$tPdoInst->query("SELECT COUNT(*) FROM leads")->fetchColumn();
+                                } catch (PDOException $ex) {
+                                    $tenant_users_cnt = 1;
+                                    $tenant_leads_cnt = 0;
+                                }
                             }
 
-                            // Fetch Tenant WhatsApp Configuration & Dispatch Stats
-                            $wInfo = getTenantWabaDetails($pdo_master, $cl);
+                            // Fetch Tenant WhatsApp Configuration & Dispatch Stats with Real-Time Baileys check
+                            $wInfo = getTenantWabaDetails($pdo_master, $cl, $liveBaileysStatuses);
                             $tenant_msgs_today = 0;
                             $tenant_msgs_month = 0;
                             try {
@@ -833,71 +1004,150 @@ if (isset($pdo_master)) {
                                 $tenant_msgs_month = (int)($logCounts['month_cnt'] ?? 0);
                             } catch (PDOException $ex) {}
                         ?>
-                            <tr style="border-bottom: 1px solid var(--border-color);">
+                            <tr class="client-row" style="border-bottom: 1px solid var(--border-color); transition: background 0.15s ease;">
                                 <td class="p-3">
                                     <div class="flex align-center gap-3">
-                                        <div style="width: 36px; height: 36px; border-radius: var(--border-radius-sm); background: rgba(59, 130, 246, 0.12); color: var(--primary); font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 0.85rem;">
+                                        <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(99, 102, 241, 0.22)); color: var(--primary); font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; border: 1px solid rgba(59, 130, 246, 0.25);">
                                             <?php echo strtoupper(substr($cl['company_code'], 0, 2)); ?>
                                         </div>
                                         <div class="flex flex-col">
-                                            <span class="text-sm font-semibold" style="color: var(--text-main);"><?php echo htmlspecialchars($cl['company_name']); ?></span>
-                                            <span class="text-xs text-muted">Code: <code><?php echo htmlspecialchars($cl['company_code']); ?></code></span>
+                                            <span class="text-sm font-bold" style="color: var(--text-main); line-height: 1.25;"><?php echo htmlspecialchars($cl['company_name']); ?></span>
+                                            <div class="flex align-center gap-2 mt-1">
+                                                <span class="text-xs text-muted font-mono" style="font-size: 0.7rem; background: var(--bg-body); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border-color);">
+                                                    code: <strong><?php echo htmlspecialchars($cl['company_code']); ?></strong>
+                                                </span>
+                                                <span class="text-xs text-muted" style="font-size: 0.68rem;">ID: #<?php echo $cl['id']; ?></span>
+                                            </div>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="p-3">
-                                    <div class="flex flex-col">
-                                        <span class="text-xs font-semibold"><?php echo htmlspecialchars($cl['owner_name']); ?></span>
-                                        <a href="mailto:<?php echo htmlspecialchars($cl['owner_email']); ?>" class="text-xs text-primary"><?php echo htmlspecialchars($cl['owner_email']); ?></a>
+                                    <div class="flex flex-col gap-0.5">
+                                        <span class="text-xs font-bold" style="color: var(--text-main);"><?php echo htmlspecialchars($cl['owner_name']); ?></span>
+                                        <a href="mailto:<?php echo htmlspecialchars($cl['owner_email']); ?>" class="text-xs text-primary" style="font-size: 0.725rem; text-decoration: none; word-break: break-all;">
+                                            <i data-lucide="mail" style="width: 10px; height: 10px; display: inline-block; vertical-align: middle;"></i>
+                                            <?php echo htmlspecialchars($cl['owner_email']); ?>
+                                        </a>
+                                        <?php if (!empty($cl['phone'])): ?>
+                                            <span class="text-xs text-muted" style="font-size: 0.68rem; margin-top: 2px;">
+                                                📞 ERP: <code><?php echo htmlspecialchars($cl['phone']); ?></code>
+                                            </span>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
-                                <!-- WhatsApp Status & API Key Details Column -->
+                                <!-- Real-Time WhatsApp Gateway & Session Status Column -->
                                 <td class="p-3">
                                     <div class="flex flex-col gap-1">
-                                        <div class="flex align-center gap-2">
-                                            <?php if ($wInfo['is_connected']): ?>
-                                                <span class="badge" style="background: #10b981; color: white; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 6px; display: inline-flex; align-items: center; gap: 3px;">
-                                                    <i data-lucide="check-circle-2" style="width: 10px; height: 10px;"></i> Connected
+                                        <?php if ($wInfo['session_state'] === 'meta_connected'): ?>
+                                            <!-- Meta Cloud API Active -->
+                                            <div class="flex align-center gap-2 flex-wrap">
+                                                <span class="status-pill status-pill-connected">
+                                                    <span class="pulse-dot-green"></span> Connected
                                                 </span>
-                                            <?php else: ?>
-                                                <span class="badge" style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 6px; display: inline-flex; align-items: center; gap: 3px;">
-                                                    <i data-lucide="alert-circle" style="width: 10px; height: 10px;"></i> Not Connected
+                                                <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #6366f1; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.25);">
+                                                    Meta Cloud WABA
                                                 </span>
-                                            <?php endif; ?>
-                                            <span class="text-xs text-muted" style="font-size: 0.725rem; font-weight: 600;">
-                                                <?php echo ($wInfo['gateway_type'] === 'web_api') ? 'Self-Hosted Web' : 'Meta WABA'; ?>
-                                            </span>
-                                        </div>
+                                            </div>
+                                            <div class="flex align-center gap-1 font-mono text-xs font-bold mt-0.5" style="color: var(--text-main);">
+                                                <span>📱 <?php echo htmlspecialchars($wInfo['phone']); ?></span>
+                                            </div>
 
-                                        <?php if (!empty($wInfo['phone'])): ?>
-                                            <span class="text-xs font-bold" style="color: var(--text-main); font-family: monospace; font-size: 0.75rem;">
-                                                📱 <?php echo htmlspecialchars($wInfo['phone']); ?>
-                                            </span>
+                                        <?php elseif ($wInfo['session_state'] === 'connected'): ?>
+                                            <!-- Self-Hosted Web API Live Connected -->
+                                            <div class="flex align-center gap-2 flex-wrap">
+                                                <span class="status-pill status-pill-connected">
+                                                    <span class="pulse-dot-green"></span> Connected
+                                                </span>
+                                                <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.25);">
+                                                    Web API (Baileys)
+                                                </span>
+                                            </div>
+                                            <div class="flex align-center gap-1 font-mono text-xs font-bold mt-0.5" style="color: var(--text-main);">
+                                                <span>📱 <?php echo htmlspecialchars($wInfo['phone']); ?></span>
+                                            </div>
+
+                                        <?php elseif ($wInfo['session_state'] === 'logged_out'): ?>
+                                            <!-- Web API Logged Out from Phone -->
+                                            <div class="flex align-center gap-2 flex-wrap">
+                                                <span class="status-pill status-pill-loggedout" title="User logged out from WhatsApp on phone or Baileys session expired">
+                                                    <i data-lucide="alert-triangle" style="width: 11px; height: 11px;"></i> Logged Out
+                                                </span>
+                                                <span class="badge" style="background: rgba(239, 68, 68, 0.08); color: #dc2626; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25);">
+                                                    Re-Scan Required
+                                                </span>
+                                            </div>
+                                            <div class="text-xs mt-0.5" style="color: #ef4444; font-size: 0.72rem; font-weight: 600;">
+                                                <?php if (!empty($wInfo['last_phone'])): ?>
+                                                    <span>📱 <?php echo htmlspecialchars($wInfo['last_phone']); ?> <span style="font-weight: 400; color: var(--text-muted);">(Session Expired)</span></span>
+                                                <?php else: ?>
+                                                    <span>Session disconnected from phone</span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div class="mt-1">
+                                                <button type="button" class="btn btn-xs" style="background: #2563eb; color: white; border: none; font-size: 0.7rem; padding: 3px 9px; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(37,99,235,0.3);" onclick="openQrPairModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '<?php echo htmlspecialchars($wInfo['last_phone'] ?? ''); ?>')">
+                                                    <i data-lucide="qr-code" style="width: 11px; height: 11px;"></i> Reconnect QR
+                                                </button>
+                                            </div>
+
+                                        <?php elseif ($wInfo['session_state'] === 'not_paired'): ?>
+                                            <!-- Web API Fresh Client / Never Paired -->
+                                            <div class="flex align-center gap-2 flex-wrap">
+                                                <span class="status-pill status-pill-notpaired">
+                                                    <i data-lucide="scan" style="width: 11px; height: 11px;"></i> Not Paired
+                                                </span>
+                                                <span class="badge" style="background: rgba(100, 116, 139, 0.1); color: #64748b; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px;">
+                                                    Web API (Baileys)
+                                                </span>
+                                            </div>
+                                            <span class="text-xs text-muted mt-0.5" style="font-size: 0.72rem; font-style: italic;">No WhatsApp Paired Yet</span>
+                                            <div class="mt-1">
+                                                <button type="button" class="btn btn-xs" style="background: #10b981; color: white; border: none; font-size: 0.7rem; padding: 3px 9px; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(16,185,129,0.3);" onclick="openQrPairModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '')">
+                                                    <i data-lucide="qr-code" style="width: 11px; height: 11px;"></i> Pair WhatsApp
+                                                </button>
+                                            </div>
+
                                         <?php else: ?>
-                                            <span class="text-xs text-muted" style="font-style: italic; font-size: 0.725rem;">No Phone Linked</span>
+                                            <!-- Meta Incomplete -->
+                                            <div class="flex align-center gap-2 flex-wrap">
+                                                <span class="status-pill" style="background: rgba(100, 116, 139, 0.14); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.3);">
+                                                    <i data-lucide="shield-off" style="width: 11px; height: 11px;"></i> Meta Pending
+                                                </span>
+                                            </div>
+                                            <span class="text-xs text-muted mt-0.5" style="font-size: 0.72rem; font-style: italic;">Token / Phone ID Missing</span>
                                         <?php endif; ?>
 
+                                        <!-- Tenant API Key 1-Click Copy -->
                                         <div class="flex align-center gap-1 mt-1">
                                             <span class="text-xs text-muted" style="font-size: 0.7rem;">Key:</span>
-                                            <code style="font-size: 0.7rem; background: var(--bg-body); padding: 1px 6px; border-radius: 4px; color: var(--primary); font-family: monospace; cursor: pointer; border: 1px solid var(--border-color);" onclick="copyToClipboard('<?php echo htmlspecialchars($wInfo['api_key']); ?>', 'Tenant API Key')" title="Click to copy API Key">
+                                            <code style="font-size: 0.7rem; background: var(--bg-body); padding: 1px 6px; border-radius: 4px; color: var(--primary); font-family: monospace; cursor: pointer; border: 1px solid var(--border-color);" onclick="copyToClipboard('<?php echo htmlspecialchars($wInfo['api_key']); ?>', 'Tenant API Key')" title="Click to copy full API Key">
                                                 <?php echo htmlspecialchars(substr($wInfo['api_key'], 0, 13)) . '...'; ?>
                                                 <i data-lucide="copy" style="width: 10px; height: 10px; vertical-align: middle; display: inline-block;"></i>
                                             </code>
                                         </div>
                                     </div>
                                 </td>
+                                <!-- Storage Mode & Accurate Counts Column -->
                                 <td class="p-3">
                                     <div class="flex flex-col gap-1">
-                                        <span class="badge text-xs" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted); font-family: monospace;">
-                                            <i data-lucide="database" style="width: 12px; height: 12px; margin-right: 4px;"></i>
-                                            <?php echo htmlspecialchars($cl['db_name']); ?>
-                                        </span>
-                                        <span class="text-xs text-muted" style="font-size: 0.725rem;">
-                                            👥 Users: <strong><?php echo $tenant_users_cnt; ?></strong> | 📊 Leads: <strong><?php echo $tenant_leads_cnt; ?></strong>
-                                        </span>
-                                        <span class="text-xs" style="font-size: 0.725rem; color: #10b981; font-weight: 600;">
+                                        <div>
+                                            <?php if ($cl['id'] == 1 || $cl['company_code'] === 'master'): ?>
+                                                <span class="badge text-xs font-mono" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 7px;">
+                                                    <i data-lucide="database" style="width: 11px; height: 11px; margin-right: 3px; vertical-align: middle;"></i>
+                                                    Master DB
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="badge text-xs font-mono" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.7rem; padding: 2px 7px;">
+                                                    <i data-lucide="shield-check" style="width: 11px; height: 11px; margin-right: 3px; vertical-align: middle;"></i>
+                                                    <?php echo htmlspecialchars($cl['db_name']); ?>
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="text-xs text-muted" style="font-size: 0.725rem; font-weight: 500;">
+                                            👥 Users: <strong style="color: var(--text-main);"><?php echo $tenant_users_cnt; ?></strong> | 📊 Leads: <strong style="color: var(--text-main);"><?php echo number_format($tenant_leads_cnt); ?></strong>
+                                        </div>
+                                        <div class="text-xs" style="font-size: 0.725rem; color: #10b981; font-weight: 600;">
                                             ✉️ Msgs Today: <strong><?php echo $tenant_msgs_today; ?></strong> | Mo: <strong><?php echo $tenant_msgs_month; ?></strong>
-                                        </span>
+                                        </div>
                                     </div>
                                 </td>
                                 <td class="p-3">
@@ -933,6 +1183,18 @@ if (isset($pdo_master)) {
                                             <i data-lucide="send" style="width: 13px; height: 13px;"></i>
                                             <span>Test API</span>
                                         </button>
+
+                                        <!-- Direct WhatsApp QR Pair Button for Web API -->
+                                        <?php if ($wInfo['gateway_type'] === 'web_api'): ?>
+                                            <button type="button" 
+                                                    class="btn btn-sm text-xs flex align-center gap-1" 
+                                                    style="background: rgba(37, 99, 235, 0.12); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.3); font-weight: 600;"
+                                                    onclick="openQrPairModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '<?php echo htmlspecialchars($wInfo['phone'] ?: ($wInfo['last_phone'] ?? '')); ?>')"
+                                                    title="Pair / Scan WhatsApp QR Code for <?php echo htmlspecialchars($cl['company_name']); ?>">
+                                                <i data-lucide="qr-code" style="width: 13px; height: 13px;"></i>
+                                                <span>QR Pair</span>
+                                            </button>
+                                        <?php endif; ?>
 
                                         <!-- Download config.json Button -->
                                         <button type="button" 
@@ -1290,7 +1552,7 @@ if (isset($pdo_master)) {
                     </div>
                     <div>
                         <span class="text-xs text-muted block" style="font-size: 0.7rem;">Connection Status:</span>
-                        <strong class="text-xs" id="test-conn-status" style="color: #10b981;">🟢 Connected</strong>
+                        <strong class="text-xs" id="test-conn-status" style="color: #10b981;">  Connected</strong>
                     </div>
                     <div>
                         <span class="text-xs text-muted block" style="font-size: 0.7rem;">Connected Phone:</span>
@@ -1324,7 +1586,163 @@ if (isset($pdo_master)) {
     </div>
 </div>
 
+<!-- Modal 5: Admin Live WhatsApp QR Pairing & Status Modal -->
+<div id="admin-tenant-qr-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 480px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="m-0" style="font-family: var(--font-heading);" id="qr-modal-title">WhatsApp Pairing Console</h3>
+                <span class="text-xs text-muted" id="qr-modal-subtitle">Scan QR code or use Phone Pairing Code</span>
+            </div>
+            <button class="btn-icon" onclick="closeQrPairModal()"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+        </div>
+        <div class="modal-body flex flex-col gap-4 p-4 text-center">
+            <input type="hidden" id="qr-modal-tenant-id" value="">
+
+            <div id="qr-loading-spinner" class="py-6 flex flex-col align-center justify-center gap-3">
+                <div style="width: 36px; height: 36px; border: 3px solid rgba(59,130,246,0.2); border-top-color: #2563eb; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto;"></div>
+                <span class="text-xs text-muted">Connecting to WhatsApp Engine...</span>
+            </div>
+
+            <div id="qr-display-container" style="display: none;" class="flex flex-col align-center justify-center">
+                <div style="padding: 12px; background: white; border-radius: 12px; border: 1px solid var(--border-color); display: inline-block; box-shadow: 0 4px 12px rgba(0,0,0,0.06); margin: 0 auto;">
+                    <img id="qr-image-tag" src="" alt="WhatsApp QR Code" style="width: 240px; height: 240px; display: block;">
+                </div>
+                <div class="flex align-center justify-center gap-2 mt-3">
+                    <span class="pulse-dot-green"></span>
+                    <span class="text-xs font-semibold" style="color: var(--text-main);">Open WhatsApp &gt; Linked Devices &gt; Link a device</span>
+                </div>
+                <span class="text-xs text-muted mt-1" style="font-size: 0.72rem;">QR code auto-refreshes every 20 seconds</span>
+            </div>
+
+            <div id="qr-success-banner" style="display: none; background: rgba(16,185,129,0.12); border: 1px solid #10b981; border-radius: 8px;" class="p-4">
+                <i data-lucide="check-circle-2" style="width: 36px; height: 36px; color: #10b981; margin: 0 auto 8px auto;"></i>
+                <h4 class="m-0 font-bold" style="color: #059669;">WhatsApp Connected Successfully!</h4>
+                <p class="text-xs text-muted mt-1 mb-0" id="qr-success-phone"></p>
+            </div>
+
+            <div class="p-3 border-radius-sm text-left" style="background: var(--bg-body); border: 1px solid var(--border-color);">
+                <span class="text-xs font-bold block mb-1" style="color: var(--text-main);">Or Pair with Phone Number (No QR needed):</span>
+                <div class="flex gap-2">
+                    <input type="text" id="qr-phone-input" class="form-control text-xs" placeholder="e.g. 9876543210" style="flex: 1;">
+                    <button type="button" class="btn btn-sm btn-primary text-xs" onclick="requestTenantPairingCode()">Get Code</button>
+                </div>
+                <div id="qr-pairing-code-display" class="mt-2 text-center" style="display: none; background: rgba(37,99,235,0.08); padding: 8px; border-radius: 6px; border: 1px dashed #2563eb;">
+                    <span class="text-xs text-muted block">Enter this 8-digit code on your WhatsApp phone:</span>
+                    <strong class="font-mono text-lg" id="qr-code-text" style="color: #2563eb; letter-spacing: 0.15em;"></strong>
+                </div>
+            </div>
+
+            <div class="flex justify-between align-center mt-1">
+                <button type="button" class="btn btn-secondary text-xs" onclick="closeQrPairModal()">Close</button>
+                <button type="button" class="btn btn-sm text-xs flex align-center gap-1" style="background: rgba(59,130,246,0.1); color: var(--primary); border: 1px solid var(--primary);" onclick="refreshCurrentQr()">
+                    <i data-lucide="refresh-cw" style="width: 12px; height: 12px;"></i> Refresh QR
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+let qrPollTimer = null;
+let currentQrTenantId = null;
+
+function openQrPairModal(tenantId, companyName, lastPhone) {
+    currentQrTenantId = tenantId;
+    document.getElementById('qr-modal-tenant-id').value = tenantId;
+    document.getElementById('qr-modal-title').textContent = 'WhatsApp Pairing: ' + companyName;
+    document.getElementById('qr-modal-subtitle').textContent = 'Tenant #' + tenantId + ' • Live WhatsApp Web Pairing';
+    document.getElementById('qr-phone-input').value = lastPhone ? lastPhone.replace(/\D/g, '').slice(-10) : '';
+    document.getElementById('qr-loading-spinner').style.display = 'flex';
+    document.getElementById('qr-display-container').style.display = 'none';
+    document.getElementById('qr-success-banner').style.display = 'none';
+    document.getElementById('qr-pairing-code-display').style.display = 'none';
+    
+    window.openModal('admin-tenant-qr-modal');
+    loadTenantQrCode();
+    
+    clearInterval(qrPollTimer);
+    qrPollTimer = setInterval(pollTenantStatus, 3500);
+}
+
+function closeQrPairModal() {
+    clearInterval(qrPollTimer);
+    window.closeModal('admin-tenant-qr-modal');
+}
+
+function loadTenantQrCode() {
+    if (!currentQrTenantId) return;
+    fetch('api/whatsapp_web_engine.php?action=get_qr&user_id=' + currentQrTenantId)
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('qr-loading-spinner').style.display = 'none';
+            if (data.status === 'connected') {
+                showQrSuccess(data.phone || data.phone_number);
+            } else if (data.qr_image || data.qr_code) {
+                const imgUrl = data.qr_image || ('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(data.qr_code));
+                document.getElementById('qr-image-tag').src = imgUrl;
+                document.getElementById('qr-display-container').style.display = 'flex';
+            } else {
+                document.getElementById('qr-loading-spinner').style.display = 'flex';
+            }
+        })
+        .catch(err => {
+            console.error('QR Load error:', err);
+        });
+}
+
+function pollTenantStatus() {
+    if (!currentQrTenantId) return;
+    fetch('api/whatsapp_web_engine.php?action=check_status&user_id=' + currentQrTenantId)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'connected') {
+                showQrSuccess(data.phone || data.phone_number);
+                clearInterval(qrPollTimer);
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            }
+        })
+        .catch(() => {});
+}
+
+function showQrSuccess(phone) {
+    document.getElementById('qr-loading-spinner').style.display = 'none';
+    document.getElementById('qr-display-container').style.display = 'none';
+    const banner = document.getElementById('qr-success-banner');
+    banner.style.display = 'block';
+    document.getElementById('qr-success-phone').textContent = phone ? ('Paired Number: +' + phone.replace(/\D/g, '')) : 'Device linked!';
+}
+
+function refreshCurrentQr() {
+    document.getElementById('qr-loading-spinner').style.display = 'flex';
+    document.getElementById('qr-display-container').style.display = 'none';
+    loadTenantQrCode();
+}
+
+function requestTenantPairingCode() {
+    const phone = document.getElementById('qr-phone-input').value.trim();
+    if (!phone || phone.length < 10) {
+        alert('Please enter a valid 10-digit mobile number');
+        return;
+    }
+    fetch('api/whatsapp_web_engine.php?action=get_pairing_code&user_id=' + currentQrTenantId + '&phone=' + encodeURIComponent(phone))
+        .then(res => res.json())
+        .then(data => {
+            if (data.code || data.pairing_code) {
+                const code = data.code || data.pairing_code;
+                document.getElementById('qr-code-text').textContent = code;
+                document.getElementById('qr-pairing-code-display').style.display = 'block';
+            } else if (data.message) {
+                alert(data.message);
+            }
+        })
+        .catch(err => {
+            alert('Failed to request pairing code: ' + err.message);
+        });
+}
+
 function openEditPlanModal(tenantId, companyName, ownerName, ownerEmail, phone, plan, status, expiryDate) {
     document.getElementById('edit-tenant-id').value = tenantId;
     document.getElementById('edit-plan-modal-title').textContent = 'Edit Client & Subscription: ' + companyName;
