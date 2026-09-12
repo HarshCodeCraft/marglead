@@ -99,17 +99,17 @@ class Mailer {
         $mail = new PHPMailer(true);
         
         try {
-            // SMTP Server configurations
+            // SMTP Server configurations (Hostinger Professional Business Mail)
             $mail->isSMTP();
-            $mail->Host       = 'smtp.gmail.com';
+            $mail->Host       = 'smtp.hostinger.com';
             $mail->SMTPAuth   = true;
-            $mail->Username   = 'harshuharshu609@gmail.com';
-            $mail->Password   = 'ijmyilcxvyicaevb'; // App password without spaces
-            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port       = 587;
+            $mail->Username   = 'info@friendlyaisolution.com';
+            $mail->Password   = 'Liahshsrahinahs%$#@12345';
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+            $mail->Port       = 465;
             
             // Sender and Recipient settings
-            $mail->setFrom('harshuharshu609@gmail.com', 'MARG SOFT SOLUTIONS');
+            $mail->setFrom('info@friendlyaisolution.com', 'Friendly AI Solution');
             $mail->addAddress($to);
             
             // Email message details

@@ -27,6 +27,8 @@ $email = strtolower(trim($_POST['email'] ?? ''));
 $phone = preg_replace('/\D/', '', $_POST['phone'] ?? '');
 $firm_name = trim($_POST['firm_name'] ?? '');
 $registration_type = strtolower(trim($_POST['registration_type'] ?? 'registered'));
+$password = $_POST['password'] ?? '';
+$confirm_password = $_POST['confirm_password'] ?? '';
 
 // Document Numbers
 $pan_number = strtoupper(trim($_POST['pan_number'] ?? ''));
@@ -63,6 +65,12 @@ if (empty($phone) || strlen($phone) < 10) {
 
 if (empty($firm_name)) {
     $errors[] = "Firm / Company Name is required.";
+}
+
+if (empty($password) || strlen($password) < 6) {
+    $errors[] = "Password must be at least 6 characters long.";
+} elseif ($password !== $confirm_password) {
+    $errors[] = "Password and Confirm Password do not match.";
 }
 
 // 4. Server-Side Mandatory Document Numbers Validation
@@ -155,21 +163,24 @@ if (!$pdo) {
 }
 
 try {
-    // Generate unique Lead ID for CRM integration
-    $lead_id = 'LD-KYC-' . rand(1000, 9999);
+    // Generate unique KYC Reference ID for tracking
+    $lead_id = 'KYC-' . rand(1000, 9999);
 
     // Initial KYC Status determination based on government verification results
     $kyc_status = ($pan_verified && $aadhaar_verified && $udyam_verified && ($registration_type !== 'registered' || $gstin_verified)) ? 'Verified' : 'Pending';
 
+    // Hash user-chosen login password
+    $password_hash = password_hash($password, PASSWORD_DEFAULT);
+
     $stmt = $pdo->prepare("INSERT INTO customer_kyc_details (
-        lead_id, full_name, email, phone, firm_name, registration_type,
+        lead_id, full_name, email, password, phone, firm_name, registration_type,
         pan_number, pan_doc_path, pan_verified, pan_api_response,
         aadhaar_number, aadhaar_doc_path, aadhaar_verified, aadhaar_api_response,
         udyam_number, udyam_doc_path, udyam_verified, udyam_api_response,
         gstin_number, gstin_doc_path, gstin_verified, gstin_api_response,
         kyc_status
     ) VALUES (
-        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
@@ -178,7 +189,7 @@ try {
     )");
 
     $stmt->execute([
-        $lead_id, $full_name, $email, $phone, $firm_name, $registration_type,
+        $lead_id, $full_name, $email, $password_hash, $phone, $firm_name, $registration_type,
         $pan_number, $pan_doc_path, $pan_verified, $pan_api_resp,
         $aadhaar_number, $aadhaar_doc_path, $aadhaar_verified, $aadhaar_api_resp,
         $udyam_number, $udyam_doc_path, $udyam_verified, $udyam_api_resp,
@@ -191,49 +202,40 @@ try {
 
     $kyc_record_id = $pdo->lastInsertId();
 
-    // 7. Auto-create CRM Lead Record in `leads` table so customer appears in Marg CRM
+    // 7. Auto-create / Update User Account in `users` with 'Pending Approval' status
+    // Client CANNOT login until Administrator reviews and approves their account
     try {
-        $stmtLead = $pdo->prepare("INSERT INTO leads (
-            id, name, contact_person, company, email, phone, gst, source, status, priority, remarks
-        ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, 'KYC Form', 'new', 'hot', ?
-        ) ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP");
+        $stmtUserCheck = $pdo->prepare("SELECT id, status FROM users WHERE LOWER(email) = ?");
+        $stmtUserCheck->execute([$email]);
+        $existingUser = $stmtUserCheck->fetch();
 
-        $remarks = "Submitted KYC Details (" . ucfirst($registration_type) . " Business). PAN: {$pan_number}, Aadhaar: {$aadhaar_number}, UDYAM: {$udyam_number}";
-        if ($registration_type === 'registered') {
-            $remarks .= ", GSTIN: {$gstin_number}";
+        if (!$existingUser) {
+            $stmtInsUser = $pdo->prepare("INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, 'Tenant Admin', 'Pending Approval')");
+            $stmtInsUser->execute([$full_name, $email, $password_hash]);
+        } elseif (in_array($existingUser['status'], ['Pending Approval', 'Unverified', 'Pending'])) {
+            $stmtUpUser = $pdo->prepare("UPDATE users SET name = ?, password = ?, role = 'Tenant Admin', status = 'Pending Approval' WHERE id = ?");
+            $stmtUpUser->execute([$full_name, $password_hash, $existingUser['id']]);
         }
+    } catch (\PDOException $exUser) {}
 
-        $stmtLead->execute([
-            $lead_id,
-            $firm_name,
-            $full_name,
-            $firm_name,
-            $email,
-            $phone,
-            ($registration_type === 'registered' ? $gstin_number : null),
-            $remarks
-        ]);
-    } catch (PDOException $exLead) {
-        // Silently skip if lead already exists
-    }
+    // 8. KYC Record strictly isolated in customer_kyc_details (Does NOT insert into leads table)
 
-    // 8. Create System Notification for Admin
+    // 9. Create System Notification for Admin
     try {
         $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, ?, 'info')");
         $stmtNotif->execute([
-            'New Customer KYC Submission',
-            "{$firm_name} ({$full_name}) has submitted customer KYC details & documents.",
+            'New Customer Registration (Under Review)',
+            "{$firm_name} ({$full_name}) has registered with credentials & KYC documents.",
             'index.php?page=customer_kyc'
         ]);
     } catch (PDOException $exNotif) {}
 
     echo json_encode([
         'success' => true,
-        'message' => 'Customer Details & Verification Documents submitted successfully!',
+        'message' => 'Registration Completed Successfully! Your account details and documents are Under Review.',
         'kyc_id' => $kyc_record_id,
         'lead_id' => $lead_id,
-        'status' => $kyc_status
+        'status' => 'Under Review'
     ]);
 
 } catch (PDOException $e) {

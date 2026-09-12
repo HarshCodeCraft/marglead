@@ -5,6 +5,7 @@
  */
 
 header('Content-Type: application/json; charset=utf-8');
+date_default_timezone_set('Asia/Kolkata');
 
 require_once __DIR__ . '/cors.php';
 $auth = requireApiAuth();
@@ -199,16 +200,18 @@ switch ($action) {
                 }
 
                 // 24h window
-                $stmtLastIn = $pdo->prepare("SELECT created_at FROM message_logs WHERE (recipient_or_sender = ? OR recipient_or_sender LIKE ?) AND direction = 'INBOUND' ORDER BY id DESC LIMIT 1");
+                $stmtLastIn = $pdo->prepare("SELECT created_at, raw_json FROM message_logs WHERE (recipient_or_sender = ? OR recipient_or_sender LIKE ?) AND direction = 'INBOUND' ORDER BY id DESC LIMIT 1");
                 $stmtLastIn->execute([$rawPhone, "%$cleanPhone%"]);
-                $lastInTime = $stmtLastIn->fetchColumn();
+                $lastInRow = $stmtLastIn->fetch(PDO::FETCH_ASSOC);
 
                 $windowStatus = 'Expired';
                 $windowTimeText = '24h Window Expired';
                 $windowSeconds = 0;
 
-                if ($lastInTime) {
-                    $elapsed = time() - strtotime($lastInTime);
+                if ($lastInRow) {
+                    $rawIn = !empty($lastInRow['raw_json']) ? json_decode($lastInRow['raw_json'], true) : null;
+                    $msgEpoch = !empty($rawIn['timestamp']) ? (int)$rawIn['timestamp'] : strtotime($lastInRow['created_at']);
+                    $elapsed = time() - $msgEpoch;
                     $windowSeconds = max(0, 86400 - $elapsed);
                     if ($windowSeconds > 0) {
                         $hours = floor($windowSeconds / 3600);
@@ -218,11 +221,12 @@ switch ($action) {
                     }
                 }
 
+                $rawLast = !empty($c['raw_json']) ? json_decode($c['raw_json'], true) : null;
+                $c['formatted_time']  = !empty($rawLast['timestamp']) ? date('d M, h:i A', (int)$rawLast['timestamp']) : date('d M, h:i A', strtotime($c['created_at']));
                 $c['chat_status']     = $chatStatus;
                 $c['customer_name']   = $name;
                 $c['company_name']    = $company;
                 $c['lead_id']         = $leadId;
-                $c['formatted_time']  = date('d M, h:i A', strtotime($c['created_at']));
                 $c['window_status']   = $windowStatus;
                 $c['window_time_text']= $windowTimeText;
                 $c['window_seconds']  = $windowSeconds;
@@ -262,14 +266,13 @@ switch ($action) {
             $uploadDir = __DIR__ . '/../uploads/whatsapp/';
 
             foreach ($messages as &$m) {
-                $m['formatted_time'] = date('h:i A', strtotime($m['created_at']));
+                $type = $m['message_type'] ?? 'text';
+                $raw  = !empty($m['raw_json']) ? json_decode($m['raw_json'], true) : null;
+                $m['formatted_time'] = !empty($raw['timestamp']) ? date('h:i A', (int)$raw['timestamp']) : date('h:i A', strtotime($m['created_at']));
                 $m['media_url']      = null;
                 $m['media_type']     = null;
                 $m['media_caption']  = null;
                 $m['media_filename'] = null;
-
-                $type = $m['message_type'] ?? 'text';
-                $raw  = !empty($m['raw_json']) ? json_decode($m['raw_json'], true) : null;
 
                 // Media URL & Metadata Resolution
                 if (in_array($type, ['image', 'document', 'pdf', 'video', 'audio', 'voice', 'sticker']) || ($raw && isset($raw['type']) && in_array($raw['type'], ['image', 'document', 'video', 'audio', 'voice', 'sticker']))) {
@@ -356,16 +359,18 @@ switch ($action) {
             $lead = $stmtLead->fetch(PDO::FETCH_ASSOC);
 
             // Calculate 24h window for profile
-            $stmtLastIn = $pdo->prepare("SELECT created_at FROM message_logs WHERE (recipient_or_sender = ? OR recipient_or_sender LIKE ?) AND direction = 'INBOUND' ORDER BY id DESC LIMIT 1");
+            $stmtLastIn = $pdo->prepare("SELECT created_at, raw_json FROM message_logs WHERE (recipient_or_sender = ? OR recipient_or_sender LIKE ?) AND direction = 'INBOUND' ORDER BY id DESC LIMIT 1");
             $stmtLastIn->execute([$phone, "%$clean10%"]);
-            $lastInTime = $stmtLastIn->fetchColumn();
+            $lastInRow = $stmtLastIn->fetch(PDO::FETCH_ASSOC);
 
             $windowStatus = 'Expired';
             $windowTimeText = '24h Window Expired';
             $windowSeconds = 0;
 
-            if ($lastInTime) {
-                $elapsed = time() - strtotime($lastInTime);
+            if ($lastInRow) {
+                $rawIn = !empty($lastInRow['raw_json']) ? json_decode($lastInRow['raw_json'], true) : null;
+                $msgEpoch = !empty($rawIn['timestamp']) ? (int)$rawIn['timestamp'] : strtotime($lastInRow['created_at']);
+                $elapsed = time() - $msgEpoch;
                 $windowSeconds = max(0, 86400 - $elapsed);
                 if ($windowSeconds > 0) {
                     $hours = floor($windowSeconds / 3600);
@@ -413,7 +418,7 @@ switch ($action) {
             $profile['chat_status'] = strtolower($cRow['status'] ?? 'open');
             $profile['assigned_to']  = $cRow['assigned_to'] ?? 'Unassigned';
 
-            // Fetch internal staff notes (AiSensy Private Staff Notes)
+            // Fetch internal staff notes
             $internalNotes = [];
             try {
                 $stmtNotes = $pdo->prepare("SELECT * FROM chat_internal_notes WHERE phone LIKE ? OR phone LIKE ? ORDER BY id ASC");
@@ -448,7 +453,7 @@ switch ($action) {
         exit;
 
     // -------------------------------------------------------------
-    // Save Private Internal Staff Note (AiSensy Team Inbox Note)
+    // Save Private Internal Staff Note (Team Inbox Note)
     // -------------------------------------------------------------
     case 'save_internal_note':
         $phone = trim($_POST['phone'] ?? '');
@@ -471,7 +476,7 @@ switch ($action) {
         exit;
 
     // -------------------------------------------------------------
-    // Assign Chat to Agent (AiSensy Agent Assignment)
+    // Assign Chat to Agent (Agent Assignment)
     // -------------------------------------------------------------
     case 'assign_chat_agent':
         $phone = trim($_POST['phone'] ?? '');
@@ -519,8 +524,8 @@ switch ($action) {
             $stmtAudit->execute([$phone, $actor, $role, "Chat Closed by $actor ($role)"]);
 
             $logText = "🔒 Conversation closed by $actor ($role)";
-            $stmt = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status) VALUES ('OUTBOUND', ?, 'system', ?, 'closed')");
-            $stmt->execute([$phone, $logText]);
+            $stmt = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status, created_at) VALUES ('OUTBOUND', ?, 'system', ?, 'closed', ?)");
+            $stmt->execute([$phone, $logText, date('Y-m-d H:i:s')]);
 
             echo json_encode(['success' => true, 'message' => 'Conversation closed successfully']);
         } catch (Throwable $e) {
@@ -565,8 +570,8 @@ switch ($action) {
             $stmtAudit->execute([$phone, $actionName, $actor, $role, $remarks]);
 
             $logText = "{$statusEmoji} {$remarks}";
-            $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status) VALUES ('OUTBOUND', ?, 'system', ?, ?)");
-            $stmtLog->execute([$phone, $logText, $status]);
+            $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status, created_at) VALUES ('OUTBOUND', ?, 'system', ?, ?, ?)");
+            $stmtLog->execute([$phone, $logText, $status, date('Y-m-d H:i:s')]);
 
             echo json_encode(['success' => true, 'message' => 'Status updated to ' . $status]);
         } catch (Throwable $e) {
@@ -602,6 +607,145 @@ switch ($action) {
         exit;
 
     // -------------------------------------------------------------
+    // 5.5. Get Active Bank Accounts & QR Details for Quick Sharing
+    // -------------------------------------------------------------
+    case 'get_bank_accounts':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        try {
+            $stmt = $pdo->query("SELECT id, account_name, bank_name, account_number, ifsc_code, branch, account_type, upi_id, qr_code_image, is_primary FROM bank_accounts WHERE status = 'Active' ORDER BY is_primary DESC, id ASC");
+            $accounts = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+            foreach ($accounts as &$acc) {
+                if (!empty($acc['qr_code_image'])) {
+                    $acc['qr_full_url'] = BASE_URL . ltrim($acc['qr_code_image'], '/');
+                    $acc['has_qr'] = true;
+                } else {
+                    $acc['qr_full_url'] = '';
+                    $acc['has_qr'] = false;
+                }
+            }
+            echo json_encode(['success' => true, 'accounts' => $accounts]);
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    // -------------------------------------------------------------
+    // 5.6. Send Bank & QR Payment Details via WhatsApp
+    // -------------------------------------------------------------
+    case 'send_bank_details':
+        $phone      = trim($_POST['phone'] ?? '');
+        $accountId  = intval($_POST['account_id'] ?? 0);
+        $customNote = trim($_POST['custom_note'] ?? '');
+
+        if (empty($phone)) {
+            echo json_encode(['success' => false, 'message' => 'Phone number is required']);
+            exit;
+        }
+
+        if (isChatClosed($pdo, $phone)) {
+            echo json_encode(['success' => false, 'message' => 'Conversation is closed. Please re-open the conversation before sending bank details.']);
+            exit;
+        }
+
+        try {
+            // Fetch requested bank account or primary bank account
+            if ($accountId > 0) {
+                $stmt = $pdo->prepare("SELECT * FROM bank_accounts WHERE id = ? LIMIT 1");
+                $stmt->execute([$accountId]);
+            } else {
+                $stmt = $pdo->query("SELECT * FROM bank_accounts WHERE status = 'Active' ORDER BY is_primary DESC, id ASC LIMIT 1");
+            }
+            $acc = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
+
+            if (!$acc) {
+                echo json_encode(['success' => false, 'message' => 'No active bank account found in database. Please add one in Bank Accounts setup.']);
+                exit;
+            }
+
+            // Build professional bank details message
+            $accName   = $acc['account_name'] ?? 'Marg Soft Solution';
+            $bankName  = $acc['bank_name'] ?? 'HDFC Bank';
+            $accNumber = $acc['account_number'] ?? '';
+            $ifscCode  = $acc['ifsc_code'] ?? '';
+            $branch    = $acc['branch'] ?? '';
+            $accType   = $acc['account_type'] ?? 'Current Account';
+            $upiId     = $acc['upi_id'] ?? '';
+            $qrPath    = $acc['qr_code_image'] ?? '';
+
+            $bankText = "🏦 *Marg Soft Solution - Official Bank & Payment Details*\n\n" .
+                        "• *Account Name:* {$accName}\n" .
+                        "• *Bank Name:* {$bankName}\n" .
+                        "• *Account No:* `{$accNumber}`\n" .
+                        "• *IFSC Code:* `{$ifscCode}`\n" .
+                        (!empty($branch) ? "• *Branch:* {$branch}\n" : "") .
+                        "• *Account Type:* {$accType}\n" .
+                        (!empty($upiId) ? "• *UPI ID:* `{$upiId}`\n" : "") .
+                        "\n" .
+                        (!empty($customNote) ? "📝 *Note:* {$customNote}\n\n" : "") .
+                        "📸 *Please scan the QR code above or transfer via UPI / IMPS / NEFT.*\n" .
+                        "Kindly share the payment confirmation screenshot here once done. Thank you! 🙏";
+
+            $whatsapp = new WhatsAppAPI($pdo);
+            $hasQr = false;
+            $qrPublicUrl = '';
+
+            if (!empty($qrPath)) {
+                $localPath = __DIR__ . '/../' . ltrim($qrPath, '/');
+                if (file_exists($localPath)) {
+                    $hasQr = true;
+                    $qrPublicUrl = BASE_URL . ltrim($qrPath, '/');
+                }
+            }
+
+            if ($hasQr && !empty($qrPublicUrl)) {
+                // Send as Image with Bank Details Caption
+                $res = $whatsapp->sendImage($phone, $qrPublicUrl, $bankText);
+                $msgType = 'image';
+                $logBody = "🏦 Bank Payment QR Code & Details (" . $bankName . " - " . $accNumber . ")\n" . $bankText;
+                $rawLogData = [
+                    'type'          => 'image',
+                    'media_url'     => $qrPath,
+                    'caption'       => $bankText,
+                    'wamid'         => $res['wamid'] ?? null,
+                    'api_response'  => $res
+                ];
+            } else {
+                // Send as plain text message
+                $res = $whatsapp->sendText($phone, $bankText);
+                $msgType = 'text';
+                $logBody = $bankText;
+                $rawLogData = [
+                    'type'          => 'text',
+                    'wamid'         => $res['wamid'] ?? null,
+                    'api_response'  => $res
+                ];
+            }
+
+            if (!empty($res['success']) && $res['success']) {
+                $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json, created_at) VALUES ('OUTBOUND', ?, ?, ?, ?, 'sent', ?, ?)");
+                $stmtLog->execute([$phone, $msgType, $logBody, $res['wamid'] ?? null, json_encode($rawLogData), date('Y-m-d H:i:s')]);
+
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Bank details & Payment QR sent successfully!',
+                    'data'    => $res
+                ]);
+            } else {
+                echo json_encode([
+                    'success' => false,
+                    'message' => $res['error']['message'] ?? 'Failed sending bank details via WhatsApp',
+                    'details' => $res
+                ]);
+            }
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    // -------------------------------------------------------------
     // 6. Send Interactive Reply Buttons
     // -------------------------------------------------------------
     case 'send_buttons':
@@ -615,7 +759,7 @@ switch ($action) {
         }
 
         if (isChatClosed($pdo, $phone)) {
-            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending messages.']);
+            echo json_encode(['success' => false, 'message' => 'Conversation is closed. Please re-open the conversation before sending messages.']);
             exit;
         }
 
@@ -647,7 +791,7 @@ switch ($action) {
         }
 
         if (isChatClosed($pdo, $phone)) {
-            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending messages.']);
+            echo json_encode(['success' => false, 'message' => 'Conversation is closed. Please re-open the conversation before sending messages.']);
             exit;
         }
 
@@ -674,7 +818,7 @@ switch ($action) {
         }
 
         if (isChatClosed($pdo, $phone)) {
-            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending files.']);
+            echo json_encode(['success' => false, 'message' => 'Conversation is closed. Please re-open the conversation before sending files.']);
             exit;
         }
 
@@ -726,8 +870,8 @@ switch ($action) {
                 'api_response'  => $res
             ];
 
-            $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json) VALUES ('OUTBOUND', ?, ?, ?, ?, 'sent', ?)");
-            $stmtLog->execute([$phone, $msgType, $logBody, $res['wamid'] ?? null, json_encode($rawLogData)]);
+            $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json, created_at) VALUES ('OUTBOUND', ?, ?, ?, ?, 'sent', ?, ?)");
+            $stmtLog->execute([$phone, $msgType, $logBody, $res['wamid'] ?? null, json_encode($rawLogData), date('Y-m-d H:i:s')]);
 
             echo json_encode([
                 'success'   => true,

@@ -119,17 +119,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 // Fetch all registered team agents with their ticket stats
 $agents = [];
 try {
-    $stmt = $pdo->query("
-        SELECT ta.*,
-               COUNT(st.id) AS total_dropped_tickets,
-               SUM(CASE WHEN st.status = 'open' THEN 1 ELSE 0 END) AS open_tickets,
-               SUM(CASE WHEN st.status IN ('resolved', 'closed') THEN 1 ELSE 0 END) AS resolved_tickets
-        FROM team_agents ta
-        LEFT JOIN support_tickets st ON st.dropped_by_emp_id = ta.id OR (st.dropped_by_emp_phone COLLATE utf8mb4_general_ci = ta.whatsapp_phone COLLATE utf8mb4_general_ci)
-        GROUP BY ta.id
-        ORDER BY ta.status ASC, ta.name ASC
-    ");
-    $agents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!empty($pdo)) {
+        $stmt = $pdo->query("
+            SELECT ta.*,
+                   COUNT(st.id) AS total_dropped_tickets,
+                   SUM(CASE WHEN st.status = 'open' THEN 1 ELSE 0 END) AS open_tickets,
+                   SUM(CASE WHEN st.status IN ('resolved', 'closed') THEN 1 ELSE 0 END) AS resolved_tickets
+            FROM team_agents ta
+            LEFT JOIN support_tickets st ON st.dropped_by_emp_id = ta.id OR (st.dropped_by_emp_phone COLLATE utf8mb4_general_ci = ta.whatsapp_phone COLLATE utf8mb4_general_ci)
+            GROUP BY ta.id
+            ORDER BY ta.status ASC, ta.name ASC
+        ");
+        $agents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 } catch (Exception $e) {
     $agents = [];
 }
@@ -168,53 +170,45 @@ $csrfToken = getCsrfToken();
         </div>
     <?php endif; ?>
 
-    <!-- Workflow Instructions Banner -->
-    <div class="card p-4 mb-4" style="background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%); border: 1px solid #bfdbfe; border-radius: 10px;">
-        <div class="d-flex items-start" style="gap: 1rem;">
-            <div style="background: #2563eb; color: #fff; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <i data-lucide="bot" style="width: 22px; height: 22px;"></i>
-            </div>
-            <div style="flex: 1;">
-                <h4 style="margin: 0 0 0.35rem 0; font-size: 1rem; color: #1e3a8a; font-weight: 700;">
-                    How Team Lead-to-Ticket Automation Works:
-                </h4>
-                <div style="font-size: 0.85rem; color: #334155; line-height: 1.6;">
-                    <strong>Step 1:</strong> Add your sales, support, or field team members below with their active WhatsApp numbers.<br>
-                    <strong>Step 2:</strong> Whenever they get a client call/lead, they just send the client's 10-digit number (e.g. <code>9876543210</code> or <code>9876543210 Marg printer error</code>) to the bot at <strong>+91 93050 45727</strong>.<br>
-                    <strong>Step 3:</strong> The system creates an internal <strong>Support Ticket</strong> instantly. <em>Client ko koi message nahi jayega.</em><br>
-                    <strong>Step 4:</strong> Technical team calls the client from the CRM. Whenever tech updates the ticket (Call Back, In Progress, Closed), the submitting team member automatically receives real-time WhatsApp updates!
-                </div>
-            </div>
+    <?php if (empty($pdo)): ?>
+        <div class="alert alert-warning mb-4 d-flex items-center" style="gap: 0.75rem; border-radius: 8px; background: #fffbeb; border: 1px solid #fef3c7; color: #92400e;">
+            <i data-lucide="wifi-off" style="width: 20px; height: 20px; color: #d97706;"></i>
+            <span>Database connection offline. Live team agents cannot be loaded without active internet.</span>
         </div>
-    </div>
+    <?php endif; ?>
 
-    <!-- Metric Stat Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <div class="card p-4 d-flex items-center" style="gap: 1rem; border-radius: 10px;">
-            <div style="background: #eff6ff; color: #2563eb; width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+    <!-- Metric Stat Cards (Standard CRM KPI Grid) -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; margin-bottom: 1.75rem;">
+        <div class="kpi-card" style="display: flex; align-items: center; gap: 1.15rem; border-radius: 12px; background: var(--bg-card, #ffffff); border: 1px solid var(--border-card, #e2e8f0); padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); position: relative; overflow: hidden;">
+            <div style="width: 4px; height: 100%; position: absolute; left: 0; top: 0; background: var(--primary, #2563eb);"></div>
+            <div class="kpi-icon-box" style="width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgba(37, 99, 235, 0.08); color: var(--primary, #2563eb); flex-shrink: 0;">
                 <i data-lucide="users" style="width: 24px; height: 24px;"></i>
             </div>
-            <div>
-                <div class="text-xs text-muted font-semibold uppercase">Total Team Agents</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-main);"><?php echo $total_agents; ?></div>
+            <div class="kpi-info" style="display: flex; flex-direction: column;">
+                <span style="font-size: 0.78rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted, #64748b); letter-spacing: 0.03em;">Total Team Agents</span>
+                <span style="font-size: 1.65rem; font-weight: 800; color: var(--text-main, #0f172a); line-height: 1.2; margin-top: 0.15rem;"><?php echo $total_agents; ?></span>
             </div>
         </div>
-        <div class="card p-4 d-flex items-center" style="gap: 1rem; border-radius: 10px;">
-            <div style="background: #ecfdf5; color: #059669; width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+
+        <div class="kpi-card" style="display: flex; align-items: center; gap: 1.15rem; border-radius: 12px; background: var(--bg-card, #ffffff); border: 1px solid var(--border-card, #e2e8f0); padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); position: relative; overflow: hidden;">
+            <div style="width: 4px; height: 100%; position: absolute; left: 0; top: 0; background: #059669;"></div>
+            <div class="kpi-icon-box" style="width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgba(5, 150, 105, 0.08); color: #059669; flex-shrink: 0;">
                 <i data-lucide="user-check" style="width: 24px; height: 24px;"></i>
             </div>
-            <div>
-                <div class="text-xs text-muted font-semibold uppercase">Active Authorized</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: #059669;"><?php echo $active_agents; ?></div>
+            <div class="kpi-info" style="display: flex; flex-direction: column;">
+                <span style="font-size: 0.78rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted, #64748b); letter-spacing: 0.03em;">Active Authorized</span>
+                <span style="font-size: 1.65rem; font-weight: 800; color: #059669; line-height: 1.2; margin-top: 0.15rem;"><?php echo $active_agents; ?></span>
             </div>
         </div>
-        <div class="card p-4 d-flex items-center" style="gap: 1rem; border-radius: 10px;">
-            <div style="background: #fdf4ff; color: #9333ea; width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+
+        <div class="kpi-card" style="display: flex; align-items: center; gap: 1.15rem; border-radius: 12px; background: var(--bg-card, #ffffff); border: 1px solid var(--border-card, #e2e8f0); padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); position: relative; overflow: hidden;">
+            <div style="width: 4px; height: 100%; position: absolute; left: 0; top: 0; background: #9333ea;"></div>
+            <div class="kpi-icon-box" style="width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgba(147, 51, 234, 0.08); color: #9333ea; flex-shrink: 0;">
                 <i data-lucide="ticket" style="width: 24px; height: 24px;"></i>
             </div>
-            <div>
-                <div class="text-xs text-muted font-semibold uppercase">Total Leads Dropped</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: #9333ea;"><?php echo $total_dropped; ?></div>
+            <div class="kpi-info" style="display: flex; flex-direction: column;">
+                <span style="font-size: 0.78rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted, #64748b); letter-spacing: 0.03em;">Total Leads Dropped</span>
+                <span style="font-size: 1.65rem; font-weight: 800; color: #9333ea; line-height: 1.2; margin-top: 0.15rem;"><?php echo $total_dropped; ?></span>
             </div>
         </div>
     </div>

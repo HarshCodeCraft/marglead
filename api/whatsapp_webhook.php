@@ -120,7 +120,7 @@ if (!$db_connected || !$pdo) {
 
 try {
     // Generate unique Ticket ID
-    $ticketId = 'TCK-' . rand(1000, 9999);
+    $ticketId = generate_ticket_number($pdo);
     
     // Look up customer name in database by phone or license number
     $custStmt = $pdo->prepare("SELECT party_name FROM client_directory WHERE party_name LIKE ? OR mobile LIKE ? LIMIT 1");
@@ -173,6 +173,22 @@ try {
         $due_date,
         $callback_number
     ]);
+
+    // Also sync insert into tickets table
+    try {
+        $stmtTktSync = $pdo->prepare("
+            INSERT INTO tickets (ticket_number, license_number, firm_name, customer_name, mobile, email, category, priority, description, status, created_at)
+            VALUES (?, ?, ?, ?, ?, 'whatsapp@marglead.com', 'Technical Support', 'High', ?, 'Open', NOW())
+        ");
+        $stmtTktSync->execute([
+            $ticketId,
+            $license_no,
+            $customer_name,
+            $customer_name,
+            $callback_number,
+            $problem
+        ]);
+    } catch (Throwable $eTSync) {}
 
     // Create system notification for assigned representative
     $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, role, title, message, link, type) VALUES ((SELECT id FROM users WHERE name = ? LIMIT 1), NULL, 'New Ticket Assigned', ?, 'index.php?page=support', 'warning')");

@@ -22,11 +22,10 @@ $user_email = trim($_SESSION['user_email'] ?? '');
 $user_id = trim(strval($_SESSION['user_id'] ?? ''));
 $is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
 
-// Collect all possible aliases/identifiers for the current logged-in employee (Name, Email, ID)
+// Collect all possible valid employee names/emails for the current logged-in employee (Strictly text-based, no numeric IDs)
 $user_identifiers = [];
-if (!empty($user_name)) $user_identifiers[] = $user_name;
-if (!empty($user_email)) $user_identifiers[] = $user_email;
-if (!empty($user_id)) $user_identifiers[] = $user_id;
+if (!empty($user_name)) $user_identifiers[] = trim($user_name);
+if (!empty($user_email)) $user_identifiers[] = trim($user_email);
 
 if ($db_connected && $pdo && (!empty($user_id) || !empty($user_email) || !empty($user_name))) {
     try {
@@ -36,23 +35,27 @@ if ($db_connected && $pdo && (!empty($user_id) || !empty($user_email) || !empty(
         if ($uData) {
             if (!empty($uData['name'])) $user_identifiers[] = trim($uData['name']);
             if (!empty($uData['email'])) $user_identifiers[] = trim($uData['email']);
-            if (!empty($uData['id'])) $user_identifiers[] = trim(strval($uData['id']));
         }
     } catch (PDOException $e) {}
 }
 
-// Add email username prefix (e.g. 'poornimabajpai17') and space variations (e.g. 'poornimabajpai17@gmail com')
+// Add email username prefix (e.g. 'harsh.saini') if >= 3 characters and not numeric
 $extra_idents = [];
 foreach ($user_identifiers as $ident) {
     if (strpos($ident, '@') !== false) {
         $parts = explode('@', $ident);
-        if (!empty($parts[0]) && strlen($parts[0]) >= 3) {
+        if (!empty($parts[0]) && strlen($parts[0]) >= 3 && !is_numeric($parts[0])) {
             $extra_idents[] = $parts[0];
         }
         $extra_idents[] = str_replace('.', ' ', $ident);
     }
 }
-$user_identifiers = array_values(array_unique(array_filter(array_merge($user_identifiers, $extra_idents))));
+
+// Strictly exclude pure numeric IDs (like '1', '17') and single characters to prevent accidental substring LIKE '%1%' matching across other employees' emails
+$user_identifiers = array_values(array_unique(array_filter(array_merge($user_identifiers, $extra_idents), function($val) {
+    $v = trim(strval($val));
+    return !empty($v) && !is_numeric($v) && strlen($v) >= 3;
+})));
 
 // Dates setup for Today, Tomorrow, Next Day summary metric cards
 $today_str = date('Y-m-d');
@@ -141,7 +144,7 @@ if ($db_connected && $pdo) {
             } else {
                 $where_conditions[] = "(id LIKE ? OR name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ? OR address LIKE ? OR source LIKE ? OR tags LIKE ? OR enq_for LIKE ? OR contact_person LIKE ? OR remarks LIKE ?)";
                 $st = '%' . $search_term . '%';
-                for ($s = 0; $s < 12; $s++) {
+                for ($s = 0; $s < 11; $s++) {
                     $query_params[] = $st;
                 }
             }
@@ -331,7 +334,7 @@ if ($db_connected && $pdo) {
                 'created_at' => $l['created_at'] ?? '',
                 'address' => $l['address'] ?? '',
                 'tags' => $l['tags'] ?? '',
-                'group_stage' => $l['group_stage'] ?? '',
+                'group_stage' => !empty($l['group_stage']) ? $l['group_stage'] : (!empty($l['company']) && in_array($l['company'], ['Fresh', 'Followup', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required']) ? $l['company'] : ''),
                 'enq_for' => $l['enq_for'] ?? '',
                 'contact_person' => $l['contact_person'] ?? '',
                 'remarks' => $l['remarks'] ?? ''

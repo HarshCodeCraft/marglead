@@ -346,15 +346,15 @@ require_once __DIR__ . '/../includes/db.php';
 .chat-body {
     flex: 1;
     min-height: 0;
-    padding: 1rem 1.25rem;
+    padding: 1.25rem 1.5rem;
     overflow-y: auto;
-    background-color: #efeae2;
+    background-color: #f0f2f5;
     background-image: 
-        radial-gradient(circle at 20px 20px, rgba(0, 0, 0, 0.03) 2%, transparent 0%);
-    background-size: 60px 60px;
+        radial-gradient(circle at 20px 20px, rgba(15, 23, 42, 0.035) 2%, transparent 0%);
+    background-size: 40px 40px;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.85rem;
     scrollbar-width: thin;
 }
 
@@ -364,7 +364,7 @@ require_once __DIR__ . '/../includes/db.php';
         radial-gradient(circle at 20px 20px, rgba(255, 255, 255, 0.03) 2%, transparent 0%);
 }
 
-/* WhatsApp Message Bubbles - Strictly Constrained Width & Soft Colors */
+/* WhatsApp Message Bubbles - Royal & Crisp Proportions */
 .msg-bubble-wrap {
     display: flex;
     width: 100%;
@@ -386,62 +386,63 @@ require_once __DIR__ . '/../includes/db.php';
 
 .msg-bubble-wrap.system {
     justify-content: center;
-    margin: 0.35rem 0;
+    margin: 0.4rem 0;
 }
 
 .msg-bubble {
-    max-width: min(72%, 540px);
-    padding: 0.55rem 0.85rem;
+    max-width: min(72%, 560px);
+    padding: 0.65rem 0.95rem;
     font-size: 0.84rem;
-    line-height: 1.4;
+    line-height: 1.5;
     position: relative;
     word-break: break-word;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
 .msg-bubble.inbound {
     background: #ffffff;
-    color: #111b21;
-    border: 1px solid #e9edef;
-    border-radius: 12px 12px 12px 2px;
+    color: #0f172a;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px 14px 14px 4px;
 }
 
 [data-theme="dark"] .msg-bubble.inbound {
-    background: #202c33;
-    color: #e9edef;
-    border-color: #2a3942;
+    background: #1e293b;
+    color: #f1f5f9;
+    border-color: #334155;
 }
 
-/* WhatsApp Web Soft Emerald Outbound Bubble Color */
+/* WhatsApp Royal Soft Emerald Outbound Bubble Color */
 .msg-bubble.outbound {
-    background: #d9fdd3;
-    color: #111b21;
-    border: 1px solid #c2eed1;
-    border-radius: 12px 12px 2px 12px;
+    background: #e7f8e8;
+    color: #0f172a;
+    border: 1px solid #bbf7d0;
+    border-radius: 14px 14px 4px 14px;
+    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.08);
 }
 
 [data-theme="dark"] .msg-bubble.outbound {
-    background: #005c4b;
-    color: #e9edef;
-    border-color: #026d59;
+    background: #064e3b;
+    color: #ecfdf5;
+    border-color: #047857;
 }
 
 .msg-bubble.system {
-    background: rgba(245, 158, 11, 0.12);
-    color: #92400e;
-    border: 1px dashed rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.08);
+    color: #b45309;
+    border: 1px solid rgba(245, 158, 11, 0.25);
     font-size: 0.74rem;
-    font-weight: 500;
+    font-weight: 600;
     text-align: center;
-    border-radius: 16px;
-    padding: 4px 12px;
+    border-radius: 20px;
+    padding: 4px 14px;
     box-shadow: none;
 }
 
 .msg-sender-tag {
-    font-size: 0.68rem;
+    font-size: 0.7rem;
     font-weight: 700;
-    margin-bottom: 3px;
+    margin-bottom: 4px;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -452,34 +453,41 @@ require_once __DIR__ . '/../includes/db.php';
 }
 
 .msg-bubble.outbound .msg-sender-tag {
-    color: #0d652d;
+    color: #047857;
 }
 
 [data-theme="dark"] .msg-bubble.outbound .msg-sender-tag {
-    color: #53bdeb;
+    color: #34d399;
 }
 
 .msg-footer {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 3px;
-    margin-top: 3px;
+    gap: 4px;
+    margin-top: 4px;
 }
 
 .msg-time {
     font-size: 0.66rem;
-    color: #667781;
+    color: #64748b;
+    font-weight: 500;
 }
 
 [data-theme="dark"] .msg-time {
-    color: #8696a0;
+    color: #94a3b8;
 }
 
 .read-ticks {
-    font-size: 0.72rem;
-    color: #53bdeb;
+    font-size: 0.74rem;
+    color: #0ea5e9;
     font-weight: bold;
+}
+
+.msg-text-content {
+    font-size: 0.84rem;
+    line-height: 1.55;
+    color: inherit;
 }
 
 .flow-card-badge {
@@ -490,6 +498,9 @@ require_once __DIR__ . '/../includes/db.php';
     border-radius: 8px;
     font-size: 0.78rem;
     margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 [data-theme="dark"] .flow-card-badge {
@@ -501,32 +512,37 @@ require_once __DIR__ . '/../includes/db.php';
 /* Chat Input Composer */
 .chat-input-bar {
     flex-shrink: 0;
-    padding: 0.65rem 0.9rem;
+    padding: 0.75rem 1rem;
     border-top: 1px solid var(--border-color, #e2e8f0);
     background: var(--bg-card, #ffffff);
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: 0.5rem;
     z-index: 10;
 }
 
 .quick-actions-toolbar {
     display: flex;
-    gap: 0.4rem;
+    gap: 0.45rem;
     align-items: center;
     flex-wrap: wrap;
 }
 
 .quick-reply-select {
-    padding: 0.35rem 0.6rem;
-    border-radius: 6px;
+    padding: 0.38rem 0.65rem;
+    border-radius: 8px;
     border: 1px solid var(--border-color, #cbd5e1);
-    font-size: 0.74rem;
+    font-size: 0.75rem;
     background: var(--bg-app, #f8fafc);
     color: var(--text-main, #0f172a);
     cursor: pointer;
-    max-width: 220px;
+    max-width: 230px;
     outline: none;
+    font-weight: 500;
+}
+
+.quick-reply-select:focus {
+    border-color: var(--primary, #2563eb);
 }
 
 .composer-row {
@@ -537,33 +553,33 @@ require_once __DIR__ . '/../includes/db.php';
 
 .chat-textarea {
     flex: 1;
-    border-radius: 10px;
+    border-radius: 12px;
     border: 1px solid var(--border-color, #cbd5e1);
-    padding: 0.55rem 0.85rem;
+    padding: 0.6rem 0.9rem;
     font-size: 0.85rem;
     resize: none;
-    height: 42px;
-    min-height: 42px;
-    max-height: 100px;
+    height: 44px;
+    min-height: 44px;
+    max-height: 110px;
     font-family: inherit;
     box-sizing: border-box;
     background: var(--bg-card, #ffffff);
     color: var(--text-main, #0f172a);
-    transition: border-color 0.15s ease;
-    line-height: 1.4;
+    transition: all 0.15s ease;
+    line-height: 1.45;
 }
 
 .chat-textarea:focus {
     outline: none;
-    border-color: var(--primary, #2563eb);
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+    border-color: #059669;
+    box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.15);
 }
 
 .btn-send-msg {
-    height: 42px;
-    padding: 0 1.1rem;
-    border-radius: 10px;
-    background: #2563eb;
+    height: 44px;
+    padding: 0 1.25rem;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #059669, #047857);
     color: #ffffff;
     font-weight: 600;
     font-size: 0.85rem;
@@ -572,41 +588,82 @@ require_once __DIR__ . '/../includes/db.php';
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    transition: background 0.15s ease;
+    transition: all 0.15s ease;
     flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
 }
 
 .btn-send-msg:hover {
-    background: #1d4ed8;
+    background: linear-gradient(135deg, #047857, #065f46);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(5, 150, 105, 0.35);
 }
 
 /* Media Card & Attachment Styles */
 .chat-media-card {
     margin-top: 4px;
-    border-radius: 8px;
+    border-radius: 10px;
     overflow: hidden;
 }
 
-.chat-media-img {
-    max-width: 260px;
-    max-height: 240px;
-    border-radius: 8px;
-    cursor: pointer;
+.chat-media-img-wrap {
+    position: relative;
     display: block;
-    object-fit: cover;
-    border: 1px solid rgba(0,0,0,0.08);
-    transition: transform 0.15s ease, filter 0.15s ease;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    text-align: center;
 }
 
-.chat-media-img:hover {
-    transform: scale(1.015);
-    filter: brightness(0.95);
+.chat-media-img {
+    max-width: 100%;
+    max-height: 260px;
+    width: auto;
+    border-radius: 8px;
+    display: block;
+    margin: 0 auto;
+    object-fit: contain;
+    padding: 4px;
+    transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.chat-media-zoom-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(15, 23, 42, 0.65);
+    color: #ffffff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    backdrop-filter: blur(2px);
+}
+
+.chat-media-img-wrap:hover .chat-media-zoom-overlay {
+    opacity: 1;
+}
+
+.chat-media-img-wrap:hover .chat-media-img {
+    transform: scale(1.02);
 }
 
 .chat-media-caption {
-    font-size: 0.76rem;
-    margin-top: 4px;
-    line-height: 1.3;
+    font-size: 0.82rem;
+    margin-top: 8px;
+    line-height: 1.5;
+    color: inherit;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    padding-top: 6px;
 }
 
 .doc-card {
@@ -852,6 +909,150 @@ require_once __DIR__ . '/../includes/db.php';
 @keyframes spin {
     100% { transform: rotate(360deg); }
 }
+
+/* Bank Details Modal Styling */
+.bank-modal-card {
+    background: var(--bg-card, #ffffff);
+    border-radius: 14px;
+    width: 95%;
+    max-width: 580px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+    animation: modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    border: 1px solid var(--border-color, #e2e8f0);
+}
+
+.bank-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-app, #f8fafc);
+}
+
+.bank-modal-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: rgba(16, 185, 129, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.bank-modal-body {
+    padding: 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.bank-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0.85rem 1.25rem;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-app, #f8fafc);
+}
+
+.bank-accounts-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.bank-account-card {
+    border: 2px solid var(--border-color, #e2e8f0);
+    border-radius: 10px;
+    padding: 0.75rem 0.9rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: var(--bg-card, #ffffff);
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+}
+
+.bank-account-card:hover {
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.02);
+}
+
+.bank-account-card.selected {
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.06);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
+.bank-card-radio {
+    accent-color: #10b981;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.bank-card-qr-thumb {
+    width: 52px;
+    height: 52px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: #ffffff;
+    object-fit: contain;
+    padding: 2px;
+    flex-shrink: 0;
+}
+
+.bank-card-qr-placeholder {
+    width: 52px;
+    height: 52px;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.04);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    flex-shrink: 0;
+    text-align: center;
+    border: 1px dashed var(--border-color, #cbd5e1);
+}
+
+.bank-note-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    font-size: 0.82rem;
+    background: var(--bg-card, #ffffff);
+    color: var(--text-main, #0f172a);
+    box-sizing: border-box;
+}
+
+.bank-note-input:focus {
+    outline: none;
+    border-color: #10b981;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+}
+
+.bank-message-preview {
+    background: #eef2f6;
+    border-left: 3px solid #10b981;
+    padding: 0.65rem 0.85rem;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.74rem;
+    color: #1e293b;
+    white-space: pre-wrap;
+    line-height: 1.4;
+    max-height: 140px;
+    overflow-y: auto;
+}
 </style>
 
 <div class="inbox-workspace" id="mainInboxWorkspace">
@@ -937,13 +1138,20 @@ require_once __DIR__ . '/../includes/db.php';
         <div class="chat-input-bar" id="chatInputBar">
             <div class="quick-actions-toolbar" id="quickActionsToolbar">
                 <select id="quickReplySelect" class="quick-reply-select" onchange="insertQuickReply(this)">
-                    <option value="">⚡ Quick Canned Reply...</option>
-                    <option value="Thank you for contacting Marg Soft Solution Support! How can we assist your business today?">👋 Welcome & Greet</option>
-                    <option value="Kindly provide your Marg License Number or Customer ID to check your AMC status.">🎫 Request License No.</option>
-                    <option value="Our sales executive will get in touch with you shortly on 7523830026.">📞 Sales Callback Info</option>
-                    <option value="Your issue has been resolved successfully. Have a great day!">✅ Resolve & Close Ticket</option>
+                    <option value="">Quick Canned Reply...</option>
+                    <option value="Thank you for contacting Marg Soft Solution Support! How can we assist your business today?">Welcome &amp; Greet</option>
+                    <option value="__BANK_DETAILS__">Share Bank Details &amp; QR</option>
+                    <option value="Kindly provide your Marg License Number or Customer ID to check your AMC status.">Request License No.</option>
+                    <option value="Our sales executive will get in touch with you shortly on 7523830026.">Sales Callback Info</option>
+                    <option value="Thank you for your payment confirmation! We have verified your transaction and updated your account records.">Payment Verified &amp; Confirmed</option>
+                    <option value="Here is your Marg ERP AMC renewal quotation &amp; payment link. Please let us know once transferred.">Send AMC Renewal Offer</option>
+                    <option value="Your issue has been resolved successfully. Have a great day!">Resolve &amp; Close Ticket</option>
                 </select>
 
+                <button type="button" id="btnShareBank" class="btn-pill btn-pill-outline text-xs" style="color: #059669; border-color: rgba(5,150,105,0.35); background: rgba(16,185,129,0.05); font-weight: 600;" onclick="openBankDetailsModal()" title="Share Company Bank Accounts & Payment QR Code with Customer">
+                    <i data-lucide="landmark" style="width: 12px; height: 12px; color: #10b981;"></i>
+                    Share Bank & QR
+                </button>
                 <button type="button" id="btnQuickButtons" class="btn-pill btn-pill-outline text-xs" onclick="sendQuickButtons()" title="Send Interactive Options">
                     <i data-lucide="grid" style="width: 12px; height: 12px; color: #10b981;"></i>
                     Send Quick Buttons
@@ -973,7 +1181,9 @@ require_once __DIR__ . '/../includes/db.php';
             <div class="profile-card-avatar" id="rightAvatar">C</div>
             <h3 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: var(--text-main);" id="rightName">Client Details</h3>
             <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;" id="rightCompany">Marg ERP Customer</div>
-            <span class="badge" style="margin-top: 6px; background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.68rem;" id="rightStatus">Active</span>
+            <span class="badge" style="margin-top: 6px; background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.68rem; display: inline-flex; align-items: center; gap: 3px;" id="rightStatus">
+                <i data-lucide="check-circle-2" style="width: 11px; height: 11px;"></i> Active
+            </span>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 0.65rem; font-size: 0.8rem;">
@@ -1003,6 +1213,10 @@ require_once __DIR__ . '/../includes/db.php';
             </div>
             <div style="margin-top: 0.4rem; border-top: 1px solid var(--border-color); padding-top: 0.65rem;">
                 <label class="text-xs text-muted font-semibold mb-1 block" style="letter-spacing: 0.02em; font-size: 0.68rem;">QUICK CRM ACTIONS</label>
+                <button type="button" class="btn-pill btn-pill-outline w-full text-xs mb-1" onclick="openBankDetailsModal()" style="padding: 3px 8px; color: #059669; border-color: rgba(5,150,105,0.3);">
+                    <i data-lucide="landmark" style="width: 12px; height: 12px;"></i>
+                    Share Bank & QR
+                </button>
                 <button type="button" class="btn-pill btn-pill-outline w-full text-xs mb-1" onclick="window.location.href='index.php?page=leads'" style="padding: 3px 8px;">
                     <i data-lucide="user-plus" style="width: 12px; height: 12px;"></i>
                     View CRM Leads
@@ -1016,6 +1230,54 @@ require_once __DIR__ . '/../includes/db.php';
                     Clean 48h Audio/Video
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bank Details & Payment QR Sharing Modal -->
+<div id="bankDetailsModal" class="media-lightbox-modal" onclick="closeBankModal(event)">
+    <div class="bank-modal-card" onclick="event.stopPropagation()">
+        <div class="bank-modal-header">
+            <div class="flex align-center gap-2">
+                <div class="bank-modal-icon">
+                    <i data-lucide="landmark" style="width: 20px; height: 20px; color: #10b981;"></i>
+                </div>
+                <div>
+                    <h3 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: var(--text-main);">Share Bank & Payment QR Details</h3>
+                    <p style="margin: 0; font-size: 0.74rem; color: var(--text-muted);">Send official corporate bank accounts & payment QR code directly to client on WhatsApp.</p>
+                </div>
+            </div>
+            <span class="media-lightbox-close" style="position: static; font-size: 1.5rem; color: var(--text-muted); cursor: pointer;" onclick="closeBankModal()">&times;</span>
+        </div>
+
+        <div class="bank-modal-body">
+            <div id="bankAccountsLoading" style="text-align: center; padding: 2rem 0; color: var(--text-muted); font-size: 0.85rem;">
+                <i data-lucide="loader-2" class="refresh-spin" style="width: 24px; height: 24px; margin: 0 auto 0.5rem auto; color: #10b981;"></i>
+                <div>Loading registered bank accounts...</div>
+            </div>
+
+            <div id="bankAccountsContainer" style="display: none;">
+                <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.4rem; display: block;">Select Payment Account</label>
+                <div id="bankAccountsList" class="bank-accounts-grid"></div>
+
+                <div style="margin-top: 1rem;">
+                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.3rem; display: block;">Optional Note / Invoice Purpose</label>
+                    <input type="text" id="bankCustomNote" class="bank-note-input" placeholder="e.g. Marg ERP License AMC Renewal (Rs 3,540) or Custom Requirement" oninput="updateBankPreview()">
+                </div>
+
+                <div style="margin-top: 1rem;">
+                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.3rem; display: block;">WhatsApp Message Preview</label>
+                    <div id="bankMessagePreview" class="bank-message-preview"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bank-modal-footer">
+            <button type="button" class="btn-pill btn-pill-outline text-xs" onclick="closeBankModal()" style="padding: 6px 14px; font-weight: 600;">Cancel</button>
+            <button type="button" id="btnSubmitBankShare" class="btn-pill text-xs" style="background: #10b981; color: white; border: none; padding: 7px 18px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" onclick="submitSendBankDetails()">
+                <i data-lucide="send" style="width: 14px; height: 14px;"></i>
+                <span id="btnSubmitBankText">Send to Client</span>
+            </button>
         </div>
     </div>
 </div>
@@ -1119,10 +1381,10 @@ function cleanPreviewText(text) {
     if (!text) return 'Media / Event';
     let clean = text.replace(/[\r\n]+/g, ' ').replace(/<br\s*\/?>/gi, ' ').trim();
     clean = clean.replace(/\s+/g, ' ');
-    if (clean.toLowerCase() === 'image') return '📷 Photo';
-    if (clean.toLowerCase() === 'document' || clean.toLowerCase() === 'pdf') return '📄 PDF Document';
-    if (clean.toLowerCase() === 'video') return '🎥 Video';
-    if (clean.toLowerCase() === 'audio' || clean.toLowerCase() === 'voice') return '🎵 Voice Note';
+    if (clean.toLowerCase() === 'image') return 'Photo Attachment';
+    if (clean.toLowerCase() === 'document' || clean.toLowerCase() === 'pdf') return 'PDF Document';
+    if (clean.toLowerCase() === 'video') return 'Video Clip';
+    if (clean.toLowerCase() === 'audio' || clean.toLowerCase() === 'voice') return 'Voice Note';
     if (clean.length > 55) {
         clean = clean.substring(0, 55) + '...';
     }
@@ -1152,6 +1414,51 @@ function fetchConversations(showLoading = true) {
     .catch(err => console.error(err));
 }
 
+function getAvatarGradient(name) {
+    const gradients = [
+        'linear-gradient(135deg, #059669, #047857)', // Emerald
+        'linear-gradient(135deg, #2563eb, #1d4ed8)', // Blue
+        'linear-gradient(135deg, #7c3aed, #5b21b6)', // Purple
+        'linear-gradient(135deg, #d97706, #b45309)', // Amber
+        'linear-gradient(135deg, #db2777, #9d174d)', // Pink
+        'linear-gradient(135deg, #0891b2, #0e7490)', // Cyan
+        'linear-gradient(135deg, #4f46e5, #3730a3)', // Indigo
+        'linear-gradient(135deg, #0d9488, #115e59)', // Teal
+    ];
+    let hash = 0;
+    const str = name || 'Customer';
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % gradients.length;
+    return gradients[index];
+}
+
+function formatWhatsAppText(raw) {
+    if (!raw) return '';
+    let text = escapeHtml(raw);
+
+    // 1. Bold: *text* -> <strong>text</strong>
+    text = text.replace(/\*([^\*\n\r]+)\*/g, '<strong style="font-weight: 700; color: inherit;">$1</strong>');
+
+    // 2. Italic: _text_ -> <em>text</em>
+    text = text.replace(/_([^_\n\r]+)_/g, '<em style="font-style: italic;">$1</em>');
+
+    // 3. Strikethrough: ~text~ -> <del>text</del>
+    text = text.replace(/~([^~\n\r]+)~/g, '<del style="opacity: 0.7;">$1</del>');
+
+    // 4. Monospace code: `text` -> <code>text</code>
+    text = text.replace(/`([^`\n\r]+)`/g, '<code style="background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 0.88em;">$1</code>');
+
+    // 5. Linebreaks
+    text = text.replace(/\n/g, '<br>');
+
+    // 6. Bullet points styling (• or - at start of line)
+    text = text.replace(/(<br>|^)•\s+/g, '$1<span style="color: #10b981; font-weight: bold; margin-right: 4px;">•</span> ');
+
+    return text;
+}
+
 function renderConversations(list) {
     const container = document.getElementById('conversationsContainer');
     if (!container) return;
@@ -1172,15 +1479,17 @@ function renderConversations(list) {
     list.forEach(c => {
         const phone = c.recipient_or_sender;
         const isActive = (phone === currentActivePhone) ? 'active' : '';
-        const initial = (c.customer_name || 'C').charAt(0).toUpperCase();
+        const nameStr = c.customer_name || 'Client';
+        const initial = nameStr.charAt(0).toUpperCase();
+        const avatarBg = getAvatarGradient(nameStr);
 
         let statusPill = '';
         if (c.chat_status === 'closed') {
-            statusPill = `<span class="status-pill-mini" style="background: rgba(239, 68, 68, 0.12); color: #ef4444;">🔒 Closed</span>`;
+            statusPill = `<span class="status-pill-mini" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="lock" style="width: 10px; height: 10px;"></i> Closed</span>`;
         } else if (c.chat_status === 'pending') {
-            statusPill = `<span class="status-pill-mini" style="background: rgba(245, 158, 11, 0.12); color: #d97706;">🟡 Pending</span>`;
+            statusPill = `<span class="status-pill-mini" style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="clock" style="width: 10px; height: 10px;"></i> Pending</span>`;
         } else {
-            statusPill = `<span class="status-pill-mini" style="background: rgba(16, 185, 129, 0.12); color: #10b981;">🟢 Open</span>`;
+            statusPill = `<span class="status-pill-mini" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.2); display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="check-circle-2" style="width: 10px; height: 10px;"></i> Open</span>`;
         }
 
         const previewText = cleanPreviewText(c.message_body);
@@ -1188,11 +1497,11 @@ function renderConversations(list) {
         html += `
         <div class="conv-item ${isActive}" onclick="selectConversation('${phone}')">
             <div class="conv-avatar-wrap">
-                <div class="conv-avatar">${initial}</div>
+                <div class="conv-avatar" style="background: ${avatarBg}; box-shadow: 0 2px 5px rgba(0,0,0,0.15);">${initial}</div>
             </div>
             <div class="conv-details">
                 <div class="conv-name-row">
-                    <div class="conv-name">${escapeHtml(c.customer_name)}</div>
+                    <div class="conv-name">${escapeHtml(nameStr)}</div>
                     <div class="conv-time">${c.formatted_time}</div>
                 </div>
                 <div class="conv-preview-row">
@@ -1205,6 +1514,9 @@ function renderConversations(list) {
     });
 
     container.innerHTML = html;
+    if (window.lucide) {
+        lucide.createIcons();
+    }
 }
 
 function selectConversation(phone) {
@@ -1271,8 +1583,8 @@ function renderMessages(messages, scrollBottom = false) {
             const bubbleClass = isOutbound ? 'outbound' : 'inbound';
             const wrapClass = isOutbound ? 'outbound' : 'inbound';
             const senderTag = isOutbound 
-                ? `<div class="msg-sender-tag"><i data-lucide="bot" style="width: 11px; height: 11px;"></i> Support Team / Bot</div>`
-                : `<div class="msg-sender-tag"><i data-lucide="user" style="width: 11px; height: 11px;"></i> Customer</div>`;
+                ? `<div class="msg-sender-tag"><i data-lucide="bot" style="width: 12px; height: 12px;"></i> Support Team / Bot</div>`
+                : `<div class="msg-sender-tag"><i data-lucide="user" style="width: 12px; height: 12px;"></i> Customer</div>`;
 
             let bodyText = '';
             const msgType = m.media_type || m.message_type || 'text';
@@ -1281,14 +1593,18 @@ function renderMessages(messages, scrollBottom = false) {
             const filename = m.media_filename || '';
 
             if (msgType === 'image' || (mediaUrl && (mediaUrl.endsWith('.jpg') || mediaUrl.endsWith('.jpeg') || mediaUrl.endsWith('.png') || mediaUrl.endsWith('.webp')))) {
+                const imgCaption = caption || (m.message_body && !m.message_body.startsWith('📷') ? m.message_body : '');
                 if (mediaUrl) {
                     bodyText = `
                     <div class="chat-media-card image-card">
-                        <img src="${mediaUrl}" alt="Attachment" class="chat-media-img" onclick="openMediaModal('${mediaUrl}', '${escapeHtml(caption || m.message_body || '')}')">
-                        ${caption ? `<div class="chat-media-caption">${escapeHtml(caption)}</div>` : ''}
+                        <div class="chat-media-img-wrap" onclick="openMediaModal('${mediaUrl}', '${escapeHtml(imgCaption)}')">
+                            <img src="${mediaUrl}" alt="Attachment" class="chat-media-img">
+                            <div class="chat-media-zoom-overlay"><i data-lucide="zoom-in" style="width: 14px; height: 14px;"></i> Click to Zoom</div>
+                        </div>
+                        ${imgCaption ? `<div class="chat-media-caption">${formatWhatsAppText(imgCaption)}</div>` : ''}
                     </div>`;
                 } else {
-                    bodyText = `<div class="chat-media-placeholder">📷 <strong>Photo Attachment</strong><div style="font-size: 0.72rem; opacity: 0.8; margin-top:2px;">${escapeHtml(m.message_body || 'Image')}</div></div>`;
+                    bodyText = `<div class="chat-media-placeholder"><i data-lucide="image" style="width: 14px; height: 14px; display: inline-block; vertical-align: -2px; margin-right: 4px; color: #2563eb;"></i> <strong>Photo Attachment</strong><div style="font-size: 0.76rem; opacity: 0.85; margin-top:2px;">${formatWhatsAppText(m.message_body || 'Image')}</div></div>`;
                 }
             } else if (msgType === 'document' || msgType === 'pdf' || (mediaUrl && mediaUrl.endsWith('.pdf'))) {
                 const displayName = filename || (m.message_body && !m.message_body.startsWith('📄') ? m.message_body : 'WhatsApp Document.pdf');
@@ -1298,7 +1614,7 @@ function renderMessages(messages, scrollBottom = false) {
                         <div class="doc-badge-icon" onclick="openPdfModal('${mediaUrl}', '${escapeHtml(displayName)}')" style="cursor: pointer;" title="Click to View PDF">PDF</div>
                         <div class="doc-details" onclick="openPdfModal('${mediaUrl}', '${escapeHtml(displayName)}')" style="cursor: pointer;" title="Click to View PDF">
                             <div class="doc-title">${escapeHtml(displayName)}</div>
-                            ${caption ? `<div class="doc-sub">${escapeHtml(caption)}</div>` : ''}
+                            ${caption ? `<div class="doc-sub">${formatWhatsAppText(caption)}</div>` : ''}
                         </div>
                         <div class="flex gap-1" style="flex-shrink: 0;">
                             <button type="button" class="doc-view-btn" onclick="openPdfModal('${mediaUrl}', '${escapeHtml(displayName)}')" title="View PDF Document">
@@ -1310,36 +1626,38 @@ function renderMessages(messages, scrollBottom = false) {
                         </div>
                     </div>`;
                 } else {
-                    bodyText = `<div class="chat-media-placeholder">📄 <strong>PDF Document</strong><div style="font-size: 0.72rem; opacity: 0.8; margin-top:2px;">${escapeHtml(displayName)}</div></div>`;
+                    bodyText = `<div class="chat-media-placeholder"><i data-lucide="file-text" style="width: 13px; height: 13px; display: inline-block; vertical-align: -2px; margin-right: 4px; color: #ef4444;"></i> <strong>PDF Document</strong><div style="font-size: 0.72rem; opacity: 0.8; margin-top:2px;">${escapeHtml(displayName)}</div></div>`;
                 }
             } else if (msgType === 'audio' || msgType === 'voice') {
                 if (mediaUrl) {
                     bodyText = `
                     <div class="chat-media-card audio-card">
-                        <div style="font-size: 0.72rem; font-weight: 600; margin-bottom: 3px; color: var(--text-muted);">🎵 Voice Note</div>
+                        <div style="font-size: 0.72rem; font-weight: 600; margin-bottom: 3px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
+                            <i data-lucide="mic" style="width: 12px; height: 12px; color: #64748b;"></i> Voice Note
+                        </div>
                         <audio controls src="${mediaUrl}" style="max-width: 240px; height: 32px;"></audio>
                     </div>`;
                 } else {
-                    bodyText = `<div class="chat-media-placeholder">🎵 <strong>Voice Note</strong></div>`;
+                    bodyText = `<div class="chat-media-placeholder"><i data-lucide="mic" style="width: 13px; height: 13px; display: inline-block; vertical-align: -2px; margin-right: 4px; color: #64748b;"></i> <strong>Voice Note</strong></div>`;
                 }
             } else if (msgType === 'video') {
                 if (mediaUrl) {
                     bodyText = `
                     <div class="chat-media-card video-card">
                         <video controls src="${mediaUrl}" style="max-width: 260px; border-radius: 8px; max-height: 200px;"></video>
-                        ${caption ? `<div class="chat-media-caption">${escapeHtml(caption)}</div>` : ''}
+                        ${caption ? `<div class="chat-media-caption">${formatWhatsAppText(caption)}</div>` : ''}
                     </div>`;
                 } else {
-                    bodyText = `<div class="chat-media-placeholder">🎥 <strong>Video Clip</strong></div>`;
+                    bodyText = `<div class="chat-media-placeholder"><i data-lucide="video" style="width: 13px; height: 13px; display: inline-block; vertical-align: -2px; margin-right: 4px; color: #64748b;"></i> <strong>Video Clip</strong></div>`;
                 }
             } else {
-                bodyText = escapeHtml(m.message_body || '');
+                bodyText = `<div class="msg-text-content">${formatWhatsAppText(m.message_body || '')}</div>`;
                 if (m.message_type === 'flow_submission' || (m.message_body && m.message_body.includes('Ticket'))) {
-                    bodyText += `<div class="flow-card-badge">📋 <strong>Support Form Received</strong></div>`;
+                    bodyText += `<div class="flow-card-badge"><i data-lucide="file-check" style="width: 13px; height: 13px; color: #10b981;"></i> <strong>Support Ticket Form Submitted</strong></div>`;
                 }
             }
 
-            const readReceipt = isOutbound ? `<span class="read-ticks" title="Delivered & Read">✓✓</span>` : '';
+            const readReceipt = isOutbound ? `<span class="read-ticks" title="Delivered & Read" style="color: #0284c7; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check-check" style="width: 13px; height: 13px;"></i></span>` : '';
 
             html += `
             <div class="msg-bubble-wrap ${wrapClass}">
@@ -1397,35 +1715,35 @@ function renderProfile(p) {
     if (rightEmail) rightEmail.innerText = p.email || 'N/A';
     if (rightAvatar) rightAvatar.innerText = p.name.charAt(0).toUpperCase();
 
-    // Clean Single Action Button in Header (Close Chat vs Re-open Chat - Matched with Dashboard buttons)
+    // Clean Single Action Button in Header (Close Chat vs Re-open Chat)
     const actionBtnElem = document.getElementById('chatStatusActionBtn');
     if (actionBtnElem) {
         if (currentChatStatus === 'closed') {
             actionBtnElem.innerHTML = `
-                <button type="button" class="btn-pill btn-pill-dark text-xs" style="background: #10b981; color: #ffffff; border: none; padding: 4px 12px; font-weight: 700; cursor: pointer;" onclick="updateChatStatus('open')" title="Re-open conversation to enable messaging">
-                    🟢 Re-open Chat
+                <button type="button" class="btn-pill text-xs" style="background: #10b981; color: #ffffff; border: none; padding: 4px 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="updateChatStatus('open')" title="Re-open conversation to enable messaging">
+                    <i data-lucide="unlock" style="width: 12px; height: 12px;"></i> Re-open Chat
                 </button>
             `;
         } else {
             actionBtnElem.innerHTML = `
-                <button type="button" class="btn-pill btn-pill-outline text-xs" style="color: #ef4444; border-color: rgba(239,68,68,0.4); padding: 4px 12px; font-weight: 700; cursor: pointer;" onclick="updateChatStatus('closed')" title="Close & resolve conversation">
-                    🔒 Close Chat
+                <button type="button" class="btn-pill btn-pill-outline text-xs" style="color: #ef4444; border-color: rgba(239,68,68,0.4); padding: 4px 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="updateChatStatus('closed')" title="Close & resolve conversation">
+                    <i data-lucide="lock" style="width: 12px; height: 12px;"></i> Close Chat
                 </button>
             `;
         }
     }
 
-    // 24h Window Badge (No Countdown Time text shown)
+    // 24h Window Badge
     const timerElem = document.getElementById('rightWindowTimer');
     const badgeElem = document.getElementById('windowTimerBadge');
 
     if (timerElem && badgeElem) {
         if (p.window_status === 'Active') {
-            timerElem.innerHTML = `<span style="color: #10b981; font-weight: 700;">⚡ 24h Window Active</span>`;
-            badgeElem.innerHTML = `<span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.68rem; padding: 3px 8px;">⚡ 24h Window Active</span>`;
+            timerElem.innerHTML = `<span style="color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;"><i data-lucide="zap" style="width: 12px; height: 12px; fill: #10b981;"></i> 24h Window Active</span>`;
+            badgeElem.innerHTML = `<span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.68rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;"><i data-lucide="zap" style="width: 11px; height: 11px; fill: #10b981;"></i> 24h Active</span>`;
         } else {
-            timerElem.innerHTML = `<span style="color: #ef4444; font-weight: 700;">🔒 24h Window Expired</span>`;
-            badgeElem.innerHTML = `<span class="badge" style="background: rgba(239,68,68,0.12); color: #ef4444; font-weight: 700; font-size: 0.68rem; padding: 3px 8px;">🔒 24h Expired</span>`;
+            timerElem.innerHTML = `<span style="color: #ef4444; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;"><i data-lucide="lock" style="width: 12px; height: 12px;"></i> 24h Window Expired</span>`;
+            badgeElem.innerHTML = `<span class="badge" style="background: rgba(239,68,68,0.12); color: #ef4444; font-weight: 700; font-size: 0.68rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;"><i data-lucide="lock" style="width: 11px; height: 11px;"></i> 24h Expired</span>`;
         }
     }
 
@@ -1443,8 +1761,8 @@ function renderProfile(p) {
     if (ticketHeaderBadge) {
         if (p.ticket) {
             ticketHeaderBadge.innerHTML = `
-                <a href="index.php?page=support&open_ticket=${encodeURIComponent(p.ticket.id)}" class="btn-pill" style="background: rgba(59,130,246,0.12); color: #2563eb; border: 1px solid rgba(59,130,246,0.25); font-weight: 700; text-decoration: none; font-size: 0.68rem; padding: 2px 7px;">
-                    🎫 Ticket ${escapeHtml(p.ticket.id)} (${escapeHtml(p.ticket.status)})
+                <a href="index.php?page=support&open_ticket=${encodeURIComponent(p.ticket.id)}" class="btn-pill" style="background: rgba(59,130,246,0.12); color: #2563eb; border: 1px solid rgba(59,130,246,0.25); font-weight: 700; text-decoration: none; font-size: 0.68rem; padding: 2px 7px; display: inline-flex; align-items: center; gap: 4px;">
+                    <i data-lucide="ticket" style="width: 12px; height: 12px;"></i> Ticket ${escapeHtml(p.ticket.id)} (${escapeHtml(p.ticket.status)})
                 </a>
             `;
         } else {
@@ -1460,8 +1778,8 @@ function renderProfile(p) {
                     <div style="font-size: 0.66rem; font-weight: 700; color: #1d4ed8; text-transform: uppercase; margin-bottom: 2px;">Active Ticket</div>
                     <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-main);">${escapeHtml(p.ticket.id)} <span class="badge text-xs" style="background: #e0f2fe; color: #0369a1; padding: 1px 4px; font-size: 0.65rem;">${escapeHtml(p.ticket.status)}</span></div>
                     <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 2px;">${escapeHtml(p.ticket.subject)}</div>
-                    <a href="index.php?page=support&open_ticket=${encodeURIComponent(p.ticket.id)}" class="btn-pill text-xs w-full block text-center mt-1" style="background: #2563eb; color: white; text-decoration: none; font-weight: 600; padding: 2px 6px;">
-                        🎫 Open Ticket
+                    <a href="index.php?page=support&open_ticket=${encodeURIComponent(p.ticket.id)}" class="btn-pill text-xs w-full block text-center mt-1" style="background: #2563eb; color: white; text-decoration: none; font-weight: 600; padding: 2px 6px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                        <i data-lucide="external-link" style="width: 12px; height: 12px;"></i> Open Ticket
                     </a>
                 </div>
             `;
@@ -1476,16 +1794,16 @@ function renderProfile(p) {
     if (rightStatusElem && p.chat_status) {
         if (p.chat_status === 'closed') {
             rightStatusElem.className = 'badge';
-            rightStatusElem.style.cssText = 'margin-top: 6px; background: rgba(239,68,68,0.12); color: #ef4444; font-weight: 700; font-size: 0.68rem;';
-            rightStatusElem.innerText = '🔒 Closed';
+            rightStatusElem.style.cssText = 'margin-top: 6px; background: rgba(239,68,68,0.12); color: #ef4444; font-weight: 700; font-size: 0.68rem; display: inline-flex; align-items: center; gap: 3px;';
+            rightStatusElem.innerHTML = '<i data-lucide="lock" style="width: 11px; height: 11px;"></i> Closed';
         } else if (p.chat_status === 'pending') {
             rightStatusElem.className = 'badge';
-            rightStatusElem.style.cssText = 'margin-top: 6px; background: rgba(245,158,11,0.12); color: #d97706; font-weight: 700; font-size: 0.68rem;';
-            rightStatusElem.innerText = '🟡 Pending';
+            rightStatusElem.style.cssText = 'margin-top: 6px; background: rgba(245,158,11,0.12); color: #d97706; font-weight: 700; font-size: 0.68rem; display: inline-flex; align-items: center; gap: 3px;';
+            rightStatusElem.innerHTML = '<i data-lucide="clock" style="width: 11px; height: 11px;"></i> Pending';
         } else {
             rightStatusElem.className = 'badge';
-            rightStatusElem.style.cssText = 'margin-top: 6px; background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.68rem;';
-            rightStatusElem.innerText = '🟢 Open';
+            rightStatusElem.style.cssText = 'margin-top: 6px; background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.68rem; display: inline-flex; align-items: center; gap: 3px;';
+            rightStatusElem.innerHTML = '<i data-lucide="check-circle-2" style="width: 11px; height: 11px;"></i> Open';
         }
     }
 
@@ -1496,10 +1814,10 @@ function renderProfile(p) {
             let auditHtml = '';
             p.audit_logs.forEach(a => {
                 const actBadge = (a.action === 'closed') 
-                    ? `<span style="color: #ef4444; font-weight: 700;">🔒 Closed</span>`
+                    ? `<span style="color: #ef4444; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="lock" style="width: 11px; height: 11px;"></i> Closed</span>`
                     : ((a.action === 'reopened')
-                        ? `<span style="color: #10b981; font-weight: 700;">🟢 Reopened</span>`
-                        : `<span style="color: #d97706; font-weight: 700;">🟡 Pending</span>`);
+                        ? `<span style="color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="unlock" style="width: 11px; height: 11px;"></i> Reopened</span>`
+                        : `<span style="color: #d97706; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="clock" style="width: 11px; height: 11px;"></i> Pending</span>`);
                 auditHtml += `
                     <div style="padding: 3px 0; border-bottom: 1px dashed var(--border-color, #e2e8f0);">
                         <div>${actBadge} by <strong>${escapeHtml(a.actor_name)}</strong></div>
@@ -1527,7 +1845,7 @@ function renderProfile(p) {
             const b = document.createElement('div');
             b.id = 'closedChatBanner';
             b.style.cssText = 'background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; padding: 12px 16px; border-radius: 10px; font-size: 0.84rem; font-weight: 600; text-align: center; display: flex; align-items: center; justify-content: center; gap: 12px; margin: 4px 0; width: 100%; box-sizing: border-box;';
-            b.innerHTML = '<span>🔒 Chat is Closed. Employees cannot send messages until re-opened.</span> <button type="button" onclick="updateChatStatus(\'open\')" class="btn-pill btn-pill-dark text-xs" style="background: #10b981; color: white; border: none; padding: 6px 14px; font-weight: bold; cursor: pointer;">🟢 Re-open Chat to Reply</button>';
+            b.innerHTML = '<span style="display: inline-flex; align-items: center; gap: 6px;"><i data-lucide="lock" style="width: 15px; height: 15px;"></i> Conversation is Closed. Re-open chat to send replies.</span> <button type="button" onclick="updateChatStatus(\'open\')" class="btn-pill btn-pill-dark text-xs" style="background: #10b981; color: white; border: none; padding: 6px 14px; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"><i data-lucide="unlock" style="width: 12px; height: 12px;"></i> Re-open Chat to Reply</button>';
             chatInputBar.appendChild(b);
         }
     } else {
@@ -1571,19 +1889,235 @@ function updateChatStatus(status) {
 
 function insertQuickReply(selectElem) {
     if (currentChatStatus === 'closed') {
-        alert('🔒 Chat is Closed. Click "🟢 Re-open Chat" before typing a reply.');
+        alert('Conversation is closed. Please re-open the conversation before selecting a canned reply.');
         selectElem.value = '';
         return;
     }
-    const text = selectElem.value;
-    if (text) {
+    const val = selectElem.value;
+    if (val === '__BANK_DETAILS__') {
+        selectElem.value = '';
+        openBankDetailsModal();
+        return;
+    }
+    if (val) {
         const input = document.getElementById('replyMessageInput');
         if (input) {
-            input.value = text;
+            input.value = val;
             selectElem.value = '';
             input.focus();
         }
     }
+}
+
+// -------------------------------------------------------------
+// Bank Accounts & Payment QR Sharing Logic
+// -------------------------------------------------------------
+let registeredBankAccounts = [];
+let selectedBankAccountId = 0;
+
+function openBankDetailsModal() {
+    if (!currentActivePhone) {
+        alert('Please select a customer conversation from the left pane first.');
+        return;
+    }
+    if (currentChatStatus === 'closed') {
+        alert('Conversation is closed. Please re-open the conversation before sharing bank details.');
+        return;
+    }
+
+    const modal = document.getElementById('bankDetailsModal');
+    const loading = document.getElementById('bankAccountsLoading');
+    const container = document.getElementById('bankAccountsContainer');
+    const submitBtn = document.getElementById('btnSubmitBankShare');
+    const submitText = document.getElementById('btnSubmitBankText');
+
+    if (modal) {
+        modal.style.display = 'flex';
+        if (loading) {
+            loading.style.display = 'block';
+            loading.innerHTML = `
+                <i data-lucide="loader-2" class="refresh-spin" style="width: 24px; height: 24px; margin: 0 auto 0.5rem auto; color: #10b981;"></i>
+                <div>Loading registered bank accounts...</div>
+            `;
+        }
+        if (container) container.style.display = 'none';
+        if (submitText) submitText.innerText = `Send to Client (+${currentActivePhone})`;
+        if (submitBtn) submitBtn.disabled = false;
+        if (window.lucide) lucide.createIcons();
+    }
+
+    // Fetch active accounts from API
+    fetch('api/inbox-api.php?action=get_bank_accounts')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && data.accounts && data.accounts.length > 0) {
+                registeredBankAccounts = data.accounts;
+                renderBankAccountsList(registeredBankAccounts);
+                if (loading) loading.style.display = 'none';
+                if (container) container.style.display = 'block';
+            } else {
+                if (loading) {
+                    loading.innerHTML = `
+                        <div style="color: #ef4444; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                            <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i> No Active Bank Accounts Found
+                        </div>
+                        <p style="font-size: 0.78rem;">Please add your company bank accounts & QR codes in <a href="index.php?page=bank_accounts" target="_blank" style="color: #2563eb; text-decoration: underline;">Bank Accounts Setup</a>.</p>
+                    `;
+                    if (window.lucide) lucide.createIcons();
+                }
+            }
+        })
+        .catch(err => {
+            if (loading) {
+                loading.innerHTML = `<div style="color: #ef4444;">Failed loading bank accounts: ${err.message}</div>`;
+            }
+        });
+}
+
+function closeBankModal(e) {
+    const modal = document.getElementById('bankDetailsModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function renderBankAccountsList(accounts) {
+    const listElem = document.getElementById('bankAccountsList');
+    if (!listElem) return;
+
+    let html = '';
+    // Select primary account by default or first account
+    let primaryAcc = accounts.find(a => parseInt(a.is_primary) === 1) || accounts[0];
+    selectedBankAccountId = primaryAcc ? primaryAcc.id : 0;
+
+    accounts.forEach(acc => {
+        const isSelected = (acc.id == selectedBankAccountId);
+        const qrImg = acc.has_qr && acc.qr_full_url 
+            ? `<img src="${acc.qr_full_url}" class="bank-card-qr-thumb" alt="QR Code">`
+            : `<div class="bank-card-qr-placeholder"><span>No QR</span></div>`;
+        
+        const primaryBadge = parseInt(acc.is_primary) === 1
+            ? `<span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.62rem; padding: 1px 5px; display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="star" style="width: 10px; height: 10px; fill: #10b981;"></i> PRIMARY</span>`
+            : '';
+
+        html += `
+        <div class="bank-account-card ${isSelected ? 'selected' : ''}" id="bankAccCard_${acc.id}" onclick="selectBankAccount(${acc.id})">
+            <input type="radio" name="bank_account_choice" value="${acc.id}" class="bank-card-radio" ${isSelected ? 'checked' : ''} onchange="selectBankAccount(${acc.id})">
+            ${qrImg}
+            <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 2px;">
+                    <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-main);">${escapeHtml(acc.bank_name)}</div>
+                    ${primaryBadge}
+                </div>
+                <div style="font-size: 0.76rem; color: var(--text-muted); font-weight: 500;">
+                    A/C: <strong style="color: var(--text-main);">${escapeHtml(acc.account_number)}</strong> | IFSC: <strong style="color: var(--text-main);">${escapeHtml(acc.ifsc_code)}</strong>
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 1px;">
+                    Holder: <strong>${escapeHtml(acc.account_name)}</strong> ${acc.upi_id ? `| UPI: <span style="color:#2563eb;">${escapeHtml(acc.upi_id)}</span>` : ''}
+                </div>
+            </div>
+        </div>
+        `;
+    });
+
+    listElem.innerHTML = html;
+    updateBankPreview();
+    if (window.lucide) lucide.createIcons();
+}
+
+function selectBankAccount(accId) {
+    selectedBankAccountId = accId;
+    document.querySelectorAll('.bank-account-card').forEach(c => c.classList.remove('selected'));
+    const card = document.getElementById(`bankAccCard_${accId}`);
+    if (card) {
+        card.classList.add('selected');
+        const radio = card.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+    }
+    updateBankPreview();
+}
+
+function updateBankPreview() {
+    const previewElem = document.getElementById('bankMessagePreview');
+    if (!previewElem || !registeredBankAccounts) return;
+
+    const acc = registeredBankAccounts.find(a => a.id == selectedBankAccountId);
+    if (!acc) return;
+
+    const noteInput = document.getElementById('bankCustomNote');
+    const customNote = noteInput ? noteInput.value.trim() : '';
+
+    let preview = `*Marg Soft Solution - Official Bank & Payment Details*\n\n` +
+                  `• *Account Name:* ${acc.account_name}\n` +
+                  `• *Bank Name:* ${acc.bank_name}\n` +
+                  `• *Account No:* ${acc.account_number}\n` +
+                  `• *IFSC Code:* ${acc.ifsc_code}\n` +
+                  (acc.branch ? `• *Branch:* ${acc.branch}\n` : '') +
+                  `• *Account Type:* ${acc.account_type || 'Current Account'}\n` +
+                  (acc.upi_id ? `• *UPI ID:* ${acc.upi_id}\n` : '') +
+                  `\n` +
+                  (customNote ? `*Note:* ${customNote}\n\n` : '') +
+                  (acc.has_qr ? `[Payment QR Code Image Attached]\n` : '') +
+                  `*Please scan the QR code above or transfer via UPI / IMPS / NEFT.*\n` +
+                  `Kindly share payment confirmation screenshot once done. Thank you!`;
+
+    previewElem.innerText = preview;
+}
+
+function submitSendBankDetails() {
+    if (!currentActivePhone) {
+        alert('Please select a conversation first.');
+        return;
+    }
+    if (currentChatStatus === 'closed') {
+        alert('Conversation is closed. Please re-open the conversation before sending messages.');
+        return;
+    }
+    if (!selectedBankAccountId) {
+        alert('Please select a bank account to share.');
+        return;
+    }
+
+    const noteInput = document.getElementById('bankCustomNote');
+    const customNote = noteInput ? noteInput.value.trim() : '';
+    const btn = document.getElementById('btnSubmitBankShare');
+    const btnText = document.getElementById('btnSubmitBankText');
+
+    if (btn) {
+        btn.disabled = true;
+        if (btnText) btnText.innerHTML = `Sending Bank & QR...`;
+    }
+
+    const formData = new FormData();
+    formData.append('action', 'send_bank_details');
+    formData.append('phone', currentActivePhone);
+    formData.append('account_id', selectedBankAccountId);
+    formData.append('custom_note', customNote);
+
+    fetch('api/inbox-api.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (btn) {
+            btn.disabled = false;
+            if (btnText) btnText.innerText = `Send to Client (+${currentActivePhone})`;
+        }
+        if (data.success) {
+            closeBankModal();
+            if (noteInput) noteInput.value = '';
+            lastMessagesHash = '';
+            fetchMessages(currentActivePhone, true);
+        } else {
+            alert('Failed sending bank details: ' + (data.message || 'Error occurred'));
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            if (btnText) btnText.innerText = `Send to Client (+${currentActivePhone})`;
+        }
+        alert('Network error: ' + err.message);
+    });
 }
 
 function handleKeyDown(e) {
@@ -1599,7 +2133,7 @@ function submitReplyMessage() {
     }
 
     if (currentChatStatus === 'closed') {
-        alert('🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending messages.');
+        alert('Conversation is closed. Please re-open the conversation before sending messages.');
         return;
     }
 
@@ -1639,7 +2173,7 @@ function sendQuickButtons() {
     }
 
     if (currentChatStatus === 'closed') {
-        alert('🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending buttons.');
+        alert('Conversation is closed. Please re-open the conversation before sending buttons.');
         return;
     }
 
@@ -1669,7 +2203,7 @@ function sendQuickFlow() {
     }
 
     if (currentChatStatus === 'closed') {
-        alert('🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending support form.');
+        alert('Conversation is closed. Please re-open the conversation before sending support form.');
         return;
     }
 
@@ -1713,7 +2247,7 @@ function closeMediaModal(e) {
 
 function triggerFilePicker() {
     if (currentChatStatus === 'closed') {
-        alert('🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending files.');
+        alert('Conversation is closed. Please re-open the conversation before sending files.');
         return;
     }
     const picker = document.getElementById('chatFileInput');

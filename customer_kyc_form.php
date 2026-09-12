@@ -572,7 +572,7 @@ require_once __DIR__ . '/includes/config.php';
 
             <!-- SECTION 1: Personal & Business Info -->
             <div class="section-title">
-                <i class="fa-solid fa-id-card"></i> 1. Basic Details
+                <i class="fa-solid fa-id-card"></i> 1. Basic Details &amp; Account Credentials
             </div>
 
             <div class="grid-2">
@@ -585,7 +585,7 @@ require_once __DIR__ . '/includes/config.php';
                 </div>
 
                 <div class="form-group">
-                    <label>Email Address <span class="req">*</span></label>
+                    <label>Email Address (Login ID) <span class="req">*</span></label>
                     <div class="input-wrapper">
                         <input type="email" id="email" name="email" class="form-control" placeholder="name@company.com" required>
                         <i class="fa-solid fa-envelope prefix-icon"></i>
@@ -606,6 +606,25 @@ require_once __DIR__ . '/includes/config.php';
                         <input type="text" id="firm_name" name="firm_name" class="form-control" placeholder="Enter Firm Name" required>
                         <i class="fa-solid fa-building prefix-icon"></i>
                     </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Create Login Password <span class="req">*</span></label>
+                    <div class="input-wrapper">
+                        <input type="password" id="password" name="password" class="form-control" placeholder="Minimum 6 characters" minlength="6" required onkeyup="checkPasswordMatch()">
+                        <i class="fa-solid fa-lock prefix-icon"></i>
+                        <i class="fa-solid fa-eye" onclick="togglePasswordVisibility('password', this)" style="position: absolute; right: 1rem; cursor: pointer; color: var(--text-muted);" title="Show/Hide Password"></i>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Confirm Password <span class="req">*</span></label>
+                    <div class="input-wrapper">
+                        <input type="password" id="confirm_password" name="confirm_password" class="form-control" placeholder="Re-enter your password" minlength="6" required onkeyup="checkPasswordMatch()">
+                        <i class="fa-solid fa-shield-halved prefix-icon"></i>
+                        <i class="fa-solid fa-eye" onclick="togglePasswordVisibility('confirm_password', this)" style="position: absolute; right: 1rem; cursor: pointer; color: var(--text-muted);" title="Show/Hide Password"></i>
+                    </div>
+                    <div id="pwdMatchNotice" style="font-size: 0.75rem; font-weight: 600; margin-top: 3px; display: none;"></div>
                 </div>
             </div>
 
@@ -809,7 +828,92 @@ require_once __DIR__ . '/includes/config.php';
     </div>
 </div>
 
+<!-- Professional Registration Success Modal -->
+<div id="successModal" class="modal-backdrop">
+    <div class="modal-card" style="max-width: 520px; text-align: center; border-color: rgba(16, 185, 129, 0.4); box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9);">
+        <div style="padding: 1rem 0.5rem;">
+            <!-- Verification Icon -->
+            <div style="width: 76px; height: 76px; margin: 0 auto 1.25rem; border-radius: 50%; background: rgba(16, 185, 129, 0.12); border: 2px solid #10b981; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 25px rgba(16, 185, 129, 0.3);">
+                <i class="fa-solid fa-check" style="font-size: 2.2rem; color: #10b981;"></i>
+            </div>
+
+            <!-- Title -->
+            <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.45rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem;">
+                Registration Completed
+            </h3>
+
+            <!-- Status Pill -->
+            <div style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; padding: 0.35rem 1rem; border-radius: 50px; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1.25rem;">
+                <i class="fa-solid fa-clock-rotate-left"></i> Details Under Review
+            </div>
+
+            <!-- Description -->
+            <p style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 1.5rem; text-align: center;">
+                Your account registration and verification documents have been securely submitted. 
+                Your profile is currently <strong style="color: #fff;">under review</strong> by our administration team.
+            </p>
+
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.85rem; color: #cbd5e1;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; color: #60a5fa;">
+                    <i class="fa-solid fa-lock"></i> <strong>Account Security Notice:</strong>
+                </div>
+                You will be able to log in with your email and password as soon as your account is approved and activated by the administrator.
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; justify-content: center;">
+                <a href="auth/login.php" class="btn-modal-agree" style="flex: 1; text-align: center; text-decoration: none; padding: 0.85rem 1rem; background: var(--primary); display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 0.95rem;">
+                    <i class="fa-solid fa-right-to-bracket"></i> Go to Login
+                </a>
+                <button type="button" onclick="closeSuccessModal()" style="padding: 0.85rem 1.25rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #cbd5e1; font-weight: 600; cursor: pointer; transition: background 0.2s;">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+    function togglePasswordVisibility(id, icon) {
+        const input = document.getElementById(id);
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+        } else {
+            input.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    }
+
+    function checkPasswordMatch() {
+        const pwd = document.getElementById('password').value;
+        const cpwd = document.getElementById('confirm_password').value;
+        const notice = document.getElementById('pwdMatchNotice');
+
+        if (!cpwd) {
+            notice.style.display = 'none';
+            return;
+        }
+
+        notice.style.display = 'block';
+        if (pwd === cpwd) {
+            notice.style.color = '#10b981';
+            notice.innerHTML = '<i class="fa-solid fa-check"></i> Passwords match';
+        } else {
+            notice.style.color = '#ef4444';
+            notice.innerHTML = '<i class="fa-solid fa-xmark"></i> Passwords do not match';
+        }
+    }
+
+    function openSuccessModal() {
+        document.getElementById('successModal').classList.add('active');
+    }
+
+    function closeSuccessModal() {
+        document.getElementById('successModal').classList.remove('active');
+    }
+
     function toggleRegFields(type) {
         const gstinBlock = document.getElementById('gstinBlock');
         const gstinInput = document.getElementById('gstin_number');
@@ -865,6 +969,19 @@ require_once __DIR__ . '/includes/config.php';
             return;
         }
 
+        const pwd = document.getElementById('password').value;
+        const cpwd = document.getElementById('confirm_password').value;
+
+        if (pwd.length < 6) {
+            showAlert('Password must be at least 6 characters long.', 'danger');
+            return;
+        }
+
+        if (pwd !== cpwd) {
+            showAlert('Password and Confirm Password do not match.', 'danger');
+            return;
+        }
+
         btnSubmit.disabled = true;
         btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Encrypting & Submitting KYC Data...';
 
@@ -877,10 +994,14 @@ require_once __DIR__ . '/includes/config.php';
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                showAlert(data.message + ' Customer Lead ID: ' + data.lead_id, 'success');
                 form.reset();
                 btnSubmit.disabled = true;
                 document.querySelectorAll('.file-preview').forEach(el => el.style.display = 'none');
+                const notice = document.getElementById('pwdMatchNotice');
+                if (notice) notice.style.display = 'none';
+                const alertBox = document.getElementById('alertBox');
+                if (alertBox) alertBox.style.display = 'none';
+                openSuccessModal();
             } else {
                 showAlert(data.error || 'Failed to submit customer details.', 'danger');
                 btnSubmit.disabled = false;

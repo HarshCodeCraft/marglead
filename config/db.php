@@ -19,29 +19,33 @@ $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
+    PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+05:30'",
 ];
 
 try {
-    // Attempt connection with primary configured port
-    $dsn = "mysql:host=$db_host;port=$db_port;dbname=$db_name;charset=$db_charset";
-    try {
-        $pdo = new PDO($dsn, $db_user, $db_pass, $options);
-    } catch (PDOException $e) {
-        $fallback_port = ($db_port === '3307') ? '3306' : '3307';
-        $dsn_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$db_name;charset=$db_charset";
+    // If $pdo was already initialized (e.g. by includes/db.php), reuse it and ensure timezone is set
+    if (!isset($pdo) || !($pdo instanceof PDO)) {
+        // Attempt connection with primary configured port
+        $dsn = "mysql:host=$db_host;port=$db_port;dbname=$db_name;charset=$db_charset";
         try {
-            $pdo = new PDO($dsn_fallback, $db_user, $db_pass, $options);
-        } catch (PDOException $e2) {
-            $alt_db_name = ($db_name === 'marg_crm') ? 'u978772385_friendlyaidata' : 'marg_crm';
-            $dsn_alt = "mysql:host=$db_host;port=$db_port;dbname=$alt_db_name;charset=$db_charset";
+            $pdo = new PDO($dsn, $db_user, $db_pass, $options);
+        } catch (PDOException $e) {
+            $fallback_port = ($db_port === '3307') ? '3306' : '3307';
+            $dsn_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$db_name;charset=$db_charset";
             try {
-                $pdo = new PDO($dsn_alt, $db_user, $db_pass, $options);
-            } catch (PDOException $e3) {
-                $dsn_alt_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$alt_db_name;charset=$db_charset";
+                $pdo = new PDO($dsn_fallback, $db_user, $db_pass, $options);
+            } catch (PDOException $e2) {
+                $alt_db_name = ($db_name === 'marg_crm') ? 'u978772385_friendlyaidata' : 'marg_crm';
+                $dsn_alt = "mysql:host=$db_host;port=$db_port;dbname=$alt_db_name;charset=$db_charset";
                 try {
-                    $pdo = new PDO($dsn_alt_fallback, $db_user, $db_pass, $options);
-                } catch (PDOException $e4) {
-                    $pdo = null;
+                    $pdo = new PDO($dsn_alt, $db_user, $db_pass, $options);
+                } catch (PDOException $e3) {
+                    $dsn_alt_fallback = "mysql:host=$db_host;port=$fallback_port;dbname=$alt_db_name;charset=$db_charset";
+                    try {
+                        $pdo = new PDO($dsn_alt_fallback, $db_user, $db_pass, $options);
+                    } catch (PDOException $e4) {
+                        $pdo = null;
+                    }
                 }
             }
         }
@@ -49,6 +53,9 @@ try {
 
     if ($pdo) {
         $db_connected = true;
+        try {
+            $pdo->exec("SET time_zone = '+05:30'");
+        } catch (\Throwable $tzEx) {}
     } else {
         $db_connected = false;
     }

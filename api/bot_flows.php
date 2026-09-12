@@ -103,12 +103,12 @@ switch ($action) {
         }
         
         try {
-            $stmtW = $pdo->prepare("SELECT waba_id, access_token FROM merchant_waba_settings WHERE user_id = ? OR waba_id != '' LIMIT 1");
-            $stmtW->execute([$_SESSION['user_id'] ?? 1]);
+            $stmtW = $pdo->prepare("SELECT waba_id, access_token FROM merchant_waba_settings WHERE access_token != '' AND waba_id != '' ORDER BY (CASE WHEN waba_id != '1363197648586760' THEN 1 ELSE 2 END) LIMIT 1");
+            $stmtW->execute();
             $waba = $stmtW->fetch(PDO::FETCH_ASSOC);
 
             if (!$waba || empty($waba['waba_id']) || empty($waba['access_token'])) {
-                echo json_encode(['success' => false, 'message' => 'Please configure WABA ID and Access Token in Marg ERP WABA Setup first!']);
+                echo json_encode(['success' => false, 'message' => 'Please configure WABA ID and Access Token in Marg ERP WABA Setup first.']);
                 exit;
             }
 
@@ -124,12 +124,14 @@ switch ($action) {
 
             if ($httpCode >= 200 && $httpCode < 300 && !empty($metaData['data'])) {
                 $synced = 0;
+                $metaFlowIds = [];
                 foreach ($metaData['data'] as $mf) {
                     $flowId = $mf['id'];
+                    $metaFlowIds[] = $flowId;
                     $name = ucwords($mf['name']);
                     $status = strtoupper($mf['status'] ?? 'PUBLISHED');
-                    $catArr = $mf['categories'] ?? ['SIGN IN'];
-                    $category = !empty($catArr[0]) ? strtoupper(str_replace('_', ' ', $catArr[0])) : 'SIGN IN';
+                    $catArr = $mf['categories'] ?? ['OTHER'];
+                    $category = !empty($catArr[0]) ? strtoupper(str_replace('_', ' ', $catArr[0])) : 'OTHER';
 
                     $stmtChk = $pdo->prepare("SELECT id FROM bot_flows WHERE flow_id = ?");
                     $stmtChk->execute([$flowId]);
@@ -145,9 +147,16 @@ switch ($action) {
                     $synced++;
                 }
 
+                // Remove obsolete or demo flows that do not exist on Meta WhatsApp Manager
+                if (!empty($metaFlowIds)) {
+                    $placeholders = implode(',', array_fill(0, count($metaFlowIds), '?'));
+                    $delStmt = $pdo->prepare("DELETE FROM bot_flows WHERE flow_id NOT IN ($placeholders)");
+                    $delStmt->execute($metaFlowIds);
+                }
+
                 echo json_encode([
                     'success' => true,
-                    'message' => "Successfully synced $synced official Meta WhatsApp Flow(s) directly from Meta WhatsApp Manager!",
+                    'message' => "Successfully synced {$synced} official Meta WhatsApp Flow(s) from Meta WhatsApp Manager.",
                     'count' => $synced
                 ]);
             } else {

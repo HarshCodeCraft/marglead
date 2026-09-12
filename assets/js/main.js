@@ -229,6 +229,10 @@ function initMainApp() {
             
             htmlEl.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
+            document.cookie = "app_theme=" + encodeURIComponent(newTheme) + "; path=/; max-age=31536000; SameSite=Lax";
+            
+            const metaTheme = document.querySelector('meta[name="theme-color"]');
+            if (metaTheme) metaTheme.setAttribute('content', newTheme === 'dark' ? '#0b0f19' : '#f8fafc');
             
             const icon = themeToggleBtn.querySelector('i');
             if (icon) {
@@ -673,3 +677,61 @@ window.initEasyDateTimePickers = function() {
 // Automatically initialize date-time helper chips
 document.addEventListener('DOMContentLoaded', initEasyDateTimePickers);
 setInterval(initEasyDateTimePickers, 500);
+
+// =========================================================================
+// Global Real-Time Single-Device Session Monitor & Concurrent Login Watcher
+// =========================================================================
+(function() {
+    // Only monitor on authenticated pages (where dashboard/sidebar exists)
+    function isAuthPage() {
+        return !!(document.querySelector('.sidebar') || document.querySelector('.navbar-user') || document.getElementById('user-profile-menu'));
+    }
+
+    // 1. Intercept all global fetch calls for 401 session terminations
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        return originalFetch.apply(this, args).then(res => {
+            if (res && (res.status === 401 || res.status === 403)) {
+                // Clone response to inspect json body without consuming stream
+                res.clone().json().then(data => {
+                    if (data && (data.status === 'session_terminated' || data.status === 'session_expired')) {
+                        window.location.href = data.redirect || 'auth/login.php?reason=concurrent_login';
+                    }
+                }).catch(() => {});
+            }
+            return res;
+        });
+    };
+
+    // 2. Periodic background heartbeat every 12 seconds to detect login on another device
+    let sessionCheckTimer = null;
+    function runSessionHeartbeat() {
+        if (!isAuthPage()) return;
+
+        originalFetch('api/check_session.php?_t=' + Date.now(), {
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' }
+        })
+        .then(res => {
+            if (res.status === 401 || res.status === 403) {
+                return res.json().catch(() => ({})).then(data => {
+                    window.location.href = (data && data.redirect) ? data.redirect : 'auth/login.php?reason=concurrent_login';
+                });
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data && data.status === 'session_terminated') {
+                window.location.href = data.redirect || 'auth/login.php?reason=concurrent_login';
+            }
+        })
+        .catch(() => {
+            // Silently ignore temporary network blips
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        if (isAuthPage()) {
+            sessionCheckTimer = setInterval(runSessionHeartbeat, 12000);
+        }
+    });
+})();

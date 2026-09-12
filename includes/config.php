@@ -18,8 +18,21 @@ if (!headers_sent()) {
     header("Referrer-Policy: strict-origin-when-cross-origin");
 }
 
-// Start session to persist user role & theme preferences
+// Start session to persist user role & theme preferences (5 Hours = 18000s)
 if (session_status() == PHP_SESSION_NONE) {
+    $session_lifetime = 18000; // 5 Hours
+    @ini_set('session.gc_maxlifetime', $session_lifetime);
+    @ini_set('session.cookie_lifetime', $session_lifetime);
+    if (PHP_VERSION_ID >= 70300) {
+        @session_set_cookie_params([
+            'lifetime' => $session_lifetime,
+            'path' => '/',
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
+    } else {
+        @session_set_cookie_params($session_lifetime, '/');
+    }
     session_start();
 }
 
@@ -133,58 +146,131 @@ if (!function_exists('secureFileUpload')) {
     }
 }
 
-// Session Security: Inactivity Timeout (30 mins = 1800s) & Session Hijacking Guard
+// Session Security: Inactivity Timeout (5 Hours = 18000s)
 if (!empty($_SESSION['user_id'])) {
     $now = time();
-    $max_idle = 1800; // 30 minutes
+    $max_idle = 18000; // 5 hours
     
     if (isset($_SESSION['last_activity']) && ($now - $_SESSION['last_activity']) > $max_idle) {
-        session_unset();
-        session_destroy();
-        session_start();
-        $_SESSION['flash_error'] = "Session expired due to 30 minutes of inactivity. Please sign in again.";
+        $_SESSION = array();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
+        if ((!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || isset($_GET['action'])) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'status' => 'session_expired',
+                'reason' => 'inactivity',
+                'message' => 'Session expired due to 5 hours of inactivity. Please sign in again.',
+                'redirect' => 'auth/login.php?reason=session_expired'
+            ]);
+            exit;
+        }
+        header("Location: auth/login.php?reason=session_expired");
+        exit;
     } else {
         $_SESSION['last_activity'] = $now;
     }
 
-    // Session Hijacking Guard (IP Address Check)
+    // Keep current IP recorded without dropping session on mobile carrier / cellular dynamic IP shifts
     $curr_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-    if (isset($_SESSION['user_ip']) && $_SESSION['user_ip'] !== $curr_ip) {
-        session_unset();
-        session_destroy();
-        session_start();
-        $_SESSION['flash_error'] = "Security Violation: Session IP address mismatch detected. Please sign in.";
-    }
+    $_SESSION['user_ip'] = $curr_ip;
 }
 
 // Connect XAMPP Database server
 require_once __DIR__ . '/db.php';
 
-// Live session synchronization with DB user records for instant role & permission changes
+// Live session synchronization with DB user records for instant role, permission & single-device concurrent enforcement
 if (isset($db_connected) && $db_connected && isset($pdo) && $pdo) {
     $sync_user_id = $_SESSION['user_id'] ?? null;
     $sync_user_email = $_SESSION['user_email'] ?? null;
+    $sync_login_role = $_SESSION['login_role'] ?? $_SESSION['user_role'] ?? '';
+    $sync_login_source = $_SESSION['login_source'] ?? '';
 
     if ($sync_user_id || $sync_user_email) {
         try {
-            if ($sync_user_id) {
-                $syncStmt = $pdo->prepare("SELECT id, name, email, role, status, permissions, action_permissions FROM users WHERE id = ?");
+            $isTenantAdmin = false;
+            $dbUser = null;
+
+            if ($sync_login_source === 'tenant_companies') {
+                $syncStmt = $pdo->prepare("SELECT id, owner_name as name, owner_email as email, status, active_session_token FROM tenant_companies WHERE id = ?");
                 $syncStmt->execute([$sync_user_id]);
-            } else {
-                $syncStmt = $pdo->prepare("SELECT id, name, email, role, status, permissions, action_permissions FROM users WHERE email = ?");
-                $syncStmt->execute([$sync_user_email]);
+                $dbUser = $syncStmt->fetch(PDO::FETCH_ASSOC);
+                if ($dbUser) {
+                    $isTenantAdmin = true;
+                }
             }
 
-            $dbUser = $syncStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$dbUser) {
+                if ($sync_user_id) {
+                    $syncStmt = $pdo->prepare("SELECT id, name, email, role, status, permissions, action_permissions, active_session_token FROM users WHERE id = ?");
+                    $syncStmt->execute([$sync_user_id]);
+                } else {
+                    $syncStmt = $pdo->prepare("SELECT id, name, email, role, status, permissions, action_permissions, active_session_token FROM users WHERE email = ?");
+                    $syncStmt->execute([$sync_user_email]);
+                }
+                $dbUser = $syncStmt->fetch(PDO::FETCH_ASSOC);
+                $isTenantAdmin = false;
+            }
 
             if ($dbUser) {
-                if ($dbUser['status'] === 'Declined' || $dbUser['status'] === 'Inactive') {
+                // 1. Single Concurrent Device Enforcement:
+                // If a new login occurred on another system, active_session_token in DB will be updated.
+                $dbToken = $dbUser['active_session_token'] ?? '';
+                $sessionToken = $_SESSION['active_session_token'] ?? '';
+
+                if (!empty($dbToken) && !empty($sessionToken) && $sessionToken !== $dbToken) {
+                    // Another device logged in! Instantly terminate this session.
+                    $_SESSION = array();
+                    if (session_status() === PHP_SESSION_ACTIVE) {
+                        session_destroy();
+                    }
+
+                    if ((!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || isset($_GET['action'])) {
+                        http_response_code(401);
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'status' => 'session_terminated',
+                            'reason' => 'concurrent_login',
+                            'message' => 'Logged out: Your account was logged in from another device or browser.',
+                            'redirect' => 'auth/login.php?reason=concurrent_login'
+                        ]);
+                        exit;
+                    }
+
+                    header("Location: auth/login.php?reason=concurrent_login");
+                    exit;
+                }
+
+                // If DB token is not set yet (e.g. existing session), initialize it
+                if (empty($dbToken) && !empty($sessionToken)) {
+                    if ($isTenantAdmin) {
+                        $pdo->prepare("UPDATE tenant_companies SET active_session_token = ? WHERE id = ?")->execute([$sessionToken, $dbUser['id']]);
+                    } else {
+                        $pdo->prepare("UPDATE users SET active_session_token = ? WHERE id = ?")->execute([$sessionToken, $dbUser['id']]);
+                    }
+                }
+
+                if ($dbUser['status'] === 'Declined' || $dbUser['status'] === 'Inactive' || $dbUser['status'] === 'Suspended') {
                     // Instantly block access for deactivated users
-                    session_unset();
-                    session_destroy();
-                    session_start();
-                    $_SESSION['flash_error'] = "Your account access has been updated to " . $dbUser['status'] . ". Please contact administrator.";
-                } else {
+                    $_SESSION = array();
+                    if (session_status() === PHP_SESSION_ACTIVE) {
+                        session_destroy();
+                    }
+                    if ((!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || isset($_GET['action'])) {
+                        http_response_code(403);
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'status' => 'account_deactivated',
+                            'message' => 'Your account access has been deactivated. Please contact administrator.',
+                            'redirect' => 'auth/login.php'
+                        ]);
+                        exit;
+                    }
+                    header("Location: auth/login.php");
+                    exit;
+                } else if (!$isTenantAdmin) {
                     $prevLoginRole = $_SESSION['login_role'] ?? '';
                     $_SESSION['user_id'] = $dbUser['id'];
                     $_SESSION['login_role'] = $dbUser['role'];
@@ -233,8 +319,10 @@ if (!isset($_SESSION['user_role'])) {
 if (!isset($_SESSION['login_role'])) {
     $_SESSION['login_role'] = 'Admin'; // Default login role for demonstration
 }
-if (!isset($_SESSION['theme'])) {
-    $_SESSION['theme'] = 'dark'; // Default premium dark theme
+if (!empty($_COOKIE['app_theme']) && in_array($_COOKIE['app_theme'], ['light', 'dark'])) {
+    $_SESSION['theme'] = $_COOKIE['app_theme'];
+} elseif (!isset($_SESSION['theme'])) {
+    $_SESSION['theme'] = 'light'; // Default clean light theme to prevent dark flash
 }
 
 // Employee Roles List (Assignable operator roles for CRM businesses)
@@ -514,43 +602,46 @@ function hasAccess($module, $role) {
         $normalized_module = 'reports';
     } elseif ($module === 'whatsapp_flows') {
         $normalized_module = 'bot_flows';
+    } elseif ($module === 'bulk_broadcast') {
+        $normalized_module = 'broadcast_campaigns';
     }
 
-    // 2. Everyone is allowed to view legal & compliance pages
-    if (in_array($module, ['privacy_policy', 'terms_conditions', 'refund_policy', 'policy_manager'])) {
+    // Check Tenant Company Power Permissions (CRM Client allowed_modules block)
+    $master_db_name = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
+    $is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== $master_db_name && $_SESSION['tenant_db'] !== 'marg_crm') 
+        || !empty($_SESSION['impersonate_tenant_db']) 
+        || (($role ?? '') === 'Tenant Admin') 
+        || (($_SESSION['user_role'] ?? '') === 'Tenant Admin') 
+        || (($_SESSION['login_source'] ?? '') === 'tenant_companies');
+
+    // 2. For non-tenant users, legal & compliance pages are publicly allowed
+    if (!$is_tenant_session && in_array($module, ['privacy_policy', 'terms_conditions', 'refund_policy', 'policy_manager'])) {
         return true;
     }
 
-    // 2b. Dashboard is always accessible to every logged-in user
-    // It is a base landing page - content adapts based on tenant permissions
-    if ($module === 'dashboard') {
-        return true;
-    }
-
-    // 3. System Administrator ALWAYS gets 100% full access to all pages on Master CRM
+    // 3. System Administrator ALWAYS gets 100% full access to all pages on Master CRM (when not impersonating)
     if (isSystemAdminRole($role) && empty($_SESSION['impersonate_tenant_db'])) {
         return true;
     }
 
-    // 3. Check Tenant Company Power Permissions (CRM Client allowed_modules block)
-    $master_db_name = defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata';
-    $is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== $master_db_name && $_SESSION['tenant_db'] !== 'marg_crm') || !empty($_SESSION['impersonate_tenant_db']);
     if ($is_tenant_session) {
-        $active_tenant_db = $_SESSION['impersonate_tenant_db'] ?? $_SESSION['tenant_db'];
+        $active_tenant_db = $_SESSION['impersonate_tenant_db'] ?? ($_SESSION['tenant_db'] ?? '');
+        $active_tenant_id = $_SESSION['impersonate_tenant_id'] ?? ($_SESSION['tenant_id'] ?? ($_SESSION['user_id'] ?? 0));
         
         // Fetch fresh allowed_modules for active tenant so Super Admin updates apply instantly
-        global $pdo_master;
-        if (isset($pdo_master)) {
+        global $pdo_master, $pdo;
+        $db_to_query = $pdo_master ?? $pdo;
+        if (isset($db_to_query)) {
             try {
-                $stmtT = $pdo_master->prepare("SELECT allowed_modules FROM tenant_companies WHERE db_name = ? OR company_code = ? OR owner_email = ?");
-                $stmtT->execute([$active_tenant_db, $_SESSION['tenant_code'] ?? '', $_SESSION['user_email'] ?? '']);
+                $stmtT = $db_to_query->prepare("SELECT allowed_modules FROM tenant_companies WHERE id = ? OR (db_name = ? AND db_name != '') OR (company_code = ? AND company_code != '') OR (owner_email = ? AND owner_email != '') LIMIT 1");
+                $stmtT->execute([$active_tenant_id, $active_tenant_db, $_SESSION['tenant_code'] ?? '', $_SESSION['user_email'] ?? '']);
                 $jsonM = $stmtT->fetchColumn();
-                $default_all_mods = ["dashboard","leads","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","reports","settings","bot_flows","whatsapp_flows","team_inbox","broadcast_campaigns","merchant_waba_settings","whatsapp_settings","bulk_broadcast","clients"];
+                $default_tenant_mods = ["workspace_dashboard", "whatsapp_dashboard", "dashboard", "merchant_waba_settings", "whatsapp_settings", "team_inbox", "broadcast_campaigns", "bot_flows", "whatsapp_flows", "bulk_broadcast"];
                 if ($jsonM !== false && $jsonM !== null && $jsonM !== '' && $jsonM !== 'null') {
                     $decoded_mods = json_decode($jsonM, true);
-                    $_SESSION['tenant_allowed_modules'] = (is_array($decoded_mods) && !empty($decoded_mods)) ? $decoded_mods : $default_all_mods;
+                    $_SESSION['tenant_allowed_modules'] = is_array($decoded_mods) ? $decoded_mods : $default_tenant_mods;
                 } else {
-                    $_SESSION['tenant_allowed_modules'] = $default_all_mods;
+                    $_SESSION['tenant_allowed_modules'] = $default_tenant_mods;
                 }
                 $_SESSION['tenant_allowed_db'] = $active_tenant_db;
             } catch (\PDOException $e) {}
@@ -558,19 +649,69 @@ function hasAccess($module, $role) {
 
         if (isset($_SESSION['tenant_allowed_modules']) && is_array($_SESSION['tenant_allowed_modules'])) {
             $tenant_mods = $_SESSION['tenant_allowed_modules'];
-            
-            // Build alias keys for WhatsApp modules
-            $check_keys = [$normalized_module];
+
+            // Legal & compliance module check for tenant
+            if (in_array($normalized_module, ['privacy_policy', 'terms_conditions', 'refund_policy'])) {
+                return in_array($normalized_module, $tenant_mods);
+            }
+
+            // Bots & Auto-Reply flows strictly require Option 1: Meta Cloud API Gateway
             if ($normalized_module === 'bot_flows' || $normalized_module === 'whatsapp_flows') {
+                if (!in_array('whatsapp_flows', $tenant_mods) && !in_array('bot_flows', $tenant_mods)) {
+                    return false;
+                }
+                $tenant_gw = $_SESSION['tenant_gateway_type'] ?? null;
+                if ($tenant_gw === null) {
+                    $tenant_gw = 'web_api';
+                    if (isset($pdo)) {
+                        try {
+                            $stGW = $pdo->query("SELECT gateway_type FROM merchant_waba_settings ORDER BY id DESC LIMIT 1");
+                            if ($stGW && ($gwRow = $stGW->fetch(PDO::FETCH_ASSOC))) {
+                                $tenant_gw = strtolower($gwRow['gateway_type'] ?? 'web_api');
+                            }
+                        } catch (\PDOException $e) {}
+                    }
+                    $_SESSION['tenant_gateway_type'] = $tenant_gw;
+                }
+                return ($tenant_gw === 'meta');
+            }
+            
+            // Build alias keys for modules
+            $has_explicit_dashboards = in_array('workspace_dashboard', $tenant_mods) || in_array('whatsapp_dashboard', $tenant_mods);
+            $check_keys = [$normalized_module];
+            if ($normalized_module === 'workspace_dashboard') {
+                $check_keys = ['workspace_dashboard'];
+                if (!$has_explicit_dashboards && in_array('dashboard', $tenant_mods)) {
+                    $check_keys[] = 'dashboard';
+                }
+            } elseif ($normalized_module === 'whatsapp_dashboard') {
+                $check_keys = ['whatsapp_dashboard'];
+                if (!$has_explicit_dashboards) {
+                    $check_keys[] = 'dashboard';
+                    $check_keys[] = 'merchant_waba_settings';
+                    $check_keys[] = 'whatsapp_settings';
+                }
+            } elseif ($normalized_module === 'dashboard') {
+                $check_keys = ['dashboard'];
+                $check_keys[] = 'workspace_dashboard';
+                $check_keys[] = 'whatsapp_dashboard';
+            } elseif ($normalized_module === 'bot_flows' || $normalized_module === 'whatsapp_flows') {
                 $check_keys[] = 'bot_flows';
                 $check_keys[] = 'whatsapp_flows';
-            }
-            if ($normalized_module === 'whatsapp_settings' || $normalized_module === 'merchant_waba_settings') {
-                $check_keys[] = 'whatsapp_settings';
-                $check_keys[] = 'merchant_waba_settings';
+            } elseif ($normalized_module === 'whatsapp_settings' || $normalized_module === 'merchant_waba_settings') {
+                $check_keys = ['whatsapp_settings', 'merchant_waba_settings'];
+            } elseif ($normalized_module === 'broadcast_campaigns' || $normalized_module === 'bulk_broadcast') {
+                $check_keys = ['broadcast_campaigns', 'bulk_broadcast'];
+            } elseif ($normalized_module === 'customer_kyc' || $normalized_module === 'customer_kyc_admin') {
+                $check_keys[] = 'customer_kyc';
+                $check_keys[] = 'clients';
+                $check_keys[] = 'leads';
+            } elseif ($normalized_module === 'clients') {
+                $check_keys[] = 'clients';
+                $check_keys[] = 'leads';
             }
             
-            // If none of the check keys are in tenant_mods, DENY access
+            // If none of the check keys are in tenant_mods, strictly DENY access
             $has_tenant_perm = false;
             foreach ($check_keys as $k) {
                 if (in_array($k, $tenant_mods)) {
@@ -585,7 +726,7 @@ function hasAccess($module, $role) {
         }
     }
 
-    // 4. For Tenant Admin & System Super Admin, if Tenant Power Check passed, grant access
+    // 5. For Tenant Admin & System Super Admin, if Tenant Power Check passed, grant access
     if ($role === 'Super Admin' || $role === 'Admin' || $role === 'Tenant Admin') {
         return true;
     }
@@ -805,7 +946,10 @@ if (!function_exists('getLiveMetricCounts')) {
             if (!empty($_SESSION['user_email'])) $user_idents[] = $_SESSION['user_email'];
             if (!empty($_SESSION['user_name'])) $user_idents[] = $_SESSION['user_name'];
         }
-        $user_idents = array_values(array_unique(array_filter($user_idents)));
+        $user_idents = array_values(array_unique(array_filter($user_idents, function($v) {
+            $t = trim(strval($v));
+            return !empty($t) && !is_numeric($t) && strlen($t) >= 3;
+        })));
 
         // Exclude Dropped leads and Not Required group from all counts
         $exclude_lead_ids_subq = "lead_id NOT IN (SELECT id FROM leads WHERE LOWER(TRIM(status)) = 'dropped' OR LOWER(TRIM(group_stage)) = 'not required')";
@@ -1046,3 +1190,71 @@ if (!function_exists('getIndianStatesAndCities')) {
     }
 }
 
+/**
+ * Generate Next Unique Ticket Number in format: TK-YYYY-XXXXXX (e.g. TK-2026-000001)
+ * Checks across both support_tickets and tickets tables to guarantee absolute uniqueness.
+ */
+if (!function_exists('generate_ticket_number')) {
+    function generate_ticket_number(PDO $pdo): string {
+        $year = date('Y');
+        $prefix = "TK-{$year}-";
+
+        $maxNum = 0;
+
+        // 1. Check support_tickets table
+        try {
+            $stmt1 = $pdo->prepare("SELECT id FROM support_tickets WHERE id LIKE ?");
+            $stmt1->execute([$prefix . '%']);
+            while ($row = $stmt1->fetch(PDO::FETCH_COLUMN)) {
+                if (preg_match('/^TK-\d{4}-(\d+)$/', (string)$row, $m)) {
+                    $val = (int)$m[1];
+                    if ($val > $maxNum) $maxNum = $val;
+                }
+            }
+        } catch (Throwable $e) {}
+
+        // 2. Check tickets table
+        try {
+            $stmt2 = $pdo->prepare("SELECT ticket_number FROM tickets WHERE ticket_number LIKE ?");
+            $stmt2->execute([$prefix . '%']);
+            while ($row = $stmt2->fetch(PDO::FETCH_COLUMN)) {
+                if (preg_match('/^TK-\d{4}-(\d+)$/', (string)$row, $m)) {
+                    $val = (int)$m[1];
+                    if ($val > $maxNum) $maxNum = $val;
+                }
+            }
+        } catch (Throwable $e) {}
+
+        $nextNum = $maxNum + 1;
+        $newTicketId = $prefix . str_pad((string)$nextNum, 6, '0', STR_PAD_LEFT);
+
+        // 3. Collision guard check - loop if somehow already exists in either table
+        $safetyCounter = 0;
+        while ($safetyCounter < 50) {
+            $exists1 = 0;
+            $exists2 = 0;
+
+            try {
+                $stmtCheck1 = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE id = ?");
+                $stmtCheck1->execute([$newTicketId]);
+                $exists1 = (int)$stmtCheck1->fetchColumn();
+            } catch (Throwable $e) {}
+
+            try {
+                $stmtCheck2 = $pdo->prepare("SELECT COUNT(*) FROM tickets WHERE ticket_number = ?");
+                $stmtCheck2->execute([$newTicketId]);
+                $exists2 = (int)$stmtCheck2->fetchColumn();
+            } catch (Throwable $e) {}
+
+            if ($exists1 === 0 && $exists2 === 0) {
+                break;
+            }
+
+            $nextNum++;
+            $newTicketId = $prefix . str_pad((string)$nextNum, 6, '0', STR_PAD_LEFT);
+            $safetyCounter++;
+        }
+
+        return $newTicketId;
+    }
+}

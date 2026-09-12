@@ -183,6 +183,10 @@ elseif ($action === 'submit' || $action === 'complete' || $action === 'create_ti
     $customerName = trim($data['customer_name'] ?? $data['contact_person'] ?? 'Valued Customer');
     $firmName     = trim($data['firm_name'] ?? $data['company'] ?? 'N/A');
     $mobile       = trim($data['callback_number'] ?? $data['callback_no'] ?? $data['call_back_number'] ?? $data['mobile_number'] ?? $data['mobile'] ?? $data['phone_number'] ?? $data['phone'] ?? $data['c4'] ?? '');
+    $cleanMobDigits = preg_replace('/[^\d]/', '', $mobile);
+    if (strlen($cleanMobDigits) >= 10) {
+        $mobile = substr($cleanMobDigits, -10);
+    }
     $email        = trim($data['email_address'] ?? 'N/A');
     $category     = trim($data['issue_category'] ?? $data['subject'] ?? $data['c2'] ?? 'Technical Support');
     $priority     = trim($data['priority'] ?? 'Medium');
@@ -222,6 +226,16 @@ elseif ($action === 'submit' || $action === 'complete' || $action === 'create_ti
                 $mobile,
                 $licenseNo
             ]);
+
+            // Log in support_ticket_history
+            try {
+                $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'created', ?, 'Customer', ?, NOW())");
+                $stmtH->execute([
+                    $ticketNumber,
+                    $customerName . (!empty($mobile) ? " ({$mobile})" : ""),
+                    "Ticket created via WhatsApp Flow by Customer. Category: {$category}, Priority: {$priority}" . (!empty($description) ? ". Problem: {$description}" : "")
+                ]);
+            } catch (Throwable $eH) {}
         } catch (Throwable $eSup) {}
 
         write_log('flow', "Ticket Created Successfully: $ticketNumber", ['ticket_number' => $ticketNumber, 'mobile' => $mobile]);
@@ -229,11 +243,10 @@ elseif ($action === 'submit' || $action === 'complete' || $action === 'create_ti
         // Send Confirmation WhatsApp Message
         if (!empty($mobile)) {
             $whatsapp = new WhatsAppAPI($pdo);
-            $confirmText = "✅ *Ticket Created Successfully*\n\n" .
-                           "*Ticket Number*\n" .
-                           "{$ticketNumber}\n\n" .
-                           "Thank you for contacting Marg Soft Solution.\n\n" .
-                           "Our support engineer will contact you shortly.";
+            $confirmText = "✅ *Support Ticket Created*\n\n" .
+                           "Dear Customer, your ticket *#{$ticketNumber}* has been registered successfully.\n\n" .
+                           "Our technical support engineer will contact you shortly.\n\n" .
+                           "Thank you for choosing *Marg Soft Solution*.";
             $whatsapp->sendText($mobile, $confirmText);
         }
 

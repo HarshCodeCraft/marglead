@@ -31,6 +31,44 @@ if ($id > 0 && $pdo) {
             $stmtUp = $pdo->prepare("UPDATE tickets SET status = ?, assigned_to = ?, internal_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
             $stmtUp->execute([$status, $assignedTo, $internalNotes, $id]);
 
+            // Sync with support_tickets table if exists
+            try {
+                $syncStmt = $pdo->prepare("UPDATE support_tickets SET status = ?, assigned_to = ? WHERE id = ?");
+                $syncStmt->execute([strtolower($status), $assignedTo, $ticket['ticket_number']]);
+            } catch (Throwable $eSync) {}
+
+            // Log activity history in support_ticket_history
+            $adminUser = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
+            $adminRole = !empty($_SESSION['user_role']) ? $_SESSION['user_role'] : 'Admin';
+            
+            if ($ticket['assigned_to'] !== $assignedTo && !empty($assignedTo)) {
+                try {
+                    $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'transferred', ?, ?, ?, NOW())");
+                    $stmtH->execute([$ticket['ticket_number'], $adminUser, $adminRole, "Ticket transferred / assigned from '{$ticket['assigned_to']}' to '{$assignedTo}'"]);
+                } catch (Throwable $eH) {}
+            }
+
+            if (!empty($internalNotes)) {
+                $isClosed = in_array(strtolower($status), ['resolved', 'closed']);
+                $actType = $isClosed ? 'resolution' : 'work_note';
+                $noteLabel = $isClosed ? 'Solution / Resolution' : 'Work Remark / Update';
+                try {
+                    $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+                    $stmtH->execute([$ticket['ticket_number'], $actType, $adminUser, $adminRole, "{$noteLabel}: {$internalNotes}"]);
+                } catch (Throwable $eH) {}
+            }
+
+            if (strtolower($ticket['status']) !== strtolower($status)) {
+                $isReopen = in_array(strtolower($ticket['status']), ['resolved', 'closed']) && in_array(strtolower($status), ['open', 'in_progress', 'pending']);
+                $isClose = in_array(strtolower($status), ['resolved', 'closed']);
+                $actType = $isReopen ? 'reopened' : ($isClose ? 'resolved' : 'status_change');
+                $statusNote = $isReopen ? "Ticket REOPENED from '" . ucfirst($ticket['status']) . "' to '" . ucfirst($status) . "'" : ($isClose ? "Ticket marked as " . ucfirst($status) : "Status updated from '" . ucfirst($ticket['status']) . "' to '" . ucfirst($status) . "'");
+                try {
+                    $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+                    $stmtH->execute([$ticket['ticket_number'], $actType, $adminUser, $adminRole, $statusNote]);
+                } catch (Throwable $eH) {}
+            }
+
             // Notify Customer via WhatsApp if requested
             if ($notifyCustomer && !empty($ticket['mobile'])) {
                 $whatsapp = new WhatsAppAPI($pdo);
@@ -45,7 +83,7 @@ if ($id > 0 && $pdo) {
                     $updateMsg .= "\n*Update Note:*\n{$internalNotes}\n";
                 }
 
-                $updateMsg .= "\nThank you for choosing ABC Software.";
+                $updateMsg .= "\nThank you for choosing Marg Soft Solution.";
 
                 $whatsapp->sendText($ticket['mobile'], $updateMsg);
             }

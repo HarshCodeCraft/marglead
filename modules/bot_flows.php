@@ -450,7 +450,7 @@ if ($db_connected && $pdo) {
                         
                         <button type="button" id="btnSyncMetaFlows" class="btn-pill btn-pill-outline flex align-center gap-1" onclick="syncMetaFlows()" title="Fetch official WhatsApp Flows directly from Facebook Meta Manager">
                             <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
-                            <span>🔄 Sync Live Meta Flows</span>
+                            <span>Sync Live Meta Flows</span>
                         </button>
 
                         <button type="button" class="btn-pill btn-pill-outline" onclick="openImportModal()">
@@ -668,22 +668,22 @@ function syncMetaFlows() {
     .then(data => {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = `<i data-lucide="refresh-cw" style="width:14px; height:14px;"></i> <span>🔄 Sync Live Meta Flows</span>`;
+            btn.innerHTML = `<i data-lucide="refresh-cw" style="width:14px; height:14px;"></i> <span>Sync Live Meta Flows</span>`;
         }
 
         if (data.success) {
-            alert('🎉 ' + data.message);
+            alert(data.message);
             location.reload();
         } else {
-            alert('❌ Error: ' + data.message);
+            alert('Error: ' + data.message);
         }
     })
     .catch(err => {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = `<i data-lucide="refresh-cw" style="width:14px; height:14px;"></i> <span>🔄 Sync Live Meta Flows</span>`;
+            btn.innerHTML = `<i data-lucide="refresh-cw" style="width:14px; height:14px;"></i> <span>Sync Live Meta Flows</span>`;
         }
-        alert('❌ Network error syncing Meta Flows.');
+        alert('Network error syncing Meta Flows.');
     });
 }
 

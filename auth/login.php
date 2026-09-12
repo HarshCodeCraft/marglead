@@ -5,6 +5,16 @@ require_once __DIR__ . '/../includes/db.php';
 $message = '';
 $message_type = '';
 
+if (isset($_GET['reason'])) {
+    if ($_GET['reason'] === 'concurrent_login') {
+        $message = "⚠️ Session Terminated: Your account was logged in from another device or browser. You have been logged out from this session.";
+        $message_type = "warning";
+    } elseif ($_GET['reason'] === 'session_expired') {
+        $message = "⏱️ Session Expired: Your session timed out. Please sign in again to continue.";
+        $message_type = "info";
+    }
+}
+
 if (isset($_GET['verified'])) {
     if ($_GET['verified'] === 'success') {
         $message = "Email verified successfully! Your profile is pending administrator approval.";
@@ -16,8 +26,21 @@ if (isset($_GET['verified'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Reset session variables & regenerate ID to prevent session hijacking while preserving cookie
+    // Reset session variables & regenerate ID with 5-Hour session lifetime
     if (session_status() === PHP_SESSION_NONE) {
+        $session_lifetime = 18000; // 5 Hours
+        @ini_set('session.gc_maxlifetime', $session_lifetime);
+        @ini_set('session.cookie_lifetime', $session_lifetime);
+        if (PHP_VERSION_ID >= 70300) {
+            @session_set_cookie_params([
+                'lifetime' => $session_lifetime,
+                'path' => '/',
+                'httponly' => true,
+                'samesite' => 'Lax'
+            ]);
+        } else {
+            @session_set_cookie_params($session_lifetime, '/');
+        }
         @session_start();
     }
     $_SESSION = array();
@@ -47,71 +70,108 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $message_type = "danger";
                     logActivity('LOGIN_LOCKED', 'Authentication', "Locked out 15m for email: $email, IP: $user_ip");
                 } else {
-                    // 1. Check master users table by Email or Name with PDO Prepared Statement (100% SQL Injection Safe)
+                    // 1. Check tenant_companies (SaaS CRM / WABA Clients) FIRST by Owner Email or Company Code (Excluding master system company)
+                    $stmtT = $effective_pdo->prepare("SELECT * FROM tenant_companies WHERE (LOWER(owner_email) = ? OR LOWER(company_code) = ?) AND status = 'Active' AND LOWER(company_code) != 'master' AND db_name != 'u978772385_friendlyaidata' ORDER BY id DESC LIMIT 1");
+                    $stmtT->execute([$email, $email]);
+                    $tenantComp = $stmtT->fetch();
+                    
+                    if ($tenantComp) {
+                        $user_pwd_hash = $tenantComp['password'] ?? '';
+                        $is_tenant_valid = false;
+
+                        if (!empty($user_pwd_hash)) {
+                            if (password_verify($password, $user_pwd_hash) || $password === $user_pwd_hash) {
+                                $is_tenant_valid = true;
+                            }
+                        }
+                        
+                        // Legacy tenant check: if password column in tenant_companies is empty, check t_code_users or users table
+                        if (!$is_tenant_valid) {
+                            $tDb = $tenantComp['db_name'] ?? '';
+                            if (!empty($tDb) && strpos($tDb, 't_') === 0) {
+                                $targetUsersTbl = "{$tDb}users";
+                                try {
+                                    $stmtTU = $effective_pdo->prepare("SELECT * FROM `{$targetUsersTbl}` WHERE LOWER(email) = ? OR LOWER(name) = ?");
+                                    $stmtTU->execute([$email, $email]);
+                                    $tuUser = $stmtTU->fetch();
+                                    if ($tuUser) {
+                                        if (password_verify($password, $tuUser['password']) || $password === $tuUser['password']) {
+                                            $is_tenant_valid = true;
+                                            try {
+                                                $updPasswordHash = password_hash($password, PASSWORD_DEFAULT);
+                                                $updStmt = $effective_pdo->prepare("UPDATE tenant_companies SET password = ? WHERE id = ?");
+                                                $updStmt->execute([$updPasswordHash, $tenantComp['id']]);
+                                            } catch (\PDOException $ex) {}
+                                        }
+                                    }
+                                } catch (\PDOException $ex) {}
+                            }
+                        }
+
+                        // Fallback check against master users table if password not yet migrated
+                        if (!$is_tenant_valid) {
+                            try {
+                                $stmtChkU = $effective_pdo->prepare("SELECT password FROM users WHERE LOWER(email) = ?");
+                                $stmtChkU->execute([$email]);
+                                $uPwd = $stmtChkU->fetchColumn();
+                                if ($uPwd && (password_verify($password, $uPwd) || $password === $uPwd)) {
+                                    $is_tenant_valid = true;
+                                    try {
+                                        $updPasswordHash = password_hash($password, PASSWORD_DEFAULT);
+                                        $updStmt = $effective_pdo->prepare("UPDATE tenant_companies SET password = ? WHERE id = ?");
+                                        $updStmt->execute([$updPasswordHash, $tenantComp['id']]);
+                                    } catch (\PDOException $ex) {}
+                                }
+                            } catch (\PDOException $ex) {}
+                        }
+
+                        if ($is_tenant_valid) {
+                            // Reset failed login attempts on successful login
+                            $del_attempts = $effective_pdo->prepare("DELETE FROM login_attempts WHERE ip_address = ? OR email = ?");
+                            $del_attempts->execute([$user_ip, $email]);
+
+                            // Single-Device Enforcement Token
+                            $activeSessionToken = bin2hex(random_bytes(32));
+                            $_SESSION['active_session_token'] = $activeSessionToken;
+                            try {
+                                $updTok = $effective_pdo->prepare("UPDATE tenant_companies SET active_session_token = ? WHERE id = ?");
+                                $updTok->execute([$activeSessionToken, $tenantComp['id']]);
+                            } catch (\PDOException $ex) {}
+
+                            $_SESSION['user_id'] = $tenantComp['id'];
+                            $_SESSION['user_role'] = 'Tenant Admin';
+                            $_SESSION['login_role'] = 'Tenant Admin';
+                            $_SESSION['login_source'] = 'tenant_companies';
+                            $_SESSION['user_name'] = $tenantComp['owner_name'];
+                            $_SESSION['user_email'] = $tenantComp['owner_email'];
+                            $_SESSION['company_name'] = $tenantComp['company_name'];
+                            $_SESSION['tenant_name'] = $tenantComp['company_name'];
+                            $_SESSION['tenant_code'] = $tenantComp['company_code'];
+                            $_SESSION['tenant_id'] = $tenantComp['id'];
+                            $_SESSION['tenant_api_key'] = $tenantComp['api_key'] ?? '';
+                            $_SESSION['is_tenant'] = true;
+                            $_SESSION['user_permissions'] = null;
+                            $_SESSION['tenant_db'] = $tenantComp['db_name'];
+                            
+                            $user_allowed = !empty($tenantComp['allowed_modules']) ? json_decode($tenantComp['allowed_modules'], true) : null;
+                            $default_tenant_mods = ["workspace_dashboard", "whatsapp_dashboard", "dashboard", "merchant_waba_settings", "whatsapp_settings", "team_inbox", "broadcast_campaigns", "bot_flows", "whatsapp_flows", "bulk_broadcast"];
+                            $_SESSION['tenant_allowed_modules'] = (is_array($user_allowed)) ? $user_allowed : $default_tenant_mods;
+
+                            $_SESSION['user_ip'] = $user_ip;
+                            $_SESSION['user_agent'] = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+                            $_SESSION['last_activity'] = time();
+                            unset($_SESSION['impersonate_tenant_db']);
+
+                            $redirect = !empty($_GET['redirect']) ? $_GET['redirect'] : '../index.php?page=dashboard';
+                            header("Location: " . (strpos($redirect, 'http') === 0 || strpos($redirect, '..') === 0 ? $redirect : '../' . ltrim($redirect, '/')));
+                            exit;
+                        }
+                    }
+
+                    // 2. Check master users table (Internal Employees & Super Admins)
                     $stmt = $effective_pdo->prepare("SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(name) = ?");
                     $stmt->execute([$email, $email]);
                     $user = $stmt->fetch();
-
-                    // 2. If not found in master users, check tenant_companies (SaaS CRM Clients)
-                    if (!$user) {
-                        // Check if email matches a Tenant Company Owner Email or Company Code
-                        $stmtT = $effective_pdo->prepare("SELECT * FROM tenant_companies WHERE (LOWER(owner_email) = ? OR LOWER(company_code) = ?) AND status = 'Active'");
-                        $stmtT->execute([$email, $email]);
-                        $tenantComp = $stmtT->fetch();
-                        
-                        if ($tenantComp) {
-                            $user_pwd_hash = $tenantComp['password'] ?? '';
-                            $is_tenant_valid = false;
-
-                            if (!empty($user_pwd_hash)) {
-                                if (password_verify($password, $user_pwd_hash) || $password === $user_pwd_hash) {
-                                    $is_tenant_valid = true;
-                                }
-                            }
-                            
-                            // Legacy tenant check: if password column in tenant_companies is empty, check t_code_users or users table
-                            if (!$is_tenant_valid) {
-                                $tDb = $tenantComp['db_name'] ?? '';
-                                if (!empty($tDb) && strpos($tDb, 't_') === 0) {
-                                    $targetUsersTbl = "{$tDb}users";
-                                    try {
-                                        $stmtTU = $effective_pdo->prepare("SELECT * FROM `{$targetUsersTbl}` WHERE LOWER(email) = ? OR LOWER(name) = ?");
-                                        $stmtTU->execute([$email, $email]);
-                                        $tuUser = $stmtTU->fetch();
-                                        if ($tuUser) {
-                                            if (password_verify($password, $tuUser['password']) || $password === $tuUser['password']) {
-                                                $is_tenant_valid = true;
-                                                // Auto-upgrade tenant_companies password column
-                                                try {
-                                                    $updPasswordHash = password_hash($password, PASSWORD_DEFAULT);
-                                                    $updStmt = $effective_pdo->prepare("UPDATE tenant_companies SET password = ? WHERE id = ?");
-                                                    $updStmt->execute([$updPasswordHash, $tenantComp['id']]);
-                                                } catch (\PDOException $ex) {}
-                                            }
-                                        }
-                                    } catch (\PDOException $ex) {}
-                                }
-                            }
-
-                            if ($is_tenant_valid) {
-                                // Reset failed login attempts on successful login
-                                $del_attempts = $effective_pdo->prepare("DELETE FROM login_attempts WHERE ip_address = ? OR email = ?");
-                                $del_attempts->execute([$user_ip, $email]);
-
-                                $_SESSION['user_id'] = $tenantComp['id'];
-                                $_SESSION['user_role'] = 'Tenant Admin';
-                                $_SESSION['login_role'] = 'Tenant Admin';
-                                $_SESSION['user_name'] = $tenantComp['owner_name'];
-                                $_SESSION['user_email'] = $tenantComp['owner_email'];
-                                $_SESSION['user_permissions'] = null;
-                                $_SESSION['tenant_db'] = $tenantComp['db_name'];
-                                unset($_SESSION['impersonate_tenant_db']);
-
-                                header("Location: ../index.php?page=dashboard");
-                                exit;
-                            }
-                        }
-                    }
 
                     $is_password_valid = false;
                     if ($user && !empty($user['password'])) {
@@ -133,6 +193,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $del_attempts = $effective_pdo->prepare("DELETE FROM login_attempts WHERE ip_address = ? OR email = ?");
                         $del_attempts->execute([$user_ip, $email]);
 
+                        // If account is in Pending Approval, check if admin has already approved/verified KYC
+                        if (in_array($user['status'], ['Pending Approval', 'Under Review', 'Pending'])) {
+                            try {
+                                $stmtKycCheck = $effective_pdo->prepare("SELECT kyc_status FROM customer_kyc_details WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1");
+                                $stmtKycCheck->execute([$user['email']]);
+                                $kycRecord = $stmtKycCheck->fetch(PDO::FETCH_ASSOC);
+                                if ($kycRecord && $kycRecord['kyc_status'] === 'Verified') {
+                                    $effective_pdo->prepare("UPDATE users SET status = 'Active' WHERE id = ?")->execute([$user['id']]);
+                                    $user['status'] = 'Active';
+                                }
+                            } catch (\PDOException $ex) {}
+                        }
+
                         if ($user['status'] === 'Unverified') {
                             // Generate new 6-digit OTP code & 10-minute expiry
                             $new_otp = sprintf("%06d", mt_rand(100000, 999999));
@@ -146,14 +219,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             header("Location: verify-otp.php?email=" . urlencode($email) . "&msg=sent");
                             exit;
-                        } elseif ($user['status'] === 'Pending Approval') {
-                            $message = "Access Denied: Your account is pending administrator approval.";
+                        } elseif (in_array($user['status'], ['Pending Approval', 'Under Review', 'Pending'])) {
+                            $message = "Access Denied: Your account registration is currently Under Review and pending administrator approval. You will be able to log in once your account is approved.";
                             $message_type = "warning";
                         } else {
+                            // Single-Device Enforcement Token: Invalidate any previous browser session
+                            $activeSessionToken = bin2hex(random_bytes(32));
+                            $_SESSION['active_session_token'] = $activeSessionToken;
+                            try {
+                                $updTok = $effective_pdo->prepare("UPDATE users SET active_session_token = ? WHERE id = ?");
+                                $updTok->execute([$activeSessionToken, $user['id']]);
+                            } catch (\PDOException $ex) {}
+
                             // Set Session details, security IP binding, and active tenant database
                             $_SESSION['user_id'] = $user['id'];
                             $_SESSION['user_role'] = $user['role'];
                             $_SESSION['login_role'] = $user['role'];
+                            $_SESSION['login_source'] = 'users';
                             $_SESSION['user_name'] = $user['name'];
                             $_SESSION['user_email'] = $user['email'];
                             $_SESSION['user_photo'] = $user['profile_photo'] ?? null;
@@ -169,7 +251,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // Immutable Audit Log
                             logActivity('LOGIN_SUCCESS', 'Authentication', "User {$user['name']} ({$user['role']}) logged in successfully.");
                             
-                            header("Location: ../index.php?page=dashboard");
+                            $redirect = !empty($_GET['redirect']) ? $_GET['redirect'] : '../index.php?page=dashboard';
+                            header("Location: " . (strpos($redirect, 'http') === 0 || strpos($redirect, '..') === 0 ? $redirect : '../' . ltrim($redirect, '/')));
                             exit;
                         }
                     } else {

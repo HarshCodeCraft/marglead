@@ -66,27 +66,78 @@ function json_response(bool $success, string $message, $data = null, int $http_c
 
 /**
  * Generate Next Ticket Number in format: TK-YYYY-XXXXXX (e.g. TK-2026-000001)
+ * Checks across both support_tickets and tickets tables to guarantee absolute uniqueness.
  */
-function generate_ticket_number(PDO $pdo): string {
-    $year = date('Y');
-    $prefix = "TK-{$year}-";
+if (!function_exists('generate_ticket_number')) {
+    function generate_ticket_number(PDO $pdo): string {
+        $year = date('Y');
+        $prefix = "TK-{$year}-";
 
-    try {
-        $stmt = $pdo->prepare("SELECT ticket_number FROM tickets WHERE ticket_number LIKE ? ORDER BY id DESC LIMIT 1");
-        $stmt->execute([$prefix . '%']);
-        $lastTicket = $stmt->fetchColumn();
+        $maxNum = 0;
 
-        if ($lastTicket) {
-            $numPart = (int) substr($lastTicket, strlen($prefix));
-            $nextNum = $numPart + 1;
-        } else {
-            $nextNum = 1;
+        // 1. Check support_tickets table
+        try {
+            $stmt1 = $pdo->prepare("SELECT id FROM support_tickets WHERE id LIKE ?");
+            $stmt1->execute([$prefix . '%']);
+            while ($row = $stmt1->fetch(PDO::FETCH_COLUMN)) {
+                if (preg_match('/^TK-\d{4}-(\d+)$/', (string)$row, $m)) {
+                    $val = (int)$m[1];
+                    if ($val > $maxNum) $maxNum = $val;
+                }
+            }
+        } catch (Throwable $e) {
+            if (function_exists('write_log')) {
+                write_log('error', "Failed scanning support_tickets for ticket number: " . $e->getMessage());
+            }
         }
 
-        return $prefix . str_pad($nextNum, 6, '0', STR_PAD_LEFT);
-    } catch (PDOException $e) {
-        write_log('error', "Failed generating ticket number: " . $e->getMessage());
-        return $prefix . str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+        // 2. Check tickets table
+        try {
+            $stmt2 = $pdo->prepare("SELECT ticket_number FROM tickets WHERE ticket_number LIKE ?");
+            $stmt2->execute([$prefix . '%']);
+            while ($row = $stmt2->fetch(PDO::FETCH_COLUMN)) {
+                if (preg_match('/^TK-\d{4}-(\d+)$/', (string)$row, $m)) {
+                    $val = (int)$m[1];
+                    if ($val > $maxNum) $maxNum = $val;
+                }
+            }
+        } catch (Throwable $e) {
+            if (function_exists('write_log')) {
+                write_log('error', "Failed scanning tickets table for ticket number: " . $e->getMessage());
+            }
+        }
+
+        $nextNum = $maxNum + 1;
+        $newTicketId = $prefix . str_pad((string)$nextNum, 6, '0', STR_PAD_LEFT);
+
+        // 3. Collision guard check - loop if somehow already exists in either table
+        $safetyCounter = 0;
+        while ($safetyCounter < 50) {
+            $exists1 = 0;
+            $exists2 = 0;
+
+            try {
+                $stmtCheck1 = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE id = ?");
+                $stmtCheck1->execute([$newTicketId]);
+                $exists1 = (int)$stmtCheck1->fetchColumn();
+            } catch (Throwable $e) {}
+
+            try {
+                $stmtCheck2 = $pdo->prepare("SELECT COUNT(*) FROM tickets WHERE ticket_number = ?");
+                $stmtCheck2->execute([$newTicketId]);
+                $exists2 = (int)$stmtCheck2->fetchColumn();
+            } catch (Throwable $e) {}
+
+            if ($exists1 === 0 && $exists2 === 0) {
+                break;
+            }
+
+            $nextNum++;
+            $newTicketId = $prefix . str_pad((string)$nextNum, 6, '0', STR_PAD_LEFT);
+            $safetyCounter++;
+        }
+
+        return $newTicketId;
     }
 }
 

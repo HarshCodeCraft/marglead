@@ -9,6 +9,8 @@
  * 2. POST: Handle incoming messages, interactive button replies, and WhatsApp flow submissions.
  */
 
+date_default_timezone_set('Asia/Kolkata');
+
 require_once __DIR__ . '/whatsapp-api.php';
 
 // -------------------------------------------------------------
@@ -176,8 +178,9 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     }
                 }
 
-                $stmtMLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json) VALUES ('INBOUND', ?, ?, ?, ?, 'received', ?)");
-                $stmtMLog->execute([$from, $msgType, $msgBodyLog, $wamid, json_encode($msg)]);
+                $msgCreatedAt = !empty($msg['timestamp']) ? date('Y-m-d H:i:s', (int)$msg['timestamp']) : date('Y-m-d H:i:s');
+                $stmtMLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json, created_at) VALUES ('INBOUND', ?, ?, ?, ?, 'received', ?, ?)");
+                $stmtMLog->execute([$from, $msgType, $msgBodyLog, $wamid, json_encode($msg), $msgCreatedAt]);
 
                 // Check previous chat status for audit logging
                 $prevStatusStmt = $pdo->prepare("SELECT status FROM chat_conversations WHERE phone = ? LIMIT 1");
@@ -190,8 +193,8 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     $stmtAudit->execute([$from]);
 
                     // Log system message in message_logs
-                    $stmtSys = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status) VALUES ('OUTBOUND', ?, 'system', '🟢 Chat auto-reopened on receiving new message from customer', 'received')");
-                    $stmtSys->execute([$from]);
+                    $stmtSys = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status, created_at) VALUES ('OUTBOUND', ?, 'system', '🟢 Chat auto-reopened on receiving new message from customer', 'received', ?)");
+                    $stmtSys->execute([$from, date('Y-m-d H:i:s')]);
                 }
 
                 // Auto-set chat status to open when customer sends a message
@@ -221,31 +224,560 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
         if ($teamAgent && $msgType === 'text') {
             $body = trim($msg['text']['body'] ?? '');
+            $isLeadCommand = (bool) preg_match('/\bleads?\b/i', $body);
+            $isTrainingCommand = (bool) preg_match('/\b(offline\s+)?trainings?\b/i', $body);
 
-            // Detect 10-digit Indian client mobile number
+            // Robust detection of 10-digit Indian mobile number (handles spaces, dashes, +91, 91, 0 prefixes)
             $clientPhone = null;
             $clientPhoneClean = '';
-            if (preg_match('/(?:(?:\+|0{0,2})91[\s\-]*)?([6-9]\d{9})\b/', $body, $matches)) {
-                $clientPhoneClean = $matches[1];
-                $clientPhone = '+91 ' . $matches[1];
+            $matchedRawPhone = '';
+
+            // Match +91 or 91 or 0 followed by 10 digits that can have optional spaces or dashes
+            if (preg_match('/(?:(?:\+|0{0,2})91[\s\-]*)?([6-9](?:[\s\-]*\d){9})\b/', $body, $matches)) {
+                $rawMatched = $matches[0];
+                $digitsOnly = preg_replace('/[^\d]/', '', $matches[1]);
+                if (strlen($digitsOnly) === 10 && in_array($digitsOnly[0], ['6','7','8','9'])) {
+                    $clientPhoneClean = $digitsOnly;
+                    $clientPhone = '+91 ' . $digitsOnly;
+                    $matchedRawPhone = $rawMatched;
+                }
             }
 
-            if (empty($clientPhone)) {
+            // Fallback: If not matched by regex, check if extracting all digits from body yields a valid 10-digit Indian number
+            if (empty($clientPhoneClean)) {
+                $allDigits = preg_replace('/[^\d]/', '', $body);
+                if (strlen($allDigits) === 12 && str_starts_with($allDigits, '91') && in_array($allDigits[2], ['6','7','8','9'])) {
+                    $clientPhoneClean = substr($allDigits, 2);
+                    $clientPhone = '+91 ' . $clientPhoneClean;
+                    $matchedRawPhone = $body;
+                } elseif (strlen($allDigits) === 11 && str_starts_with($allDigits, '0') && in_array($allDigits[1], ['6','7','8','9'])) {
+                    $clientPhoneClean = substr($allDigits, 1);
+                    $clientPhone = '+91 ' . $clientPhoneClean;
+                    $matchedRawPhone = $body;
+                } elseif (strlen($allDigits) === 10 && in_array($allDigits[0], ['6','7','8','9'])) {
+                    $clientPhoneClean = $allDigits;
+                    $clientPhone = '+91 ' . $clientPhoneClean;
+                    $matchedRawPhone = $body;
+                }
+            }
+
+            if (empty($clientPhoneClean)) {
                 // Agent sent a message without a valid client phone number
-                $helpMsg = "👋 Hello *{$teamAgent['name']}* ({$teamAgent['emp_code']})!\n\n" .
-                           "⚠️ *Client Mobile Number Not Detected.*\n\n" .
-                           "Client ki automated ticket banane ke liye kripya unka 10-digit mobile number bhejein.\n\n" .
-                           "💡 *Example:*\n" .
-                           "• `9876543210`\n" .
-                           "• `9876543210 Marg printer error`\n" .
-                           "• `Client Sharma Ji 9876543210 urgent`\n\n" .
-                           "_Technical team ko ticket jayegi aur update hone par aapko yahan alert mil jayega._";
+                $helpMsg = "Hello *{$teamAgent['name']}* 👋\n\n" .
+                           "📌 *To Schedule Training:*\n" .
+                           "`Training <10-digit mobile> <Trainer Name>` (Online)\n" .
+                           "`Offline Training <10-digit mobile> <Trainer Name>` (Offline)\n" .
+                           "• *Example:* `Training 7860510928 Harsh Saini`\n\n" .
+                           "📌 *To Create & Assign a Lead:*\n" .
+                           "`Lead <10-digit mobile> <Employee Name>`\n" .
+                           "• *Example:* `Lead 7860510928 Sahil savita`\n\n" .
+                           "📌 *To Create a Support Ticket:*\n" .
+                           "`<10-digit mobile> - <Issue Description>`\n" .
+                           "• *Example:* `9876543210 - Printer error`";
                 $whatsapp->sendText($from, $helpMsg);
+            } elseif ($isLeadCommand) {
+                // =========================================================
+                // CASE 1: LEAD CREATION & AUTO-ASSIGNMENT COMMAND
+                // Format: "Lead 7860510928 Sahil savita" or "Lead 7860510928 Sahil savita - Note"
+                // =========================================================
+
+                // Extract specific tagged parameters: (source), (group)/(stage), (company)/(party), (assigned)
+                $parsedSource = 'HO'; // Default source
+                if (preg_match('/([a-zA-Z0-9\s\.\-]+?)\s*\(source\)/i', $body, $sm)) {
+                    $parsedSource = trim($sm[1]);
+                } elseif (preg_match('/(?:source|src)[\s\:\=]+([a-zA-Z0-9\s\.\-]+?)(?=\s*(?:\([a-zA-Z]+\)|[a-zA-Z]+[\:\=]|$|\n))/i', $body, $sm)) {
+                    $parsedSource = trim($sm[1]);
+                }
+
+                $parsedGroup = 'Lead';
+                if (preg_match('/([a-zA-Z0-9\s\.\-]+?)\s*\((?:group|stage)\)/i', $body, $gm)) {
+                    $parsedGroup = ucwords(trim($gm[1]));
+                } elseif (preg_match('/(?:group|stage)[\s\:\=]+([a-zA-Z0-9\s\.\-]+?)(?=\s*(?:\([a-zA-Z]+\)|[a-zA-Z]+[\:\=]|$|\n))/i', $body, $gm)) {
+                    $parsedGroup = ucwords(trim($gm[1]));
+                } elseif (stripos($body, 'demo') !== false) {
+                    $parsedGroup = 'Demo Scheduled';
+                }
+
+                $parsedCompany = '';
+                if (preg_match('/([a-zA-Z0-9\s\.\-]+?)\s*\((?:company|party|firm)\)/i', $body, $cm)) {
+                    $parsedCompany = trim($cm[1]);
+                } elseif (preg_match('/(?:company|party|firm|client)[\s\:\=]+([a-zA-Z0-9\s\.\-]+?)(?=\s*(?:\([a-zA-Z]+\)|[a-zA-Z]+[\:\=]|$|\n))/i', $body, $cm)) {
+                    $parsedCompany = trim($cm[1]);
+                }
+
+                // Extract assignee text & remaining notes
+                $assigneeRaw = '';
+                if (preg_match('/([a-zA-Z0-9\s\.\-]+?)\s*\(assigned\)/i', $body, $am)) {
+                    $assigneeRaw = trim($am[1]);
+                    $assigneeRaw = preg_replace('/\bleads?\b/i', '', $assigneeRaw);
+                    $assigneeRaw = preg_replace('/[0-9]{10}/', '', $assigneeRaw);
+                    $assigneeRaw = trim(preg_replace('/^[\s\-\:\,\;\|\.\/]+/', '', trim($assigneeRaw)));
+                } elseif (preg_match('/(?:assigned|to)[\s\:\=]+([a-zA-Z0-9\s\.\-]+?)(?=\s*(?:\([a-zA-Z]+\)|[a-zA-Z]+[\:\=]|$|\n))/i', $body, $am)) {
+                    $assigneeRaw = trim($am[1]);
+                }
+
+                // Strip known command tokens to extract remaining raw text if needed
+                $cleanRemaining = preg_replace('/\bleads?\b/i', '', $body);
+                if (!empty($matchedRawPhone)) {
+                    $cleanRemaining = str_replace($matchedRawPhone, '', $cleanRemaining);
+                }
+                if (!empty($clientPhoneClean)) {
+                    $cleanRemaining = str_replace([$clientPhoneClean, '91' . $clientPhoneClean, '+91' . $clientPhoneClean], '', $cleanRemaining);
+                }
+                // Strip bracketed parameters
+                $cleanRemaining = preg_replace('/[a-zA-Z0-9\s\.\-]+?\s*\((?:source|group|stage|company|party|assigned)\)/i', '', $cleanRemaining);
+                $cleanRemaining = trim(preg_replace('/^[\s\-\:\,\;\|\.\/]+/', '', trim($cleanRemaining)));
+                
+                if (empty($assigneeRaw)) {
+                    $assigneeRaw = $cleanRemaining;
+                }
+                $extraNotes = $cleanRemaining;
+
+                // Match Employee / Team Member from team_agents table
+                $allAgents = [];
+                try {
+                    $stmtAllAg = $pdo->query("SELECT id, emp_code, name, whatsapp_phone, department FROM team_agents WHERE status = 'Active'");
+                    $allAgents = $stmtAllAg ? $stmtAllAg->fetchAll(PDO::FETCH_ASSOC) : [];
+                } catch (Throwable $e) {}
+
+                $matchedAgent = null;
+                $matchedScore = 0;
+
+                if (!empty($assigneeRaw) && !empty($allAgents)) {
+                    foreach ($allAgents as $ag) {
+                        $agName = trim($ag['name']);
+                        if (empty($agName)) continue;
+
+                        // 1. Direct case-insensitive match or contains
+                        if (stripos($assigneeRaw, $agName) !== false) {
+                            $matchedAgent = $ag;
+                            $matchedScore = 100;
+                            break;
+                        }
+
+                        // 2. Tokenized word comparison
+                        $nameParts = preg_split('/\s+/', strtolower($agName));
+                        $assigneeParts = preg_split('/[\s\-\:\,\;\|\.\/]+/', strtolower($assigneeRaw));
+
+                        $common = array_intersect($nameParts, $assigneeParts);
+                        if (!empty($common)) {
+                            $score = count($common) * 35;
+                            if (in_array($nameParts[0], $assigneeParts)) {
+                                $score += 35; // Priority if first name matches
+                            }
+                            if ($score > $matchedScore) {
+                                $matchedScore = $score;
+                                $matchedAgent = $ag;
+                            }
+                        }
+                    }
+                }
+
+                if ($matchedAgent && $matchedScore >= 35) {
+                    $assignedName = $matchedAgent['name'];
+                    $assignedPhone = $matchedAgent['whatsapp_phone'] ?? '';
+                    $assignedEmpCode = $matchedAgent['emp_code'] ?? '';
+
+                    // Clean matched agent name tokens from extraNotes
+                    $agTokens = preg_split('/\s+/', $matchedAgent['name']);
+                    foreach ($agTokens as $tok) {
+                        if (strlen($tok) >= 2) {
+                            $extraNotes = preg_replace('/\b' . preg_quote($tok, '/') . '\b/i', '', $extraNotes);
+                        }
+                    }
+                    $extraNotes = trim(preg_replace('/^[\s\-\:\,\;\|\.\/]+|[\s\-\:\,\;\|\.\/]+$/', '', trim($extraNotes)));
+                    $extraNotes = preg_replace('/\s+/', ' ', $extraNotes);
+                } else {
+                    // Fallback: check users table
+                    $assignedName = 'Unassigned';
+                    $assignedPhone = '';
+                    $assignedEmpCode = '';
+
+                    try {
+                        $stmtUsers = $pdo->query("SELECT id, name, role FROM users WHERE status = 'Active'");
+                        $allUsers = $stmtUsers ? $stmtUsers->fetchAll(PDO::FETCH_ASSOC) : [];
+                        foreach ($allUsers as $u) {
+                            if (!empty($u['name']) && !empty($assigneeRaw) && stripos($assigneeRaw, $u['name']) !== false) {
+                                $assignedName = $u['name'];
+                                $extraNotes = trim(preg_replace('/' . preg_quote($u['name'], '/') . '/i', '', $extraNotes));
+                                break;
+                            }
+                        }
+                    } catch (Throwable $eU) {}
+
+                    if ($assignedName === 'Unassigned' && !empty($assigneeRaw)) {
+                        $assignedName = ucwords(mb_strimwidth($assigneeRaw, 0, 40));
+                    }
+                }
+
+                // Auto-lookup Party Name from client directory or previous leads if not explicitly provided
+                $partyName = !empty($parsedCompany) ? $parsedCompany : "";
+                if (empty($partyName)) {
+                    try {
+                        $stmtParty = $pdo->prepare("SELECT customer_id, party_name FROM client_directory WHERE mobile LIKE ? LIMIT 1");
+                        $stmtParty->execute(['%' . $clientPhoneClean . '%']);
+                        $pRow = $stmtParty->fetch(PDO::FETCH_ASSOC);
+                        if (!empty($pRow['party_name'])) {
+                            $partyName = $pRow['party_name'];
+                        } else {
+                            $stmtLeadL = $pdo->prepare("SELECT company, name FROM leads WHERE phone LIKE ? LIMIT 1");
+                            $stmtLeadL->execute(['%' . $clientPhoneClean . '%']);
+                            $lRow = $stmtLeadL->fetch(PDO::FETCH_ASSOC);
+                            if (!empty($lRow['company'])) {
+                                $partyName = $lRow['company'] . (!empty($lRow['name']) && $lRow['name'] !== $lRow['company'] ? " (" . $lRow['name'] . ")" : "");
+                            }
+                        }
+                    } catch (Throwable $e) {}
+                }
+
+                $leadParty = !empty($partyName) ? $partyName : "WhatsApp Lead";
+                $leadId = generate_lead_number($pdo);
+
+                $actorName = $teamAgent ? "{$teamAgent['name']} ({$teamAgent['emp_code']})" : "WhatsApp System";
+                $remarksText = "Lead created via WhatsApp by {$actorName}";
+                if (!empty($extraNotes)) {
+                    $remarksText .= " | Note: " . $extraNotes;
+                }
+
+                try {
+                    // 1. Insert into leads table with source and group_stage
+                    $stmtLead = $pdo->prepare("
+                        INSERT INTO leads (
+                            id, name, contact_person, company, phone, source,
+                            priority, status, group_stage, assigned_to, assigned_by, remarks, enq_for, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?,
+                            'warm', 'new', ?, ?, ?, ?, ?, NOW()
+                        )
+                    ");
+                    $stmtLead->execute([
+                        $leadId,
+                        $leadParty,
+                        $leadParty,
+                        $leadParty,
+                        $clientPhoneClean,
+                        $parsedSource,
+                        $parsedGroup,
+                        $assignedName,
+                        $actorName,
+                        $remarksText,
+                        !empty($extraNotes) ? $extraNotes : 'Team WhatsApp Lead'
+                    ]);
+
+                    // 2. Timeline log
+                    try {
+                        $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, ?)");
+                        $stmtTime->execute([
+                            $leadId,
+                            $actorName,
+                            "Lead created via WhatsApp and assigned to {$assignedName} [Source: {$parsedSource}, Group: {$parsedGroup}]" . (!empty($extraNotes) ? " (Note: {$extraNotes})" : "")
+                        ]);
+                    } catch (Throwable $eT) {}
+
+                    // 3. Admin Notification
+                    try {
+                        $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, 'index.php?page=leads', 'info')");
+                        $stmtNotif->execute([
+                            "New Team Lead: " . $leadId,
+                            "{$teamAgent['name']} assigned lead {$clientPhoneClean} to {$assignedName}"
+                        ]);
+                    } catch (Throwable $eN) {}
+
+                    // 4. Send Instant WhatsApp Confirmation to Sender (Team Member who dropped the lead)
+                    $senderReply = "*Lead Successfully Created & Assigned!*\n\n" .
+                                   "• *Lead ID:* {$leadId}\n" .
+                                   "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
+                                   (!empty($partyName) ? "• *Party / Company:* {$partyName}\n" : "") .
+                                   "• *Assigned To:* {$assignedName}\n" .
+                                   "• *Source:* {$parsedSource}\n" .
+                                   "• *Group / Stage:* {$parsedGroup}\n" .
+                                   (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
+                                   "• *Created By:* {$actorName}\n\n" .
+                                   (!empty($assignedPhone) ? "WhatsApp alert sent to {$assignedName} (" . format_phone_number($assignedPhone) . ")" : "Note: WhatsApp alert not sent (Assignee phone not configured in Team Agents).");
+                    $whatsapp->sendText($from, $senderReply);
+
+                    // 5. Send Instant WhatsApp Alert to Assigned Employee (e.g. Harsh Saini)
+                    if (!empty($assignedPhone)) {
+                        $assigneePhoneFormatted = format_phone_number($assignedPhone);
+                        $baseUrl = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
+                        $assigneeAlert = "Hello *{$assignedName}*,\n\n" .
+                                         "You have a new lead assigned by *{$actorName}*.\n\n" .
+                                         "*Lead Details:*\n" .
+                                         "• *Lead ID:* {$leadId}\n" .
+                                         "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
+                                         (!empty($partyName) ? "• *Party / Company:* {$partyName}\n" : "") .
+                                         "• *Source:* {$parsedSource}\n" .
+                                         "• *Group / Stage:* {$parsedGroup}\n" .
+                                         (!empty($extraNotes) ? "• *Requirement / Note:* {$extraNotes}\n" : "") .
+                                         "• *Assigned By:* {$actorName}\n" .
+                                         "• *Date & Time:* " . date('d-m-Y h:i A') . "\n\n" .
+                                         "Please contact the customer promptly.\n\n" .
+                                         "CRM Lead Link: {$baseUrl}index.php?page=leads\n\n" .
+                                         "Marg Soft Solution";
+
+                        $whatsapp->sendText($assigneePhoneFormatted, $assigneeAlert);
+                    }
+
+                } catch (Throwable $e) {
+                    write_log('error', "Failed to create team drop lead: " . $e->getMessage());
+                    $whatsapp->sendText($from, "Lead create karne me error aaya: " . $e->getMessage());
+                }
+
+            } elseif ($isTrainingCommand) {
+                // =========================================================
+                // CASE: TRAINING TICKET CREATION & AUTO-ASSIGNMENT
+                // Format: "Training 7860510928 Harsh Saini" or "offline Training 7860510928 Harsh Saini"
+                // =========================================================
+                $isOffline = (bool) preg_match('/\boffline\b/i', $body);
+                $trainingMode = $isOffline ? 'Offline (On-Site)' : 'Online (Google Meet)';
+
+                // Extract trainer text & remaining notes
+                $cleanRemaining = preg_replace('/\b(offline\s+)?trainings?\b/i', '', $body);
+                if (!empty($matchedRawPhone)) {
+                    $cleanRemaining = str_replace($matchedRawPhone, '', $cleanRemaining);
+                }
+                if (!empty($clientPhoneClean)) {
+                    $cleanRemaining = str_replace([$clientPhoneClean, '91' . $clientPhoneClean, '+91' . $clientPhoneClean], '', $cleanRemaining);
+                }
+                $cleanRemaining = trim(preg_replace('/^[\s\-\:\,\;\|\.\/]+|[\s\-\:\,\;\|\.\/]+$/', '', trim($cleanRemaining)));
+                $trainerRaw = $cleanRemaining;
+                $extraNotes = $cleanRemaining;
+
+                // Match Trainer from team_agents table
+                $allAgents = [];
+                try {
+                    $stmtAllAg = $pdo->query("SELECT id, emp_code, name, whatsapp_phone, department FROM team_agents WHERE status = 'Active'");
+                    $allAgents = $stmtAllAg ? $stmtAllAg->fetchAll(PDO::FETCH_ASSOC) : [];
+                } catch (Throwable $e) {}
+
+                $matchedTrainer = null;
+                $matchedScore = 0;
+
+                if (!empty($trainerRaw) && !empty($allAgents)) {
+                    foreach ($allAgents as $ag) {
+                        $agName = trim($ag['name']);
+                        if (empty($agName)) continue;
+
+                        // 1. Direct match
+                        if (stripos($trainerRaw, $agName) !== false) {
+                            $matchedTrainer = $ag;
+                            $matchedScore = 100;
+                            break;
+                        }
+
+                        // 2. Tokenized comparison
+                        $nameParts = preg_split('/\s+/', strtolower($agName));
+                        $trainerParts = preg_split('/[\s\-\:\,\;\|\.\/]+/', strtolower($trainerRaw));
+                        $common = array_intersect($nameParts, $trainerParts);
+                        if (!empty($common)) {
+                            $score = count($common) * 35;
+                            if (in_array($nameParts[0], $trainerParts)) {
+                                $score += 35;
+                            }
+                            if ($score > $matchedScore) {
+                                $matchedScore = $score;
+                                $matchedTrainer = $ag;
+                            }
+                        }
+                    }
+                }
+
+                if ($matchedTrainer && $matchedScore >= 35) {
+                    $assignedTrainerName = $matchedTrainer['name'];
+                    $assignedTrainerPhone = $matchedTrainer['whatsapp_phone'] ?? '';
+                    $assignedTrainerCode = $matchedTrainer['emp_code'] ?? '';
+
+                    $trTokens = preg_split('/\s+/', $matchedTrainer['name']);
+                    foreach ($trTokens as $tok) {
+                        if (strlen($tok) >= 2) {
+                            $extraNotes = preg_replace('/\b' . preg_quote($tok, '/') . '\b/i', '', $extraNotes);
+                        }
+                    }
+                    $extraNotes = trim(preg_replace('/^[\s\-\:\,\;\|\.\/]+|[\s\-\:\,\;\|\.\/]+$/', '', trim($extraNotes)));
+                    $extraNotes = preg_replace('/\s+/', ' ', $extraNotes);
+                } else {
+                    $assignedTrainerName = 'Unassigned Trainer';
+                    $assignedTrainerPhone = '';
+                    $assignedTrainerCode = '';
+
+                    try {
+                        $stmtUsers = $pdo->query("SELECT id, name, role FROM users WHERE status = 'Active'");
+                        $allUsers = $stmtUsers ? $stmtUsers->fetchAll(PDO::FETCH_ASSOC) : [];
+                        foreach ($allUsers as $u) {
+                            if (!empty($u['name']) && !empty($trainerRaw) && stripos($trainerRaw, $u['name']) !== false) {
+                                $assignedTrainerName = $u['name'];
+                                $extraNotes = trim(preg_replace('/' . preg_quote($u['name'], '/') . '/i', '', $extraNotes));
+                                break;
+                            }
+                        }
+                    } catch (Throwable $eU) {}
+
+                    if ($assignedTrainerName === 'Unassigned Trainer' && !empty($trainerRaw)) {
+                        $assignedTrainerName = ucwords(mb_strimwidth($trainerRaw, 0, 40));
+                    }
+                }
+
+                // Auto-lookup Party Name & Details from client_directory or leads
+                $partyName = "";
+                $clientAddress = "";
+                $clientProduct = "Marg ERP 9+";
+                $leadIdRef = null;
+
+                try {
+                    $stmtParty = $pdo->prepare("SELECT customer_id, party_name, address, software_type FROM client_directory WHERE mobile LIKE ? LIMIT 1");
+                    $stmtParty->execute(['%' . $clientPhoneClean . '%']);
+                    $pRow = $stmtParty->fetch(PDO::FETCH_ASSOC);
+                    if (!empty($pRow['party_name'])) {
+                        $partyName = $pRow['party_name'];
+                        $clientAddress = $pRow['address'] ?? '';
+                        if (!empty($pRow['software_type'])) $clientProduct = $pRow['software_type'];
+                    } else {
+                        $stmtLeadL = $pdo->prepare("SELECT id, company, name, address, enq_for FROM leads WHERE phone LIKE ? LIMIT 1");
+                        $stmtLeadL->execute(['%' . $clientPhoneClean . '%']);
+                        $lRow = $stmtLeadL->fetch(PDO::FETCH_ASSOC);
+                        if (!empty($lRow['company'])) {
+                            $partyName = $lRow['company'] . (!empty($lRow['name']) && $lRow['name'] !== $lRow['company'] ? " (" . $lRow['name'] . ")" : "");
+                            $clientAddress = $lRow['address'] ?? '';
+                            if (!empty($lRow['enq_for'])) $clientProduct = $lRow['enq_for'];
+                            $leadIdRef = $lRow['id'] ?? null;
+                        }
+                    }
+                } catch (Throwable $e) {}
+
+                $customerDisplayName = !empty($partyName) ? $partyName : "Client (+91 {$clientPhoneClean})";
+
+                // Generate Unique TRN-XXXX Ticket ID
+                $trainingTicketId = 'TRN-' . date('md') . '-' . rand(10, 99);
+                try {
+                    $chk = $pdo->prepare("SELECT id FROM training_sessions WHERE id = ?");
+                    $chk->execute([$trainingTicketId]);
+                    if ($chk->fetch()) {
+                        $trainingTicketId = 'TRN-' . date('md') . '-' . rand(100, 999);
+                    }
+                } catch (Throwable $e) {}
+
+                $remarksText = "Training requested via Team WhatsApp by {$teamAgent['name']} ({$teamAgent['emp_code']})";
+                if (!empty($extraNotes)) {
+                    $remarksText .= " | Note: " . $extraNotes;
+                }
+
+                try {
+                    // 1. Insert into training_sessions table
+                    $stmtTr = $pdo->prepare("
+                        INSERT INTO training_sessions (
+                            id, lead_id, customer, trainer, trainer_phone, dropped_by,
+                            scheduled_at, mode, hours_completed, total_hours, current_day, total_days,
+                            status, connect_status, phone, product, address, topics, remarks, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?,
+                            NOW(), ?, 0, 6, 0, 3,
+                            'scheduled', 'Pending Connect', ?, ?, ?, 'Basic & Advanced Operations', ?, NOW()
+                        )
+                    ");
+                    $stmtTr->execute([
+                        $trainingTicketId,
+                        $leadIdRef,
+                        $customerDisplayName,
+                        $assignedTrainerName,
+                        $assignedTrainerPhone,
+                        $teamAgent['name'] . ' (' . $teamAgent['emp_code'] . ')',
+                        $trainingMode,
+                        $clientPhoneClean,
+                        $clientProduct,
+                        $clientAddress,
+                        $remarksText
+                    ]);
+
+                    // 2. Timeline log if associated with a lead
+                    if (!empty($leadIdRef)) {
+                        try {
+                            $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, ?)");
+                            $stmtTime->execute([
+                                $leadIdRef,
+                                $teamAgent['name'] . ' (' . $teamAgent['emp_code'] . ')',
+                                "Training Ticket {$trainingTicketId} created ({$trainingMode}) and allocated to trainer {$assignedTrainerName}"
+                            ]);
+                        } catch (Throwable $eT) {}
+                    }
+
+                    // 3. Admin Notification
+                    try {
+                        $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, 'index.php?page=training', 'info')");
+                        $stmtNotif->execute([
+                            "New Training Allocated: " . $trainingTicketId,
+                            "{$teamAgent['name']} allocated {$trainingMode} training for {$clientPhoneClean} to {$assignedTrainerName}"
+                        ]);
+                    } catch (Throwable $eN) {}
+
+                    // 4. Send Instant WhatsApp Confirmation to Sender (Team Member who dropped the training)
+                    $senderReply = "*Training Ticket Created & Allocated*\n\n" .
+                                   "• *Ticket ID:* `{$trainingTicketId}`\n" .
+                                   "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
+                                   (!empty($partyName) ? "• *Party Name:* {$partyName}\n" : "") .
+                                   "• *Training Mode:* *{$trainingMode}*\n" .
+                                   "• *Assigned Trainer:* *{$assignedTrainerName}*\n" .
+                                   (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
+                                   "• *Allocated By:* {$teamAgent['name']}\n\n" .
+                                   (!empty($assignedTrainerPhone) ? "WhatsApp alert sent to Trainer {$assignedTrainerName} (" . format_phone_number($assignedTrainerPhone) . ")" : "Note: Trainer WhatsApp alert not sent (Trainer phone not configured in Team Agents).");
+                    $whatsapp->sendText($from, $senderReply);
+
+                    // 5. Send Instant WhatsApp Alert to Assigned Trainer (e.g. Harsh Saini)
+                    if (!empty($assignedTrainerPhone)) {
+                        $trainerPhoneFormatted = format_phone_number($assignedTrainerPhone);
+                        $baseUrl = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
+                        $trainerAlert = "Hi *{$assignedTrainerName}*,\n\n" .
+                                        "You have been allocated a new *Marg ERP Training* by *{$teamAgent['name']}*.\n\n" .
+                                        "*Training Details:*\n" .
+                                        "• *Ticket ID:* `{$trainingTicketId}`\n" .
+                                        "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
+                                        (!empty($partyName) ? "• *Party Name:* {$partyName}\n" : "") .
+                                        "• *Training Mode:* *{$trainingMode}*\n" .
+                                        "• *Software:* {$clientProduct}\n" .
+                                        (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
+                                        "• *Allocated By:* {$teamAgent['name']} ({$teamAgent['emp_code']})\n" .
+                                        "• *Date & Time:* " . date('d-m-Y h:i A') . "\n\n" .
+                                        "Please connect with the client promptly to conduct or schedule Day 1 training session.\n\n" .
+                                        "*CRM Training Portal:* {$baseUrl}index.php?page=training\n\n" .
+                                        "*Marg Soft Solution*";
+
+                        $whatsapp->sendText($trainerPhoneFormatted, $trainerAlert);
+                    }
+
+                    // 6. Send Instant Welcome WhatsApp to Customer (Client)
+                    try {
+                        $clientPhoneFormatted = format_phone_number($clientPhoneClean);
+                        $clientGreeting = "Namaste" . (!empty($partyName) ? " *{$partyName}*" : "") . "\n\n" .
+                                          "Aapki *Marg ERP Software Training* request successfully schedule ho gayi hai.\n\n" .
+                                          "*Training Details:*\n" .
+                                          "• *Ticket ID:* `{$trainingTicketId}`\n" .
+                                          "• *Assigned Trainer:* *{$assignedTrainerName}*\n" .
+                                          (!empty($assignedTrainerPhone) ? "• *Trainer Helpline:* +91 {$assignedTrainerPhone}\n" : "") .
+                                          "• *Mode:* *{$trainingMode}*\n\n" .
+                                          "Hamare trainer aapse jaldi hi training time aur software setup ke liye contact karenge.\n\n" .
+                                          "Helpdesk: +91 93050 45727\n" .
+                                          "*Marg Soft Solution*";
+                        $whatsapp->sendText($clientPhoneFormatted, $clientGreeting);
+                    } catch (Throwable $eCl) {}
+
+                } catch (Throwable $e) {
+                    write_log('error', "Failed to create team drop training: " . $e->getMessage());
+                    $whatsapp->sendText($from, "Training ticket create karne me error aaya: " . $e->getMessage());
+                }
+
             } else {
-                // Valid Client Phone detected! Extract problem notes
-                $problemNote = trim(str_replace([$clientPhoneClean, '+91', '91' . $clientPhoneClean], '', $body));
+                // =========================================================
+                // CASE 2: SUPPORT TICKET CREATION (No "Lead" keyword)
+                // =========================================================
+                $problemNote = $body;
+                if (!empty($matchedRawPhone)) {
+                    $problemNote = str_replace($matchedRawPhone, '', $problemNote);
+                }
+                if (!empty($clientPhoneClean)) {
+                    $problemNote = str_replace([$clientPhoneClean, '91' . $clientPhoneClean, '+91' . $clientPhoneClean], '', $problemNote);
+                }
+                $problemNote = trim(preg_replace('/^[\s\-\:\,\;\|\.\/]+/', '', trim($problemNote)));
                 $problemNote = preg_replace('/\s+/', ' ', $problemNote);
-                if (empty($problemNote) || strlen($problemNote) < 3) {
+                if (empty($problemNote) || strlen($problemNote) < 2) {
                     $problemNote = "";
                 }
 
@@ -270,22 +802,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 } catch (Throwable $e) {}
 
                 // Create Unique Support Ticket in standard format TK-YYYY-XXXXXX
-                $year = date('Y');
-                $prefix = "TK-{$year}-";
-                try {
-                    $stmtSeq = $pdo->prepare("SELECT id FROM support_tickets WHERE id LIKE ? ORDER BY id DESC LIMIT 1");
-                    $stmtSeq->execute([$prefix . '%']);
-                    $lastId = $stmtSeq->fetchColumn();
-                    if ($lastId) {
-                        $numPart = (int) substr($lastId, strlen($prefix));
-                        $nextNum = $numPart + 1;
-                    } else {
-                        $nextNum = 1;
-                    }
-                    $ticketId = $prefix . str_pad($nextNum, 6, '0', STR_PAD_LEFT);
-                } catch (Throwable $e) {
-                    $ticketId = 'TK-' . date('ymd') . '-' . rand(1000, 9999);
-                }
+                $ticketId = generate_ticket_number($pdo);
 
                 $subject = !empty($problemNote) ? mb_strimwidth($problemNote, 0, 70, '...') : (!empty($partyName) ? "Technical Support - " . $partyName : "Technical Support");
 
@@ -310,6 +827,22 @@ foreach ($data['entry'][0]['changes'] as $change) {
                         $from
                     ]);
 
+                    // Also sync insert into tickets table so sequence & reporting remain unified
+                    try {
+                        $stmtTktSync = $pdo->prepare("
+                            INSERT INTO tickets (ticket_number, license_number, firm_name, customer_name, mobile, email, category, priority, description, status, created_at)
+                            VALUES (?, ?, ?, ?, ?, '', 'Technical Support', 'Medium', ?, 'Open', NOW())
+                        ");
+                        $stmtTktSync->execute([
+                            $ticketId,
+                            $licenseNo,
+                            $partyName,
+                            $partyName,
+                            $clientPhoneClean,
+                            $problemNote
+                        ]);
+                    } catch (Throwable $eTSync) {}
+
                     // Log in support_ticket_history
                     try {
                         $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details) VALUES (?, 'created', ?, 'Team Member', ?)");
@@ -327,8 +860,6 @@ foreach ($data['entry'][0]['changes'] as $change) {
                         "{$teamAgent['name']} ({$teamAgent['emp_code']}) dropped client {$clientPhoneClean}" . (!empty($partyName) ? " ({$partyName})" : "")
                     ]);
 
-                    // Ticket is created silently in the pool; notifications are sent when an engineer takes/claims the ticket
-
                 } catch (Throwable $e) {
                     write_log('error', "Failed to create team drop ticket: " . $e->getMessage());
                     $whatsapp->sendText($from, "⚠️ Ticket generate karne me error aaya: " . $e->getMessage());
@@ -345,6 +876,14 @@ foreach ($data['entry'][0]['changes'] as $change) {
         if ($msgType === 'text') {
             $body = trim($msg['text']['body'] ?? '');
             $cleanBody = strtolower($body);
+
+            // Compliance: Handle Opt-Out keywords (STOP, UNSUBSCRIBE, OPT OUT)
+            $optOutKeywords = ['stop', 'unsubscribe', 'opt out', 'optout', 'cancel'];
+            if (in_array($cleanBody, $optOutKeywords, true)) {
+                $optOutResponse = "You have successfully opted out of automated WhatsApp notifications from Marg Soft Solution.\n\nTo re-subscribe or request technical support at any time, simply send *\"Hi\"* or *\"Support\"*.\n\nThank you! 🙏";
+                $whatsapp->sendText($from, $optOutResponse);
+                continue;
+            }
 
             // Case-insensitive greeting recognition or default customer touchpoint
             $greetings = ['hi', 'hello', 'hey', 'hii', 'support', 'help', 'start', 'menu', 'options'];
@@ -488,8 +1027,13 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
             $licenseNo    = $flowData['license_number'] ?? $flowData['license_no'] ?? $flowData['client_id'] ?? $flowData['c1'] ?? 'N/A';
             $customerName = $flowData['customer_name'] ?? $flowData['contact_person'] ?? 'Valued Customer';
-            $firmName     = $flowData['firm_name'] ?? $flowData['company'] ?? 'N/A';
             $callbackNo   = trim($flowData['callback_number'] ?? $flowData['callback_no'] ?? $flowData['call_back_number'] ?? $flowData['mobile_number'] ?? $flowData['mobile'] ?? $flowData['phone_number'] ?? $flowData['phone'] ?? $flowData['c4'] ?? '');
+            $cleanCbDigits = preg_replace('/[^\d]/', '', $callbackNo);
+            if (strlen($cleanCbDigits) < 10) {
+                // If user entered less than 10 digits (typo), fallback to their verified WhatsApp sender number
+                $cleanFromDigits = preg_replace('/[^\d]/', '', $from);
+                $callbackNo = (strlen($cleanFromDigits) >= 10) ? substr($cleanFromDigits, -10) : $from;
+            }
             $mobile       = !empty($callbackNo) ? $callbackNo : $from;
             $email        = $flowData['email_address'] ?? $flowData['email'] ?? 'N/A';
             $category     = $flowData['issue_category'] ?? $flowData['subject'] ?? $flowData['c2'] ?? 'Technical Support';
@@ -577,14 +1121,23 @@ foreach ($data['entry'][0]['changes'] as $change) {
                             $renewalDate,
                             $address
                         ]);
+
+                        // Log in support_ticket_history
+                        try {
+                            $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'created', ?, 'Customer', ?, NOW())");
+                            $stmtH->execute([
+                                $ticketNumber,
+                                $customerName . (!empty($mobile) ? " ({$mobile})" : ""),
+                                "Ticket created via WhatsApp by Customer. Category: {$category}, Priority: {$priority}" . (!empty($description) ? ". Problem: {$description}" : "")
+                            ]);
+                        } catch (Throwable $eH) {}
                     } catch (Throwable $eSup) {}
 
                     // Send Instant Confirmation Message to Customer
-                    $confirmMsg = "✅ *Ticket Created Successfully*\n\n" .
-                                  "*Ticket Number*\n" .
-                                  "{$ticketNumber}\n\n" .
-                                  "Thank you for contacting ABC Software.\n\n" .
-                                  "Our support engineer will contact you shortly.";
+                    $confirmMsg = "✅ *Support Ticket Created*\n\n" .
+                                  "Dear Customer, your ticket *#{$ticketNumber}* has been registered successfully.\n\n" .
+                                  "Our technical support engineer will contact you shortly.\n\n" .
+                                  "Thank you for choosing *Marg Soft Solution*.";
 
                     $whatsapp->sendText($from, $confirmMsg);
 

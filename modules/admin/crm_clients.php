@@ -128,35 +128,52 @@ function getTenantWabaDetails($pdo_master, $tenant) {
     
     $settings = null;
     
-    // 1. Try tenant DB / table prefix first (where live tenant sessions save their connection)
-    if (!empty($dbName) && $pdo_master) {
-        try {
-            if (strpos($dbName, 't_') === 0) {
-                $tbl = "{$dbName}merchant_waba_settings";
-                $stmtT = $pdo_master->query("SELECT * FROM `{$tbl}` ORDER BY id DESC LIMIT 1");
-                $tenantSettings = $stmtT->fetch(PDO::FETCH_ASSOC);
-                if ($tenantSettings && (!empty($tenantSettings['business_phone']) || ($tenantSettings['web_api_session_status'] ?? '') === 'connected' || !empty($tenantSettings['phone_number_id']))) {
-                    $settings = $tenantSettings;
+    // For master company (user_id = 1 or company_code = 'master'), strictly query master user 1 record
+    if ($tenantId === 1 || $companyCode === 'master' || $dbName === 'u978772385_friendlyaidata') {
+        if ($pdo_master) {
+            try {
+                $stmt = $pdo_master->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = 1 LIMIT 1");
+                $stmt->execute();
+                $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {}
+        }
+    } else {
+        // 1. Try tenant DB / table prefix first (where live tenant sessions save their connection)
+        if (!empty($dbName) && $pdo_master) {
+            try {
+                if (strpos($dbName, 't_') === 0) {
+                    $tbl = "{$dbName}merchant_waba_settings";
+                    $stmtT = $pdo_master->prepare("SELECT * FROM `{$tbl}` WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+                    $stmtT->execute([$tenantId]);
+                    $tenantSettings = $stmtT->fetch(PDO::FETCH_ASSOC);
+                    if (!$tenantSettings) {
+                        $stmtT2 = $pdo_master->query("SELECT * FROM `{$tbl}` ORDER BY id DESC LIMIT 1");
+                        $tenantSettings = $stmtT2->fetch(PDO::FETCH_ASSOC);
+                    }
+                    if ($tenantSettings && (!empty($tenantSettings['business_phone']) || ($tenantSettings['web_api_session_status'] ?? '') === 'connected' || !empty($tenantSettings['phone_number_id']))) {
+                        $settings = $tenantSettings;
+                    }
+                } else {
+                    $tDsn = "mysql:host=$db_host;port=$db_port;dbname={$dbName};charset=utf8mb4";
+                    $tPdo = new PDO($tDsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                    $stmtT = $tPdo->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+                    $stmtT->execute([$tenantId]);
+                    $tenantSettings = $stmtT->fetch(PDO::FETCH_ASSOC);
+                    if ($tenantSettings && (!empty($tenantSettings['business_phone']) || ($tenantSettings['web_api_session_status'] ?? '') === 'connected' || !empty($tenantSettings['phone_number_id']))) {
+                        $settings = $tenantSettings;
+                    }
                 }
-            } else {
-                $tDsn = "mysql:host=$db_host;port=$db_port;dbname={$dbName};charset=utf8mb4";
-                $tPdo = new PDO($tDsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-                $stmtT = $tPdo->query("SELECT * FROM merchant_waba_settings ORDER BY id DESC LIMIT 1");
-                $tenantSettings = $stmtT->fetch(PDO::FETCH_ASSOC);
-                if ($tenantSettings && (!empty($tenantSettings['business_phone']) || ($tenantSettings['web_api_session_status'] ?? '') === 'connected' || !empty($tenantSettings['phone_number_id']))) {
-                    $settings = $tenantSettings;
-                }
-            }
-        } catch (PDOException $e) {}
-    }
+            } catch (PDOException $e) {}
+        }
 
-    // 2. Fallback to master merchant_waba_settings by user_id
-    if (!$settings && $pdo_master && $tenantId > 0) {
-        try {
-            $stmt = $pdo_master->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? LIMIT 1");
-            $stmt->execute([$tenantId]);
-            $settings = $stmt->fetch(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {}
+        // 2. Fallback to master merchant_waba_settings by user_id
+        if (!$settings && $pdo_master && $tenantId > 0) {
+            try {
+                $stmt = $pdo_master->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? LIMIT 1");
+                $stmt->execute([$tenantId]);
+                $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {}
+        }
     }
 
     // 3. Check tenant_whatsapp_configs in master
@@ -290,18 +307,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $flash_type = 'danger';
         }
     }
-    // B. Edit Client Plan / Expiry / Status
+    // B. Edit Client Plan / Expiry / Status / Details
     elseif ($_POST['action'] === 'update_client_status') {
         $tenantId = intval($_POST['tenant_id'] ?? 0);
+        $cName = trim($_POST['company_name'] ?? '');
+        $oName = trim($_POST['owner_name'] ?? '');
+        $oEmail = strtolower(trim($_POST['owner_email'] ?? ''));
+        $cPhone = trim($_POST['phone'] ?? '');
         $uPlan = $_POST['plan'] ?? 'Silver';
         $uStatus = $_POST['status'] ?? 'Active';
         $uExpiry = $_POST['expiry_date'] ?? date('Y-m-d', strtotime('+1 year'));
         
         if ($tenantId > 0 && isset($pdo_master)) {
             try {
-                $stmtU = $pdo_master->prepare("UPDATE tenant_companies SET plan = ?, status = ?, expiry_date = ? WHERE id = ?");
-                $stmtU->execute([$uPlan, $uStatus, $uExpiry, $tenantId]);
-                $flash_msg = "CRM Client settings updated successfully!";
+                $stmtU = $pdo_master->prepare("UPDATE tenant_companies SET company_name = COALESCE(NULLIF(?, ''), company_name), owner_name = COALESCE(NULLIF(?, ''), owner_name), owner_email = COALESCE(NULLIF(?, ''), owner_email), phone = COALESCE(NULLIF(?, ''), phone), plan = ?, status = ?, expiry_date = ? WHERE id = ?");
+                $stmtU->execute([$cName, $oName, $oEmail, $cPhone, $uPlan, $uStatus, $uExpiry, $tenantId]);
+
+                if (!empty($oEmail)) {
+                    $pdo_master->prepare("UPDATE users SET name = COALESCE(NULLIF(?, ''), name), status = ? WHERE LOWER(email) = LOWER(?)")->execute([$oName, $uStatus, $oEmail]);
+                }
+
+                $flash_msg = "CRM Client settings & profile details updated successfully!";
                 $flash_type = "success";
             } catch (PDOException $e) {
                 $flash_msg = "Error updating client: " . $e->getMessage();
@@ -381,9 +407,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
     // E. Update Client Power & Page Access Permissions
+    // E. Update Client Power & Page Access Permissions
     elseif ($_POST['action'] === 'update_client_permissions') {
         $tenantId = intval($_POST['tenant_id'] ?? 0);
         $modulesArr = isset($_POST['modules']) && is_array($_POST['modules']) ? $_POST['modules'] : [];
+
+        // If either workspace_dashboard or whatsapp_dashboard is checked, also preserve 'dashboard' for fallback
+        if (in_array('workspace_dashboard', $modulesArr) || in_array('whatsapp_dashboard', $modulesArr)) {
+            if (!in_array('dashboard', $modulesArr)) {
+                $modulesArr[] = 'dashboard';
+            }
+        }
 
         // Auto-sync alias keys for WhatsApp settings and bot flows
         if (in_array('whatsapp_settings', $modulesArr) && !in_array('merchant_waba_settings', $modulesArr)) {
@@ -398,26 +432,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if (in_array('bot_flows', $modulesArr) && !in_array('whatsapp_flows', $modulesArr)) {
             $modulesArr[] = 'whatsapp_flows';
         }
+        if (in_array('broadcast_campaigns', $modulesArr) && !in_array('bulk_broadcast', $modulesArr)) {
+            $modulesArr[] = 'bulk_broadcast';
+        }
+        if (in_array('bulk_broadcast', $modulesArr) && !in_array('broadcast_campaigns', $modulesArr)) {
+            $modulesArr[] = 'broadcast_campaigns';
+        }
 
-        $modulesJson = json_encode(array_values(array_unique($modulesArr)));
+        $cleanModules = array_values(array_unique($modulesArr));
+        $modulesJson = json_encode($cleanModules);
         
         if ($tenantId > 0 && isset($pdo_master)) {
             try {
                 $stmtPerm = $pdo_master->prepare("UPDATE tenant_companies SET allowed_modules = ? WHERE id = ?");
                 $stmtPerm->execute([$modulesJson, $tenantId]);
 
-                // Synchronize with tenant DB user permissions
+                // Synchronize with tenant DB or tenant prefix user permissions
                 $stmtGetT = $pdo_master->prepare("SELECT * FROM tenant_companies WHERE id = ?");
                 $stmtGetT->execute([$tenantId]);
-                $tComp = $stmtGetT->fetch();
+                $tComp = $stmtGetT->fetch(PDO::FETCH_ASSOC);
                 if ($tComp && !empty($tComp['db_name'])) {
-                    try {
-                        $tDsn = "mysql:host=$db_host;port=$db_port;dbname={$tComp['db_name']};charset=utf8mb4";
-                        $tPdo = new PDO($tDsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-                        $stmtUpdUser = $tPdo->prepare("UPDATE users SET permissions = ? WHERE role = 'Admin'");
-                        $stmtUpdUser->execute([$modulesJson]);
-                    } catch (PDOException $tEx) {
-                        // Tenant DB sync warning ignored
+                    if (strpos($tComp['db_name'], 't_') === 0) {
+                        try {
+                            $userTbl = $tComp['db_name'] . 'users';
+                            $stmtUpdUser = $pdo_master->prepare("UPDATE `{$userTbl}` SET permissions = ? WHERE role = 'Admin'");
+                            $stmtUpdUser->execute([$modulesJson]);
+                        } catch (PDOException $tEx) {}
+                    } else {
+                        try {
+                            $tDsn = "mysql:host=$db_host;port=$db_port;dbname={$tComp['db_name']};charset=utf8mb4";
+                            $tPdo = new PDO($tDsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                            $stmtUpdUser = $tPdo->prepare("UPDATE users SET permissions = ? WHERE role = 'Admin'");
+                            $stmtUpdUser->execute([$modulesJson]);
+                        } catch (PDOException $tEx) {}
                     }
                 }
 
@@ -425,6 +472,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 unset($_SESSION['tenant_allowed_modules']);
                 unset($_SESSION['tenant_allowed_db']);
                 unset($_SESSION['user_permissions']);
+
+                // If currently impersonating this client, update session modules immediately
+                if (!empty($_SESSION['impersonate_tenant_id']) && (int)$_SESSION['impersonate_tenant_id'] === $tenantId) {
+                    $_SESSION['tenant_allowed_modules'] = $cleanModules;
+                }
 
                 $flash_msg = "Client Power & Page Access permissions updated successfully!";
                 $flash_type = "success";
@@ -523,7 +575,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         }
                     } else {
                         $metaUrl = "https://graph.facebook.com/v20.0/{$phone_number_id}/messages";
-                        $samplePdf = (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://friendlyaisolution.com') . '/uploads/invoices/sample.pdf';
+                        $samplePdf = 'https://friendlyaisolution.com/uploads/invoices/Marg_GUI_Invoice_BILL001.pdf';
                         $payload = [
                             'messaging_product' => 'whatsapp',
                             'to'                => $phoneDigits,
@@ -750,7 +802,7 @@ if (isset($pdo_master)) {
                             $status_class = ($cl['status'] === 'Active') ? 'success' : (($cl['status'] === 'Suspended') ? 'danger' : 'warning');
                             $plan_class = ($cl['plan'] === 'Enterprise') ? 'accent' : (($cl['plan'] === 'Gold') ? 'primary' : 'secondary');
 
-                            $default_all = ["dashboard","leads","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","team_inbox","merchant_waba_settings","whatsapp_settings","whatsapp_flows","bot_flows","broadcast_campaigns","bulk_broadcast","reports","settings"];
+                            $default_all = ["workspace_dashboard","whatsapp_dashboard","dashboard","leads","clients","customer_kyc","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","team_inbox","merchant_waba_settings","whatsapp_settings","whatsapp_flows","bot_flows","broadcast_campaigns","bulk_broadcast","reports","settings"];
                             $allowed_modules = !empty($cl['allowed_modules']) ? json_decode($cl['allowed_modules'], true) : $default_all;
                             if (!is_array($allowed_modules)) $allowed_modules = $default_all;
 
@@ -895,8 +947,8 @@ if (isset($pdo_master)) {
                                         <!-- Edit Plan & Status -->
                                         <button type="button" 
                                                 class="btn btn-sm btn-icon" 
-                                                onclick="openEditPlanModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '<?php echo $cl['plan']; ?>', '<?php echo $cl['status']; ?>', '<?php echo $cl['expiry_date']; ?>')" 
-                                                title="Edit Subscription Plan &amp; Expiry">
+                                                onclick="openEditPlanModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '<?php echo htmlspecialchars(addslashes($cl['owner_name'])); ?>', '<?php echo htmlspecialchars(addslashes($cl['owner_email'])); ?>', '<?php echo htmlspecialchars(addslashes($cl['phone'] ?? '')); ?>', '<?php echo $cl['plan']; ?>', '<?php echo $cl['status']; ?>', '<?php echo $cl['expiry_date']; ?>')" 
+                                                title="Edit Client Details, Subscription Plan &amp; Expiry">
                                             <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                         </button>
 
@@ -1069,11 +1121,11 @@ if (isset($pdo_master)) {
     </div>
 </div>
 
-<!-- Modal 2: Edit Plan & Expiry -->
+<!-- Modal 2: Edit Plan, Profile & Expiry -->
 <div id="edit-client-plan-modal" class="modal-overlay">
-    <div class="modal-container" style="max-width: 450px;">
+    <div class="modal-container" style="max-width: 540px;">
         <div class="modal-header">
-            <h3 class="m-0" style="font-family: var(--font-heading);" id="edit-plan-modal-title">Edit Subscription Plan</h3>
+            <h3 class="m-0" style="font-family: var(--font-heading);" id="edit-plan-modal-title">Edit Client &amp; Subscription</h3>
             <button class="btn-icon" onclick="window.closeModal('edit-client-plan-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
         </div>
         <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
@@ -1081,33 +1133,59 @@ if (isset($pdo_master)) {
             <input type="hidden" name="tenant_id" id="edit-tenant-id" value="">
 
             <div class="form-group m-0">
-                <label class="form-label text-xs font-semibold">Subscription Plan</label>
-                <select name="plan" id="edit-tenant-plan" class="form-control">
-                    <option value="Basic">Basic Plan</option>
-                    <option value="Silver">Silver Suite</option>
-                    <option value="Gold">Gold Pro</option>
-                    <option value="Enterprise">Platinum Enterprise</option>
-                </select>
+                <label class="form-label text-xs font-semibold">Firm / Company Name *</label>
+                <input type="text" name="company_name" id="edit-tenant-company-name" class="form-control" required>
             </div>
 
-            <div class="form-group m-0">
-                <label class="form-label text-xs font-semibold">Account Status</label>
-                <select name="status" id="edit-tenant-status" class="form-control">
-                    <option value="Active">Active</option>
-                    <option value="Trial">Trial</option>
-                    <option value="Suspended">Suspended</option>
-                    <option value="Expired">Expired</option>
-                </select>
+            <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Owner / Contact Name *</label>
+                    <input type="text" name="owner_name" id="edit-tenant-owner-name" class="form-control" required>
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Owner Email (Login ID) *</label>
+                    <input type="email" name="owner_email" id="edit-tenant-owner-email" class="form-control" required>
+                </div>
             </div>
 
-            <div class="form-group m-0">
-                <label class="form-label text-xs font-semibold">Expiry Date</label>
-                <input type="date" name="expiry_date" id="edit-tenant-expiry" class="form-control" required>
+            <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Phone Number</label>
+                    <input type="text" name="phone" id="edit-tenant-phone" class="form-control" placeholder="+91 98765 43210">
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Subscription Plan</label>
+                    <select name="plan" id="edit-tenant-plan" class="form-control">
+                        <option value="Basic">Basic Plan</option>
+                        <option value="Silver">Silver Suite</option>
+                        <option value="Gold">Gold Pro</option>
+                        <option value="Enterprise">Platinum Enterprise</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Account Status</label>
+                    <select name="status" id="edit-tenant-status" class="form-control">
+                        <option value="Active">Active</option>
+                        <option value="Trial">Trial</option>
+                        <option value="Suspended">Suspended</option>
+                        <option value="Expired">Expired</option>
+                    </select>
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">Expiry Date *</label>
+                    <input type="date" name="expiry_date" id="edit-tenant-expiry" class="form-control" required>
+                </div>
             </div>
 
             <div class="flex justify-end gap-3 mt-2">
                 <button type="button" class="btn btn-secondary text-xs" onclick="window.closeModal('edit-client-plan-modal')">Cancel</button>
-                <button type="submit" class="btn btn-primary text-xs">Save Subscription Changes</button>
+                <button type="submit" class="btn btn-primary text-xs flex align-center gap-2">
+                    <i data-lucide="check" style="width: 14px; height: 14px;"></i>
+                    <span>Save Client &amp; Subscription</span>
+                </button>
             </div>
         </form>
     </div>
@@ -1141,26 +1219,31 @@ if (isset($pdo_master)) {
             <div class="grid" style="grid-template-columns: repeat(2, 1fr); gap: 0.75rem; max-height: 340px; overflow-y: auto; padding-right: 4px;">
                 <?php 
                 $all_sys_modules = [
-                    'dashboard' => ['name' => 'Workspace Dashboard', 'desc' => 'Overview & Key Performance Indicators'],
-                    'leads' => ['name' => 'Leads Management', 'desc' => 'Directory of Leads & Customer Profiles'],
-                    'pipeline' => ['name' => 'Sales Pipeline Kanban', 'desc' => 'Stage-by-stage Deal Pipeline'],
-                    'followups' => ['name' => 'Follow-up Planner', 'desc' => 'Call Schedules & Reminders'],
-                    'demo' => ['name' => 'Product Demos', 'desc' => 'Live & Online Client Demo Tracker'],
-                    'quotation' => ['name' => 'Quotation & Invoice Builder', 'desc' => 'GST Invoices & PDF Export'],
-                    'payments' => ['name' => 'Payment Tracker', 'desc' => 'Outstanding & Payment Reminders'],
-                    'bank_accounts' => ['name' => 'Bank & QR Details', 'desc' => 'Bank Accounts & Payment QR Code Setup'],
-                    'installation' => ['name' => 'Deployment & Setup', 'desc' => 'On-site & Online Setup Checklist'],
-                    'training' => ['name' => 'Client Staff Training', 'desc' => 'Training Log & Hours Certification'],
-                    'support' => ['name' => 'Support Tickets', 'desc' => 'Customer Issues & Ticketing Desk'],
-                    'renewals' => ['name' => 'License Renewals', 'desc' => 'Expiry Tracker & AMC Reminders'],
-                    'team_inbox' => ['name' => 'Team Inbox & Live Chat', 'desc' => 'Multi-agent Team Chat Inbox'],
-                    'merchant_waba_settings' => ['name' => 'Marg ERP WABA Setup', 'desc' => 'Marg ERP 9+ Webhook Gateway Setup'],
-                    'whatsapp_settings' => ['name' => 'WhatsApp Cloud API', 'desc' => 'Meta API Settings & Embedded Signup'],
-                    'whatsapp_flows' => ['name' => 'WhatsApp Flow Builder', 'desc' => 'Interactive Bot Flow Designer'],
-                    'broadcast_campaigns' => ['name' => 'WhatsApp Campaigns', 'desc' => 'Targeted Audience WhatsApp Broadcasts'],
-                    'bulk_broadcast' => ['name' => 'Bulk Marketing Broadcast', 'desc' => 'Mass CSV/Excel Marketing Broadcasts'],
-                    'reports' => ['name' => 'Reports & Analytics', 'desc' => 'Business Intelligence & CSV Exports'],
-                    'settings' => ['name' => 'Workspace Settings', 'desc' => 'General CRM & Company Preferences']
+                    'workspace_dashboard'   => ['name' => 'Workspace Dashboard', 'desc' => 'Overview & Key Performance Indicators (Leads, Deals & Tickets)'],
+                    'whatsapp_dashboard'    => ['name' => 'WhatsApp Hub & Gateway', 'desc' => 'WhatsApp Web API Console, QR Pairing & Live Stats'],
+                    'leads'                 => ['name' => 'Leads Management', 'desc' => 'Directory of Leads & Customer Profiles'],
+                    'clients'               => ['name' => 'Clients Directory', 'desc' => 'Active Customer Accounts & Business Profiles'],
+                    'customer_kyc'          => ['name' => 'Customer KYC Verification', 'desc' => 'Customer KYC Details & Verification Records'],
+                    'pipeline'              => ['name' => 'Sales Pipeline Kanban', 'desc' => 'Stage-by-stage Deal Pipeline'],
+                    'followups'             => ['name' => 'Follow-up Planner', 'desc' => 'Call Schedules & Reminders'],
+                    'demo'                  => ['name' => 'Product Demos', 'desc' => 'Live & Online Client Demo Tracker'],
+                    'quotation'             => ['name' => 'Quotation & Invoice Builder', 'desc' => 'GST Invoices, Proformas & PDF Export'],
+                    'payments'              => ['name' => 'Payment Tracker', 'desc' => 'Outstanding & Payment Reminders'],
+                    'bank_accounts'         => ['name' => 'Bank & QR Details', 'desc' => 'Bank Accounts & Payment QR Code Setup'],
+                    'installation'          => ['name' => 'Deployment & Setup', 'desc' => 'On-site & Online Setup Checklist'],
+                    'training'              => ['name' => 'Client Staff Training', 'desc' => 'Training Log & Hours Certification'],
+                    'support'               => ['name' => 'Support Tickets', 'desc' => 'Customer Issues & Ticketing Desk'],
+                    'renewals'              => ['name' => 'License Renewals', 'desc' => 'Expiry Tracker & AMC Reminders'],
+                    'team_inbox'            => ['name' => 'Team Inbox & Live Chat', 'desc' => 'Multi-agent Team Chat Inbox'],
+                    'merchant_waba_settings'=> ['name' => 'Marg ERP WABA Setup', 'desc' => 'Marg ERP 9+ Webhook Gateway Setup & QR'],
+                    'whatsapp_settings'     => ['name' => 'WhatsApp Cloud API', 'desc' => 'Meta API Settings & Embedded Signup'],
+                    'whatsapp_flows'        => ['name' => 'Bots & Auto-Reply', 'desc' => 'Interactive Bot Flow Designer & Auto-Replies (Requires Meta Cloud API)'],
+                    'broadcast_campaigns'   => ['name' => 'WhatsApp Campaigns', 'desc' => 'Targeted Audience WhatsApp Broadcasts'],
+                    'bulk_broadcast'        => ['name' => 'Bulk Marketing Broadcast', 'desc' => 'Mass CSV/Excel Marketing Broadcasts'],
+                    'reports'               => ['name' => 'Reports & Analytics', 'desc' => 'Business Intelligence & CSV Exports'],
+                    'settings'              => ['name' => 'Workspace Settings', 'desc' => 'General CRM & Company Preferences'],
+                    'privacy_policy'        => ['name' => 'Privacy Policy', 'desc' => 'Legal Privacy Policy & Compliance Document'],
+                    'terms_conditions'      => ['name' => 'Terms & Conditions', 'desc' => 'Legal Terms of Service & Usage Terms']
                 ];
                 foreach ($all_sys_modules as $mod_key => $mod_info):
                 ?>
@@ -1242,9 +1325,13 @@ if (isset($pdo_master)) {
 </div>
 
 <script>
-function openEditPlanModal(tenantId, companyName, plan, status, expiryDate) {
+function openEditPlanModal(tenantId, companyName, ownerName, ownerEmail, phone, plan, status, expiryDate) {
     document.getElementById('edit-tenant-id').value = tenantId;
-    document.getElementById('edit-plan-modal-title').textContent = 'Edit Subscription: ' + companyName;
+    document.getElementById('edit-plan-modal-title').textContent = 'Edit Client & Subscription: ' + companyName;
+    document.getElementById('edit-tenant-company-name').value = companyName || '';
+    document.getElementById('edit-tenant-owner-name').value = ownerName || '';
+    document.getElementById('edit-tenant-owner-email').value = ownerEmail || '';
+    document.getElementById('edit-tenant-phone').value = phone || '';
     document.getElementById('edit-tenant-plan').value = plan;
     document.getElementById('edit-tenant-status').value = status;
     document.getElementById('edit-tenant-expiry').value = expiryDate;
@@ -1256,15 +1343,25 @@ function openPermissionsModal(tenantId, companyName, allowedModules) {
     document.getElementById('perm-modal-title').textContent = 'Power Permissions: ' + companyName;
 
     const checkboxes = document.querySelectorAll('.module-perm-chk');
+    const hasExplicitDash = Array.isArray(allowedModules) && (allowedModules.includes('workspace_dashboard') || allowedModules.includes('whatsapp_dashboard'));
     checkboxes.forEach(chk => {
         let val = chk.value;
         let isChecked = Array.isArray(allowedModules) && allowedModules.includes(val);
 
         if (!isChecked && Array.isArray(allowedModules)) {
+            // Check legacy aliases only if not explicitly configured with modern dashboard keys
+            if (!hasExplicitDash) {
+                if (val === 'workspace_dashboard' && allowedModules.includes('dashboard')) isChecked = true;
+                if (val === 'whatsapp_dashboard' && (allowedModules.includes('dashboard') || allowedModules.includes('merchant_waba_settings') || allowedModules.includes('whatsapp_settings'))) isChecked = true;
+            }
             if (val === 'whatsapp_settings' && allowedModules.includes('merchant_waba_settings')) isChecked = true;
             if (val === 'merchant_waba_settings' && allowedModules.includes('whatsapp_settings')) isChecked = true;
             if (val === 'whatsapp_flows' && allowedModules.includes('bot_flows')) isChecked = true;
             if (val === 'bot_flows' && allowedModules.includes('whatsapp_flows')) isChecked = true;
+            if (val === 'broadcast_campaigns' && allowedModules.includes('bulk_broadcast')) isChecked = true;
+            if (val === 'bulk_broadcast' && allowedModules.includes('broadcast_campaigns')) isChecked = true;
+            if (val === 'customer_kyc' && (allowedModules.includes('clients') || allowedModules.includes('leads'))) isChecked = true;
+            if (val === 'clients' && allowedModules.includes('leads')) isChecked = true;
         }
 
         chk.checked = isChecked;

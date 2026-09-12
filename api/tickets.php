@@ -65,13 +65,29 @@ if ($method === 'GET') {
     if ($action === 'update_status') {
         $ticket_id = trim($input['ticket_id'] ?? '');
         $status = trim($input['status'] ?? '');
+        $remark = trim($input['remark'] ?? $input['resolution'] ?? '');
         
         if (empty($ticket_id) || empty($status)) {
             sendJsonResponse(['success' => false, 'message' => 'Ticket ID and status required.'], 400);
         }
+
+        $origStmt = $pdo->prepare("SELECT status FROM support_tickets WHERE id = ?");
+        $origStmt->execute([$ticket_id]);
+        $origStatus = $origStmt->fetchColumn() ?: 'open';
         
         $stmt = $pdo->prepare("UPDATE support_tickets SET status = ? WHERE id = ?");
         $stmt->execute([$status, $ticket_id]);
+
+        try {
+            $isReopen = in_array(strtolower($origStatus), ['resolved', 'closed']) && in_array(strtolower($status), ['open', 'in_progress', 'pending']);
+            $isClose = in_array(strtolower($status), ['resolved', 'closed']);
+            $actType = $isReopen ? 'reopened' : ($isClose ? 'resolved' : 'status_change');
+            $statusNote = "Status updated from '" . ucfirst($origStatus) . "' to '" . ucfirst($status) . "'" . (!empty($remark) ? ". Remark: {$remark}" : "");
+            if ($isReopen) $statusNote = "Ticket REOPENED from '" . ucfirst($origStatus) . "' to '" . ucfirst($status) . "'" . (!empty($remark) ? ". Reason: {$remark}" : "");
+            
+            $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, ?, ?, 'API User', ?, NOW())");
+            $stmtH->execute([$ticket_id, $actType, $_SESSION['user_name'] ?? 'API User', $statusNote]);
+        } catch (Throwable $eH) {}
         
         sendJsonResponse(['success' => true, 'message' => 'Ticket status updated successfully.']);
     } else {
@@ -84,7 +100,7 @@ if ($method === 'GET') {
             sendJsonResponse(['success' => false, 'message' => 'Customer Name and Subject are required.'], 400);
         }
         
-        $tckId = 'TCK-' . rand(1000, 9999);
+        $tckId = generate_ticket_number($pdo);
         
         $stmt = $pdo->prepare("
             INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, problem, date_created)
@@ -97,13 +113,41 @@ if ($method === 'GET') {
             $subject,
             $priority,
             $input['status'] ?? 'open',
-            $input['assigned_to'] ?? 'Rahul P.',
+            $input['assigned_to'] ?? 'Unassigned',
             $input['lead_id'] ?? null,
             $input['phone'] ?? null,
             $input['email'] ?? null,
             $input['product'] ?? 'Marg ERP Pro',
             $input['problem'] ?? null
         ]);
+
+        try {
+            $stmtTktSync = $pdo->prepare("
+                INSERT INTO tickets (ticket_number, license_number, firm_name, customer_name, mobile, email, category, priority, description, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $stmtTktSync->execute([
+                $tckId,
+                $input['lead_id'] ?? '',
+                $customer_name,
+                $customer_name,
+                $input['phone'] ?? '',
+                $input['email'] ?? '',
+                $subject,
+                ucfirst($priority),
+                $input['problem'] ?? '',
+                ucfirst($input['status'] ?? 'open')
+            ]);
+        } catch (Throwable $eTSync) {}
+
+        try {
+            $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'created', ?, 'API', ?, NOW())");
+            $stmtH->execute([
+                $tckId,
+                $_SESSION['user_name'] ?? 'API User',
+                "Ticket created via API for {$customer_name}. Subject: {$subject}, Priority: {$priority}"
+            ]);
+        } catch (Throwable $eH) {}
         
         sendJsonResponse([
             'success' => true,

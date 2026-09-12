@@ -87,7 +87,8 @@
     transition: opacity var(--transition-base);
 }
 
-.modal-overlay.open {
+.modal-overlay.open,
+.modal-overlay.active {
     opacity: 1;
     pointer-events: auto;
 }
@@ -106,7 +107,8 @@
     transition: transform var(--transition-base);
 }
 
-.modal-overlay.open .modal-container {
+.modal-overlay.open .modal-container,
+.modal-overlay.active .modal-container {
     transform: scale(1);
 }
 

@@ -2,6 +2,22 @@
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
 
+// SaaS Multi-Tenancy: Route Tenant Clients directly to dedicated WhatsApp & Marg ERP Dashboard
+$is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) || !empty($_SESSION['impersonate_tenant_db']) || (($_SESSION['user_role'] ?? '') === 'Tenant Admin') || (($_SESSION['login_source'] ?? '') === 'tenant_companies');
+
+$active_page_req = $_GET['page'] ?? 'dashboard';
+$active_tab_req = $_GET['tab'] ?? '';
+if ($is_tenant_session) {
+    $can_ws = hasAccess('workspace_dashboard', $_SESSION['user_role'] ?? '');
+    $can_wa = hasAccess('whatsapp_dashboard', $_SESSION['user_role'] ?? '');
+
+    // If client does NOT have permission for workspace dashboard, or requested whatsapp:
+    if (!$can_ws || $active_page_req === 'whatsapp_dashboard' || ($active_tab_req === 'whatsapp') || ($active_page_req === 'dashboard' && $can_wa && $active_tab_req !== 'workspace')) {
+        require_once __DIR__ . '/tenant_whatsapp_dashboard.php';
+        return;
+    }
+}
+
 // Default values (fallbacks)
 $totalLeads = 0;
 $leadTrend = '0 this month';
@@ -47,7 +63,7 @@ $funnel_data = [0, 0, 0, 0, 0, 0];
 
 $user_role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_name = $_SESSION['user_name'] ?? '';
-$is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
+$is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin' || $user_role === 'Tenant Admin');
 
 // Load real data if connected
 if ($db_connected && $pdo) {
@@ -502,6 +518,19 @@ window.dashboardChartData = {
 </script>
 
 <div class="dashboard-container">
+    <?php if ($is_tenant_session && hasAccess('whatsapp_dashboard', $user_role)): ?>
+        <div class="flex align-center gap-2 mb-4 p-1 border-radius-md" style="background: var(--bg-card); border: 1px solid var(--border-color); width: fit-content; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+            <a href="index.php?page=dashboard&tab=whatsapp" class="btn btn-sm btn-secondary text-xs flex align-center gap-2" style="font-weight: 600; border-radius: 8px; padding: 0.5rem 1.1rem;">
+                <i data-lucide="message-square-dashed" style="width: 15px; height: 15px; color: #10b981;"></i>
+                <span>WhatsApp Hub & Gateway</span>
+            </a>
+            <a href="index.php?page=dashboard&tab=workspace" class="btn btn-sm btn-primary text-xs flex align-center gap-2" style="font-weight: 700; border-radius: 8px; padding: 0.5rem 1.1rem; box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);">
+                <i data-lucide="layout-dashboard" style="width: 15px; height: 15px;"></i>
+                <span>Workspace CRM Dashboard</span>
+            </a>
+        </div>
+    <?php endif; ?>
+
     <!-- Top Greeting Row -->
     <div class="flex justify-between align-center mb-6">
         <div>
@@ -601,45 +630,168 @@ window.dashboardChartData = {
 </div>
 
 <?php
-// Check if current user WABA settings are unconfigured
+// Smart WhatsApp Onboarding Modal Logic:
+// 1. Never show if already dismissed or shown in this session
+// 2. Never show if WhatsApp is ALREADY CONNECTED (Meta Cloud or Web API)
 $showWabaModal = false;
-if ($db_connected && $pdo) {
-    $uid = $_SESSION['user_id'] ?? 1;
-    $stmtWabaChk = $pdo->prepare("SELECT phone_number_id, access_token FROM merchant_waba_settings WHERE user_id = ?");
-    $stmtWabaChk->execute([$uid]);
-    $wabaRow = $stmtWabaChk->fetch(PDO::FETCH_ASSOC);
-    if (!$wabaRow || empty($wabaRow['phone_number_id']) || empty($wabaRow['access_token'])) {
-        $showWabaModal = true;
+
+if (empty($_SESSION['waba_modal_dismissed']) && empty($_SESSION['waba_onboarding_shown'])) {
+    if ($db_connected && $pdo) {
+        $uid = $_SESSION['user_id'] ?? 1;
+        $isWhatsappConnected = false;
+
+        // A. Check master merchant_waba_settings
+        try {
+            $stmtWabaChk = $pdo->prepare("SELECT phone_number_id, access_token, web_api_session_status, business_phone FROM merchant_waba_settings WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+            $stmtWabaChk->execute([$uid]);
+            $wabaRow = $stmtWabaChk->fetch(PDO::FETCH_ASSOC);
+            if ($wabaRow) {
+                if (($wabaRow['web_api_session_status'] ?? '') === 'connected') {
+                    $isWhatsappConnected = true;
+                } elseif (!empty($wabaRow['phone_number_id']) && !empty($wabaRow['access_token'])) {
+                    $isWhatsappConnected = true;
+                } elseif (!empty($wabaRow['business_phone'])) {
+                    $isWhatsappConnected = true;
+                }
+            }
+        } catch (\PDOException $e) {}
+
+        // B. Check tenant table prefix if tenant session
+        if (!$isWhatsappConnected && !empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0) {
+            $tbl = "{$_SESSION['tenant_db']}merchant_waba_settings";
+            try {
+                $stmtTT = $pdo->query("SELECT phone_number_id, access_token, web_api_session_status, business_phone FROM `{$tbl}` ORDER BY id DESC LIMIT 1");
+                $tRow = $stmtTT->fetch(PDO::FETCH_ASSOC);
+                if ($tRow) {
+                    if (($tRow['web_api_session_status'] ?? '') === 'connected') {
+                        $isWhatsappConnected = true;
+                    } elseif (!empty($tRow['phone_number_id']) && !empty($tRow['access_token'])) {
+                        $isWhatsappConnected = true;
+                    } elseif (!empty($tRow['business_phone'])) {
+                        $isWhatsappConnected = true;
+                    }
+                }
+            } catch (\PDOException $e) {}
+        }
+
+        // C. Check tenant_whatsapp_configs
+        if (!$isWhatsappConnected) {
+            try {
+                $stmtTwc = $pdo->prepare("SELECT phone_number_id, access_token, display_phone_number FROM tenant_whatsapp_configs WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+                $stmtTwc->execute([$uid]);
+                $twcRow = $stmtTwc->fetch(PDO::FETCH_ASSOC);
+                if ($twcRow) {
+                    if (!empty($twcRow['phone_number_id']) && !empty($twcRow['access_token'])) {
+                        $isWhatsappConnected = true;
+                    } elseif (!empty($twcRow['display_phone_number'])) {
+                        $isWhatsappConnected = true;
+                    }
+                }
+            } catch (\PDOException $e) {}
+        }
+
+        if (!$isWhatsappConnected) {
+            $showWabaModal = true;
+            // Mark as shown once for this session so repeated refreshes DO NOT show it again
+            $_SESSION['waba_onboarding_shown'] = true;
+        }
     }
 }
 ?>
 
 <?php if ($showWabaModal): ?>
-<!-- Post-Login Meta Embedded Signup Onboarding Modal -->
-<div id="meta-waba-onboarding-modal" class="modal-overlay active" style="display: flex; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);">
-    <div class="modal-container" style="max-width: 580px; background: #0f172a; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); padding: 28px;">
-        <div style="text-align: center; margin-bottom: 20px;">
-            <div style="width: 64px; height: 64px; border-radius: 20px; background: rgba(59, 130, 246, 0.15); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 12px; border: 1px solid rgba(59, 130, 246, 0.3);">
-                <i data-lucide="qr-code" style="width: 34px; height: 34px; color: #3b82f6;"></i>
+<!-- Post-Login Professional WhatsApp Business Onboarding Modal -->
+<div id="meta-waba-onboarding-modal" class="modal-overlay active" style="display: flex; background: rgba(2, 6, 23, 0.78); backdrop-filter: blur(12px); z-index: 99999; transition: opacity 0.3s ease;">
+    <div class="modal-container" style="max-width: 540px; width: 100%; background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 24px; box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.75), 0 0 35px rgba(16, 185, 129, 0.15); padding: 32px; position: relative; animation: modalPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);">
+        
+        <!-- Close (X) button -->
+        <button type="button" onclick="dismissWabaModal()" style="position: absolute; top: 20px; right: 20px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 50%; width: 32px; height: 32px; color: #94a3b8; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.color='#fff'; this.style.background='rgba(255,255,255,0.12)'" onmouseout="this.style.color='#94a3b8'; this.style.background='rgba(255,255,255,0.06)'" title="Close">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+
+        <!-- Header -->
+        <div style="text-align: center; margin-bottom: 22px;">
+            <div style="width: 70px; height: 70px; border-radius: 22px; background: linear-gradient(135deg, rgba(37, 211, 102, 0.2), rgba(18, 140, 126, 0.3)); border: 2px solid rgba(37, 211, 102, 0.5); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 14px; box-shadow: 0 8px 24px rgba(37, 211, 102, 0.25);">
+                <i class="fa-brands fa-whatsapp" style="font-size: 2.35rem; color: #25D366;"></i>
             </div>
-            <h2 style="font-size: 1.4rem; font-weight: 700; color: #ffffff; margin-bottom: 6px;">Connect Your WhatsApp Business Account</h2>
-            <p style="color: #94a3b8; font-size: 0.875rem; margin: 0;">Connect Meta WABA in 1-Click to dispatch Marg ERP Bills & Marketing Broadcasts from your OWN WhatsApp Number.</p>
+            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.5rem; font-weight: 700; color: #ffffff; margin-bottom: 6px; letter-spacing: -0.01em;">
+                Connect WhatsApp Business
+            </h2>
+            <p style="color: #94a3b8; font-size: 0.88rem; line-height: 1.5; margin: 0; max-width: 440px; margin: 0 auto;">
+                Automate your business communication. Dispatch Marg ERP invoices, payment receipts &amp; reminders directly from your own number.
+            </p>
         </div>
 
-        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-size: 0.85rem; color: #cbd5e1; line-height: 1.6;">
-            💡 <strong>No Meta App Creation Required!</strong><br>
-            Aapko Meta Developer portal me App banane ki zaroorat nahi hai. Humare <strong>Official Meta Tech Provider Solution</strong> dwara bas Meta account se log in karein — aapka WhatsApp number 30 second me connect ho jayega!
+        <!-- Features Box -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 18px; margin-bottom: 24px;">
+            <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.86rem; color: #cbd5e1;">
+                <div style="display: flex; align-items: flex-start; gap: 10px;">
+                    <div style="width: 24px; height: 24px; border-radius: 6px; background: rgba(37, 211, 102, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">
+                        <i class="fa-solid fa-bolt" style="font-size: 0.8rem; color: #25D366;"></i>
+                    </div>
+                    <div>
+                        <strong style="color: #fff;">1-Click Official Meta Embedded Signup</strong>
+                        <div style="font-size: 0.78rem; color: #94a3b8;">Zero technical configuration required. Connect in 30 seconds.</div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: flex-start; gap: 10px;">
+                    <div style="width: 24px; height: 24px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">
+                        <i class="fa-solid fa-file-invoice" style="font-size: 0.8rem; color: #60a5fa;"></i>
+                    </div>
+                    <div>
+                        <strong style="color: #fff;">Instant Marg ERP Bill &amp; Ledger Dispatch</strong>
+                        <div style="font-size: 0.78rem; color: #94a3b8;">Trigger automatic PDF invoices directly upon billing completion.</div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: flex-start; gap: 10px;">
+                    <div style="width: 24px; height: 24px; border-radius: 6px; background: rgba(168, 85, 247, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">
+                        <i class="fa-solid fa-shield-halved" style="font-size: 0.8rem; color: #c084fc;"></i>
+                    </div>
+                    <div>
+                        <strong style="color: #fff;">Meta Verified Official Gateway</strong>
+                        <div style="font-size: 0.78rem; color: #94a3b8;">Highest delivery success rates with end-to-end encryption.</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-            <a href="index.php?page=merchant_waba_settings" class="btn btn-primary" style="padding: 12px; border-radius: 12px; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 8px; background: #3b82f6; border: none; text-decoration: none; color: white;">
-                <i data-lucide="zap" style="width: 20px; height: 20px;"></i>
-                Connect WhatsApp WABA Now
+        <!-- Action Buttons -->
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <a href="index.php?page=merchant_waba_settings" class="btn" style="padding: 13px; border-radius: 12px; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(135deg, #10b981, #059669); border: none; text-decoration: none; color: white; box-shadow: 0 4px 18px rgba(16, 185, 129, 0.35); transition: transform 0.2s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='translateY(0)'">
+                <i class="fa-brands fa-whatsapp" style="font-size: 1.15rem;"></i>
+                Connect WhatsApp Business Now
             </a>
-            <button type="button" onclick="document.getElementById('meta-waba-onboarding-modal').style.display='none'" class="btn btn-secondary text-xs" style="background: transparent; border: none; color: #64748b; padding: 6px;">
+            <button type="button" onclick="dismissWabaModal()" style="background: transparent; border: none; color: #64748b; font-size: 0.82rem; font-weight: 600; padding: 8px; cursor: pointer; transition: color 0.2s;" onmouseover="this.style.color='#cbd5e1'" onmouseout="this.style.color='#64748b'">
                 Remind Me Later
             </button>
         </div>
     </div>
 </div>
+
+<script>
+    // Client-side guard: Never show if dismissed in this browser session
+    if (sessionStorage.getItem('waba_modal_dismissed') === '1') {
+        const modal = document.getElementById('meta-waba-onboarding-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function dismissWabaModal() {
+        const modal = document.getElementById('meta-waba-onboarding-modal');
+        if (modal) {
+            modal.style.opacity = '0';
+            modal.style.pointerEvents = 'none';
+            setTimeout(() => { modal.style.display = 'none'; }, 250);
+        }
+        // Save client-side in sessionStorage
+        sessionStorage.setItem('waba_modal_dismissed', '1');
+        // Save server-side in PHP session so subsequent reloads never show it
+        fetch('api/dismiss_waba_modal.php').catch(() => {});
+    }
+</script>
+<style>
+@keyframes modalPop {
+    0% { transform: scale(0.92); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+</style>
 <?php endif; ?>

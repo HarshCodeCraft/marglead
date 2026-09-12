@@ -391,14 +391,15 @@ class WhatsAppAPI {
             try {
                 $wamid = $resData['messages'][0]['id'] ?? null;
                 $recipient = $payload['to'] ?? '';
-                $stmtMsg = $this->pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json) VALUES ('OUTBOUND', ?, ?, ?, ?, ?, ?)");
+                $stmtMsg = $this->pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json, created_at) VALUES ('OUTBOUND', ?, ?, ?, ?, ?, ?, ?)");
                 $stmtMsg->execute([
                     $recipient,
                     $msgType,
                     $msgSummary,
                     $wamid,
                     ($httpCode >= 200 && $httpCode < 300) ? 'sent' : 'failed',
-                    $response
+                    $response,
+                    date('Y-m-d H:i:s')
                 ]);
             } catch (Throwable $e) {
                 // Ignore DB log error
@@ -477,7 +478,7 @@ class WhatsAppAPI {
     /**
      * Submit Message Template directly to Meta Graph API for Approval
      */
-    public function createMetaTemplate(string $wabaId, string $name, string $category, string $bodyText, string $language = 'en_US', ?string $headerText = null, ?string $footerText = null): array {
+    public function createMetaTemplate(string $wabaId, string $name, string $category, string $bodyText, string $language = 'en_US', ?string $headerText = null, ?string $footerText = null, ?string $buttonsJson = null): array {
         $url = "https://graph.facebook.com/{$this->graphVersion}/{$wabaId}/message_templates";
         
         $categoryMap = [
@@ -485,13 +486,24 @@ class WhatsAppAPI {
             'UTILITY' => 'UTILITY',
             'AUTHENTICATION' => 'AUTHENTICATION'
         ];
-        $metaCategory = $categoryMap[strtoupper($category)] ?? 'MARKETING';
+        $metaCategory = $categoryMap[strtoupper($category)] ?? 'UTILITY';
 
-        // Auto-convert human placeholder tags {name}, {company}, {amount} to Meta variables {{1}}, {{2}}...
+        // Auto-convert placeholder tags {name}, {company}, {amount}, {due_date} to Meta variables {{1}}, {{2}}...
+        // Ignore purely numeric/phone curly braces like {9305045727} (strip the braces)
+        $bodyTextClean = preg_replace('/\{([0-9\+\-\s]+)\}/', '$1', $bodyText);
+
         $paramCount = 1;
-        $formattedBody = preg_replace_callback('/\{[a-zA-Z0-9_]+\}/', function($m) use (&$paramCount) {
+        $formattedBody = preg_replace_callback('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', function($m) use (&$paramCount) {
             return '{{' . ($paramCount++) . '}}';
-        }, $bodyText);
+        }, $bodyTextClean);
+
+        // Meta rule: Variables can't be at the very end or very start of the template
+        if (preg_match('/\{\{\d+\}\}\s*$/', trim($formattedBody))) {
+            $formattedBody = rtrim($formattedBody) . ' Team.';
+        }
+        if (preg_match('/^\s*\{\{\d+\}\}/', $formattedBody)) {
+            $formattedBody = 'Hello ' . ltrim($formattedBody);
+        }
 
         $components = [];
         if (!empty($headerText)) {
@@ -511,7 +523,7 @@ class WhatsAppAPI {
         preg_match_all('/\{\{(\d+)\}\}/', $formattedBody, $matches);
         if (!empty($matches[1])) {
             $sampleVars = [];
-            $sampleValues = ['Customer Name', 'Marg ERP Software', 'Rs 1500', '31-Aug-2026', 'Sales Team'];
+            $sampleValues = ['Customer Name', 'Marg Pharma', 'Rs 1500', '31-Aug-2026', 'Sales Team', 'INV-1001'];
             foreach ($matches[1] as $idx => $num) {
                 $sampleVars[] = $sampleValues[$idx % count($sampleValues)];
             }
@@ -529,6 +541,32 @@ class WhatsAppAPI {
             ];
         }
 
+        // Add Quick Reply Buttons if provided
+        if (!empty($buttonsJson)) {
+            $btnList = is_array($buttonsJson) ? $buttonsJson : json_decode($buttonsJson, true);
+            if (!empty($btnList) && is_array($btnList)) {
+                $metaButtons = [];
+                foreach (array_slice($btnList, 0, 3) as $btn) {
+                    $bTitle = trim($btn['title'] ?? '');
+                    // Sanitize title (max 25 chars for Meta button text)
+                    $bTitleClean = mb_substr(preg_replace('/[^\p{L}\p{N}\s\-\.\?]/u', '', $bTitle), 0, 25);
+                    if (empty($bTitleClean)) $bTitleClean = mb_substr($bTitle, 0, 25);
+                    if (!empty($bTitleClean)) {
+                        $metaButtons[] = [
+                            'type' => 'QUICK_REPLY',
+                            'text' => trim($bTitleClean)
+                        ];
+                    }
+                }
+                if (!empty($metaButtons)) {
+                    $components[] = [
+                        'type' => 'BUTTONS',
+                        'buttons' => $metaButtons
+                    ];
+                }
+            }
+        }
+
         $payload = [
             'name' => strtolower($name),
             'category' => $metaCategory,
@@ -536,9 +574,11 @@ class WhatsAppAPI {
             'components' => $components
         ];
 
+        $token = !empty($overrideToken) ? $overrideToken : $this->accessToken;
+
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Bearer ' . $this->accessToken,
+            'Authorization: Bearer ' . $token,
             'Content-Type: application/json'
         ]);
         curl_setopt($ch, CURLOPT_POST, true);
@@ -557,4 +597,31 @@ class WhatsAppAPI {
             'response' => $resData
         ];
     }
+
+    /**
+     * Delete Message Template from Meta Graph API
+     */
+    public function deleteMetaTemplate(string $wabaId, string $templateName, ?string $overrideToken = null): array {
+        $token = !empty($overrideToken) ? $overrideToken : $this->accessToken;
+        $url = "https://graph.facebook.com/{$this->graphVersion}/{$wabaId}/message_templates?name=" . urlencode($templateName);
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $token
+        ]);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $resData = json_decode($response, true) ?? [];
+        return [
+            'success'  => ($httpCode >= 200 && $httpCode < 300 && !empty($resData['success'])),
+            'httpCode' => $httpCode,
+            'response' => $resData
+        ];
+    }
 }
+

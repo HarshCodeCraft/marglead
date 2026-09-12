@@ -25,15 +25,28 @@ $jsonInput = json_decode($rawInput, true) ?? [];
 
 $user_id = (int)($_GET['user_id'] ?? $_POST['user_id'] ?? $jsonInput['user_id'] ?? $_SESSION['user_id'] ?? 1);
 
-// Node.js local self-hosted engine URL (if running locally/on server)
-$localNodeEngineUrl = getenv('WHATSAPP_ENGINE_URL') ?: 'http://127.0.0.1:3005';
+// Central 24/7 Oracle Cloud WhatsApp Engine URL (Port 3000)
+$localNodeEngineUrl = defined('WHATSAPP_ENGINE_URL') ? WHATSAPP_ENGINE_URL : (getenv('WHATSAPP_ENGINE_URL') ?: 'http://140.238.167.58:3000');
+
+// Fetch merchant's current settings from DB
+$currentMerchant = null;
+if (isset($pdo) && $pdo && $user_id) {
+    try {
+        $stmtUrl = $pdo->prepare("SELECT web_api_url, gateway_type, web_api_session_status, business_phone FROM merchant_waba_settings WHERE user_id = ?");
+        $stmtUrl->execute([$user_id]);
+        $currentMerchant = $stmtUrl->fetch(PDO::FETCH_ASSOC);
+        if (!empty($currentMerchant['web_api_url']) && strpos($currentMerchant['web_api_url'], 'whatsapp_web_engine.php') === false && strpos($currentMerchant['web_api_url'], 'http') === 0) {
+            $localNodeEngineUrl = rtrim($currentMerchant['web_api_url'], '/');
+        }
+    } catch (PDOException $e) {}
+}
 
 function callLocalNodeEngine($endpoint, $postData = null) {
     global $localNodeEngineUrl;
     $ch = curl_init(rtrim($localNodeEngineUrl, '/') . $endpoint);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 4);
 
     if ($postData !== null) {
         curl_setopt($ch, CURLOPT_POST, true);
@@ -51,26 +64,88 @@ function callLocalNodeEngine($endpoint, $postData = null) {
     return null;
 }
 
+function syncUserWebStatus($pdo, $userId, $status, $phone = '') {
+    if (!$pdo || !$userId) return;
+    try {
+        $cleanPhone = !empty($phone) ? ('+' . ltrim($phone, '+')) : '';
+        
+        // Fetch current gateway type so we preserve Meta users
+        $currentGw = 'meta';
+        try {
+            $stmtGw = $pdo->prepare("SELECT gateway_type FROM merchant_waba_settings WHERE user_id = ?");
+            $stmtGw->execute([$userId]);
+            $currentGw = $stmtGw->fetchColumn() ?: 'meta';
+        } catch (\Exception $e) {}
+
+        $targetGw = ($currentGw === 'meta') ? 'meta' : 'web_api';
+        
+        // 1. Update master merchant_waba_settings for this specific user only
+        if ($status === 'connected' && !empty($cleanPhone)) {
+            $stmt = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'connected', business_phone = ?, gateway_type = ? WHERE user_id = ?");
+            $stmt->execute([$cleanPhone, $targetGw, $userId]);
+        } else if ($status === 'disconnected') {
+            $stmt = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected' WHERE user_id = ?");
+            $stmt->execute([$userId]);
+        }
+
+        // 2. If this user is a tenant, update ONLY that tenant's dedicated table
+        if ($userId > 1) {
+            $stmtTenant = $pdo->prepare("SELECT db_name FROM tenant_companies WHERE id = ?");
+            $stmtTenant->execute([$userId]);
+            $tDb = $stmtTenant->fetchColumn() ?: '';
+            if (!empty($tDb) && strpos($tDb, 't_') === 0) {
+                $tbl = "{$tDb}merchant_waba_settings";
+                try {
+                    if ($status === 'connected' && !empty($cleanPhone)) {
+                        $stmtT = $pdo->prepare("UPDATE `{$tbl}` SET web_api_session_status = 'connected', business_phone = ?, gateway_type = 'web_api' WHERE user_id = ?");
+                        $stmtT->execute([$cleanPhone, $userId]);
+                    } else if ($status === 'disconnected') {
+                        $stmtT = $pdo->prepare("UPDATE `{$tbl}` SET web_api_session_status = 'disconnected' WHERE user_id = ?");
+                        $stmtT->execute([$userId]);
+                    }
+                } catch (\Exception $ex) {}
+            }
+        }
+    } catch (\Exception $e) {}
+}
+
 if ($action === 'get_qr') {
     // Attempt fetching live QR or status from Node Baileys engine for this specific user
     $nodeRes = callLocalNodeEngine('/qr?user_id=' . $user_id);
     if ($nodeRes) {
+        $engineUserId = isset($nodeRes['user_id']) ? (string)$nodeRes['user_id'] : '';
+        $isMultiUserMatch = ($engineUserId === (string)$user_id);
+
         if (!empty($nodeRes['status']) && $nodeRes['status'] === 'connected') {
             $phone = $nodeRes['phone'] ?? $nodeRes['phone_number'] ?? '';
-            if (isset($pdo) && $pdo && !empty($phone)) {
+            $isSameUserPhone = !empty($currentMerchant['business_phone']) && (trim($currentMerchant['business_phone'], '+') === trim($phone, '+'));
+
+            $tenantPhone = '';
+            if (isset($pdo) && $pdo && $user_id > 1) {
                 try {
-                    $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET gateway_type = 'web_api', web_api_session_status = 'connected', business_phone = ? WHERE user_id = ?");
-                    $stmtSync->execute(['+' . ltrim($phone, '+'), $user_id]);
-                } catch (PDOException $e) {}
+                    $stmtTP = $pdo->prepare("SELECT phone FROM tenant_companies WHERE id = ?");
+                    $stmtTP->execute([$user_id]);
+                    $tenantPhone = $stmtTP->fetchColumn() ?: '';
+                } catch (\Exception $e) {}
             }
-            echo json_encode([
-                'status'       => 'connected',
-                'phone'        => $phone,
-                'phone_number' => $phone,
-                'user_id'      => $user_id,
-                'session_id'   => 'session_user_' . $user_id
-            ], JSON_PRETTY_PRINT);
-            exit;
+            $isTenantPhoneMatch = !empty($tenantPhone) && (substr(preg_replace('/\D/', '', $tenantPhone), -10) === substr(preg_replace('/\D/', '', $phone), -10));
+
+            $canAssociate = ($user_id > 1) && ($isMultiUserMatch || $isSameUserPhone || $isTenantPhoneMatch || empty($currentMerchant['business_phone']));
+            if ($user_id === 1) {
+                $canAssociate = $isMultiUserMatch || $isSameUserPhone;
+            }
+
+            if ($canAssociate && !empty($phone)) {
+                syncUserWebStatus($pdo, $user_id, 'connected', $phone);
+                echo json_encode([
+                    'status'       => 'connected',
+                    'phone'        => $phone,
+                    'phone_number' => $phone,
+                    'user_id'      => $user_id,
+                    'session_id'   => 'session_user_' . $user_id
+                ], JSON_PRETTY_PRINT);
+                exit;
+            }
         }
 
         if (!empty($nodeRes['qr'])) {
@@ -87,22 +162,15 @@ if ($action === 'get_qr') {
     }
 
     // Check if user is marked as connected in database
-    if (isset($pdo) && $pdo) {
-        try {
-            $stmtChk = $pdo->prepare("SELECT web_api_session_status, business_phone FROM merchant_waba_settings WHERE user_id = ?");
-            $stmtChk->execute([$user_id]);
-            $row = $stmtChk->fetch(PDO::FETCH_ASSOC);
-            if ($row && $row['web_api_session_status'] === 'connected') {
-                echo json_encode([
-                    'status'       => 'connected',
-                    'phone'        => ltrim($row['business_phone'] ?? '', '+'),
-                    'phone_number' => ltrim($row['business_phone'] ?? '', '+'),
-                    'user_id'      => $user_id,
-                    'session_id'   => 'session_user_' . $user_id
-                ], JSON_PRETTY_PRINT);
-                exit;
-            }
-        } catch (PDOException $e) {}
+    if ($currentMerchant && $currentMerchant['web_api_session_status'] === 'connected') {
+        echo json_encode([
+            'status'       => 'connected',
+            'phone'        => ltrim($currentMerchant['business_phone'] ?? '', '+'),
+            'phone_number' => ltrim($currentMerchant['business_phone'] ?? '', '+'),
+            'user_id'      => $user_id,
+            'session_id'   => 'session_user_' . $user_id
+        ], JSON_PRETTY_PRINT);
+        exit;
     }
 
     echo json_encode([
@@ -148,31 +216,58 @@ if ($action === 'check_status') {
     if ($nodeRes) {
         $status = $nodeRes['status'] ?? 'disconnected';
         $phone = $nodeRes['phone_number'] ?? $nodeRes['phone'] ?? '';
+        $engineUserId = isset($nodeRes['user_id']) ? (string)$nodeRes['user_id'] : '';
+        $isMultiUserMatch = ($engineUserId === (string)$user_id);
 
         if ($status === 'connected' && !empty($phone) && isset($pdo) && $pdo) {
-            try {
-                $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET gateway_type = 'web_api', web_api_session_status = 'connected', business_phone = ? WHERE user_id = ?");
-                $stmtSync->execute(['+' . ltrim($phone, '+'), $user_id]);
-            } catch (PDOException $e) {}
-        } else if ($status === 'disconnected' && isset($pdo) && $pdo) {
-            try {
-                $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected' WHERE user_id = ?");
-                $stmtSync->execute([$user_id]);
-            } catch (PDOException $e) {}
-        }
+            $isSameUserPhone = !empty($currentMerchant['business_phone']) && (trim($currentMerchant['business_phone'], '+') === trim($phone, '+'));
 
-        echo json_encode([
-            'status'       => $status,
-            'phone'        => $phone,
-            'phone_number' => $phone,
-            'user_id'      => $user_id,
-            'engine'       => $nodeRes['engine'] ?? 'Self-Hosted Multi-Session Baileys Engine',
-            'uptime'       => $nodeRes['uptime'] ?? 0
-        ], JSON_PRETTY_PRINT);
-        exit;
+            $tenantPhone = '';
+            if ($user_id > 1) {
+                try {
+                    $stmtTP = $pdo->prepare("SELECT phone FROM tenant_companies WHERE id = ?");
+                    $stmtTP->execute([$user_id]);
+                    $tenantPhone = $stmtTP->fetchColumn() ?: '';
+                } catch (\Exception $e) {}
+            }
+            $isTenantPhoneMatch = !empty($tenantPhone) && (substr(preg_replace('/\D/', '', $tenantPhone), -10) === substr(preg_replace('/\D/', '', $phone), -10));
+
+            $canAssociate = ($user_id > 1) && ($isMultiUserMatch || $isSameUserPhone || $isTenantPhoneMatch || empty($currentMerchant['business_phone']));
+            if ($user_id === 1) {
+                $canAssociate = $isMultiUserMatch || $isSameUserPhone;
+            }
+
+            if ($canAssociate) {
+                syncUserWebStatus($pdo, $user_id, 'connected', $phone);
+
+                echo json_encode([
+                    'status'       => 'connected',
+                    'phone'        => $phone,
+                    'phone_number' => $phone,
+                    'user_id'      => $user_id,
+                    'engine'       => $nodeRes['engine'] ?? 'Self-Hosted Multi-Session Baileys Engine',
+                    'uptime'       => $nodeRes['uptime'] ?? 0
+                ], JSON_PRETTY_PRINT);
+                exit;
+            }
+        } else if (in_array($status, ['disconnected', 'scan_qr'])) {
+            if ($user_id > 1) {
+                syncUserWebStatus($pdo, $user_id, 'disconnected');
+            }
+
+            echo json_encode([
+                'status'       => $status,
+                'phone'        => null,
+                'phone_number' => null,
+                'user_id'      => $user_id,
+                'engine'       => $nodeRes['engine'] ?? 'Self-Hosted Multi-Session Baileys Engine',
+                'uptime'       => $nodeRes['uptime'] ?? 0
+            ], JSON_PRETTY_PRINT);
+            exit;
+        }
     }
 
-    // Check DB status fallback
+    // Check DB status fallback ONLY if engine was unreachable or in sync
     if (isset($pdo) && $pdo) {
         try {
             $stmtChk = $pdo->prepare("SELECT web_api_session_status, business_phone FROM merchant_waba_settings WHERE user_id = ?");
@@ -236,12 +331,7 @@ if ($action === 'send_message') {
 
 if ($action === 'logout') {
     callLocalNodeEngine('/logout', ['user_id' => $user_id]);
-    if (isset($pdo) && $pdo) {
-        try {
-            $stmtSync = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected' WHERE user_id = ?");
-            $stmtSync->execute([$user_id]);
-        } catch (PDOException $e) {}
-    }
+    syncUserWebStatus($pdo, $user_id, 'disconnected');
     echo json_encode(['status' => 'success', 'message' => "Self-hosted session for user {$user_id} cleared."], JSON_PRETTY_PRINT);
     exit;
 }

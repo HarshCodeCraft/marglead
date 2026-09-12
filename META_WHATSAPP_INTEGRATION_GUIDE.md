@@ -279,7 +279,7 @@ Paste the following Flow JSON into the Flow Builder:
   "interactive": {
     "type": "button",
     "header": { "type": "text", "text": "Marg Soft Solution" },
-    "body": { "text": "Welcome to ABC Software.\n\nThank you for contacting us.\n\nPlease choose one of the following options." },
+    "body": { "text": "Welcome to MARG SOFT SOLUTION.\n\nThank you for contacting us.\n\nPlease choose one of the following options." },
     "footer": { "text": "Please select an option" },
     "action": {
       "buttons": [
@@ -384,7 +384,7 @@ Paste the following Flow JSON into the Flow Builder:
 Ticket Number
 TK-2026-000001
 
-Thank you for contacting ABC Software.
+Thank you for contacting MARG SOFT SOLUTION.
 
 Our support engineer will contact you shortly.
 ```

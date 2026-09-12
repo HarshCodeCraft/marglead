@@ -42,8 +42,20 @@ if (in_array($requested_page, ['kyc', 'customer_kyc_form'])) {
     exit;
 }
 
-// Unauthenticated users see the Public Landing / Home page first
+// Unauthenticated requests routing
 if (!isset($_SESSION['user_id'])) {
+    // 1. AJAX & Background Polling Requests MUST return 401 JSON (Never HTML landing page or mock data)
+    if ((!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || isset($_GET['action'])) {
+        http_response_code(401);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'status' => 'session_expired',
+            'message' => 'Your session has expired or was terminated from another device. Redirecting to login...',
+            'redirect' => 'auth/login.php?reason=session_expired'
+        ]);
+        exit;
+    }
+
     if ($requested_page === 'login') {
         header("Location: auth/login.php");
         exit;
@@ -52,7 +64,15 @@ if (!isset($_SESSION['user_id'])) {
         header("Location: auth/register.php");
         exit;
     }
-    // Render stunning Public Landing Page
+
+    // 2. Direct visits to internal CRM / Dashboard modules must redirect directly to login
+    $public_allowed_pages = ['', 'home', 'landing', 'public', 'privacy', 'privacy_policy', 'terms', 'terms_of_service', 'refund', 'refund_policy', 'contact', 'pricing', 'plans', 'features', 'solutions', 'whatsapp', 'waba', 'kyc'];
+    if (!empty($requested_page) && !in_array($requested_page, $public_allowed_pages)) {
+        header("Location: auth/login.php?reason=session_expired&redirect=" . urlencode($_SERVER['REQUEST_URI'] ?? ''));
+        exit;
+    }
+
+    // Render Public Landing Page ONLY for explicit public marketing visits
     require_once __DIR__ . '/landing.php';
     exit;
 }
@@ -807,11 +827,16 @@ if (isset($_GET['action']) && $_GET['action'] === 'schedule_followup' && $_SERVE
 // Resolve URL query parameters, default to dashboard
 $page = isset($_GET['page']) ? $_GET['page'] : 'dashboard';
 
+$is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) 
+    || !empty($_SESSION['impersonate_tenant_db']) 
+    || (($_SESSION['user_role'] ?? '') === 'Tenant Admin') 
+    || (($_SESSION['login_source'] ?? '') === 'tenant_companies');
+
 // Enforce role-based access security check
 if (!hasAccess($page, $_SESSION['user_role'])) {
     // Find first accessible page for this user and redirect silently
     $role = $_SESSION['user_role'] ?? '';
-    $candidate_pages = ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings'];
+    $candidate_pages = ['dashboard', 'whatsapp_dashboard', 'workspace_dashboard', 'leads', 'clients', 'customer_kyc', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'team_inbox', 'merchant_waba_settings', 'broadcast_campaigns', 'bot_flows', 'admin_reports', 'settings'];
     $redirect_to = null;
     foreach ($candidate_pages as $candidate) {
         // Skip the current page to avoid infinite redirect loop
@@ -838,7 +863,26 @@ switch ($page) {
         $module_path = __DIR__ . '/modules/access_denied.php';
         break;
     case 'dashboard':
+        if ($is_tenant_session) {
+            $can_ws = hasAccess('workspace_dashboard', $_SESSION['user_role'] ?? '');
+            $can_wa = hasAccess('whatsapp_dashboard', $_SESSION['user_role'] ?? '');
+            $tab = $_GET['tab'] ?? '';
+            if ($tab === 'workspace' && $can_ws) {
+                $module_path = __DIR__ . '/modules/dashboard.php';
+            } elseif ($can_ws && !$can_wa) {
+                $module_path = __DIR__ . '/modules/dashboard.php';
+            } else {
+                $module_path = __DIR__ . '/modules/tenant_whatsapp_dashboard.php';
+            }
+        } else {
+            $module_path = __DIR__ . '/modules/dashboard.php';
+        }
+        break;
+    case 'workspace_dashboard':
         $module_path = __DIR__ . '/modules/dashboard.php';
+        break;
+    case 'whatsapp_dashboard':
+        $module_path = __DIR__ . '/modules/tenant_whatsapp_dashboard.php';
         break;
     case 'leads':
         $module_path = __DIR__ . '/modules/leads/list.php';
@@ -925,8 +969,8 @@ switch ($page) {
         $module_path = __DIR__ . '/modules/merchant_waba_settings.php';
         break;
     case 'bulk_broadcast':
-        $module_path = __DIR__ . '/modules/bulk_broadcast.php';
-        break;
+        header("Location: index.php?page=broadcast_campaigns");
+        exit;
     case 'settings':
         $module_path = __DIR__ . '/modules/admin/settings.php';
         break;
@@ -955,83 +999,28 @@ switch ($page) {
 }
 
 // Tenant Power Permissions & Module Access Guard
-$is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) || !empty($_SESSION['impersonate_tenant_db']);
 if ($is_tenant_session) {
-    $active_tenant_db_name = $_SESSION['impersonate_tenant_db'] ?? $_SESSION['tenant_db'];
-    
-    // Normalize page keys to module keys
-    $page_mod_map = [
-        'dashboard' => 'dashboard',
-        'leads' => 'leads',
-        'pipeline' => 'pipeline',
-        'followups' => 'followups',
-        'demo' => 'demo',
-        'quotation' => 'quotation',
-        'quotation_create' => 'quotation',
-        'quotation_view' => 'quotation',
-        'payments' => 'payments',
-        'installation' => 'installation',
-        'training' => 'training',
-        'support' => 'support',
-        'renewals' => 'renewals',
-        'whatsapp_settings' => 'whatsapp_settings',
-        'merchant_waba_settings' => 'whatsapp_settings',
-        'broadcast_campaigns' => 'whatsapp_settings',
-        'bulk_broadcast' => 'whatsapp_settings',
-        'team_inbox' => 'whatsapp_settings',
-        'bot_flows' => 'whatsapp_flows',
-        'bot_flow_builder' => 'whatsapp_flows',
-        'admin_reports' => 'reports',
-        'settings' => 'settings'
-    ];
-
-    $check_mod_key = $page_mod_map[$page] ?? null;
-
-    if ($check_mod_key && isset($pdo_master)) {
-        try {
-            $stmtGuard = $pdo_master->prepare("SELECT allowed_modules FROM tenant_companies WHERE db_name = ?");
-            $stmtGuard->execute([$active_tenant_db_name]);
-            $tenant_allowed_json = $stmtGuard->fetchColumn();
-
-            if (!empty($tenant_allowed_json)) {
-                $tenant_allowed_arr = json_decode($tenant_allowed_json, true);
-                if (is_array($tenant_allowed_arr)) {
-                    $is_allowed = in_array($check_mod_key, $tenant_allowed_arr);
-                    if (!$is_allowed && $check_mod_key === 'whatsapp_settings') {
-                        $is_allowed = in_array('merchant_waba_settings', $tenant_allowed_arr);
-                    }
-                    if (!$is_allowed && $check_mod_key === 'whatsapp_flows') {
-                        $is_allowed = in_array('bot_flows', $tenant_allowed_arr);
-                    }
-
-                    if (!$is_allowed) {
-                        // Redirect to first accessible module instead of showing restriction message
-                        $role = $_SESSION['user_role'] ?? '';
-                        $tenant_mods = $_SESSION['tenant_allowed_modules'] ?? [];
-                        $candidate_pages = ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings'];
-                        $redirect_to = null;
-                        foreach ($candidate_pages as $candidate) {
-                            // Skip current page to avoid infinite redirect loop
-                            if ($candidate === $page) continue;
-                            if (!empty($tenant_mods) && in_array($candidate, $tenant_mods) && hasAccess($candidate, $role)) {
-                                $redirect_to = $candidate;
-                                break;
-                            }
-                        }
-                        if ($redirect_to !== null) {
-                            header("Location: index.php?page=" . urlencode($redirect_to));
-                        } else {
-                            // Tenant has no accessible modules - force re-login
-                            session_destroy();
-                            header("Location: auth/login.php");
-                        }
-                        exit;
-                    }
+    if (in_array($page, ['bot_flows', 'whatsapp_flows', 'bot_flow_builder'])) {
+        $gwType = $_SESSION['tenant_gateway_type'] ?? null;
+        if ($gwType === null && isset($pdo)) {
+            try {
+                $stGW = $pdo->query("SELECT gateway_type FROM merchant_waba_settings ORDER BY id DESC LIMIT 1");
+                if ($stGW && ($gwRow = $stGW->fetch(PDO::FETCH_ASSOC))) {
+                    $gwType = strtolower($gwRow['gateway_type'] ?? 'web_api');
                 }
-            }
-        } catch (\PDOException $gEx) {
-            // Ignore guard errors
+            } catch (\PDOException $e) {}
+            $_SESSION['tenant_gateway_type'] = $gwType ?? 'web_api';
         }
+        if (($gwType ?? 'web_api') !== 'meta') {
+            $_SESSION['flash_warning'] = "Bots & Auto-Reply flows are exclusive to Option 1: Meta Cloud API. Switch to Meta Cloud API in Marg WABA Setup to configure flows.";
+            header("Location: index.php?page=merchant_waba_settings");
+            exit;
+        }
+    }
+
+    if (!hasAccess($page, $_SESSION['user_role'] ?? '')) {
+        header("Location: index.php?page=dashboard&restricted=1");
+        exit;
     }
 }
 

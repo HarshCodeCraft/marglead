@@ -11,6 +11,7 @@ if (!defined('APP_RUNNING')) {
 }
 
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/db.php';
 
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 $user_role = trim((string)($_SESSION['user_role'] ?? 'User'));
@@ -120,10 +121,13 @@ if ($is_super_admin && $user_id === 1) {
 // Check whether THIS specific tenant has configured WhatsApp
 $has_meta_setup = !empty($wabaSettings['phone_number_id']) && !empty($wabaSettings['access_token']);
 $has_web_setup = !empty($wabaSettings['web_api_session_status']) && $wabaSettings['web_api_session_status'] === 'connected';
-$is_setup_done = ($wabaSettings['gateway_type'] === 'web_api') ? $has_web_setup : $has_meta_setup;
 
 // Current gateway type
 $current_gateway = !empty($wabaSettings['gateway_type']) ? $wabaSettings['gateway_type'] : 'meta';
+$is_setup_done = ($current_gateway === 'web_api') ? $has_web_setup : $has_meta_setup;
+
+$meta_phone_display = !empty($wabaSettings['business_phone']) ? $wabaSettings['business_phone'] : (!empty($tenantWaba['display_phone_number']) ? $tenantWaba['display_phone_number'] : 'Verified');
+$web_display_phone = !empty($wabaSettings['business_phone']) ? $wabaSettings['business_phone'] : (!empty($tenantWaba['display_phone_number']) ? $tenantWaba['display_phone_number'] : '');
 
 // Handle Form Submission - Gateway Settings Save (Meta or Self-Hosted Web API)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_waba') {
@@ -180,6 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt->execute([$user_id]);
         $wabaSettings = $stmt->fetch(PDO::FETCH_ASSOC);
         $current_gateway = $wabaSettings['gateway_type'] ?? 'meta';
+        $_SESSION['tenant_gateway_type'] = $current_gateway;
         $has_meta_setup = !empty($wabaSettings['phone_number_id']) && !empty($wabaSettings['access_token']);
         $has_web_setup = !empty($wabaSettings['web_api_session_status']) && $wabaSettings['web_api_session_status'] === 'connected';
         $is_setup_done = ($wabaSettings['gateway_type'] === 'web_api') ? $has_web_setup : $has_meta_setup;
@@ -245,7 +250,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             } else {
                 $errDetail = !empty($resJson['message']) ? $resJson['message'] : json_encode($resJson);
                 $message = "⚠️ Self-Hosted Web Dispatch: " . ($errDetail ?: 'Posted to ' . $endpoint);
-                $message_type = "info";
+                $message_type = "danger";
+
+                try {
+                    $stmtLog = $pdo->prepare("INSERT INTO marg_erp_logs (user_id, tenant_api_key, recipient_phone, event_type, bill_number, template_name, status, meta_message_id, error_message, payload_json) VALUES (?, ?, ?, 'Self-Hosted Web Test', ?, 'web_dispatch', 'Failed', ?, ?, ?)");
+                    $stmtLog->execute([$user_id, $wabaSettings['tenant_api_key'] ?? '', $phoneDigits, $test_bill_no, 'FAILED_' . time(), $errDetail, json_encode($postFields)]);
+                } catch (PDOException $e) {}
             }
         } else {
             // Dispatch via Meta Cloud API
@@ -256,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $message = "Meta WhatsApp credentials missing for your account. Please configure Phone Number ID and Access Token first.";
                 $message_type = "danger";
             } else {
-                $samplePdf = (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://friendlyaisolution.com') . '/uploads/invoices/sample.pdf';
+                $samplePdf = 'https://friendlyaisolution.com/uploads/invoices/Marg_GUI_Invoice_BILL001.pdf';
                 $metaUrl = "https://graph.facebook.com/v20.0/{$phone_number_id}/messages";
                 $payload = [
                     'messaging_product' => 'whatsapp',
@@ -331,6 +341,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $errDetail = !empty($resJson['error']['message']) ? $resJson['error']['message'] : ($errMsg ?: json_encode($resJson));
                     $message = "❌ Meta Test Dispatch Failed: " . $errDetail;
                     $message_type = "danger";
+
+                    try {
+                        $stmtLog = $pdo->prepare("INSERT INTO marg_erp_logs (user_id, tenant_api_key, recipient_phone, event_type, bill_number, template_name, status, meta_message_id, error_message, payload_json) VALUES (?, ?, ?, '1-Click Test', ?, 'hello_world', 'Failed', ?, ?, ?)");
+                        $stmtLog->execute([$user_id, $wabaSettings['tenant_api_key'] ?? '', $phoneDigits, $test_bill_no, 'FAILED_' . time(), $errDetail, json_encode($payload)]);
+                    } catch (PDOException $e) {}
                 }
             }
         }
@@ -342,35 +357,93 @@ $base_gateway = defined('BASE_URL') ? BASE_URL : ((!empty($_SERVER['HTTPS']) && 
 $gateway_url = rtrim($base_gateway, '/') . '/api/marg_erp_gateway.php?api_key=' . urlencode($wabaSettings['tenant_api_key'] ?? '') . '&mob={1}&msg={2}&pdf_url={PDF}';
 
 // --------------------------------------------------------------------------
+// AJAX Handler for Live Marg ERP Dispatch & Failure Logs
+// --------------------------------------------------------------------------
+if (isset($_GET['action']) && $_GET['action'] === 'get_live_logs') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json');
+    $clientApiKey = $wabaSettings['tenant_api_key'] ?? '';
+    try {
+        $stmtLogs = $pdo->prepare("SELECT id, user_id, tenant_api_key, recipient_phone, bill_number, bill_amount, event_type, template_name, status, meta_message_id, error_message, payload_json, created_at 
+            FROM marg_erp_logs 
+            WHERE (user_id = ? OR tenant_api_key = ?) 
+            ORDER BY id DESC LIMIT 30");
+        $stmtLogs->execute([$user_id, $clientApiKey]);
+        $ajaxLogs = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
+
+        $stmtTodayS = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) AND status = 'Sent' AND DATE(created_at) = CURRENT_DATE()");
+        $stmtTodayS->execute([$user_id, $clientApiKey]);
+        $ajaxTodaySent = (int)$stmtTodayS->fetchColumn();
+
+        $stmtTodayF = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) AND status = 'Failed' AND DATE(created_at) = CURRENT_DATE()");
+        $stmtTodayF->execute([$user_id, $clientApiKey]);
+        $ajaxTodayFailed = (int)$stmtTodayF->fetchColumn();
+
+        $stmtMonthS = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) AND status = 'Sent' AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())");
+        $stmtMonthS->execute([$user_id, $clientApiKey]);
+        $ajaxMonthSent = (int)$stmtMonthS->fetchColumn();
+
+        $stmtTot = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?)");
+        $stmtTot->execute([$user_id, $clientApiKey]);
+        $ajaxTotal = (int)$stmtTot->fetchColumn();
+
+        echo json_encode([
+            'success' => true,
+            'stats' => [
+                'today_sent' => $ajaxTodaySent,
+                'today_failed' => $ajaxTodayFailed,
+                'month_sent' => $ajaxMonthSent,
+                'total_all' => $ajaxTotal
+            ],
+            'logs' => $ajaxLogs
+        ]);
+    } catch (PDOException $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// --------------------------------------------------------------------------
 // Fetch Real-Time WhatsApp Message Dispatch Statistics for this Client / Number
 // --------------------------------------------------------------------------
 $todaySentCount = 0;
+$todayFailedCount = 0;
 $monthSentCount = 0;
 $totalSentCount = 0;
+$recentDispatches = [];
 $clientApiKey = $wabaSettings['tenant_api_key'] ?? '';
 
 try {
-    // 1. Today's Dispatched Messages
-    $stmtToday = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) AND DATE(created_at) = CURRENT_DATE()");
+    // 1. Today's Successful Dispatched Messages
+    $stmtToday = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) AND status = 'Sent' AND DATE(created_at) = CURRENT_DATE()");
     $stmtToday->execute([$user_id, $clientApiKey]);
     $todaySentCount = (int)$stmtToday->fetchColumn();
 
-    // 2. This Month's Dispatched Messages
-    $stmtMonth = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())");
+    // 2. Today's Failed Messages
+    $stmtTodayF = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) AND status = 'Failed' AND DATE(created_at) = CURRENT_DATE()");
+    $stmtTodayF->execute([$user_id, $clientApiKey]);
+    $todayFailedCount = (int)$stmtTodayF->fetchColumn();
+
+    // 3. This Month's Dispatched Messages
+    $stmtMonth = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) AND status = 'Sent' AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())");
     $stmtMonth->execute([$user_id, $clientApiKey]);
     $monthSentCount = (int)$stmtMonth->fetchColumn();
 
-    // 3. Total Messages Sent All-Time
+    // 4. Total Messages Processed All-Time
     $stmtTotal = $pdo->prepare("SELECT COUNT(*) FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?)");
     $stmtTotal->execute([$user_id, $clientApiKey]);
     $totalSentCount = (int)$stmtTotal->fetchColumn();
 
-    // 4. Fetch Recent 5 Dispatched Messages for live inspection
-    $stmtRecent = $pdo->prepare("SELECT recipient_phone, bill_number, event_type, status, created_at FROM marg_erp_logs WHERE (user_id = ? OR tenant_api_key = ?) ORDER BY id DESC LIMIT 5");
+    // 5. Fetch Recent 30 Dispatched & Failed Messages with error details
+    $stmtRecent = $pdo->prepare("SELECT id, user_id, tenant_api_key, recipient_phone, bill_number, bill_amount, event_type, template_name, status, meta_message_id, error_message, payload_json, created_at 
+        FROM marg_erp_logs 
+        WHERE (user_id = ? OR tenant_api_key = ?) 
+        ORDER BY id DESC LIMIT 30");
     $stmtRecent->execute([$user_id, $clientApiKey]);
     $recentDispatches = $stmtRecent->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     $todaySentCount = 0;
+    $todayFailedCount = 0;
     $monthSentCount = 0;
     $totalSentCount = 0;
     $recentDispatches = [];
@@ -406,114 +479,528 @@ try {
                 </div>
                 <div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main);">Your WhatsApp Gateway is Active &amp; Ready</h3>
+                        <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main);">Your WhatsApp Gateway is Active &amp; Connected</h3>
                         <span class="badge" style="background: #10b981; color: white; font-size: 0.75rem; font-weight: 700;">Connected</span>
                     </div>
                     <p style="margin: 4px 0 0 0; font-size: 0.825rem; color: var(--text-muted);">
-                        Integration: <strong><?php echo ($wabaSettings['gateway_type'] === 'web_api') ? 'WhatsApp Web API (Paired Phone)' : 'Meta WhatsApp Cloud API'; ?></strong> &bull;
-                        Active Phone: <strong style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars($wabaSettings['business_phone'] ?: (!empty($tenantWaba['display_phone_number']) ? $tenantWaba['display_phone_number'] : 'Verified')); ?></strong>
+                        Active Integration Mode: <strong><?php echo ($wabaSettings['gateway_type'] === 'web_api') ? 'Option 2: WhatsApp Web API (Paired Phone)' : 'Option 1: Meta WhatsApp Cloud API (Official WABA)'; ?></strong> &bull;
+                        Sender Phone: <strong style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars(($wabaSettings['gateway_type'] === 'web_api' ? $web_display_phone : $meta_phone_display) ?: 'Active Phone'); ?></strong>
                     </p>
                 </div>
             </div>
-            <button type="button" onclick="document.getElementById('setupOptionsSection').scrollIntoView({behavior: 'smooth'})" class="btn btn-secondary font-bold text-xs" style="padding: 8px 16px; border-radius: 8px;">
-                <i data-lucide="settings" style="width: 14px; height: 14px; margin-right: 4px;"></i> Update Credentials / Switch Method
+            <div style="display: flex; gap: 8px;">
+                <a href="index.php?page=broadcast_campaigns" class="btn btn-primary font-bold text-xs" style="padding: 8px 16px; border-radius: 8px;">
+                    <i data-lucide="send" style="width: 14px; height: 14px; margin-right: 4px;"></i> Open Broadcast &amp; Campaigns Hub
+                </a>
+                <button type="button" onclick="document.getElementById('setupOptionsSection').scrollIntoView({behavior: 'smooth'})" class="btn btn-secondary font-bold text-xs" style="padding: 8px 16px; border-radius: 8px;">
+                    <i data-lucide="settings" style="width: 14px; height: 14px; margin-right: 4px;"></i> Switch Method
+                </button>
+            </div>
+        </div>
+    </div>
+<?php elseif ($current_gateway === 'meta' && $has_web_setup): ?>
+    <!-- Meta selected, but Web API is actually connected -->
+    <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 16px; padding: 20px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="width: 48px; height: 48px; border-radius: 12px; background: #3b82f6; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);">
+                    <i data-lucide="info" style="width: 26px; height: 26px;"></i>
+                </div>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main);">Meta Cloud API Not Configured &bull; WhatsApp Web API is Connected</h3>
+                        <span class="badge" style="background: #3b82f6; color: white; font-size: 0.75rem; font-weight: 700;">Web API Available</span>
+                    </div>
+                    <p style="margin: 4px 0 0 0; font-size: 0.825rem; color: var(--text-muted);">
+                        Meta Cloud API credentials are empty, but your phone is already paired via <strong>WhatsApp Web API</strong> (Phone: <strong style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars($web_display_phone ?: 'Paired'); ?></strong>).
+                    </p>
+                </div>
+            </div>
+            <button type="button" onclick="selectGateway('web_api'); document.getElementById('wabaSettingsForm').submit();" class="btn btn-success font-bold text-xs" style="background: #10b981; color: white; padding: 8px 16px; border-radius: 8px; border: none;">
+                <i data-lucide="check" style="width: 14px; height: 14px; margin-right: 4px;"></i> Switch to WhatsApp Web API Now
+            </button>
+        </div>
+    </div>
+<?php elseif ($current_gateway === 'web_api' && $has_meta_setup): ?>
+    <!-- Web API selected, but Meta is configured -->
+    <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 16px; padding: 20px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="width: 48px; height: 48px; border-radius: 12px; background: #3b82f6; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);">
+                    <i data-lucide="info" style="width: 26px; height: 26px;"></i>
+                </div>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main);">WhatsApp Web API Not Paired &bull; Meta Cloud API is Configured</h3>
+                        <span class="badge" style="background: #3b82f6; color: white; font-size: 0.75rem; font-weight: 700;">Meta WABA Available</span>
+                    </div>
+                    <p style="margin: 4px 0 0 0; font-size: 0.825rem; color: var(--text-muted);">
+                        WhatsApp Web API is not paired, but your <strong>Meta WhatsApp Cloud API</strong> is configured (Phone: <strong style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars($meta_phone_display); ?></strong>).
+                    </p>
+                </div>
+            </div>
+            <button type="button" onclick="selectGateway('meta'); document.getElementById('wabaSettingsForm').submit();" class="btn btn-primary font-bold text-xs" style="padding: 8px 16px; border-radius: 8px;">
+                <i data-lucide="check" style="width: 14px; height: 14px; margin-right: 4px;"></i> Switch to Meta Cloud API Now
             </button>
         </div>
     </div>
 <?php else: ?>
+    <!-- Neither is connected -->
     <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 16px; padding: 20px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
-        <div style="display: flex; align-items: center; gap: 14px;">
-            <div style="width: 48px; height: 48px; border-radius: 12px; background: #f59e0b; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);">
-                <i data-lucide="alert-triangle" style="width: 26px; height: 26px;"></i>
-            </div>
-            <div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main);">WhatsApp Gateway Setup Required</h3>
-                    <span class="badge" style="background: #f59e0b; color: white; font-size: 0.75rem; font-weight: 700;">Not Connected</span>
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="width: 48px; height: 48px; border-radius: 12px; background: #f59e0b; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);">
+                    <i data-lucide="alert-triangle" style="width: 26px; height: 26px;"></i>
                 </div>
-                <p style="margin: 4px 0 0 0; font-size: 0.825rem; color: var(--text-muted);">
-                    Connect your official WhatsApp Business number below to send invoices and bills directly to your customers.
-                </p>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main);">WhatsApp Gateway Setup Required</h3>
+                        <span class="badge" style="background: #f59e0b; color: white; font-size: 0.75rem; font-weight: 700;">Not Connected</span>
+                    </div>
+                    <p style="margin: 4px 0 0 0; font-size: 0.825rem; color: var(--text-muted);">
+                        Neither <strong>Meta Cloud API</strong> nor <strong>WhatsApp Web API</strong> is currently connected. Select an integration method below to link your WhatsApp number.
+                    </p>
+                </div>
             </div>
+            <button type="button" onclick="document.getElementById('setupOptionsSection').scrollIntoView({behavior: 'smooth'})" class="btn btn-warning font-bold text-xs" style="background: #f59e0b; color: white; border: none; padding: 8px 16px; border-radius: 8px;">
+                <i data-lucide="arrow-down" style="width: 14px; height: 14px; margin-right: 4px;"></i> Choose Method Below
+            </button>
         </div>
     </div>
 <?php endif; ?>
 
 <!-- ========================================================================= -->
-<!-- LIVE WHATSAPP MESSAGE COUNTER & SENDING LIMIT ANALYTICS MATRIX -->
+<!-- LIVE MARG ERP INVOICES & WHATSAPP GATEWAY ACTIVITY CONSOLE -->
 <!-- ========================================================================= -->
 <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 22px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 10px;">
         <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(37, 99, 235, 0.1); color: var(--primary); display: flex; align-items: center; justify-content: center;">
-                <i data-lucide="bar-chart-3" style="width: 20px; height: 20px;"></i>
+            <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(37, 99, 235, 0.1); color: var(--primary); display: flex; align-items: center; justify-content: center;">
+                <i data-lucide="activity" style="width: 20px; height: 20px;"></i>
             </div>
             <div>
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--text-main);">WhatsApp Message Analytics</h3>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">Real-time dispatch metrics for linked WhatsApp Number: <strong style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars($wabaSettings['business_phone'] ?: 'Active Session'); ?></strong></span>
+                <h3 style="margin: 0; font-size: 1.08rem; font-weight: 700; color: var(--text-main);">Marg ERP Invoices &amp; Dispatch Activity</h3>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Real-time live tracking for linked WhatsApp Number: <strong style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars($wabaSettings['business_phone'] ?: 'Active Channel'); ?></strong></span>
             </div>
         </div>
-        <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 700; font-size: 0.75rem; padding: 5px 10px; border-radius: 8px;">
-            <i data-lucide="zap" style="width: 12px; height: 12px; vertical-align: middle;"></i> Live Tracking Active
-        </span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <button type="button" id="btnRefreshLogs" onclick="refreshLiveLogs()" class="btn btn-secondary font-bold text-xs" style="padding: 6px 14px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;">
+                <i data-lucide="refresh-cw" id="refreshIcon" style="width: 14px; height: 14px;"></i>
+                <span>Refresh Activity</span>
+            </button>
+            <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 700; font-size: 0.75rem; padding: 6px 10px; border-radius: 8px;">
+                <i data-lucide="zap" style="width: 12px; height: 12px; vertical-align: middle;"></i> Live Tracking Active
+            </span>
+        </div>
     </div>
 
-    <!-- Metric Cards Grid -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
-        <!-- Stat 1: Today Sent -->
-        <div style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Sent Today</span>
-                <span style="width: 28px; height: 28px; border-radius: 8px; background: rgba(59, 130, 246, 0.12); color: #3b82f6; display: flex; align-items: center; justify-content: center;">
-                    <i data-lucide="send" style="width: 14px; height: 14px;"></i>
+    <!-- 4 Metric Cards Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px;">
+        <!-- Card 1: Today Sent -->
+        <div style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Sent Today</span>
+                <span style="width: 28px; height: 28px; border-radius: 8px; background: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="check-circle" style="width: 15px; height: 15px;"></i>
                 </span>
             </div>
-            <div style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); font-family: var(--font-heading);">
-                <?php echo number_format($todaySentCount); ?> <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-muted);">msgs</span>
+            <div id="statTodaySent" style="font-size: 1.65rem; font-weight: 800; color: #10b981; font-family: var(--font-heading);">
+                <?php echo number_format($todaySentCount); ?> <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-muted);">bills</span>
             </div>
             <span style="font-size: 0.7rem; color: #10b981; font-weight: 600; display: block; margin-top: 4px;">
-                ✓ Dispatched via WhatsApp Gateway
+                ✓ Successfully Dispatched
             </span>
         </div>
 
-        <!-- Stat 2: This Month Sent -->
-        <div style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Sent This Month</span>
-                <span style="width: 28px; height: 28px; border-radius: 8px; background: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center;">
-                    <i data-lucide="calendar" style="width: 14px; height: 14px;"></i>
+        <!-- Card 2: Failed Today (Alert Highlight) -->
+        <div style="background: <?php echo $todayFailedCount > 0 ? 'rgba(239, 68, 68, 0.06)' : 'var(--bg-body)'; ?>; border: 1px solid <?php echo $todayFailedCount > 0 ? 'rgba(239, 68, 68, 0.4)' : 'var(--border-color)'; ?>; border-radius: 12px; padding: 14px 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: <?php echo $todayFailedCount > 0 ? '#ef4444' : 'var(--text-muted)'; ?>; text-transform: uppercase; letter-spacing: 0.05em;">Failed Today</span>
+                <span style="width: 28px; height: 28px; border-radius: 8px; background: rgba(239, 68, 68, 0.12); color: #ef4444; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="alert-triangle" style="width: 15px; height: 15px;"></i>
                 </span>
             </div>
-            <div style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); font-family: var(--font-heading);">
-                <?php echo number_format($monthSentCount); ?> <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-muted);">msgs</span>
+            <div id="statTodayFailed" style="font-size: 1.65rem; font-weight: 800; color: <?php echo $todayFailedCount > 0 ? '#ef4444' : 'var(--text-main)'; ?>; font-family: var(--font-heading);">
+                <?php echo number_format($todayFailedCount); ?> <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-muted);">failed</span>
+            </div>
+            <span id="statTodayFailedLabel" style="font-size: 0.7rem; color: <?php echo $todayFailedCount > 0 ? '#ef4444' : 'var(--text-muted)'; ?>; font-weight: 600; display: block; margin-top: 4px;">
+                <?php echo $todayFailedCount > 0 ? '⚠️ Check error details below' : '✓ Zero delivery errors'; ?>
+            </span>
+        </div>
+
+        <!-- Card 3: This Month Sent -->
+        <div style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Sent This Month</span>
+                <span style="width: 28px; height: 28px; border-radius: 8px; background: rgba(59, 130, 246, 0.12); color: #3b82f6; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="calendar" style="width: 15px; height: 15px;"></i>
+                </span>
+            </div>
+            <div id="statMonthSent" style="font-size: 1.65rem; font-weight: 800; color: var(--text-main); font-family: var(--font-heading);">
+                <?php echo number_format($monthSentCount); ?> <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-muted);">bills</span>
             </div>
             <span style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-top: 4px;">
                 <?php echo date('F Y'); ?> Cycle
             </span>
         </div>
+
+        <!-- Card 4: Total All-Time -->
+        <div style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Total Processed</span>
+                <span style="width: 28px; height: 28px; border-radius: 8px; background: rgba(168, 85, 247, 0.12); color: #a855f7; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="layers" style="width: 15px; height: 15px;"></i>
+                </span>
+            </div>
+            <div id="statTotalAll" style="font-size: 1.65rem; font-weight: 800; color: var(--text-main); font-family: var(--font-heading);">
+                <?php echo number_format($totalSentCount); ?> <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-muted);">total</span>
+            </div>
+            <span style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-top: 4px;">
+                All Time Marg ERP Invoices
+            </span>
+        </div>
     </div>
 
-    <?php if (!empty($recentDispatches)): ?>
-        <div style="margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--border-color);">
-            <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 8px;">
-                Recent Invoice Dispatches
-            </span>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-                <?php foreach ($recentDispatches as $disp): ?>
-                    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; background: var(--bg-app); padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span class="badge" style="background: #10b981; color: white; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px;">SENT</span>
-                            <span style="font-weight: 600; color: var(--text-main); font-family: monospace;">Bill: <?php echo htmlspecialchars($disp['bill_number']); ?></span>
-                            <span style="color: var(--text-muted);">&bull;</span>
-                            <span style="color: var(--text-muted);">To: <?php echo htmlspecialchars($disp['recipient_phone']); ?></span>
-                        </div>
-                        <span style="font-size: 0.72rem; color: var(--text-muted);"><?php echo date('d M, h:i A', strtotime($disp['created_at'])); ?></span>
-                    </div>
-                <?php endforeach; ?>
-            </div>
+    <!-- Prominent Warning Banner if there are failed dispatches today -->
+    <div id="failedAlertBanner" style="display: <?php echo ($todayFailedCount > 0) ? 'flex' : 'none'; ?>; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 12px 16px; margin-bottom: 18px; align-items: center; gap: 10px;">
+        <i data-lucide="alert-octagon" style="width: 20px; height: 20px; color: #ef4444; flex-shrink: 0;"></i>
+        <div style="font-size: 0.83rem; color: #b91c1c;">
+            <strong>Notice:</strong> <span id="failedAlertCount"><?php echo $todayFailedCount; ?></span> Marg ERP invoice dispatch(es) failed today. Review the <strong>Details / Error Reason</strong> column below to diagnose and resolve pairing, token, or recipient errors.
         </div>
-    <?php endif; ?>
+    </div>
+
+    <!-- Table Filter Controls -->
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-right: 4px;">Filter:</span>
+            <button type="button" onclick="filterLogs('all')" id="btnFilterAll" class="btn btn-sm active-filter-pill" style="padding: 4px 12px; font-size: 0.75rem; border-radius: 20px; font-weight: 700; border: 1px solid var(--border-color); background: var(--primary); color: white;">
+                All (<span id="countPillAll"><?php echo count($recentDispatches); ?></span>)
+            </button>
+            <button type="button" onclick="filterLogs('Sent')" id="btnFilterSent" class="btn btn-sm" style="padding: 4px 12px; font-size: 0.75rem; border-radius: 20px; font-weight: 700; border: 1px solid var(--border-color); background: var(--bg-body); color: #10b981;">
+                🟢 Sent (<span id="countPillSent"><?php echo count(array_filter($recentDispatches, fn($r) => strtolower($r['status'] ?? '') === 'sent')); ?></span>)
+            </button>
+            <button type="button" onclick="filterLogs('Failed')" id="btnFilterFailed" class="btn btn-sm" style="padding: 4px 12px; font-size: 0.75rem; border-radius: 20px; font-weight: 700; border: 1px solid var(--border-color); background: var(--bg-body); color: #ef4444;">
+                🔴 Failed (<span id="countPillFailed"><?php echo count(array_filter($recentDispatches, fn($r) => strtolower($r['status'] ?? '') === 'failed')); ?></span>)
+            </button>
+        </div>
+        <span style="font-size: 0.72rem; color: var(--text-muted);">
+            Showing latest 30 dispatches &bull; Updates in real-time
+        </span>
+    </div>
+
+    <!-- Live Bill Activity Table -->
+    <div style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card);">
+        <table id="logsTable" style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left;">
+            <thead>
+                <tr style="background: var(--bg-body); border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.73rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                    <th style="padding: 10px 14px; font-weight: 700;">Date &amp; Time</th>
+                    <th style="padding: 10px 14px; font-weight: 700;">Bill No.</th>
+                    <th style="padding: 10px 14px; font-weight: 700;">Recipient Mobile</th>
+                    <th style="padding: 10px 14px; font-weight: 700;">Gateway</th>
+                    <th style="padding: 10px 14px; font-weight: 700;">Status</th>
+                    <th style="padding: 10px 14px; font-weight: 700;">Details / Failure Reason</th>
+                    <th style="padding: 10px 14px; font-weight: 700; text-align: center;">Info</th>
+                </tr>
+            </thead>
+            <tbody id="logsTableBody">
+                <?php if (empty($recentDispatches)): ?>
+                    <tr id="rowNoLogs">
+                        <td colspan="7" style="padding: 30px; text-align: center; color: var(--text-muted);">
+                            <i data-lucide="inbox" style="width: 32px; height: 32px; margin-bottom: 6px; opacity: 0.6;"></i>
+                            <p style="margin: 0; font-weight: 600;">No Marg ERP invoice dispatches recorded yet.</p>
+                            <span style="font-size: 0.75rem;">Trigger a bill print from Marg ERP or run a Test Dispatch to view real-time logs here.</span>
+                        </td>
+                    </tr>
+                <?php else: ?>
+                    <?php foreach ($recentDispatches as $disp): 
+                        $isFailed = (strtolower($disp['status'] ?? '') === 'failed');
+                        $billDisplay = !empty($disp['bill_number']) ? $disp['bill_number'] : 'N/A';
+                        $phoneDisplay = !empty($disp['recipient_phone']) ? $disp['recipient_phone'] : 'N/A';
+                        $gwDisplay = (stripos($disp['template_name'] ?? '', 'web') !== false) ? 'WhatsApp Web' : 'Meta WABA';
+                        $errText = !empty($disp['error_message']) ? $disp['error_message'] : '';
+                        if (empty($errText) && $isFailed) {
+                            $payloadParsed = json_decode($disp['payload_json'] ?? '', true);
+                            $errText = $payloadParsed['error'] ?? ($payloadParsed['error_message'] ?? 'Dispatch failed without error text.');
+                        }
+                    ?>
+                        <tr class="log-row" data-status="<?php echo $isFailed ? 'Failed' : 'Sent'; ?>" style="border-bottom: 1px solid var(--border-color); background: <?php echo $isFailed ? 'rgba(239, 68, 68, 0.02)' : 'transparent'; ?>;">
+                            <td style="padding: 10px 14px; white-space: nowrap; color: var(--text-muted); font-size: 0.77rem;">
+                                <?php echo date('d M Y, h:i A', strtotime($disp['created_at'])); ?>
+                            </td>
+                            <td style="padding: 10px 14px; font-weight: 700; font-family: monospace; color: var(--text-main);">
+                                <span class="badge" style="background: rgba(37, 99, 235, 0.08); color: var(--primary); border: 1px solid rgba(37, 99, 235, 0.2); font-size: 0.75rem; padding: 3px 8px; border-radius: 6px;">
+                                    <?php echo htmlspecialchars($billDisplay); ?>
+                                </span>
+                            </td>
+                            <td style="padding: 10px 14px; font-weight: 600; color: var(--text-main); font-family: monospace; white-space: nowrap;">
+                                <?php echo htmlspecialchars($phoneDisplay); ?>
+                            </td>
+                            <td style="padding: 10px 14px; white-space: nowrap;">
+                                <span class="badge" style="background: <?php echo ($gwDisplay === 'WhatsApp Web') ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)'; ?>; color: <?php echo ($gwDisplay === 'WhatsApp Web') ? '#10b981' : '#3b82f6'; ?>; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 6px;">
+                                    <?php echo $gwDisplay; ?>
+                                </span>
+                            </td>
+                            <td style="padding: 10px 14px; white-space: nowrap;">
+                                <?php if ($isFailed): ?>
+                                    <span class="badge" style="background: #ef4444; color: white; font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);">
+                                        <i data-lucide="x-circle" style="width: 12px; height: 12px;"></i> FAILED
+                                    </span>
+                                <?php else: ?>
+                                    <span class="badge" style="background: #10b981; color: white; font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+                                        <i data-lucide="check-circle" style="width: 12px; height: 12px;"></i> SENT
+                                    </span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 10px 14px; max-width: 320px; font-size: 0.78rem;">
+                                <?php if ($isFailed): ?>
+                                    <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; padding: 5px 8px; color: #b91c1c; font-weight: 600; word-break: break-word;">
+                                        <i data-lucide="alert-circle" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 3px; display: inline;"></i>
+                                        <?php echo htmlspecialchars($errText ?: 'Dispatch failed.'); ?>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color: #10b981; font-weight: 600;">
+                                        <i data-lucide="check" style="width: 13px; height: 13px; vertical-align: middle; margin-right: 3px; display: inline;"></i>
+                                        Delivered with Invoice PDF attachment
+                                    </span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 10px 14px; text-align: center; white-space: nowrap;">
+                                <button type="button" onclick="showLogDetails(<?php echo (int)$disp['id']; ?>)" class="btn btn-sm btn-secondary" style="padding: 3px 8px; font-size: 0.72rem; border-radius: 6px;" title="View Raw Details">
+                                    <i data-lucide="eye" style="width: 12px; height: 12px;"></i>
+                                </button>
+                                <textarea id="rawLogData_<?php echo (int)$disp['id']; ?>" style="display: none;"><?php echo htmlspecialchars(json_encode($disp, JSON_PRETTY_PRINT)); ?></textarea>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
+
+<!-- Raw Payload & Error Inspection Modal -->
+<div id="logDetailsModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 99999; align-items: center; justify-content: center; padding: 20px;">
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; width: 100%; max-width: 650px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden;">
+        <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <i data-lucide="terminal" style="width: 18px; height: 18px; color: var(--primary);"></i>
+                <h4 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--text-main);">Invoice Dispatch Technical Details</h4>
+            </div>
+            <button type="button" onclick="closeLogModal()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+        </div>
+        <div style="padding: 20px; overflow-y: auto; flex: 1;">
+            <div id="modalStatusBadge" style="margin-bottom: 12px;"></div>
+            <pre id="modalJsonContent" style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 10px; padding: 14px; font-size: 0.75rem; color: var(--text-main); font-family: monospace; white-space: pre-wrap; word-break: break-all; margin: 0;"></pre>
+        </div>
+        <div style="padding: 12px 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+            <button type="button" onclick="closeLogModal()" class="btn btn-secondary font-bold text-xs" style="padding: 6px 16px; border-radius: 8px;">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentLogFilter = 'all';
+
+function filterLogs(status) {
+    currentLogFilter = status;
+    const rows = document.querySelectorAll('.log-row');
+    rows.forEach(r => {
+        const rowStatus = r.getAttribute('data-status');
+        if (status === 'all' || rowStatus === status) {
+            r.style.display = '';
+        } else {
+            r.style.display = 'none';
+        }
+    });
+
+    const pills = ['btnFilterAll', 'btnFilterSent', 'btnFilterFailed'];
+    pills.forEach(pId => {
+        const p = document.getElementById(pId);
+        if (!p) return;
+        p.style.background = 'var(--bg-body)';
+        p.style.color = (pId === 'btnFilterSent') ? '#10b981' : (pId === 'btnFilterFailed' ? '#ef4444' : 'var(--text-main)');
+    });
+
+    const activeBtn = document.getElementById('btnFilter' + (status === 'all' ? 'All' : status));
+    if (activeBtn) {
+        activeBtn.style.background = (status === 'Failed') ? '#ef4444' : (status === 'Sent' ? '#10b981' : 'var(--primary)');
+        activeBtn.style.color = 'white';
+    }
+}
+
+function refreshLiveLogs() {
+    const icon = document.getElementById('refreshIcon');
+    if (icon) icon.classList.add('spin-refresh');
+
+    fetch('index.php?page=merchant_waba_settings&action=get_live_logs')
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.success) {
+                // 1. Update metric counters
+                if (data.stats) {
+                    const sSent = document.getElementById('statTodaySent');
+                    if (sSent) sSent.innerHTML = Number(data.stats.today_sent).toLocaleString() + ' <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-muted);">bills</span>';
+                    
+                    const sFailed = document.getElementById('statTodayFailed');
+                    if (sFailed) {
+                        const fCount = Number(data.stats.today_failed);
+                        sFailed.innerHTML = fCount.toLocaleString() + ' <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-muted);">failed</span>';
+                        sFailed.style.color = fCount > 0 ? '#ef4444' : 'var(--text-main)';
+                    }
+                    
+                    const sMonth = document.getElementById('statMonthSent');
+                    if (sMonth) sMonth.innerHTML = Number(data.stats.month_sent).toLocaleString() + ' <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-muted);">bills</span>';
+                    
+                    const sTotal = document.getElementById('statTotalAll');
+                    if (sTotal) sTotal.innerHTML = Number(data.stats.total_all).toLocaleString() + ' <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-muted);">total</span>';
+
+                    // Alert banner
+                    const alertBanner = document.getElementById('failedAlertBanner');
+                    const alertCount = document.getElementById('failedAlertCount');
+                    if (alertBanner && alertCount) {
+                        const fCount = Number(data.stats.today_failed);
+                        alertCount.textContent = fCount;
+                        alertBanner.style.display = fCount > 0 ? 'flex' : 'none';
+                    }
+                }
+
+                // 2. Render table rows
+                const tbody = document.getElementById('logsTableBody');
+                if (tbody && Array.isArray(data.logs)) {
+                    if (data.logs.length === 0) {
+                        tbody.innerHTML = '<tr id="rowNoLogs"><td colspan="7" style="padding: 30px; text-align: center; color: var(--text-muted);"><p style="margin: 0; font-weight: 600;">No Marg ERP invoice dispatches recorded yet.</p></td></tr>';
+                    } else {
+                        let sentCount = 0;
+                        let failedCount = 0;
+                        let html = '';
+
+                        data.logs.forEach(disp => {
+                            const isFailed = (String(disp.status || '').toLowerCase() === 'failed');
+                            if (isFailed) failedCount++; else sentCount++;
+
+                            const billDisplay = disp.bill_number ? disp.bill_number : 'N/A';
+                            const phoneDisplay = disp.recipient_phone ? disp.recipient_phone : 'N/A';
+                            const gwDisplay = (String(disp.template_name || '').indexOf('web') !== -1) ? 'WhatsApp Web' : 'Meta WABA';
+                            let errText = disp.error_message || '';
+                            if (!errText && isFailed && disp.payload_json) {
+                                try {
+                                    const p = JSON.parse(disp.payload_json);
+                                    errText = p.error || p.error_message || 'Dispatch failed.';
+                                } catch(e){}
+                            }
+
+                            const d = new Date(disp.created_at);
+                            const formattedDate = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ', ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+                            html += `
+                                <tr class="log-row" data-status="${isFailed ? 'Failed' : 'Sent'}" style="border-bottom: 1px solid var(--border-color); background: ${isFailed ? 'rgba(239, 68, 68, 0.02)' : 'transparent'};">
+                                    <td style="padding: 10px 14px; white-space: nowrap; color: var(--text-muted); font-size: 0.77rem;">${formattedDate}</td>
+                                    <td style="padding: 10px 14px; font-weight: 700; font-family: monospace; color: var(--text-main);">
+                                        <span class="badge" style="background: rgba(37, 99, 235, 0.08); color: var(--primary); border: 1px solid rgba(37, 99, 235, 0.2); font-size: 0.75rem; padding: 3px 8px; border-radius: 6px;">
+                                            ${escapeHtml(billDisplay)}
+                                        </span>
+                                    </td>
+                                    <td style="padding: 10px 14px; font-weight: 600; color: var(--text-main); font-family: monospace; white-space: nowrap;">
+                                        ${escapeHtml(phoneDisplay)}
+                                    </td>
+                                    <td style="padding: 10px 14px; white-space: nowrap;">
+                                        <span class="badge" style="background: ${gwDisplay === 'WhatsApp Web' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)'}; color: ${gwDisplay === 'WhatsApp Web' ? '#10b981' : '#3b82f6'}; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 6px;">
+                                            ${gwDisplay}
+                                        </span>
+                                    </td>
+                                    <td style="padding: 10px 14px; white-space: nowrap;">
+                                        ${isFailed 
+                                            ? '<span class="badge" style="background: #ef4444; color: white; font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);"><i data-lucide="x-circle" style="width: 12px; height: 12px;"></i> FAILED</span>'
+                                            : '<span class="badge" style="background: #10b981; color: white; font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;"><i data-lucide="check-circle" style="width: 12px; height: 12px;"></i> SENT</span>'
+                                        }
+                                    </td>
+                                    <td style="padding: 10px 14px; max-width: 320px; font-size: 0.78rem;">
+                                        ${isFailed
+                                            ? `<div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; padding: 5px 8px; color: #b91c1c; font-weight: 600; word-break: break-word;">
+                                                <i data-lucide="alert-circle" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 3px; display: inline;"></i>
+                                                ${escapeHtml(errText || 'Dispatch failed.')}
+                                               </div>`
+                                            : `<span style="color: #10b981; font-weight: 600;">
+                                                <i data-lucide="check" style="width: 13px; height: 13px; vertical-align: middle; margin-right: 3px; display: inline;"></i>
+                                                Delivered with Invoice PDF attachment
+                                               </span>`
+                                        }
+                                    </td>
+                                    <td style="padding: 10px 14px; text-align: center; white-space: nowrap;">
+                                        <button type="button" onclick="showLogDetails(${disp.id})" class="btn btn-sm btn-secondary" style="padding: 3px 8px; font-size: 0.72rem; border-radius: 6px;" title="View Raw Details">
+                                            <i data-lucide="eye" style="width: 12px; height: 12px;"></i>
+                                        </button>
+                                        <textarea id="rawLogData_${disp.id}" style="display: none;">${escapeHtml(JSON.stringify(disp, null, 2))}</textarea>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+
+                        tbody.innerHTML = html;
+
+                        // Update counts
+                        const cpAll = document.getElementById('countPillAll');
+                        if (cpAll) cpAll.textContent = data.logs.length;
+                        const cpSent = document.getElementById('countPillSent');
+                        if (cpSent) cpSent.textContent = sentCount;
+                        const cpFailed = document.getElementById('countPillFailed');
+                        if (cpFailed) cpFailed.textContent = failedCount;
+
+                        filterLogs(currentLogFilter);
+                    }
+                }
+                if (window.lucide) lucide.createIcons();
+            }
+        })
+        .catch(err => console.error('Error fetching live logs:', err))
+        .finally(() => {
+            if (icon) icon.classList.remove('spin-refresh');
+        });
+}
+
+function showLogDetails(logId) {
+    const rawEl = document.getElementById('rawLogData_' + logId);
+    if (!rawEl) return;
+    
+    let rawText = rawEl.value;
+    try {
+        const parsed = JSON.parse(rawText);
+        rawText = JSON.stringify(parsed, null, 2);
+    } catch(e){}
+
+    const modal = document.getElementById('logDetailsModal');
+    const jsonEl = document.getElementById('modalJsonContent');
+    if (modal && jsonEl) {
+        jsonEl.textContent = rawText;
+        modal.style.display = 'flex';
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+function closeLogModal() {
+    const modal = document.getElementById('logDetailsModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+</script>
+<style>
+.spin-refresh {
+    animation: spinAnim 0.7s linear infinite;
+}
+@keyframes spinAnim {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+</style>
 
 <div id="setupOptionsSection"></div>
 
@@ -527,29 +1014,64 @@ try {
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
         <!-- Option 1: Meta Cloud API -->
         <div id="card-gateway-meta" onclick="selectGateway('meta')" style="cursor: pointer; padding: 18px; border-radius: 14px; border: 2px solid <?php echo ($current_gateway === 'meta') ? 'var(--primary)' : 'var(--border-color)'; ?>; background: <?php echo ($current_gateway === 'meta') ? 'rgba(37, 99, 235, 0.08)' : 'var(--bg-app)'; ?>; transition: all 0.2s ease;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <i data-lucide="cloud" style="width: 24px; height: 24px; color: var(--primary);"></i>
                     <strong style="font-size: 1rem; color: var(--text-main);">Option 1: Meta Cloud API</strong>
                 </div>
-                <span class="badge" style="background: var(--primary); color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700;">Official Meta WABA</span>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <?php if ($current_gateway === 'meta'): ?>
+                        <span class="badge" style="background: var(--primary); color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;">Active Method</span>
+                    <?php endif; ?>
+                    <span class="badge" style="background: rgba(37, 99, 235, 0.12); color: var(--primary); padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;">Official Meta WABA</span>
+                </div>
             </div>
-            <p style="font-size: 0.825rem; color: var(--text-muted); margin: 0; line-height: 1.5;">
+            <p style="font-size: 0.825rem; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.5;">
                 Official Meta Business API. Requires Facebook Meta WABA ID, Phone ID, and Access Token. High volume green tick support.
             </p>
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px dashed var(--border-color); padding-top: 8px;">
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Connection Status:</span>
+                <?php if ($has_meta_setup): ?>
+                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b981; font-weight: 700; font-size: 0.72rem; padding: 3px 8px; border-radius: 6px;">
+                        <i data-lucide="check-circle-2" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 2px;"></i> Connected (<?php echo htmlspecialchars($meta_phone_display); ?>)
+                    </span>
+                <?php else: ?>
+                    <span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.72rem; padding: 3px 8px; border-radius: 6px;">
+                        ⚪ Not Configured
+                    </span>
+                <?php endif; ?>
+            </div>
         </div>
 
         <!-- Option 2: WhatsApp Web API -->
         <div id="card-gateway-web" onclick="selectGateway('web_api')" style="cursor: pointer; padding: 18px; border-radius: 14px; border: 2px solid <?php echo ($current_gateway === 'web_api') ? '#10b981' : 'var(--border-color)'; ?>; background: <?php echo ($current_gateway === 'web_api') ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-app)'; ?>; transition: all 0.2s ease;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <i data-lucide="smartphone" style="width: 24px; height: 24px; color: #10b981;"></i>
                     <strong style="font-size: 1rem; color: var(--text-main);">Option 2: WhatsApp Web API</strong>
                 </div>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <?php if ($current_gateway === 'web_api'): ?>
+                        <span class="badge" style="background: #10b981; color: white; padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;">Active Method</span>
+                    <?php endif; ?>
+                    <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #10b981; padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;">Direct QR / Pair</span>
+                </div>
             </div>
-            <p style="font-size: 0.825rem; color: var(--text-muted); margin: 0; line-height: 1.5;">
+            <p style="font-size: 0.825rem; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.5;">
                 Connect regular WhatsApp by scanning QR Code or 8-digit Phone Pairing Code. Invoices send automatically!
             </p>
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px dashed var(--border-color); padding-top: 8px;">
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Connection Status:</span>
+                <?php if ($has_web_setup): ?>
+                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b981; font-weight: 700; font-size: 0.72rem; padding: 3px 8px; border-radius: 6px;">
+                        <i data-lucide="check-circle-2" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 2px;"></i> Connected (<?php echo htmlspecialchars($web_display_phone ?: 'Paired'); ?>)
+                    </span>
+                <?php else: ?>
+                    <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #fde68a; font-weight: 600; font-size: 0.72rem; padding: 3px 8px; border-radius: 6px;">
+                        🟡 Ready to Scan / Pair
+                    </span>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 </div>
@@ -943,6 +1465,31 @@ function updateWebSessionUI(data) {
         if (connectedBox) connectedBox.style.display = 'none';
         if (pairTabs) pairTabs.style.display = 'flex';
         if (pairQrBox) pairQrBox.style.display = 'block';
+    } else if (data && (data.status === 'waiting_engine' || data.status === 'engine_offline' || data.status === 'error')) {
+        if (img) img.style.display = 'none';
+        if (ph) {
+            ph.style.display = 'block';
+            ph.innerHTML = "<div style='text-align:center;padding:4px;'><i data-lucide='alert-circle' style='width:32px;height:32px;color:#ef4444;margin-bottom:6px;'></i><br><strong style='color:#ef4444;font-size:0.85rem;'>Cloud Engine Reconnecting</strong><br><span style='font-size:0.75rem;color:#64748b;'>Click 'Refresh Status' in a few seconds.</span></div>";
+        }
+        if (badge) {
+            badge.innerHTML = "🔴 Status: Cloud Engine Reconnecting";
+            badge.style.background = "#ef4444";
+        }
+        if (connectedBox) connectedBox.style.display = 'none';
+        if (pairTabs) pairTabs.style.display = 'flex';
+        if (pairQrBox) pairQrBox.style.display = 'block';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } else if (data && data.status === 'initializing') {
+        if (img) img.style.display = 'none';
+        if (ph) {
+            ph.style.display = 'block';
+            ph.innerHTML = "⚡ <strong>Generating QR Code...</strong><br><span style='font-size:0.75rem;color:#64748b;'>Please wait a moment...</span>";
+        }
+        if (badge) {
+            badge.innerHTML = "🟡 Status: Generating QR Code...";
+            badge.style.background = "#f59e0b";
+        }
+        setTimeout(loadLiveQrCode, 2500);
     } else {
         if (img) img.style.display = 'none';
         if (ph) {
@@ -966,6 +1513,10 @@ function updateWebSessionUI(data) {
 const currentUserId = <?php echo (int)$user_id; ?>;
 
 function loadLiveQrCode() {
+    const badge = document.getElementById('sessionStatusBadge');
+    if (badge && !badge.innerText.includes('Connected')) {
+        badge.innerHTML = "⏳ Fetching Status / QR...";
+    }
     fetch('api/whatsapp_web_engine.php?action=get_qr&user_id=' + currentUserId)
         .then(res => res.json())
         .then(data => {
@@ -973,10 +1524,13 @@ function loadLiveQrCode() {
         })
         .catch(err => {
             console.log('QR load error', err);
+            updateWebSessionUI({ status: 'waiting_engine' });
         });
 }
 
 function checkSessionStatus() {
+    const badge = document.getElementById('sessionStatusBadge');
+    if (badge) badge.innerHTML = "⏳ Checking Connection...";
     fetch('api/whatsapp_web_engine.php?action=check_status&user_id=' + currentUserId)
         .then(res => res.json())
         .then(data => {
@@ -984,6 +1538,7 @@ function checkSessionStatus() {
         })
         .catch(err => {
             console.log('Status check error', err);
+            updateWebSessionUI({ status: 'waiting_engine' });
         });
 }
 
@@ -1026,7 +1581,8 @@ function generatePhonePairingCode() {
 // Auto load status / QR on page render if web_api mode active
 document.addEventListener('DOMContentLoaded', () => {
     if ("<?php echo $current_gateway; ?>" === 'web_api') {
-        checkSessionStatus();
+        loadLiveQrCode();
     }
 });
+
 </script>

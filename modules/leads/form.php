@@ -109,8 +109,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'save_followup' && $_SERVER['R
             if (empty($newAssignedBy) || ($existingAssignedTo && $existingAssignedTo['assigned_to'] !== $assigned_to)) {
                 $newAssignedBy = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
             }
-            $stmt = $pdo->prepare("UPDATE leads SET address = ?, tags = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, assigned_to = ?, assigned_by = ? WHERE id = ?");
-            $stmt->execute([$address, $tags, $source, $enq_for, $contact_person, $remark, $assigned_to, $newAssignedBy, $lead_id]);
+            $stmt = $pdo->prepare("UPDATE leads SET address = ?, tags = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, assigned_to = ?, assigned_by = ?, group_stage = COALESCE(NULLIF(?, ''), group_stage), company = COALESCE(NULLIF(?, ''), company) WHERE id = ?");
+            $stmt->execute([$address, $tags, $source, $enq_for, $contact_person, $remark, $assigned_to, $newAssignedBy, $group, $group, $lead_id]);
 
             header("Location: index.php?page=leads");
             exit;
@@ -159,8 +159,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                 if (empty($newAssignedBy) || ($existingAssignedTo && $existingAssignedTo['assigned_to'] !== $assigned_to)) {
                     $newAssignedBy = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
                 }
-                $stmt = $pdo->prepare("UPDATE leads SET name = ?, company = ?, email = ?, phone = ?, address = ?, source = ?, tags = ?, assigned_to = ?, assigned_by = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
-                $stmt->execute([$name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $newAssignedBy, $enq_for, $contact_person, $remark, $leadId]);
+                
+                $status_clause = '';
+                if (!empty($group_name)) {
+                    if (strcasecmp($group_name, 'Not Required') === 0) {
+                        $status_clause = ", status = 'dropped'";
+                    } elseif (strcasecmp($group_name, 'Installation Done') === 0) {
+                        $status_clause = ", status = 'won'";
+                    }
+                }
+
+                $stmt = $pdo->prepare("UPDATE leads SET name = ?, company = ?, group_stage = ?, email = ?, phone = ?, address = ?, source = ?, tags = ?, assigned_to = ?, assigned_by = ?, enq_for = ?, contact_person = ?, remarks = ? {$status_clause} WHERE id = ?");
+                $stmt->execute([$name, $group_name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $newAssignedBy, $enq_for, $contact_person, $remark, $leadId]);
                 
                 // Add activity timeline record
                 $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead details modified by operator')");
@@ -203,9 +213,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     // Register a new lead profile
                     $newId = 'LD-' . rand(1000, 9999);
                     $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
+                    $initial_status = (strcasecmp($group_name, 'Not Required') === 0) ? 'dropped' : 'new';
                     
-                    $stmt = $pdo->prepare("INSERT INTO leads (id, name, company, email, phone, address, source, tags, assigned_to, assigned_by, enq_for, contact_person, remarks, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')");
-                    $stmt->execute([$newId, $name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $assigned_by, $enq_for, $contact_person, $remark]);
+                    $stmt = $pdo->prepare("INSERT INTO leads (id, name, company, group_stage, email, phone, address, source, tags, assigned_to, assigned_by, enq_for, contact_person, remarks, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$newId, $name, $group_name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $assigned_by, $enq_for, $contact_person, $remark, $initial_status]);
                     
                     // Add activity log
                     $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead file registered')");
@@ -471,15 +482,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     <input type="text" class="form-control" value="<?php echo htmlspecialchars($editLead['assigned_by'] ?? ''); ?>" placeholder="Auto-set on assignment" readonly disabled style="background-color: var(--bg-hover); opacity: 0.85; cursor: not-allowed; font-weight: 600;">
                 </div>
                 <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Group / Company</label>
+                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Group / Stage</label>
                     <select name="group_name" class="form-control form-control-focus">
                         <option value="">-- Select Group --</option>
                         <?php 
                         $group_options = ['Fresh', 'Followup', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required'];
-                        $cur_grp = $editLead['company'] ?? '';
+                        $cur_grp = !empty($editLead['group_stage']) ? $editLead['group_stage'] : ($editLead['company'] ?? '');
                         foreach ($group_options as $grp): 
                         ?>
-                            <option value="<?php echo $grp; ?>" <?php echo ($cur_grp === $grp) ? 'selected' : ''; ?>><?php echo $grp; ?></option>
+                            <option value="<?php echo $grp; ?>" <?php echo (strcasecmp($cur_grp, $grp) === 0) ? 'selected' : ''; ?>><?php echo $grp; ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>

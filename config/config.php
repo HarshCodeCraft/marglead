@@ -15,8 +15,22 @@ if (!headers_sent()) {
     header("Referrer-Policy: strict-origin-when-cross-origin");
 }
 
-// Session Initialization
+// Session Initialization (5 Hours = 18000s Session Lifetime)
 if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    $session_lifetime = 18000; // 5 Hours
+    @ini_set('session.gc_maxlifetime', $session_lifetime);
+    @ini_set('session.cookie_lifetime', $session_lifetime);
+    
+    if (PHP_VERSION_ID >= 70300) {
+        @session_set_cookie_params([
+            'lifetime' => $session_lifetime,
+            'path' => '/',
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
+    } else {
+        @session_set_cookie_params($session_lifetime, '/');
+    }
     session_start();
 }
 
@@ -57,11 +71,12 @@ if ($is_ngrok) {
 define('DB_CHARSET', 'utf8mb4');
 
 // -------------------------------------------------------------
-// 2. Self-Hosted WhatsApp Web Engine URL (Hostinger Port 3005)
+// 2. Self-Hosted WhatsApp Web Engine URL (Oracle Cloud VPS Port 3000)
 // -------------------------------------------------------------
 if (!defined('WHATSAPP_ENGINE_URL')) {
-    define('WHATSAPP_ENGINE_URL', getenv('WHATSAPP_ENGINE_URL') ?: 'http://127.0.0.1:3005');
+    define('WHATSAPP_ENGINE_URL', getenv('WHATSAPP_ENGINE_URL') ?: 'http://140.238.167.58:3000');
 }
+
 
 // -------------------------------------------------------------
 // 3. Meta WhatsApp Cloud API Credentials & Webhook Token

@@ -1,10 +1,6 @@
 <?php
-/**
- * Marg CRM - API Endpoint to Send WhatsApp Message
- * 
- * Supports sending standard text or interactive reply buttons.
- * Access via POST request.
- */
+
+date_default_timezone_set('Asia/Kolkata');
 
 require_once __DIR__ . '/whatsapp-api.php';
 
@@ -33,7 +29,7 @@ if ($type === 'buttons') {
         ['id' => 'btn_sales', 'title' => 'Sales'],
         ['id' => 'btn_support', 'title' => 'Support']
     ];
-    $header = $input['header'] ?? 'Welcome to ABC Software';
+    $header = $input['header'] ?? 'Welcome to MARG SOFT SOLUTION';
     $footer = $input['footer'] ?? 'Select an option';
 
     $result = $whatsapp->sendReplyButtons($phone, $bodyText, $buttons, $header, $footer);

@@ -28,9 +28,9 @@ if (!class_exists('TenantAwarePDO')) {
                     if (empty($this->prefixStr)) return $sql;
                     
                     $tables = [
-                        'leads', 'timeline', 'followups', 'demos', 
+                        'users', 'leads', 'timeline', 'followups', 'demos', 
                         'quotations', 'payments', 'bank_accounts', 'installations', 
-                        'trainings', 'training_sessions', 'tickets', 'support_tickets', 'ticket_replies',
+                        'trainings', 'training_sessions', 'training_daily_sessions', 'tickets', 'support_tickets', 'support_ticket_history', 'ticket_replies',
                         'client_directory', 'customers', 'customer_kyc_details', 'customer_reviews',
                         'message_logs', 'chat_conversations', 'merchant_waba_settings', 'bot_flows',
                         'renewals', 'invoices', 'lead_documents', 'broadcast_campaigns', 'campaign_audience',
@@ -159,6 +159,7 @@ $options = [
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
     PDO::ATTR_TIMEOUT            => 3,
+    PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+05:30'",
 ];
 
 try {
@@ -312,6 +313,20 @@ try {
             }
             if (!in_array('web_api_session_status', $mwCols)) {
                 $pdo->exec("ALTER TABLE merchant_waba_settings ADD COLUMN web_api_session_status VARCHAR(50) NULL DEFAULT 'disconnected'");
+            }
+        }
+    } catch (\Exception $e) {}
+
+    // Schema auto-upgrade to support WhatsApp Templates Meta Approval status and Gateway Origin
+    try {
+        $wtChk = $pdo->query("SHOW TABLES LIKE 'whatsapp_templates'");
+        if ($wtChk && $wtChk->rowCount() > 0) {
+            $wtCols = $pdo->query("SHOW COLUMNS FROM whatsapp_templates")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('meta_status', $wtCols)) {
+                $pdo->exec("ALTER TABLE whatsapp_templates ADD COLUMN meta_status VARCHAR(50) DEFAULT 'APPROVED'");
+            }
+            if (!in_array('gateway_origin', $wtCols)) {
+                $pdo->exec("ALTER TABLE whatsapp_templates ADD COLUMN gateway_origin VARCHAR(50) DEFAULT 'meta'");
             }
         }
     } catch (\Exception $e) {}
@@ -562,10 +577,14 @@ try {
                 lead_id VARCHAR(50) NULL,
                 customer VARCHAR(255) NOT NULL,
                 trainer VARCHAR(100) NOT NULL,
+                trainer_phone VARCHAR(20) NULL,
+                dropped_by VARCHAR(100) NULL,
                 scheduled_at DATETIME NOT NULL,
                 mode VARCHAR(50) DEFAULT 'Online (Google Meet)',
                 hours_completed INT DEFAULT 0,
                 total_hours INT DEFAULT 6,
+                current_day INT DEFAULT 0,
+                total_days INT DEFAULT 3,
                 status VARCHAR(20) DEFAULT 'scheduled',
                 phone VARCHAR(50) NULL,
                 email VARCHAR(100) NULL,
@@ -574,8 +593,80 @@ try {
                 address TEXT NULL,
                 topics TEXT NULL,
                 remarks TEXT NULL,
+                rescheduled_reason TEXT NULL,
+                last_session_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        } else {
+            // Check and add new columns to training_sessions if missing
+            try {
+                $colsTr = $pdo->query("SHOW COLUMNS FROM training_sessions")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('trainer_phone', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN trainer_phone VARCHAR(20) NULL AFTER trainer");
+                }
+                if (!in_array('dropped_by', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN dropped_by VARCHAR(100) NULL AFTER trainer_phone");
+                }
+                if (!in_array('current_day', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN current_day INT DEFAULT 0 AFTER hours_completed");
+                }
+                if (!in_array('total_days', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN total_days INT DEFAULT 3 AFTER current_day");
+                }
+                if (!in_array('rescheduled_reason', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN rescheduled_reason TEXT NULL AFTER remarks");
+                }
+                if (!in_array('last_session_at', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN last_session_at DATETIME NULL AFTER rescheduled_reason");
+                }
+                if (!in_array('connect_status', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN connect_status VARCHAR(50) DEFAULT 'Pending Connect' AFTER status");
+                }
+                if (!in_array('last_connect_by', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN last_connect_by VARCHAR(100) NULL AFTER connect_status");
+                }
+                if (!in_array('last_connect_at', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN last_connect_at DATETIME NULL AFTER last_connect_by");
+                }
+                if (!in_array('last_connect_notes', $colsTr)) {
+                    $pdo->exec("ALTER TABLE training_sessions ADD COLUMN last_connect_notes TEXT NULL AFTER last_connect_at");
+                }
+            } catch (Throwable $eCols) {}
+        }
+
+        // Schema auto-upgrade to ensure training_daily_sessions table exists
+        $trainDailyCheck = $pdo->query("SHOW TABLES LIKE 'training_daily_sessions'");
+        if ($trainDailyCheck && $trainDailyCheck->rowCount() === 0) {
+            $pdo->exec("CREATE TABLE training_daily_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                training_id VARCHAR(50) NOT NULL,
+                day_number INT DEFAULT 1,
+                session_date DATE NOT NULL,
+                start_time DATETIME NULL,
+                end_time DATETIME NULL,
+                duration_minutes INT DEFAULT 0,
+                topics_covered TEXT NULL,
+                trainer_notes TEXT NULL,
+                status VARCHAR(20) DEFAULT 'completed',
+                update_type VARCHAR(50) DEFAULT 'session',
+                logged_by VARCHAR(100) NULL,
+                connect_status VARCHAR(50) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_tr_id (training_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        } else {
+            try {
+                $colsD = $pdo->query("SHOW COLUMNS FROM training_daily_sessions")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('update_type', $colsD)) {
+                    $pdo->exec("ALTER TABLE training_daily_sessions ADD COLUMN update_type VARCHAR(50) DEFAULT 'session' AFTER status");
+                }
+                if (!in_array('logged_by', $colsD)) {
+                    $pdo->exec("ALTER TABLE training_daily_sessions ADD COLUMN logged_by VARCHAR(100) NULL AFTER update_type");
+                }
+                if (!in_array('connect_status', $colsD)) {
+                    $pdo->exec("ALTER TABLE training_daily_sessions ADD COLUMN connect_status VARCHAR(50) NULL AFTER logged_by");
+                }
+            } catch (Throwable $eColsD) {}
         }
 
         // Schema auto-upgrade to ensure merchant_waba_settings table exists

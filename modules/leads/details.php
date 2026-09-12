@@ -434,6 +434,14 @@ $software_trades_list = [
     'Warehouse / Stockist',
     'Wholesale Trader'
 ];
+
+$operators = [];
+if ($db_connected && $pdo) {
+    try {
+        $stmtOp = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC");
+        $operators = $stmtOp->fetchAll(PDO::FETCH_COLUMN);
+    } catch (PDOException $e) {}
+}
 ?>
 
 <?php if (!$lead): ?>
@@ -468,7 +476,7 @@ $software_trades_list = [
                 <i data-lucide="edit-3" style="width: 16px; height: 16px;"></i>
                 <span>Edit Lead</span>
             </a>
-            <button class="btn btn-primary text-sm" onclick="window.openModal('schedule-followup-modal');">
+            <button class="btn btn-primary text-sm" onclick="openLeadDetailsFollowupModal('<?php echo htmlspecialchars($lead['id']); ?>');">
                 <i data-lucide="calendar-plus" style="width: 16px; height: 16px;"></i>
                 <span>Schedule Follow-up</span>
             </button>
@@ -700,7 +708,7 @@ $software_trades_list = [
                 <div class="tab-pane" id="tab-followups">
                     <div class="flex justify-between align-center mb-4">
                         <h3 class="text-base font-semibold m-0">Upcoming & Past Follow-ups</h3>
-                        <button class="btn btn-primary text-xs" onclick="window.openModal('schedule-followup-modal')">Add Follow-up</button>
+                        <button class="btn btn-primary text-xs" onclick="openLeadDetailsFollowupModal('<?php echo htmlspecialchars($lead['id']); ?>')">Add Follow-up</button>
                     </div>
                     <div class="table-responsive">
                         <table class="table">
@@ -1494,68 +1502,165 @@ $software_trades_list = [
     </div>
 </div>
 
-<!-- Modal: Schedule Follow-up -->
-<div id="schedule-followup-modal" class="modal-overlay">
-    <div class="modal-container">
-        <div class="modal-header">
-            <h3 class="m-0" style="font-family: var(--font-heading);">Schedule Follow-up reminder</h3>
-            <button class="btn-icon" onclick="window.closeModal('schedule-followup-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+<!-- Quick Follow-up & Data Fill Modal (Rich 2-Column Mode) -->
+<div id="quick-followup-modal" class="modal-overlay hidden" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); transition: all 0.3s ease;">
+    <div class="card p-6" style="width: 100%; max-width: 900px; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); animation: scaleUp 0.3s ease-out; background: var(--bg-card); display: flex; flex-direction: column; max-height: 90vh; color: var(--text-main);">
+        <!-- Modal Header -->
+        <div class="flex justify-between align-center mb-6" style="border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
+            <h3 class="font-bold text-lg" id="qf-modal-title" style="font-family: var(--font-heading); margin: 0;">Follow-Up For Client</h3>
+            <button type="button" class="btn-icon" onclick="closeQuickFollowupModal()" style="border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--border-radius-full);">
+                <i data-lucide="x" style="width: 20px; height: 20px; color: var(--text-muted);"></i>
+            </button>
         </div>
-        <form class="modal-body flex flex-col gap-4" action="index.php?action=schedule_followup" method="POST">
-            <input type="hidden" name="lead_id" value="<?php echo htmlspecialchars($lead['id']); ?>">
-            <input type="hidden" name="assigned_to" value="<?php echo htmlspecialchars($lead['assigned_to'] ?? ''); ?>">
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Date & Time</label>
-                <input type="datetime-local" name="scheduled_at" class="form-control" required value="<?php echo date('Y-m-d\TH:i'); ?>">
-            </div>
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Action Type</label>
-                <select name="action_type" class="form-control">
-                    <option value="Trail Installed">Trail Installed</option>
-                    <option value="Data Input Follow Up">Data Input Follow Up</option>
-                    <option value="Payment Followup">Payment Followup</option>
-                    <option value="Rest Amt Followup">Rest Amt Followup</option>
-                </select>
-            </div>
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Reminder notes / Instructions</label>
-                <textarea name="remarks" class="form-control" rows="3" placeholder="Input specific goals..."></textarea>
-            </div>
-            <div class="flex gap-4 mt-2">
-                <label class="flex align-center gap-2 text-xs font-semibold pointer">
-                    <input type="checkbox" name="send_email" value="1" checked style="width: 14px; height: 14px;">
-                    <span>Send Email Notification</span>
-                </label>
-                <label class="flex align-center gap-2 text-xs font-semibold pointer">
-                    <input type="checkbox" name="send_sms" value="1" checked style="width: 14px; height: 14px;">
-                    <span>Send Free Carrier SMS</span>
-                </label>
-            </div>
+        
+        <!-- Modal Form Content -->
+        <form id="quick-followup-form" method="POST" style="overflow-y: auto; flex: 1; padding-right: 8px;">
+            <input type="hidden" name="action" value="quick_followup_save">
+            <input type="hidden" name="lead_id" id="qf-lead-id" value="<?php echo htmlspecialchars($lead['id']); ?>">
             
-            <div class="form-group mt-2">
-                <label class="form-label text-xs">SMS Notification Targets</label>
-                <div class="flex flex-col gap-2" style="background: var(--border-card); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
-                    <label class="flex align-center gap-2 text-xs pointer">
-                        <input type="checkbox" name="sms_targets[]" value="client" checked style="width: 14px; height: 14px;">
-                        <span>Client Phone:</span>
-                        <input type="text" name="sms_client_phone" class="form-control text-xs" style="height: 24px; padding: 2px 8px; width: 140px; margin-left: auto;" value="<?php echo htmlspecialchars($lead['phone'] ?? ''); ?>">
-                    </label>
-                    <label class="flex align-center gap-2 text-xs pointer mt-1">
-                        <input type="checkbox" name="sms_targets[]" value="employee" checked style="width: 14px; height: 14px;">
-                        <span>Employee Phone:</span>
-                        <input type="text" name="sms_employee_phone" class="form-control text-xs" style="height: 24px; padding: 2px 8px; width: 140px; margin-left: auto;" value="9012345678" placeholder="Employee Phone">
-                    </label>
-                    <label class="flex align-center gap-2 text-xs pointer mt-1">
-                        <input type="checkbox" name="sms_targets[]" value="admin" checked style="width: 14px; height: 14px;">
-                        <span>Admin Phone:</span>
-                        <input type="text" name="sms_admin_phone" class="form-control text-xs" style="height: 24px; padding: 2px 8px; width: 140px; margin-left: auto;" value="7860510928">
-                    </label>
+            <div class="grid" style="grid-template-columns: 1.2fr 1fr; gap: 2rem; align-items: start;">
+                <!-- Left Column: Lead Data -->
+                <div>
+                    <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Group</label>
+                            <select name="group_stage" id="qf-group-stage" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
+                                <option value="Fresh">Fresh</option>
+                                <option value="Followup">Followup</option>
+                                <option value="Demo Scheduled">Demo Scheduled</option>
+                                <option value="Demo Done">Demo Done</option>
+                                <option value="Installation Done">Installation Done</option>
+                                <option value="Not Required">Not Required</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Lead Status</label>
+                            <select name="status" id="qf-status" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                                <?php foreach ($PIPELINE_STAGES as $key => $stage): ?>
+                                    <option value="<?php echo htmlspecialchars($key); ?>"><?php echo htmlspecialchars($stage['label']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Assign to Employee(s) (Select Multiple)</label>
+                            <div class="employee-select-grid" style="display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 100px; overflow-y: auto; padding: 0.4rem; background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);">
+                                <?php foreach ($operators as $op): ?>
+                                    <label class="flex align-center gap-15 text-xs pointer" style="padding: 0.25rem 0.5rem; border-radius: 4px; background: var(--bg-card); border: 1px solid var(--border-color); user-select: none;">
+                                        <input type="checkbox" name="assigned_to[]" class="qf-assigned-cb" value="<?php echo htmlspecialchars($op); ?>" style="accent-color: var(--primary); width: 13px; height: 13px;">
+                                        <span><?php echo htmlspecialchars($op); ?></span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px; color: var(--text-muted);">Assigned By (Read-Only)</label>
+                            <input type="text" id="qf-assigned-by" class="form-control text-sm" readonly disabled style="width: 100%; height: 36px; padding: 0.5rem; background: var(--bg-hover); opacity: 0.85; cursor: not-allowed; font-weight: 600;" placeholder="Not assigned yet">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group mb-4">
+                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Address</label>
+                        <textarea name="address" id="qf-address" class="form-control text-sm" style="width: 100%; min-height: 60px; height: 60px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);"></textarea>
+                    </div>
+                    
+                    <h4 class="text-xs font-bold text-muted mb-3" style="text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 1.5rem; margin-bottom: 1rem;">Additional Fields</h4>
+                    
+                    <div class="grid" style="grid-template-columns: 1fr 1fr 1.2fr; gap: 0.75rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Source</label>
+                            <select name="source" id="qf-source" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                                <option value="Website">Website</option>
+                                <option value="Google Ads">Google Ads</option>
+                                <option value="Cold Calls">Cold Calls</option>
+                                <option value="Referrals">Referrals</option>
+                                <option value="Exhibitions">Exhibitions</option>
+                                <option value="HO">HO</option>
+                                <option value="Office">Office</option>
+                                <option value="Self">Self</option>
+                                <option value="Door to Door">Door to Door</option>
+                                <option value="Imported">Imported</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Enq_For</label>
+                            <select name="enq_for" id="qf-enq-for" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                                <option value="">-- Choose --</option>
+                                <option value="Marg Basic">Marg Basic</option>
+                                <option value="Marg Silver">Marg Silver</option>
+                                <option value="Marg Gold">Marg Gold</option>
+                                <option value="Marg Nano">Marg Nano</option>
+                                <option value="Marg Hr">Marg Hr</option>
+                                <option value="Marg Colud">Marg Colud</option>
+                                <option value="Marg Book Gold">Marg Book Gold</option>
+                                <option value="Marg Book Silver">Marg Book Silver</option>
+                                <option value="Marg Enterprises">Marg Enterprises</option>
+                                <option value="Marg Mart">Marg Mart</option>
+                                <option value="Marg Dimond">Marg Dimond</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Contact Person</label>
+                            <input type="text" name="contact_person" id="qf-contact-person" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" placeholder="Contact Person Name">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Remarks</label>
+                        <textarea name="remarks" id="qf-remarks" class="form-control text-sm" style="width: 100%; min-height: 50px; height: 50px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);"></textarea>
+                    </div>
+                </div>
+                
+                <!-- Right Column: Schedule Follow-up Reminder & History -->
+                <div style="border-left: 1px solid var(--border-color); padding-left: 2rem; display: flex; flex-direction: column; justify-content: flex-start; height: 100%;">
+                    <h4 class="text-sm font-bold text-main mb-3" style="font-family: var(--font-heading); margin-top: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--primary);">
+                        <i data-lucide="bell-ring" style="width: 16px; height: 16px;"></i>
+                        Schedule Follow-up reminder
+                    </h4>
+
+                    <!-- Date & Time & Action Type Row -->
+                    <div class="grid mb-3" style="grid-template-columns: 1fr 1fr; gap: 0.75rem; width: 100%;">
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Date & Time</label>
+                            <input type="datetime-local" name="scheduled_at" id="qf-scheduled-at" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.4rem 0.5rem;">
+                        </div>
+                        <div class="form-group m-0">
+                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Action Type</label>
+                            <select name="action_type" id="qf-action-type" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                                <option value="Call">Call / Phone Call</option>
+                                <option value="Trail Installed">Trail Installed</option>
+                                <option value="Data Input Follow Up">Data Input Follow Up</option>
+                                <option value="Payment Followup">Payment Followup</option>
+                                <option value="Rest Amt Followup">Rest Amt Followup</option>
+                                <option value="Product Demo">Product Demo</option>
+                                <option value="On-Site Visit">On-Site Visit</option>
+                                <option value="Renewal / Expiry">Renewal / Expiry</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Reminder Notes / Instructions -->
+                    <div class="form-group mb-3" style="width: 100%;">
+                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Reminder notes / Instructions</label>
+                        <textarea name="fup_notes" id="qf-fup-notes" class="form-control text-sm" style="width: 100%; min-height: 75px; height: 75px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);" placeholder="Add reminder notes or instructions..."></textarea>
+                    </div>
+
+                    <!-- Upcoming & Past Follow-ups Section -->
+                    <div style="width: 100%; border-top: 1px solid var(--border-color); padding-top: 0.5rem; flex: 1; display: flex; flex-direction: column;">
+                        <h4 class="text-xs font-bold text-muted mb-2" style="text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.5rem 0; display: flex; align-items: center; justify-content: space-between;">
+                            <span>Upcoming & Past Follow-ups</span>
+                            <span class="badge text-xs" id="qf-history-count" style="--badge-bg: var(--primary-light); --badge-color: var(--primary);">0 entries</span>
+                        </h4>
+                        <div id="qf-history-timeline" style="max-height: 125px; overflow-y: auto; padding-right: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                            <p class="text-xs text-muted" style="font-style: italic;">Loading history...</p>
+                        </div>
+                    </div>
                 </div>
             </div>
             
-            <div class="flex justify-end gap-2 mt-2">
-                <button type="button" class="btn btn-secondary text-sm" onclick="window.closeModal('schedule-followup-modal')">Cancel</button>
-                <button type="submit" class="btn btn-primary text-sm">Save Reminder</button>
+            <!-- Modal Actions Footer -->
+            <div class="flex justify-end gap-3 mt-6 pt-4" style="border-top: 1px solid var(--border-color);">
+                <button type="button" class="btn text-sm" onclick="closeQuickFollowupModal()" style="border-radius: 50px; border: 1.5px solid #004d40; background-color: transparent; color: #004d40; padding: 0.5rem 1.7rem; cursor: pointer; font-weight: 500; font-family: var(--font-heading); transition: all 0.2s ease;">Cancel</button>
+                <button type="submit" class="btn text-sm" style="border-radius: 50px; border: none; background-color: #004d40; color: #ffffff; padding: 0.5rem 2.5rem; cursor: pointer; font-weight: 600; font-family: var(--font-heading); transition: all 0.2s ease;">Save</button>
             </div>
         </form>
     </div>
@@ -2302,6 +2407,174 @@ document.addEventListener('DOMContentLoaded', function() {
     const curState = document.getElementById('lead_client_state')?.value;
     if (curCity) {
         fetchLeadCityAreas(curCity, curState);
+    }
+});
+
+// Quick Follow-up Modal handler for Lead Details
+function openLeadDetailsFollowupModal(leadId) {
+    if (!leadId) leadId = '<?php echo htmlspecialchars($lead['id'] ?? ''); ?>';
+    const quickFollowupModal = document.getElementById('quick-followup-modal');
+    
+    fetch('index.php?page=leads&action=get_lead_json&id=' + encodeURIComponent(leadId))
+    .then(response => response.json())
+    .then(res => {
+        if (res.success) {
+            const lead = res.lead;
+            
+            if (document.getElementById('qf-lead-id')) document.getElementById('qf-lead-id').value = lead.id || '';
+            if (document.getElementById('qf-modal-title')) document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name || ''}</strong> ( ${lead.phone || ''} )`;
+            if (document.getElementById('qf-group-stage')) document.getElementById('qf-group-stage').value = lead.group_stage || lead.company || 'Fresh';
+            if (document.getElementById('qf-status')) document.getElementById('qf-status').value = lead.status || 'new';
+            
+            const assignedList = (lead.assigned || '').split(',').map(s => s.trim().toLowerCase());
+            document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
+                cb.checked = assignedList.includes(cb.value.trim().toLowerCase());
+            });
+            if (document.getElementById('qf-assigned-by')) document.getElementById('qf-assigned-by').value = lead.assigned_by || 'Not assigned yet';
+            if (document.getElementById('qf-tags')) document.getElementById('qf-tags').value = lead.tags || '';
+            if (document.getElementById('qf-address')) document.getElementById('qf-address').value = lead.address || '';
+            if (document.getElementById('qf-source')) document.getElementById('qf-source').value = lead.source || 'Website';
+            if (document.getElementById('qf-enq-for')) document.getElementById('qf-enq-for').value = lead.enq_for || '';
+            if (document.getElementById('qf-contact-person')) document.getElementById('qf-contact-person').value = lead.contact_person || '';
+            if (document.getElementById('qf-remarks')) document.getElementById('qf-remarks').value = lead.remarks || '';
+            
+            let pendingFup = null;
+            if (res.followup_history && res.followup_history.length > 0) {
+                pendingFup = res.followup_history.find(f => f.status === 'pending') || res.followup_history[0];
+            }
+
+            if (pendingFup && pendingFup.scheduled_at) {
+                const fupDateStr = pendingFup.scheduled_at.replace(' ', 'T').slice(0, 16);
+                if (document.getElementById('qf-scheduled-at')) {
+                    document.getElementById('qf-scheduled-at').value = fupDateStr;
+                }
+                if (document.getElementById('qf-action-type')) {
+                    document.getElementById('qf-action-type').value = pendingFup.action_type || 'Trail Installed';
+                }
+                if (document.getElementById('qf-fup-notes')) {
+                    document.getElementById('qf-fup-notes').value = pendingFup.remarks || '';
+                }
+            } else {
+                const now = new Date();
+                now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                const defaultDateTime = now.toISOString().slice(0, 16);
+                if (document.getElementById('qf-scheduled-at')) {
+                    document.getElementById('qf-scheduled-at').value = defaultDateTime;
+                }
+                if (document.getElementById('qf-action-type')) {
+                    document.getElementById('qf-action-type').value = 'Trail Installed';
+                }
+                if (document.getElementById('qf-fup-notes')) {
+                    document.getElementById('qf-fup-notes').value = '';
+                }
+            }
+            
+            const historyTimeline = document.getElementById('qf-history-timeline');
+            const historyCount = document.getElementById('qf-history-count');
+
+            if (res.followup_history && res.followup_history.length > 0) {
+                if (historyCount) historyCount.textContent = res.followup_history.length + ' entries';
+                let html = '';
+                res.followup_history.forEach(fup => {
+                    let badgeColor = 'var(--primary)';
+                    let badgeBg = 'var(--primary-light)';
+                    if (fup.status === 'completed') {
+                        badgeColor = 'var(--success)';
+                        badgeBg = 'var(--success-light)';
+                    } else if (fup.status === 'pending') {
+                        badgeColor = 'var(--warning)';
+                        badgeBg = 'var(--warning-light)';
+                    } else if (fup.status === 'rescheduled') {
+                        badgeColor = 'var(--info)';
+                        badgeBg = 'var(--info-light)';
+                    } else if (fup.status === 'missed' || fup.status === 'cancelled') {
+                        badgeColor = 'var(--danger)';
+                        badgeBg = 'var(--danger-light)';
+                    }
+
+                    const formattedDate = fup.scheduled_at ? new Date(fup.scheduled_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A';
+                    html += `
+                        <div style="background-color: var(--bg-app); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem 0.75rem;">
+                            <div class="flex justify-between align-center mb-1">
+                                <span class="badge text-xs font-semibold" style="--badge-bg: ${badgeBg}; --badge-color: ${badgeColor}; padding: 0.15rem 0.4rem; font-size: 0.7rem;">
+                                    ${fup.action_type || 'Call'} (${fup.status})
+                                </span>
+                                <span class="text-xs text-muted font-semibold" style="font-size: 0.7rem;">${formattedDate}</span>
+                            </div>
+                            <p class="text-xs text-main m-0" style="word-break: break-word; font-size: 0.75rem;">${fup.remarks || 'No notes added.'}</p>
+                            <div class="text-xs text-muted mt-1" style="font-size: 0.65rem;">Assigned: ${fup.assigned_to || 'System'}</div>
+                        </div>
+                    `;
+                });
+                if (historyTimeline) historyTimeline.innerHTML = html;
+            } else {
+                if (historyCount) historyCount.textContent = '0 entries';
+                if (historyTimeline) historyTimeline.innerHTML = '<p class="text-xs text-muted" style="font-style: italic; font-size: 0.75rem;">No previous follow-up history logged yet for this lead.</p>';
+            }
+
+            if (quickFollowupModal) {
+                quickFollowupModal.classList.remove('hidden');
+                quickFollowupModal.classList.add('open');
+                quickFollowupModal.style.display = 'flex';
+            }
+            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+        } else {
+            alert('Error loading lead data: ' + res.message);
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Network error loading lead details.');
+    });
+}
+window.openLeadDetailsFollowupModal = openLeadDetailsFollowupModal;
+
+function closeQuickFollowupModal() {
+    const quickFollowupModal = document.getElementById('quick-followup-modal');
+    if (quickFollowupModal) {
+        quickFollowupModal.classList.add('hidden');
+        quickFollowupModal.classList.remove('open');
+        quickFollowupModal.style.display = 'none';
+    }
+}
+window.closeQuickFollowupModal = closeQuickFollowupModal;
+
+// Quick Follow-up Form Submission in Details page
+document.addEventListener('DOMContentLoaded', function() {
+    const qfForm = document.getElementById('quick-followup-form');
+    if (qfForm) {
+        qfForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            
+            fetch('index.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(async response => {
+                const text = await response.text();
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.error('Server response:', text);
+                    throw new Error('Invalid response: ' + text.substring(0, 150));
+                }
+            })
+            .then(data => {
+                if (data.success) {
+                    closeQuickFollowupModal();
+                    window.location.reload();
+                } else {
+                    alert('Failed to save details: ' + (data.message || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Save error: ' + err.message);
+            });
+        });
     }
 });
 </script>

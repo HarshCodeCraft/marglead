@@ -55,6 +55,20 @@ if ($db_connected && isset($_SESSION['user_id'])) {
 <html lang="en" data-theme="<?php echo $_SESSION['theme']; ?>">
 <head>
     <meta charset="UTF-8">
+    <!-- Immediate Theme Application (Zero FOUC / Black Flash Prevention) -->
+    <script>
+        (function() {
+            try {
+                var theme = localStorage.getItem('theme');
+                if (!theme) {
+                    var m = document.cookie.match(/(?:^|; )app_theme=([^;]*)/);
+                    if (m) theme = decodeURIComponent(m[1]);
+                }
+                if (!theme) theme = '<?php echo $_SESSION['theme'] ?? 'light'; ?>';
+                document.documentElement.setAttribute('data-theme', theme);
+            } catch (e) {}
+        })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $pageTitle; ?> - <?php echo APP_NAME; ?></title>
     <link rel="shortcut icon" href="assets/image.png" type="image/png">
@@ -98,6 +112,30 @@ if ($db_connected && isset($_SESSION['user_id'])) {
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
+    <!-- Sleek Top Page Loading Progress Bar -->
+    <div id="app-page-progress-bar" style="position: fixed; top: 0; left: 0; height: 3px; width: 35%; background: linear-gradient(90deg, #2563eb, #60a5fa, #9333ea); z-index: 999999; transition: width 0.3s ease, opacity 0.4s ease; box-shadow: 0 0 10px rgba(37, 99, 235, 0.6); pointer-events: none;"></div>
+    <script>
+        (function() {
+            var bar = document.getElementById('app-page-progress-bar');
+            if (bar) {
+                var w = 35;
+                var t = setInterval(function() {
+                    if (w < 85) {
+                        w += Math.random() * 12;
+                        bar.style.width = Math.min(w, 85) + '%';
+                    }
+                }, 100);
+                window.addEventListener('load', function() {
+                    clearInterval(t);
+                    bar.style.width = '100%';
+                    setTimeout(function() {
+                        bar.style.opacity = '0';
+                        setTimeout(function() { if (bar.parentNode) bar.parentNode.removeChild(bar); }, 400);
+                    }, 150);
+                });
+            }
+        })();
+    </script>
     <div class="app-wrapper">
         <!-- Sidebar Navigation -->
         <?php include_once __DIR__ . '/sidebar.php'; ?>

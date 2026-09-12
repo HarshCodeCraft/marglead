@@ -28,7 +28,55 @@ if (isset($_POST['action']) && isset($_POST['kyc_id'])) {
         try {
             $stmtUpd = $pdo->prepare("UPDATE customer_kyc_details SET kyc_status = ?, rejection_reason = ? WHERE id = ?");
             $stmtUpd->execute([$new_status, $reason, $kyc_id]);
-            $action_msg = "<div class='alert alert-success'>Customer KYC record #{$kyc_id} updated to {$new_status}.</div>";
+
+            // Fetch full KYC details
+            $stmtKyc = $pdo->prepare("SELECT * FROM customer_kyc_details WHERE id = ?");
+            $stmtKyc->execute([$kyc_id]);
+            $kycRow = $stmtKyc->fetch(PDO::FETCH_ASSOC);
+
+            if ($kycRow && !empty($kycRow['email'])) {
+                if ($new_status === 'Verified') {
+                    // 1. Activate in users table
+                    $stmtUserSync = $pdo->prepare("UPDATE users SET status = 'Active', role = 'Tenant Admin' WHERE LOWER(email) = LOWER(?)");
+                    $stmtUserSync->execute([$kycRow['email']]);
+
+                    // 2. Auto-Provision in tenant_companies (SaaS CRM Clients)
+                    require_once __DIR__ . '/../includes/tenant_helper.php';
+                    $cleanFirm = !empty($kycRow['firm_name']) ? $kycRow['firm_name'] : $kycRow['full_name'];
+                    $codeSlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $cleanFirm));
+                    if (empty($codeSlug)) $codeSlug = 'client_' . $kycRow['id'];
+
+                    // Check if company code already taken by someone else
+                    $stmtCheckCode = $pdo->prepare("SELECT id FROM tenant_companies WHERE company_code = ? AND LOWER(owner_email) != LOWER(?)");
+                    $stmtCheckCode->execute([$codeSlug, $kycRow['email']]);
+                    if ($stmtCheckCode->fetch()) {
+                        $codeSlug .= '_' . $kycRow['id'];
+                    }
+
+                    provisionNewCrmClient(
+                        $pdo,
+                        $codeSlug,
+                        $cleanFirm,
+                        $kycRow['full_name'],
+                        $kycRow['email'],
+                        $kycRow['phone'],
+                        'Silver',
+                        $kycRow['password'] ?? 'client123',
+                        12
+                    );
+
+                    $action_msg = "<div class='alert alert-success'>🎉 Customer KYC #{$kyc_id} verified! CRM Client provisioned and visible in <a href='index.php?page=crm_clients' style='color:#fff; text-decoration:underline; font-weight:700;'>CRM Clients Console</a>.</div>";
+                } else {
+                    // Reject: Suspend user and tenant company
+                    $stmtUserSync = $pdo->prepare("UPDATE users SET status = 'Suspended' WHERE LOWER(email) = LOWER(?)");
+                    $stmtUserSync->execute([$kycRow['email']]);
+
+                    $stmtTCSuspend = $pdo->prepare("UPDATE tenant_companies SET status = 'Suspended' WHERE LOWER(owner_email) = LOWER(?)");
+                    $stmtTCSuspend->execute([$kycRow['email']]);
+
+                    $action_msg = "<div class='alert alert-warning'>Customer KYC #{$kyc_id} rejected and accounts suspended.</div>";
+                }
+            }
         } catch (PDOException $e) {
             $action_msg = "<div class='alert alert-danger'>Failed to update KYC status: " . htmlspecialchars($e->getMessage()) . "</div>";
         }
