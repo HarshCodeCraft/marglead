@@ -152,34 +152,40 @@ if ($pdo) {
                             </td>
                             <td style="padding: 1rem;">
                                 <div style="display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem;">
+                                    <?php if (!empty($rec['pan_number']) || !empty($rec['pan_doc_path'])): ?>
                                     <div>
-                                        <strong>PAN:</strong> <?php echo htmlspecialchars($rec['pan_number']); ?>
+                                        <strong>PAN:</strong> <?php echo htmlspecialchars($rec['pan_number'] ?? 'N/A'); ?>
                                         <?php if (!empty($rec['pan_doc_path'])): ?>
                                             <a href="<?php echo htmlspecialchars($rec['pan_doc_path']); ?>" target="_blank" style="color: var(--primary);"><i class="fa-solid fa-download"></i> View</a>
                                         <?php endif; ?>
-                                        <?php echo $rec['pan_verified'] ? '<span style="color:#10b981;">✓ Live Verified</span>' : ''; ?>
+                                        <?php echo !empty($rec['pan_verified']) ? '<span style="color:#10b981;">✓ Live Verified</span>' : ''; ?>
                                     </div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($rec['aadhaar_number']) || !empty($rec['aadhaar_doc_path'])): ?>
                                     <div>
-                                        <strong>Aadhaar:</strong> <?php echo htmlspecialchars($rec['aadhaar_number']); ?>
+                                        <strong>Aadhaar:</strong> <?php echo htmlspecialchars($rec['aadhaar_number'] ?? 'N/A'); ?>
                                         <?php if (!empty($rec['aadhaar_doc_path'])): ?>
                                             <a href="<?php echo htmlspecialchars($rec['aadhaar_doc_path']); ?>" target="_blank" style="color: var(--primary);"><i class="fa-solid fa-download"></i> View</a>
                                         <?php endif; ?>
-                                        <?php echo $rec['aadhaar_verified'] ? '<span style="color:#10b981;">✓ Live Verified</span>' : ''; ?>
+                                        <?php echo !empty($rec['aadhaar_verified']) ? '<span style="color:#10b981;">✓ Live Verified</span>' : ''; ?>
                                     </div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($rec['udyam_number']) || !empty($rec['udyam_doc_path'])): ?>
                                     <div>
-                                        <strong>UDYAM:</strong> <?php echo htmlspecialchars($rec['udyam_number']); ?>
+                                        <strong>UDYAM:</strong> <?php echo htmlspecialchars($rec['udyam_number'] ?? 'N/A'); ?>
                                         <?php if (!empty($rec['udyam_doc_path'])): ?>
                                             <a href="<?php echo htmlspecialchars($rec['udyam_doc_path']); ?>" target="_blank" style="color: var(--primary);"><i class="fa-solid fa-download"></i> View</a>
                                         <?php endif; ?>
-                                        <?php echo $rec['udyam_verified'] ? '<span style="color:#10b981;">✓ Live Verified</span>' : ''; ?>
+                                        <?php echo !empty($rec['udyam_verified']) ? '<span style="color:#10b981;">✓ Live Verified</span>' : ''; ?>
                                     </div>
-                                    <?php if ($rec['registration_type'] === 'registered' && !empty($rec['gstin_number'])): ?>
+                                    <?php endif; ?>
+                                    <?php if (!empty($rec['gstin_number']) || !empty($rec['gstin_doc_path'])): ?>
                                         <div>
-                                            <strong>GSTIN:</strong> <?php echo htmlspecialchars($rec['gstin_number']); ?>
+                                            <strong>GSTIN:</strong> <?php echo htmlspecialchars($rec['gstin_number'] ?? 'N/A'); ?>
                                             <?php if (!empty($rec['gstin_doc_path'])): ?>
                                                 <a href="<?php echo htmlspecialchars($rec['gstin_doc_path']); ?>" target="_blank" style="color: var(--primary);"><i class="fa-solid fa-download"></i> View</a>
                                             <?php endif; ?>
-                                            <?php echo $rec['gstin_verified'] ? '<span style="color:#10b981;">✓ Live Verified</span>' : ''; ?>
+                                            <?php echo !empty($rec['gstin_verified']) ? '<span style="color:#10b981;">✓ Live Verified</span>' : ''; ?>
                                         </div>
                                     <?php endif; ?>
                                 </div>

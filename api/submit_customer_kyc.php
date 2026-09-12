@@ -73,72 +73,101 @@ if (empty($password) || strlen($password) < 6) {
     $errors[] = "Password and Confirm Password do not match.";
 }
 
-// 4. Server-Side Mandatory Document Numbers Validation
-if (empty($pan_number) || !preg_match($GOV_DOC_PATTERNS['pan'], $pan_number)) {
-    $errors[] = "Valid 10-character PAN Card Number is mandatory.";
-}
-
-if (empty($aadhaar_number) || strlen($aadhaar_number) !== 12 || (GOV_STRICT_CHECKSUM && !validateAadhaarVerhoeff($aadhaar_number))) {
-    $errors[] = "Valid 12-digit Aadhaar Card Number is mandatory.";
-}
-
-if (empty($udyam_number) || !preg_match($GOV_DOC_PATTERNS['udyam'], $udyam_number)) {
-    $errors[] = "Valid UDYAM Registration Certificate Number (e.g. UDYAM-UP-00-0000000) is mandatory.";
-}
-
-// Conditional GSTIN Requirement for Registered Entities
-if ($registration_type === 'registered') {
-    if (empty($gstin_number) || !preg_match($GOV_DOC_PATTERNS['gstin'], $gstin_number) || (GOV_STRICT_CHECKSUM && !validateGSTINChecksum($gstin_number))) {
-        $errors[] = "Registered businesses MUST provide a valid 15-character GSTIN Number.";
-    }
-}
-
-// 5. Secure File Uploads Verification & Processing
+// 4. Server-Side Document Validation & Processing
 $allowed_mimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
 $allowed_exts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
 
-// PAN Card File Upload
-if (!isset($_FILES['pan_doc']) || $_FILES['pan_doc']['error'] !== UPLOAD_ERR_OK) {
-    $errors[] = "PAN Card document file upload is mandatory.";
-} else {
-    $panUpload = secureFileUpload($_FILES['pan_doc'], 'kyc_docs', $allowed_mimes, $allowed_exts);
-    if (!$panUpload['success']) {
-        $errors[] = "PAN Card Upload Error: " . $panUpload['error'];
-    } else {
-        $pan_doc_path = $panUpload['file_path'];
-    }
-}
-
-// Aadhaar Card File Upload
-if (!isset($_FILES['aadhaar_doc']) || $_FILES['aadhaar_doc']['error'] !== UPLOAD_ERR_OK) {
-    $errors[] = "Aadhaar Card document file upload is mandatory.";
-} else {
-    $aadhaarUpload = secureFileUpload($_FILES['aadhaar_doc'], 'kyc_docs', $allowed_mimes, $allowed_exts);
-    if (!$aadhaarUpload['success']) {
-        $errors[] = "Aadhaar Card Upload Error: " . $aadhaarUpload['error'];
-    } else {
-        $aadhaar_doc_path = $aadhaarUpload['file_path'];
-    }
-}
-
-// UDYAM Certification File Upload (Mandatory for BOTH Registered and Unregistered)
-if (!isset($_FILES['udyam_doc']) || $_FILES['udyam_doc']['error'] !== UPLOAD_ERR_OK) {
-    $errors[] = "UDYAM Registration Certificate file upload is mandatory.";
-} else {
-    $udyamUpload = secureFileUpload($_FILES['udyam_doc'], 'kyc_docs', $allowed_mimes, $allowed_exts);
-    if (!$udyamUpload['success']) {
-        $errors[] = "UDYAM Certificate Upload Error: " . $udyamUpload['error'];
-    } else {
-        $udyam_doc_path = $udyamUpload['file_path'];
-    }
-}
-
-// GSTIN Certification File Upload (Mandatory ONLY if Registered)
+$pan_doc_path = null;
+$aadhaar_doc_path = null;
+$udyam_doc_path = null;
 $gstin_doc_path = null;
+
+$has_pan = !empty($pan_number) || (isset($_FILES['pan_doc']) && $_FILES['pan_doc']['error'] === UPLOAD_ERR_OK);
+$has_aadhaar = !empty($aadhaar_number) || (isset($_FILES['aadhaar_doc']) && $_FILES['aadhaar_doc']['error'] === UPLOAD_ERR_OK);
+$has_udyam = !empty($udyam_number) || (isset($_FILES['udyam_doc']) && $_FILES['udyam_doc']['error'] === UPLOAD_ERR_OK);
+$has_gstin = !empty($gstin_number) || (isset($_FILES['gstin_doc']) && $_FILES['gstin_doc']['error'] === UPLOAD_ERR_OK);
+
 if ($registration_type === 'registered') {
+    // Registered Business (GST): ONLY GSTIN Registration Certificate Details are MANDATORY
+    if (empty($gstin_number) || !preg_match($GOV_DOC_PATTERNS['gstin'], $gstin_number) || (GOV_STRICT_CHECKSUM && !validateGSTINChecksum($gstin_number))) {
+        $errors[] = "For Registered Business, a valid 15-character GSTIN Number is mandatory.";
+    }
     if (!isset($_FILES['gstin_doc']) || $_FILES['gstin_doc']['error'] !== UPLOAD_ERR_OK) {
-        $errors[] = "GST Registration Certificate file upload is mandatory for Registered businesses.";
+        $errors[] = "For Registered Business, GST Registration Certificate copy must be uploaded.";
+    }
+} else {
+    // Unregistered Business: At least ONE document (PAN, Aadhaar, OR UDYAM) is MANDATORY
+    $unreg_docs_count = 0;
+    if (!empty($pan_number) && isset($_FILES['pan_doc']) && $_FILES['pan_doc']['error'] === UPLOAD_ERR_OK) {
+        $unreg_docs_count++;
+    }
+    if (!empty($aadhaar_number) && isset($_FILES['aadhaar_doc']) && $_FILES['aadhaar_doc']['error'] === UPLOAD_ERR_OK) {
+        $unreg_docs_count++;
+    }
+    if (!empty($udyam_number) && isset($_FILES['udyam_doc']) && $_FILES['udyam_doc']['error'] === UPLOAD_ERR_OK) {
+        $unreg_docs_count++;
+    }
+
+    if ($unreg_docs_count === 0) {
+        $errors[] = "For Unregistered Business, at least one complete document (PAN Card, Aadhaar Card, or UDYAM Certificate) with number and document upload is mandatory.";
+    }
+}
+
+// Validate individual documents if provided
+// 1. PAN Card
+if ($has_pan) {
+    if (empty($pan_number) || !preg_match($GOV_DOC_PATTERNS['pan'], $pan_number)) {
+        $errors[] = "Please provide a valid 10-character PAN Card Number.";
+    }
+    if (!isset($_FILES['pan_doc']) || $_FILES['pan_doc']['error'] !== UPLOAD_ERR_OK) {
+        $errors[] = "Please upload a copy of your PAN Card.";
     } else {
+        $panUpload = secureFileUpload($_FILES['pan_doc'], 'kyc_docs', $allowed_mimes, $allowed_exts);
+        if (!$panUpload['success']) {
+            $errors[] = "PAN Card Upload Error: " . $panUpload['error'];
+        } else {
+            $pan_doc_path = $panUpload['file_path'];
+        }
+    }
+}
+
+// 2. Aadhaar Card
+if ($has_aadhaar) {
+    if (empty($aadhaar_number) || strlen($aadhaar_number) !== 12 || (GOV_STRICT_CHECKSUM && !validateAadhaarVerhoeff($aadhaar_number))) {
+        $errors[] = "Please provide a valid 12-digit Aadhaar Card Number.";
+    }
+    if (!isset($_FILES['aadhaar_doc']) || $_FILES['aadhaar_doc']['error'] !== UPLOAD_ERR_OK) {
+        $errors[] = "Please upload a copy of your Aadhaar Card.";
+    } else {
+        $aadhaarUpload = secureFileUpload($_FILES['aadhaar_doc'], 'kyc_docs', $allowed_mimes, $allowed_exts);
+        if (!$aadhaarUpload['success']) {
+            $errors[] = "Aadhaar Card Upload Error: " . $aadhaarUpload['error'];
+        } else {
+            $aadhaar_doc_path = $aadhaarUpload['file_path'];
+        }
+    }
+}
+
+// 3. UDYAM Registration Certificate
+if ($has_udyam) {
+    if (empty($udyam_number) || !preg_match($GOV_DOC_PATTERNS['udyam'], $udyam_number)) {
+        $errors[] = "Please provide a valid UDYAM Registration Certificate Number (e.g. UDYAM-UP-00-0000000).";
+    }
+    if (!isset($_FILES['udyam_doc']) || $_FILES['udyam_doc']['error'] !== UPLOAD_ERR_OK) {
+        $errors[] = "Please upload a copy of your UDYAM Certificate.";
+    } else {
+        $udyamUpload = secureFileUpload($_FILES['udyam_doc'], 'kyc_docs', $allowed_mimes, $allowed_exts);
+        if (!$udyamUpload['success']) {
+            $errors[] = "UDYAM Certificate Upload Error: " . $udyamUpload['error'];
+        } else {
+            $udyam_doc_path = $udyamUpload['file_path'];
+        }
+    }
+}
+
+// 4. GSTIN Registration Certificate
+if ($registration_type === 'registered' && $has_gstin) {
+    if (isset($_FILES['gstin_doc']) && $_FILES['gstin_doc']['error'] === UPLOAD_ERR_OK) {
         $gstinUpload = secureFileUpload($_FILES['gstin_doc'], 'kyc_docs', $allowed_mimes, $allowed_exts);
         if (!$gstinUpload['success']) {
             $errors[] = "GST Certificate Upload Error: " . $gstinUpload['error'];
@@ -190,10 +219,10 @@ try {
 
     $stmt->execute([
         $lead_id, $full_name, $email, $password_hash, $phone, $firm_name, $registration_type,
-        $pan_number, $pan_doc_path, $pan_verified, $pan_api_resp,
-        $aadhaar_number, $aadhaar_doc_path, $aadhaar_verified, $aadhaar_api_resp,
-        $udyam_number, $udyam_doc_path, $udyam_verified, $udyam_api_resp,
-        ($registration_type === 'registered' ? $gstin_number : null),
+        (!empty($pan_number) ? $pan_number : null), $pan_doc_path, $pan_verified, $pan_api_resp,
+        (!empty($aadhaar_number) ? $aadhaar_number : null), $aadhaar_doc_path, $aadhaar_verified, $aadhaar_api_resp,
+        (!empty($udyam_number) ? $udyam_number : null), $udyam_doc_path, $udyam_verified, $udyam_api_resp,
+        ($registration_type === 'registered' && !empty($gstin_number) ? $gstin_number : null),
         ($registration_type === 'registered' ? $gstin_doc_path : null),
         ($registration_type === 'registered' ? $gstin_verified : 0),
         ($registration_type === 'registered' ? $gstin_api_resp : null),
