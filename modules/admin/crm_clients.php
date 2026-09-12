@@ -1,8 +1,4 @@
 <?php
-/**
- * Marg ERP CRM - CRM Clients & Multi-Tenant SaaS Management Module
- * Allows Super Admin to provision, manage, isolate data, and impersonate SaaS CRM Clients.
- */
 
 require_once __DIR__ . '/../../includes/config.php';
 require_once __DIR__ . '/../../includes/db.php';
@@ -18,9 +14,6 @@ if (!isSystemAdminRole($_SESSION['user_role'] ?? '')) {
     return;
 }
 
-// --------------------------------------------------------------------------
-// 1. Tenant Database Provisioning Engine Function
-// --------------------------------------------------------------------------
 function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerName, $ownerEmail, $phone, $plan, $passwordStr, $expiryMonths = 12) {
     global $db_host, $db_port, $db_user, $db_pass;
     
@@ -405,7 +398,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $stmtUpLic->execute([$cPhone, $codeSlug]);
                 } catch (\PDOException $e) {}
                 
-                $flash_msg = "🎉 Marg ERP User registered successfully! Email: {$ownerEmail} | License: {$licenseNo}. Client can now log in and connect Meta WABA!";
+                $flash_msg = " Marg ERP User registered successfully! Email: {$ownerEmail} | License: {$licenseNo}. Client can now log in and connect Meta WABA!";
                 $flash_type = 'success';
             } else {
                 $flash_msg = $provRes['message'];
@@ -627,7 +620,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         'user_id'   => $tenantId,
                         'recipient' => $phoneDigits,
                         'phone'     => $phoneDigits,
-                        'message'   => "🎉 Marg ERP 9+ WhatsApp Web Test for {$tenantObj['company_name']}!\nBill No: {$testBillNo}\nGateway: Self-Hosted Web API.",
+                        'message'   => " Marg ERP 9+ WhatsApp Web Test for {$tenantObj['company_name']}!\nBill No: {$testBillNo}\nGateway: Self-Hosted Web API.",
                         'token'     => $wabaDetails['web_api_token'] ?? '',
                         'instance'  => $wabaDetails['web_api_instance_id'] ?? ''
                     ];
@@ -649,7 +642,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if (!empty($resJson['success']) && $resJson['success'] === true) $isSuccess = true;
 
                     if ($isSuccess) {
-                        $flash_msg = "🎉 Test message successfully sent via WhatsApp to {$phoneDigits} for client \"{$tenantObj['company_name']}\"!";
+                        $flash_msg = " Test message successfully sent via WhatsApp to {$phoneDigits} for client \"{$tenantObj['company_name']}\"!";
                         $flash_type = "success";
                     } else {
                         $errDetail = !empty($resJson['message']) ? $resJson['message'] : ($resRaw ?: ('HTTP ' . $httpCode));
@@ -676,7 +669,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $resJson = json_decode($resRaw, true) ?? [];
 
                         if ($httpCode === 200 || (!empty($resJson['status']) && $resJson['status'] === 'success')) {
-                            $flash_msg = "🎉 Test message dispatched to {$phoneDigits} via Gateway Webhook for \"{$tenantObj['company_name']}\"!";
+                            $flash_msg = " Test message dispatched to {$phoneDigits} via Gateway Webhook for \"{$tenantObj['company_name']}\"!";
                             $flash_type = "success";
                         } else {
                             $flash_msg = "Meta Cloud API credentials missing for client \"{$tenantObj['company_name']}\". Please configure Phone ID & Token.";
@@ -740,7 +733,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $resJson = json_decode($resRaw, true) ?? [];
 
                         if ($httpCode === 200 && isset($resJson['messages'][0]['id'])) {
-                            $flash_msg = "🎉 Test Meta Cloud API Message sent to {$phoneDigits} for {$tenantObj['company_name']}! (Msg ID: {$resJson['messages'][0]['id']})";
+                            $flash_msg = " Test Meta Cloud API Message sent to {$phoneDigits} for {$tenantObj['company_name']}! (Msg ID: {$resJson['messages'][0]['id']})";
                             $flash_type = "success";
                         } else {
                             $errDetail = $resJson['error']['message'] ?? json_encode($resJson);
@@ -1109,6 +1102,8 @@ if (isset($pdo_master)) {
                             // Structured JSON Payloads for Interactive Info Triggers
                             $companyInfoData = [
                                 'category' => 'company',
+                                'tenant_id' => $cl['id'],
+                                'allowed_modules' => $allowed_modules,
                                 'title' => $cl['company_name'],
                                 'subtitle' => 'Tenant #' . $cl['id'] . ' • Code: ' . $cl['company_code'],
                                 'badge' => $cl['plan'] . ' Plan',
@@ -1166,59 +1161,40 @@ if (isset($pdo_master)) {
                                         <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(99, 102, 241, 0.22)); color: var(--primary); font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 0.88rem; border: 1px solid rgba(59, 130, 246, 0.25); flex-shrink: 0;">
                                             <?php echo strtoupper(substr($cl['company_code'], 0, 2)); ?>
                                         </div>
-                                        <div class="flex flex-col" style="min-width: 0;">
-                                            <div class="flex align-center gap-1.5">
-                                                <span class="text-sm font-bold" style="color: var(--text-main); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;" title="<?php echo htmlspecialchars($cl['company_name']); ?>">
-                                                    <?php echo htmlspecialchars($cl['company_name']); ?>
-                                                </span>
-                                                <!-- Company Info Trigger Icon (i) -->
-                                                <button type="button" 
-                                                        class="client-info-trigger" 
-                                                        data-info="<?php echo htmlspecialchars(json_encode($companyInfoData), ENT_QUOTES, 'UTF-8'); ?>"
-                                                        onmouseenter="showCrmInfoPopover(this)" 
-                                                        onmouseleave="hideCrmInfoPopover()" 
-                                                        onclick="openClientInfoModal(this)"
-                                                        title="Click to view company details">
-                                                    <i data-lucide="info"></i>
-                                                </button>
-                                            </div>
-                                            <div class="flex align-center gap-2 mt-1">
-                                                <span class="text-xs text-muted font-mono" style="font-size: 0.7rem; background: var(--bg-body); padding: 1.5px 5px; border-radius: 4px; border: 1px solid var(--border-color);">
-                                                    code: <strong><?php echo htmlspecialchars($cl['company_code']); ?></strong>
-                                                </span>
-                                                <span class="text-xs text-muted" style="font-size: 0.68rem;">ID: #<?php echo $cl['id']; ?></span>
-                                            </div>
+                                        <div class="flex align-center gap-1.5" style="min-width: 0;">
+                                            <span class="text-sm font-bold" style="color: var(--text-main); line-height: 1.3;" title="<?php echo htmlspecialchars($cl['company_name']); ?>">
+                                                <?php echo htmlspecialchars($cl['company_name']); ?>
+                                            </span>
+                                            <!-- Company Info Trigger Icon (i) -->
+                                            <button type="button" 
+                                                    class="client-info-trigger" 
+                                                    data-info="<?php echo htmlspecialchars(json_encode($companyInfoData), ENT_QUOTES, 'UTF-8'); ?>"
+                                                    onmouseenter="showCrmInfoPopover(this)" 
+                                                    onmouseleave="hideCrmInfoPopover()" 
+                                                    onclick="openClientInfoModal(this)"
+                                                    title="Click to view company details">
+                                                <i data-lucide="info"></i>
+                                            </button>
                                         </div>
                                     </div>
                                 </td>
 
                                 <!-- 2. OWNER / EMAIL COLUMN -->
                                 <td>
-                                    <div class="flex flex-col gap-1">
-                                        <div class="flex align-center gap-1.5">
-                                            <span class="text-xs font-bold" style="color: var(--text-main); line-height: 1.2;">
-                                                <?php echo htmlspecialchars($cl['owner_name']); ?>
-                                            </span>
-                                            <!-- Owner Info Trigger Icon (i) -->
-                                            <button type="button" 
-                                                    class="client-info-trigger" 
-                                                    data-info="<?php echo htmlspecialchars(json_encode($ownerInfoData), ENT_QUOTES, 'UTF-8'); ?>"
-                                                    onmouseenter="showCrmInfoPopover(this)" 
-                                                    onmouseleave="hideCrmInfoPopover()" 
-                                                    onclick="openClientInfoModal(this)"
-                                                    title="Click to view owner profile">
-                                                <i data-lucide="info"></i>
-                                            </button>
-                                        </div>
-                                        <a href="mailto:<?php echo htmlspecialchars($cl['owner_email']); ?>" class="text-xs text-primary flex align-center gap-1" style="font-size: 0.725rem; text-decoration: none; word-break: break-all;">
-                                            <i data-lucide="mail" style="width: 10px; height: 10px; display: inline-block; vertical-align: middle; flex-shrink: 0;"></i>
-                                            <span><?php echo htmlspecialchars($cl['owner_email']); ?></span>
-                                        </a>
-                                        <?php if (!empty($cl['phone'])): ?>
-                                            <span class="text-xs text-muted flex align-center gap-1" style="font-size: 0.68rem;">
-                                                📞 ERP: <code style="font-size: 0.68rem;"><?php echo htmlspecialchars($cl['phone']); ?></code>
-                                            </span>
-                                        <?php endif; ?>
+                                    <div class="flex align-center gap-1.5">
+                                        <span class="text-xs font-bold" style="color: var(--text-main); line-height: 1.2;">
+                                            <?php echo htmlspecialchars($cl['owner_name']); ?>
+                                        </span>
+                                        <!-- Owner Info Trigger Icon (i) -->
+                                        <button type="button" 
+                                                class="client-info-trigger" 
+                                                data-info="<?php echo htmlspecialchars(json_encode($ownerInfoData), ENT_QUOTES, 'UTF-8'); ?>"
+                                                onmouseenter="showCrmInfoPopover(this)" 
+                                                onmouseleave="hideCrmInfoPopover()" 
+                                                onclick="openClientInfoModal(this)"
+                                                title="Click to view owner profile">
+                                            <i data-lucide="info"></i>
+                                        </button>
                                     </div>
                                 </td>
 
@@ -1272,17 +1248,6 @@ if (isset($pdo_master)) {
                                             </button>
                                         </div>
 
-                                        <!-- Phone Display -->
-                                        <div class="text-xs mt-0.5">
-                                            <?php if (!empty($wInfo['phone']) && $wInfo['is_connected']): ?>
-                                                <span class="font-mono font-bold" style="color: var(--text-main); font-size: 0.74rem;">📱 <?php echo htmlspecialchars($wInfo['phone']); ?></span>
-                                            <?php elseif ($wInfo['session_state'] === 'logged_out' && !empty($wInfo['last_phone'])): ?>
-                                                <span class="font-mono font-bold" style="color: #dc2626; font-size: 0.73rem;">📱 <?php echo htmlspecialchars($wInfo['last_phone']); ?> <span style="font-weight: 400; color: var(--text-muted);">(Session Expired)</span></span>
-                                            <?php else: ?>
-                                                <span class="text-muted" style="font-size: 0.72rem; font-style: italic;">⚪ No WhatsApp Device Linked</span>
-                                            <?php endif; ?>
-                                        </div>
-
                                         <!-- Tenant API Key 1-Click Copy -->
                                         <div class="flex align-center gap-1">
                                             <span class="text-xs text-muted" style="font-size: 0.7rem;">Key:</span>
@@ -1299,12 +1264,12 @@ if (isset($pdo_master)) {
                                     <div class="flex flex-col gap-1.5">
                                         <div>
                                             <span class="dispatch-pill-today">
-                                                ✉️ Today: <strong><?php echo $tenant_msgs_today; ?> bills</strong>
+                                                Today: <strong><?php echo $tenant_msgs_today; ?> bills</strong>
                                             </span>
                                         </div>
                                         <div>
                                             <span class="dispatch-pill-month">
-                                                📅 Month: <strong><?php echo $tenant_msgs_month; ?> bills</strong>
+                                                 Month: <strong><?php echo $tenant_msgs_month; ?> bills</strong>
                                             </span>
                                         </div>
                                     </div>
@@ -1334,16 +1299,6 @@ if (isset($pdo_master)) {
                                 <!-- 8. ACTIONS COLUMN -->
                                 <td class="text-right">
                                     <div class="flex align-center justify-end gap-1.5 flex-nowrap">
-                                        <!-- Power Access & Page Permissions -->
-                                        <button type="button" 
-                                                class="btn btn-sm btn-cyan text-xs flex align-center gap-1" 
-                                                style="padding: 0.35rem 0.65rem;"
-                                                onclick='openPermissionsModal(<?php echo $cl['id']; ?>, <?php echo json_encode($cl['company_name']); ?>, <?php echo json_encode($allowed_modules); ?>)'
-                                                title="Grant/Revoke Page &amp; Module Permissions">
-                                            <i data-lucide="shield-alert" style="width: 13px; height: 13px;"></i>
-                                            <span>Power Access</span>
-                                        </button>
-
                                         <!-- Test Client WhatsApp API Button -->
                                         <button type="button" 
                                                 class="btn btn-sm btn-success text-xs flex align-center gap-1" 
@@ -1765,7 +1720,11 @@ if (isset($pdo_master)) {
             <div id="info-modal-items" class="flex flex-col gap-2.5">
                 <!-- Injected dynamically via JavaScript -->
             </div>
-            <div class="flex justify-end mt-2 pt-2" style="border-top: 1px solid var(--border-color);">
+            <div class="flex justify-between align-center mt-2 pt-2" style="border-top: 1px solid var(--border-color);">
+                <button type="button" id="info-modal-power-btn" class="btn btn-sm btn-cyan text-xs flex align-center gap-1" style="display: none;">
+                    <i data-lucide="shield-alert" style="width: 13px; height: 13px;"></i>
+                    <span>Manage Power Access</span>
+                </button>
                 <button type="button" class="btn btn-secondary text-xs" style="padding: 0.5rem 1.25rem;" onclick="window.closeModal('client-details-info-modal')">Close</button>
             </div>
         </div>
@@ -1935,6 +1894,19 @@ function openClientInfoModal(btnEl) {
         itemsContainer.appendChild(itemDiv);
     });
 
+    const powerBtn = document.getElementById('info-modal-power-btn');
+    if (powerBtn) {
+        if (info.category === 'company' && info.tenant_id) {
+            powerBtn.style.display = 'inline-flex';
+            powerBtn.onclick = function() {
+                window.closeModal('client-details-info-modal');
+                openPermissionsModal(info.tenant_id, info.title, info.allowed_modules);
+            };
+        } else {
+            powerBtn.style.display = 'none';
+        }
+    }
+
     if (window.lucide) lucide.createIcons();
     window.openModal('client-details-info-modal');
 }
@@ -1996,7 +1968,7 @@ function copyToClipboard(text, label = 'Copied') {
         return;
     }
     navigator.clipboard.writeText(text).then(() => {
-        alert('🎉 ' + label + ' copied to clipboard:\n' + text);
+        alert(' ' + label + ' copied to clipboard:\n' + text);
     }).catch(() => {
         prompt('Copy ' + label + ':', text);
     });
