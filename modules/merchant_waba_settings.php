@@ -118,6 +118,39 @@ if ($is_super_admin && $user_id === 1) {
     }
 }
 
+// Live Status Verification for Web API Gateway (Instantly detects if user logged out from WhatsApp on phone)
+if (!empty($wabaSettings['gateway_type']) && $wabaSettings['gateway_type'] === 'web_api') {
+    $engineUrl = defined('WHATSAPP_ENGINE_URL') ? WHATSAPP_ENGINE_URL : 'http://140.238.167.58:3000';
+    $ch = curl_init(rtrim($engineUrl, '/') . '/status?user_id=' . $user_id);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT_MS, 700);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 400);
+    $liveRaw = curl_exec($ch);
+    curl_close($ch);
+
+    if ($liveRaw) {
+        $liveData = json_decode($liveRaw, true);
+        if ($liveData && isset($liveData['status'])) {
+            if ($liveData['status'] === 'connected' && !empty($liveData['phone_number'])) {
+                $wabaSettings['web_api_session_status'] = 'connected';
+                $wabaSettings['business_phone'] = $liveData['phone_number'];
+            } else if (in_array($liveData['status'], ['disconnected', 'scan_qr'])) {
+                $wabaSettings['web_api_session_status'] = 'disconnected';
+                $wabaSettings['business_phone'] = '';
+                // Instantly sync database
+                if (isset($pdo) && $pdo) {
+                    try {
+                        $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected', business_phone = NULL WHERE user_id = ?")->execute([$user_id]);
+                        if (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master) && $pdo_master) {
+                            $pdo_master->exec("UPDATE `{$_SESSION['tenant_db']}merchant_waba_settings` SET web_api_session_status = 'disconnected', business_phone = NULL");
+                        }
+                    } catch (\Exception $e) {}
+                }
+            }
+        }
+    }
+}
+
 // Check whether THIS specific tenant has configured WhatsApp
 $has_meta_setup = !empty($wabaSettings['phone_number_id']) && !empty($wabaSettings['access_token']);
 $has_web_setup = !empty($wabaSettings['web_api_session_status']) && $wabaSettings['web_api_session_status'] === 'connected';

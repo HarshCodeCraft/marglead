@@ -84,7 +84,7 @@ function syncUserWebStatus($pdo, $userId, $status, $phone = '') {
             $stmt = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'connected', business_phone = ?, gateway_type = ? WHERE user_id = ?");
             $stmt->execute([$cleanPhone, $targetGw, $userId]);
         } else if ($status === 'disconnected') {
-            $stmt = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected' WHERE user_id = ?");
+            $stmt = $pdo->prepare("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected', business_phone = NULL WHERE user_id = ?");
             $stmt->execute([$userId]);
         }
 
@@ -100,7 +100,7 @@ function syncUserWebStatus($pdo, $userId, $status, $phone = '') {
                         $stmtT = $pdo->prepare("UPDATE `{$tbl}` SET web_api_session_status = 'connected', business_phone = ?, gateway_type = 'web_api' WHERE user_id = ?");
                         $stmtT->execute([$cleanPhone, $userId]);
                     } else if ($status === 'disconnected') {
-                        $stmtT = $pdo->prepare("UPDATE `{$tbl}` SET web_api_session_status = 'disconnected' WHERE user_id = ?");
+                        $stmtT = $pdo->prepare("UPDATE `{$tbl}` SET web_api_session_status = 'disconnected', business_phone = NULL WHERE user_id = ?");
                         $stmtT->execute([$userId]);
                     }
                 } catch (\Exception $ex) {}

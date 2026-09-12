@@ -15,7 +15,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const PORT = process.env.PORT || 3005;
+const PORT = process.env.PORT || 3000;
 
 // In-Memory map of active user sessions: userId -> sessionObject
 const sessions = new Map();
@@ -112,6 +112,12 @@ async function startUserSession(userId) {
                     sessionObj.qrCodeData = '';
                     sessionObj.pairedPhone = '';
                     sessionObj.isStarting = false;
+
+                    // Instantly notify Hostinger PHP CRM of phone logout
+                    try {
+                        fetch(`https://friendlyaisolution.com/api/whatsapp_web_engine.php?action=check_status&user_id=${userId}`).catch(() => {});
+                    } catch (e) {}
+
                     setTimeout(() => startUserSession(userId), 2000);
                 } else {
                     sessionObj.isStarting = false;
@@ -124,6 +130,11 @@ async function startUserSession(userId) {
                 sessionObj.isStarting = false;
                 if (sock.user && sock.user.id) {
                     sessionObj.pairedPhone = sock.user.id.split(':')[0];
+
+                    // Instantly notify Hostinger PHP CRM of phone connection
+                    try {
+                        fetch(`https://friendlyaisolution.com/api/whatsapp_web_engine.php?action=check_status&user_id=${userId}`).catch(() => {});
+                    } catch (e) {}
                 }
             }
         });

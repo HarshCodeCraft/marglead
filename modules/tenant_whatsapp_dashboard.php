@@ -96,6 +96,39 @@ if ($wabaSettings) {
     }
 
     $last_synced = !empty($wabaSettings['updated_at']) ? date('d M, h:i A', strtotime($wabaSettings['updated_at'])) : date('d M, h:i A');
+
+    // Fast live verification with Node engine to instantly detect if user logged out from their phone
+    if ($gt === 'web_api') {
+        $engineUrl = defined('WHATSAPP_ENGINE_URL') ? WHATSAPP_ENGINE_URL : 'http://140.238.167.58:3000';
+        $tUserId = $_SESSION['tenant_id'] ?? $_SESSION['user_id'] ?? 1;
+        $ch = curl_init(rtrim($engineUrl, '/') . '/status?user_id=' . $tUserId);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 700);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 400);
+        $liveRaw = curl_exec($ch);
+        curl_close($ch);
+
+        if ($liveRaw) {
+            $liveData = json_decode($liveRaw, true);
+            if ($liveData && isset($liveData['status'])) {
+                if ($liveData['status'] === 'connected' && !empty($liveData['phone_number'])) {
+                    $is_waba_connected = true;
+                    $connected_phone = $liveData['phone_number'];
+                } else if (in_array($liveData['status'], ['disconnected', 'scan_qr'])) {
+                    $is_waba_connected = false;
+                    $connected_phone = '';
+                    if ($pdo) {
+                        try {
+                            $pdo->exec("UPDATE merchant_waba_settings SET web_api_session_status = 'disconnected', business_phone = NULL WHERE user_id = " . intval($tUserId));
+                            if (!empty($active_tenant_db) && strpos($active_tenant_db, 't_') === 0 && isset($db_master) && $db_master) {
+                                $db_master->exec("UPDATE `{$active_tenant_db}merchant_waba_settings` SET web_api_session_status = 'disconnected', business_phone = NULL");
+                            }
+                        } catch (\Exception $e) {}
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Fetch Metrics strictly from tenant's isolated message logs (Enforce 100% Data Isolation)
