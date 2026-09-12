@@ -796,8 +796,35 @@ if (isset($pdo_master)) {
 
 <div class="crm-clients-container">
     <style>
+        .crm-clients-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        .crm-clients-table th {
+            padding: 12px 14px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            border-bottom: 2px solid var(--border-color);
+            background: var(--bg-card);
+            white-space: nowrap;
+        }
+        .crm-clients-table td {
+            padding: 14px 14px;
+            vertical-align: middle;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .client-row {
+            transition: background 0.15s ease;
+        }
+        .client-row:hover {
+            background: rgba(59, 130, 246, 0.025) !important;
+        }
         .status-pill {
-            font-size: 0.725rem;
+            font-size: 0.72rem;
             font-weight: 700;
             padding: 3px 8px;
             border-radius: 6px;
@@ -806,19 +833,20 @@ if (isset($pdo_master)) {
             gap: 4px;
             line-height: 1.2;
             letter-spacing: 0.02em;
+            white-space: nowrap;
         }
         .status-pill-connected {
-            background: rgba(16, 185, 129, 0.14);
+            background: rgba(16, 185, 129, 0.12);
             color: #059669;
             border: 1px solid rgba(16, 185, 129, 0.35);
         }
         .status-pill-loggedout {
-            background: rgba(239, 68, 68, 0.14);
+            background: rgba(239, 68, 68, 0.12);
             color: #dc2626;
             border: 1px solid rgba(239, 68, 68, 0.35);
         }
         .status-pill-notpaired {
-            background: rgba(245, 158, 11, 0.14);
+            background: rgba(245, 158, 11, 0.12);
             color: #d97706;
             border: 1px solid rgba(245, 158, 11, 0.35);
         }
@@ -836,8 +864,82 @@ if (isset($pdo_master)) {
             70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
-        .client-row:hover {
-            background: rgba(59, 130, 246, 0.02) !important;
+        /* Sleek Info Trigger Button */
+        .client-info-trigger {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: rgba(59, 130, 246, 0.08);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            color: #2563eb;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+            transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+            flex-shrink: 0;
+            line-height: 1;
+            vertical-align: middle;
+        }
+        .client-info-trigger:hover {
+            background: #2563eb;
+            color: #ffffff !important;
+            border-color: #2563eb;
+            transform: scale(1.12);
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+        }
+        .client-info-trigger svg {
+            width: 10px;
+            height: 10px;
+            stroke-width: 2.3;
+            pointer-events: none;
+        }
+        /* ERP Dispatch Clean Pills */
+        .dispatch-pill-today {
+            background: rgba(16, 185, 129, 0.08);
+            color: #059669;
+            font-weight: 700;
+            font-size: 0.74rem;
+            padding: 2.5px 7px;
+            border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            white-space: nowrap;
+        }
+        .dispatch-pill-month {
+            background: rgba(100, 116, 139, 0.08);
+            color: #64748b;
+            font-weight: 600;
+            font-size: 0.72rem;
+            padding: 2.5px 7px;
+            border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            border: 1px solid rgba(100, 116, 139, 0.2);
+            white-space: nowrap;
+        }
+        /* Floating Popover */
+        #crm-floating-popover {
+            position: absolute;
+            z-index: 99999;
+            width: 290px;
+            background: var(--bg-card, #ffffff);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 10px;
+            box-shadow: 0 14px 34px -4px rgba(15, 23, 42, 0.16), 0 6px 14px -3px rgba(15, 23, 42, 0.08);
+            padding: 10px 12px;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px) scale(0.98);
+            transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        #crm-floating-popover.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
         }
     </style>
     <!-- Super Admin Impersonation Alert Banner -->
@@ -933,18 +1035,18 @@ if (isset($pdo_master)) {
             <span class="text-xs text-muted">Each client instance runs with dedicated database data isolation</span>
         </div>
 
-        <div class="table-responsive">
-            <table class="w-full text-left" style="border-collapse: separate; border-spacing: 0;">
+        <div class="table-responsive" style="overflow-x: auto;">
+            <table class="crm-clients-table text-left">
                 <thead>
-                    <tr style="border-bottom: 2px solid var(--border-color); background: var(--border-card);">
-                        <th class="p-3 text-xs font-bold text-muted">ID &amp; COMPANY</th>
-                        <th class="p-3 text-xs font-bold text-muted">OWNER / EMAIL</th>
-                        <th class="p-3 text-xs font-bold text-muted">WHATSAPP GATEWAY &amp; STATUS</th>
-                        <th class="p-3 text-xs font-bold text-muted">ERP DISPATCHES</th>
-                        <th class="p-3 text-xs font-bold text-muted">PLAN</th>
-                        <th class="p-3 text-xs font-bold text-muted">STATUS</th>
-                        <th class="p-3 text-xs font-bold text-muted">EXPIRY DATE</th>
-                        <th class="p-3 text-xs font-bold text-muted text-right">ACTIONS</th>
+                    <tr>
+                        <th style="min-width: 220px;">ID &amp; COMPANY</th>
+                        <th style="min-width: 190px;">OWNER / EMAIL</th>
+                        <th style="min-width: 210px;">WHATSAPP GATEWAY &amp; STATUS</th>
+                        <th style="min-width: 120px;">ERP DISPATCHES</th>
+                        <th style="min-width: 95px;">PLAN</th>
+                        <th style="min-width: 85px;">STATUS</th>
+                        <th style="min-width: 100px;">EXPIRY DATE</th>
+                        <th style="min-width: 210px; text-align: right;">ACTIONS</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1003,17 +1105,85 @@ if (isset($pdo_master)) {
                                 $tenant_msgs_today = (int)($logCounts['today_cnt'] ?? 0);
                                 $tenant_msgs_month = (int)($logCounts['month_cnt'] ?? 0);
                             } catch (PDOException $ex) {}
+
+                            // Structured JSON Payloads for Interactive Info Triggers
+                            $companyInfoData = [
+                                'category' => 'company',
+                                'title' => $cl['company_name'],
+                                'subtitle' => 'Tenant #' . $cl['id'] . ' • Code: ' . $cl['company_code'],
+                                'badge' => $cl['plan'] . ' Plan',
+                                'avatar' => strtoupper(substr($cl['company_code'], 0, 2)),
+                                'items' => [
+                                    ['label' => 'Company Name', 'value' => $cl['company_name'], 'icon' => 'building-2'],
+                                    ['label' => 'Tenant ID', 'value' => '#' . $cl['id'], 'icon' => 'hash'],
+                                    ['label' => 'Company Code', 'value' => $cl['company_code'], 'icon' => 'code'],
+                                    ['label' => 'Isolated Database', 'value' => (!empty($cl['db_name']) ? $cl['db_name'] : 'u978772385_friendlyaidata (Shared Master)'), 'icon' => 'database', 'copy' => true],
+                                    ['label' => 'Registered Users', 'value' => $tenant_users_cnt . ' Active Users', 'icon' => 'users'],
+                                    ['label' => 'CRM Leads', 'value' => number_format($tenant_leads_cnt) . ' Leads', 'icon' => 'bar-chart-2'],
+                                    ['label' => 'Current Plan', 'value' => $cl['plan'] . ' (' . $cl['status'] . ')', 'icon' => 'shield-check'],
+                                    ['label' => 'Expiry Date', 'value' => (!empty($cl['expiry_date']) ? date('M d, Y', strtotime($cl['expiry_date'])) : 'Lifetime Access'), 'icon' => 'calendar']
+                                ]
+                            ];
+
+                            $ownerInfoData = [
+                                'category' => 'owner',
+                                'title' => $cl['owner_name'],
+                                'subtitle' => 'Owner Contact Profile • ' . $cl['company_name'],
+                                'badge' => 'Instance Admin',
+                                'avatar' => strtoupper(substr($cl['owner_name'], 0, 2)),
+                                'items' => [
+                                    ['label' => 'Owner Name', 'value' => $cl['owner_name'], 'icon' => 'user'],
+                                    ['label' => 'Owner Email', 'value' => $cl['owner_email'], 'icon' => 'mail', 'copy' => true, 'link' => 'mailto:' . $cl['owner_email']],
+                                    ['label' => 'ERP Mobile', 'value' => (!empty($cl['phone']) ? $cl['phone'] : 'Not Configured'), 'icon' => 'phone', 'copy' => !empty($cl['phone']), 'link' => (!empty($cl['phone']) ? ('tel:' . preg_replace('/[^\d+]/', '', $cl['phone'])) : '')],
+                                    ['label' => 'Account Status', 'value' => $cl['status'], 'icon' => 'check-circle-2'],
+                                    ['label' => 'Tenant Instance', 'value' => $cl['company_name'] . ' (#' . $cl['id'] . ')', 'icon' => 'briefcase']
+                                ]
+                            ];
+
+                            $gwStatusLabel = ($wInfo['session_state'] === 'meta_connected') ? 'Connected (Meta Cloud WABA)' : (($wInfo['session_state'] === 'connected') ? 'Connected (Web API Baileys)' : (($wInfo['session_state'] === 'logged_out') ? 'Logged Out / Session Expired' : 'Not Paired / No Device'));
+
+                            $gatewayInfoData = [
+                                'category' => 'gateway',
+                                'title' => 'WhatsApp Gateway Diagnostics',
+                                'subtitle' => $cl['company_name'] . ' • Tenant #' . $cl['id'],
+                                'badge' => ($wInfo['is_connected'] ? '🟢 Connected' : ($wInfo['session_state'] === 'logged_out' ? '🔴 Logged Out' : '🟡 Not Paired')),
+                                'avatar' => 'WA',
+                                'items' => [
+                                    ['label' => 'Integration Mode', 'value' => ($wInfo['gateway_type'] === 'meta' ? 'Meta Cloud WABA (Official API)' : 'WhatsApp Web API (Baileys v6 Engine)'), 'icon' => 'radio'],
+                                    ['label' => 'Live Session State', 'value' => $gwStatusLabel, 'icon' => 'activity'],
+                                    ['label' => 'Sender Mobile', 'value' => (!empty($wInfo['phone']) ? $wInfo['phone'] : (!empty($wInfo['last_phone']) ? $wInfo['last_phone'] . ' (Session Expired)' : 'No Device Linked')), 'icon' => 'smartphone', 'copy' => (!empty($wInfo['phone']) || !empty($wInfo['last_phone']))],
+                                    ['label' => 'Tenant API Key', 'value' => $wInfo['api_key'], 'icon' => 'key', 'copy' => true],
+                                    ['label' => 'Gateway Host / Server', 'value' => ($wInfo['gateway_type'] === 'meta' ? 'graph.facebook.com (Meta Cloud API)' : '140.238.167.58:3000 (Oracle Baileys Server)'), 'icon' => 'server'],
+                                    ['label' => 'ERP Invoices Today', 'value' => $tenant_msgs_today . ' bills dispatched', 'icon' => 'send'],
+                                    ['label' => 'ERP Invoices Month', 'value' => $tenant_msgs_month . ' bills total in cycle', 'icon' => 'calendar']
+                                ]
+                            ];
                         ?>
-                            <tr class="client-row" style="border-bottom: 1px solid var(--border-color); transition: background 0.15s ease;">
-                                <td class="p-3">
+                            <tr class="client-row">
+                                <!-- 1. ID & COMPANY COLUMN -->
+                                <td>
                                     <div class="flex align-center gap-3">
-                                        <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(99, 102, 241, 0.22)); color: var(--primary); font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; border: 1px solid rgba(59, 130, 246, 0.25);">
+                                        <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(99, 102, 241, 0.22)); color: var(--primary); font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 0.88rem; border: 1px solid rgba(59, 130, 246, 0.25); flex-shrink: 0;">
                                             <?php echo strtoupper(substr($cl['company_code'], 0, 2)); ?>
                                         </div>
-                                        <div class="flex flex-col">
-                                            <span class="text-sm font-bold" style="color: var(--text-main); line-height: 1.25;"><?php echo htmlspecialchars($cl['company_name']); ?></span>
+                                        <div class="flex flex-col" style="min-width: 0;">
+                                            <div class="flex align-center gap-1.5">
+                                                <span class="text-sm font-bold" style="color: var(--text-main); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;" title="<?php echo htmlspecialchars($cl['company_name']); ?>">
+                                                    <?php echo htmlspecialchars($cl['company_name']); ?>
+                                                </span>
+                                                <!-- Company Info Trigger Icon (i) -->
+                                                <button type="button" 
+                                                        class="client-info-trigger" 
+                                                        data-info="<?php echo htmlspecialchars(json_encode($companyInfoData), ENT_QUOTES, 'UTF-8'); ?>"
+                                                        onmouseenter="showCrmInfoPopover(this)" 
+                                                        onmouseleave="hideCrmInfoPopover()" 
+                                                        onclick="openClientInfoModal(this)"
+                                                        title="Click to view company details">
+                                                    <i data-lucide="info"></i>
+                                                </button>
+                                            </div>
                                             <div class="flex align-center gap-2 mt-1">
-                                                <span class="text-xs text-muted font-mono" style="font-size: 0.7rem; background: var(--bg-body); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border-color);">
+                                                <span class="text-xs text-muted font-mono" style="font-size: 0.7rem; background: var(--bg-body); padding: 1.5px 5px; border-radius: 4px; border: 1px solid var(--border-color);">
                                                     code: <strong><?php echo htmlspecialchars($cl['company_code']); ?></strong>
                                                 </span>
                                                 <span class="text-xs text-muted" style="font-size: 0.68rem;">ID: #<?php echo $cl['id']; ?></span>
@@ -1021,130 +1191,153 @@ if (isset($pdo_master)) {
                                         </div>
                                     </div>
                                 </td>
-                                <td class="p-3">
-                                    <div class="flex flex-col gap-0.5">
-                                        <span class="text-xs font-bold" style="color: var(--text-main);"><?php echo htmlspecialchars($cl['owner_name']); ?></span>
-                                        <a href="mailto:<?php echo htmlspecialchars($cl['owner_email']); ?>" class="text-xs text-primary" style="font-size: 0.725rem; text-decoration: none; word-break: break-all;">
-                                            <i data-lucide="mail" style="width: 10px; height: 10px; display: inline-block; vertical-align: middle;"></i>
-                                            <?php echo htmlspecialchars($cl['owner_email']); ?>
+
+                                <!-- 2. OWNER / EMAIL COLUMN -->
+                                <td>
+                                    <div class="flex flex-col gap-1">
+                                        <div class="flex align-center gap-1.5">
+                                            <span class="text-xs font-bold" style="color: var(--text-main); line-height: 1.2;">
+                                                <?php echo htmlspecialchars($cl['owner_name']); ?>
+                                            </span>
+                                            <!-- Owner Info Trigger Icon (i) -->
+                                            <button type="button" 
+                                                    class="client-info-trigger" 
+                                                    data-info="<?php echo htmlspecialchars(json_encode($ownerInfoData), ENT_QUOTES, 'UTF-8'); ?>"
+                                                    onmouseenter="showCrmInfoPopover(this)" 
+                                                    onmouseleave="hideCrmInfoPopover()" 
+                                                    onclick="openClientInfoModal(this)"
+                                                    title="Click to view owner profile">
+                                                <i data-lucide="info"></i>
+                                            </button>
+                                        </div>
+                                        <a href="mailto:<?php echo htmlspecialchars($cl['owner_email']); ?>" class="text-xs text-primary flex align-center gap-1" style="font-size: 0.725rem; text-decoration: none; word-break: break-all;">
+                                            <i data-lucide="mail" style="width: 10px; height: 10px; display: inline-block; vertical-align: middle; flex-shrink: 0;"></i>
+                                            <span><?php echo htmlspecialchars($cl['owner_email']); ?></span>
                                         </a>
                                         <?php if (!empty($cl['phone'])): ?>
-                                            <span class="text-xs text-muted" style="font-size: 0.68rem; margin-top: 2px;">
-                                                📞 ERP: <code><?php echo htmlspecialchars($cl['phone']); ?></code>
+                                            <span class="text-xs text-muted flex align-center gap-1" style="font-size: 0.68rem;">
+                                                📞 ERP: <code style="font-size: 0.68rem;"><?php echo htmlspecialchars($cl['phone']); ?></code>
                                             </span>
                                         <?php endif; ?>
                                     </div>
                                 </td>
-                                <!-- Real-Time WhatsApp Gateway & Session Status Column -->
-                                <td class="p-3">
-                                    <div class="flex flex-col gap-1">
-                                        <?php if ($wInfo['session_state'] === 'meta_connected'): ?>
-                                            <!-- Meta Cloud API Active -->
-                                            <div class="flex align-center gap-2 flex-wrap">
+
+                                <!-- 3. WHATSAPP GATEWAY & STATUS COLUMN -->
+                                <td>
+                                    <div class="flex flex-col gap-1.5">
+                                        <div class="flex align-center gap-1.5 flex-wrap">
+                                            <?php if ($wInfo['session_state'] === 'meta_connected'): ?>
                                                 <span class="status-pill status-pill-connected">
                                                     <span class="pulse-dot-green"></span> Connected
                                                 </span>
                                                 <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #6366f1; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.25);">
                                                     Meta Cloud WABA
                                                 </span>
-                                            </div>
-                                            <div class="flex align-center gap-1 font-mono text-xs font-bold mt-0.5" style="color: var(--text-main);">
-                                                <span>📱 <?php echo htmlspecialchars($wInfo['phone']); ?></span>
-                                            </div>
-
-                                        <?php elseif ($wInfo['session_state'] === 'connected'): ?>
-                                            <!-- Self-Hosted Web API Live Connected -->
-                                            <div class="flex align-center gap-2 flex-wrap">
+                                            <?php elseif ($wInfo['session_state'] === 'connected'): ?>
                                                 <span class="status-pill status-pill-connected">
                                                     <span class="pulse-dot-green"></span> Connected
                                                 </span>
                                                 <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.25);">
                                                     Web API (Baileys)
                                                 </span>
-                                            </div>
-                                            <div class="flex align-center gap-1 font-mono text-xs font-bold mt-0.5" style="color: var(--text-main);">
-                                                <span>📱 <?php echo htmlspecialchars($wInfo['phone']); ?></span>
-                                            </div>
-
-                                        <?php elseif ($wInfo['session_state'] === 'logged_out'): ?>
-                                            <!-- Web API Logged Out from Phone -->
-                                            <div class="flex align-center gap-2 flex-wrap">
+                                            <?php elseif ($wInfo['session_state'] === 'logged_out'): ?>
                                                 <span class="status-pill status-pill-loggedout" title="User logged out from WhatsApp on phone or session expired">
                                                     <i data-lucide="alert-triangle" style="width: 11px; height: 11px;"></i> Logged Out
                                                 </span>
                                                 <span class="badge" style="background: rgba(239, 68, 68, 0.08); color: #dc2626; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25);">
                                                     Re-Scan Required
                                                 </span>
-                                            </div>
-                                            <div class="text-xs mt-0.5" style="color: #ef4444; font-size: 0.72rem; font-weight: 600;">
-                                                <?php if (!empty($wInfo['last_phone'])): ?>
-                                                    <span>📱 <?php echo htmlspecialchars($wInfo['last_phone']); ?> <span style="font-weight: 400; color: var(--text-muted);">(Session Expired)</span></span>
-                                                <?php else: ?>
-                                                    <span>Session disconnected from phone</span>
-                                                <?php endif; ?>
-                                            </div>
-
-                                        <?php elseif ($wInfo['session_state'] === 'not_paired'): ?>
-                                            <!-- Web API Fresh Client / Never Paired -->
-                                            <div class="flex align-center gap-2 flex-wrap">
+                                            <?php elseif ($wInfo['session_state'] === 'not_paired'): ?>
                                                 <span class="status-pill status-pill-notpaired">
                                                     <i data-lucide="scan" style="width: 11px; height: 11px;"></i> Not Paired
                                                 </span>
                                                 <span class="badge" style="background: rgba(100, 116, 139, 0.1); color: #64748b; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px;">
                                                     Web API (Baileys)
                                                 </span>
-                                            </div>
-                                            <span class="text-xs text-muted mt-0.5" style="font-size: 0.72rem; font-style: italic;">⚪ No WhatsApp Device Linked</span>
-
-                                        <?php else: ?>
-                                            <!-- Meta Incomplete -->
-                                            <div class="flex align-center gap-2 flex-wrap">
+                                            <?php else: ?>
                                                 <span class="status-pill" style="background: rgba(100, 116, 139, 0.14); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.3);">
                                                     <i data-lucide="shield-off" style="width: 11px; height: 11px;"></i> Meta Pending
                                                 </span>
-                                            </div>
-                                            <span class="text-xs text-muted mt-0.5" style="font-size: 0.72rem; font-style: italic;">Token / Phone ID Missing</span>
-                                        <?php endif; ?>
+                                            <?php endif; ?>
+
+                                            <!-- Gateway Diagnostics Info Trigger Icon (i) -->
+                                            <button type="button" 
+                                                    class="client-info-trigger" 
+                                                    data-info="<?php echo htmlspecialchars(json_encode($gatewayInfoData), ENT_QUOTES, 'UTF-8'); ?>"
+                                                    onmouseenter="showCrmInfoPopover(this)" 
+                                                    onmouseleave="hideCrmInfoPopover()" 
+                                                    onclick="openClientInfoModal(this)"
+                                                    title="Click to view gateway diagnostics">
+                                                <i data-lucide="info"></i>
+                                            </button>
+                                        </div>
+
+                                        <!-- Phone Display -->
+                                        <div class="text-xs mt-0.5">
+                                            <?php if (!empty($wInfo['phone']) && $wInfo['is_connected']): ?>
+                                                <span class="font-mono font-bold" style="color: var(--text-main); font-size: 0.74rem;">📱 <?php echo htmlspecialchars($wInfo['phone']); ?></span>
+                                            <?php elseif ($wInfo['session_state'] === 'logged_out' && !empty($wInfo['last_phone'])): ?>
+                                                <span class="font-mono font-bold" style="color: #dc2626; font-size: 0.73rem;">📱 <?php echo htmlspecialchars($wInfo['last_phone']); ?> <span style="font-weight: 400; color: var(--text-muted);">(Session Expired)</span></span>
+                                            <?php else: ?>
+                                                <span class="text-muted" style="font-size: 0.72rem; font-style: italic;">⚪ No WhatsApp Device Linked</span>
+                                            <?php endif; ?>
+                                        </div>
 
                                         <!-- Tenant API Key 1-Click Copy -->
-                                        <div class="flex align-center gap-1 mt-1">
+                                        <div class="flex align-center gap-1">
                                             <span class="text-xs text-muted" style="font-size: 0.7rem;">Key:</span>
-                                            <code style="font-size: 0.7rem; background: var(--bg-body); padding: 1px 6px; border-radius: 4px; color: var(--primary); font-family: monospace; cursor: pointer; border: 1px solid var(--border-color);" onclick="copyToClipboard('<?php echo htmlspecialchars($wInfo['api_key']); ?>', 'Tenant API Key')" title="Click to copy full API Key">
+                                            <code style="font-size: 0.7rem; background: var(--bg-body); padding: 1.5px 6px; border-radius: 4px; color: var(--primary); font-family: monospace; cursor: pointer; border: 1px solid var(--border-color); display: inline-flex; align-items: center; gap: 3px;" onclick="copyToClipboard('<?php echo htmlspecialchars($wInfo['api_key']); ?>', 'Tenant API Key')" title="Click to copy full API Key">
                                                 <?php echo htmlspecialchars(substr($wInfo['api_key'], 0, 13)) . '...'; ?>
-                                                <i data-lucide="copy" style="width: 10px; height: 10px; vertical-align: middle; display: inline-block;"></i>
+                                                <i data-lucide="copy" style="width: 10px; height: 10px;"></i>
                                             </code>
                                         </div>
                                     </div>
                                 </td>
-                                <!-- Clean ERP Dispatches Column -->
-                                <td class="p-3">
-                                    <div class="flex flex-col gap-1">
-                                        <span class="text-xs" style="font-size: 0.75rem; color: #10b981; font-weight: 700;">
-                                             Today: <strong><?php echo $tenant_msgs_today; ?> bills</strong>
-                                        </span>
-                                        <span class="text-xs text-muted" style="font-size: 0.72rem;">
-                                             Month: <strong><?php echo $tenant_msgs_month; ?> bills</strong>
-                                        </span>
+
+                                <!-- 4. ERP DISPATCHES COLUMN -->
+                                <td>
+                                    <div class="flex flex-col gap-1.5">
+                                        <div>
+                                            <span class="dispatch-pill-today">
+                                                ✉️ Today: <strong><?php echo $tenant_msgs_today; ?> bills</strong>
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span class="dispatch-pill-month">
+                                                📅 Month: <strong><?php echo $tenant_msgs_month; ?> bills</strong>
+                                            </span>
+                                        </div>
                                     </div>
                                 </td>
-                                <td class="p-3">
-                                    <span class="badge text-xs" style="--badge-bg: var(--<?php echo $plan_class; ?>-light); --badge-color: var(--<?php echo $plan_class; ?>); font-weight: 700;">
+
+                                <!-- 5. PLAN COLUMN -->
+                                <td>
+                                    <span class="badge text-xs" style="--badge-bg: var(--<?php echo $plan_class; ?>-light); --badge-color: var(--<?php echo $plan_class; ?>); font-weight: 700; padding: 4px 8px; border-radius: 6px;">
                                         <?php echo htmlspecialchars($cl['plan']); ?> Plan
                                     </span>
                                 </td>
-                                <td class="p-3">
-                                    <span class="badge text-xs" style="--badge-bg: var(--<?php echo $status_class; ?>-light); --badge-color: var(--<?php echo $status_class; ?>); font-weight: 700;">
+
+                                <!-- 6. STATUS COLUMN -->
+                                <td>
+                                    <span class="badge text-xs" style="--badge-bg: var(--<?php echo $status_class; ?>-light); --badge-color: var(--<?php echo $status_class; ?>); font-weight: 700; padding: 4px 8px; border-radius: 6px;">
                                         <?php echo htmlspecialchars($cl['status']); ?>
                                     </span>
                                 </td>
-                                <td class="p-3 text-xs font-semibold">
-                                    <?php echo !empty($cl['expiry_date']) ? date('M d, Y', strtotime($cl['expiry_date'])) : 'Lifetime'; ?>
+
+                                <!-- 7. EXPIRY DATE COLUMN -->
+                                <td>
+                                    <span class="text-xs font-semibold" style="color: var(--text-main); font-size: 0.75rem;">
+                                        <?php echo !empty($cl['expiry_date']) ? date('M d, Y', strtotime($cl['expiry_date'])) : 'Lifetime'; ?>
+                                    </span>
                                 </td>
-                                <td class="p-3 text-right">
-                                    <div class="flex align-center justify-end gap-2 flex-wrap">
+
+                                <!-- 8. ACTIONS COLUMN -->
+                                <td class="text-right">
+                                    <div class="flex align-center justify-end gap-1.5 flex-nowrap">
                                         <!-- Power Access & Page Permissions -->
                                         <button type="button" 
                                                 class="btn btn-sm btn-cyan text-xs flex align-center gap-1" 
+                                                style="padding: 0.35rem 0.65rem;"
                                                 onclick='openPermissionsModal(<?php echo $cl['id']; ?>, <?php echo json_encode($cl['company_name']); ?>, <?php echo json_encode($allowed_modules); ?>)'
                                                 title="Grant/Revoke Page &amp; Module Permissions">
                                             <i data-lucide="shield-alert" style="width: 13px; height: 13px;"></i>
@@ -1154,17 +1347,17 @@ if (isset($pdo_master)) {
                                         <!-- Test Client WhatsApp API Button -->
                                         <button type="button" 
                                                 class="btn btn-sm btn-success text-xs flex align-center gap-1" 
-                                                style="background: #10b981; border: none; color: white; font-weight: 600;"
+                                                style="background: #10b981; border: none; color: white; font-weight: 600; padding: 0.35rem 0.65rem;"
                                                 onclick='openTestWabaModal(<?php echo $cl['id']; ?>, <?php echo json_encode($cl['company_name']); ?>, <?php echo json_encode($wInfo['api_key']); ?>, <?php echo json_encode($wInfo['gateway_type']); ?>, <?php echo $wInfo['is_connected'] ? "true" : "false"; ?>, <?php echo json_encode($wInfo['phone']); ?>)'
                                                 title="Test WhatsApp Dispatch for <?php echo htmlspecialchars($cl['company_name']); ?>">
-                                            <i data-lucide="send" style="width: 13px; height: 13px;"></i>
-                                            <span> </span>
+                                            <i data-lucide="send" style="width: 12px; height: 12px;"></i>
+                                            <span>Test API</span>
                                         </button>
 
                                         <!-- Download config.json Button -->
                                         <button type="button" 
                                                 class="btn btn-sm btn-secondary text-xs flex align-center gap-1" 
-                                                style="font-weight: 600;"
+                                                style="font-weight: 600; padding: 0.35rem 0.65rem;"
                                                 onclick='downloadClientConfigJson(<?php echo json_encode($wInfo['api_key']); ?>, <?php echo json_encode($cl['company_code']); ?>)'
                                                 title="Download Marg ERP Desktop .exe config.json for <?php echo htmlspecialchars($cl['company_name']); ?>">
                                             <i data-lucide="file-code" style="width: 13px; height: 13px; color: var(--primary);"></i>
@@ -1176,7 +1369,7 @@ if (isset($pdo_master)) {
                                                 class="btn btn-sm btn-icon" 
                                                 onclick="openEditPlanModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '<?php echo htmlspecialchars(addslashes($cl['owner_name'])); ?>', '<?php echo htmlspecialchars(addslashes($cl['owner_email'])); ?>', '<?php echo htmlspecialchars(addslashes($cl['phone'] ?? '')); ?>', '<?php echo $cl['plan']; ?>', '<?php echo $cl['status']; ?>', '<?php echo $cl['expiry_date']; ?>')" 
                                                 title="Edit Client Details, Subscription Plan &amp; Expiry">
-                                            <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
+                                            <i data-lucide="edit-3" style="width: 13px; height: 13px;"></i>
                                         </button>
 
                                         <!-- Suspend / Reactivate Form -->
@@ -1185,7 +1378,7 @@ if (isset($pdo_master)) {
                                             <input type="hidden" name="tenant_id" value="<?php echo $cl['id']; ?>">
                                             <input type="hidden" name="current_status" value="<?php echo $cl['status']; ?>">
                                             <button type="submit" class="btn btn-sm btn-icon" title="<?php echo ($cl['status'] === 'Active') ? 'Suspend Client' : 'Reactivate Client'; ?>">
-                                                <i data-lucide="<?php echo ($cl['status'] === 'Active') ? 'pause-circle' : 'play-circle'; ?>" style="width: 14px; height: 14px; color: <?php echo ($cl['status'] === 'Active') ? 'var(--warning)' : 'var(--success)'; ?>;"></i>
+                                                <i data-lucide="<?php echo ($cl['status'] === 'Active') ? 'pause-circle' : 'play-circle'; ?>" style="width: 13px; height: 13px; color: <?php echo ($cl['status'] === 'Active') ? 'var(--warning)' : 'var(--success)'; ?>;"></i>
                                             </button>
                                         </form>
 
@@ -1195,7 +1388,7 @@ if (isset($pdo_master)) {
                                                 <input type="hidden" name="action" value="delete_crm_client">
                                                 <input type="hidden" name="tenant_id" value="<?php echo $cl['id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-icon" title="Delete Client &amp; Database">
-                                                    <i data-lucide="trash-2" style="width: 14px; height: 14px; color: var(--danger);"></i>
+                                                    <i data-lucide="trash-2" style="width: 13px; height: 13px; color: var(--danger);"></i>
                                                 </button>
                                             </form>
                                         <?php endif; ?>
@@ -1550,8 +1743,201 @@ if (isset($pdo_master)) {
         </form>
     </div>
 </div>
+<!-- Modal 5: Quick Client & Gateway Details Modal -->
+<div id="client-details-info-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 520px;">
+        <div class="modal-header" style="border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
+            <div class="flex align-center gap-3">
+                <div id="info-modal-avatar" style="width: 42px; height: 42px; border-radius: 10px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(99, 102, 241, 0.24)); color: var(--primary); font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 1rem; border: 1px solid rgba(59, 130, 246, 0.25); flex-shrink: 0;">
+                    i
+                </div>
+                <div>
+                    <div class="flex align-center gap-2">
+                        <h3 class="m-0 text-base font-bold" style="font-family: var(--font-heading); color: var(--text-main);" id="info-modal-title">Client Details</h3>
+                        <span id="info-modal-badge" class="badge text-xs" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 5px; font-weight: 700; display: none;"></span>
+                    </div>
+                    <span class="text-xs text-muted" id="info-modal-subtitle" style="margin-top: 2px; display: block;"></span>
+                </div>
+            </div>
+            <button class="btn-icon" onclick="window.closeModal('client-details-info-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
+        </div>
+        <div class="modal-body flex flex-col gap-3 p-4" style="max-height: 480px; overflow-y: auto;">
+            <div id="info-modal-items" class="flex flex-col gap-2.5">
+                <!-- Injected dynamically via JavaScript -->
+            </div>
+            <div class="flex justify-end mt-2 pt-2" style="border-top: 1px solid var(--border-color);">
+                <button type="button" class="btn btn-secondary text-xs" style="padding: 0.5rem 1.25rem;" onclick="window.closeModal('client-details-info-modal')">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Dynamic Global Floating Popover -->
+<div id="crm-floating-popover"></div>
 
 <script>
+// Dynamic Hover Popover Logic
+const crmPopover = document.getElementById('crm-floating-popover');
+let popoverHideTimer = null;
+
+function showCrmInfoPopover(targetEl) {
+    if (!crmPopover) return;
+    clearTimeout(popoverHideTimer);
+    
+    const rawData = targetEl.getAttribute('data-info');
+    if (!rawData) return;
+    
+    let info;
+    try {
+        info = JSON.parse(rawData);
+    } catch(e) { return; }
+    
+    let itemsHtml = '';
+    const displayItems = (info.items || []).slice(0, 4);
+    displayItems.forEach(it => {
+        itemsHtml += `
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.73rem; padding: 2.5px 0;">
+                <span style="color: var(--text-muted); display: flex; align-items: center; gap: 4px; white-space: nowrap;">
+                    <i data-lucide="${it.icon || 'info'}" style="width: 11px; height: 11px; color: var(--primary);"></i>
+                    ${it.label}:
+                </span>
+                <strong style="color: var(--text-main); font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;">
+                    ${it.value}
+                </strong>
+            </div>
+        `;
+    });
+
+    crmPopover.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color);">
+            <div style="width: 24px; height: 24px; border-radius: 6px; background: rgba(59,130,246,0.12); color: #2563eb; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.72rem; flex-shrink: 0;">
+                ${info.avatar || 'i'}
+            </div>
+            <div style="flex: 1; min-width: 0;">
+                <span style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-main); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    ${info.title}
+                </span>
+                <span style="font-size: 0.68rem; color: var(--text-muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    ${info.subtitle || ''}
+                </span>
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+            ${itemsHtml}
+        </div>
+        <div style="margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--border-color); font-size: 0.68rem; color: var(--primary); text-align: center; font-weight: 600;">
+            👆 Click to view full details & copy
+        </div>
+    `;
+
+    if (window.lucide) lucide.createIcons();
+
+    // Position Popover dynamically
+    const rect = targetEl.getBoundingClientRect();
+    const popWidth = 290;
+    let left = rect.left + window.scrollX - (popWidth / 2) + (rect.width / 2);
+    let top = rect.top + window.scrollY - 8;
+
+    // Viewport boundary clamping
+    if (left + popWidth > window.innerWidth - 15) {
+        left = window.innerWidth - popWidth - 15;
+    }
+    if (left < 15) left = 15;
+
+    crmPopover.style.left = left + 'px';
+    crmPopover.style.top = top + 'px';
+    crmPopover.style.transform = 'translateY(-100%)';
+
+    // If overflowing top of screen, show below button
+    if (rect.top - 180 < 0) {
+        crmPopover.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+        crmPopover.style.transform = 'translateY(0)';
+    }
+
+    crmPopover.classList.add('visible');
+}
+
+function hideCrmInfoPopover() {
+    if (!crmPopover) return;
+    popoverHideTimer = setTimeout(() => {
+        crmPopover.classList.remove('visible');
+    }, 120);
+}
+
+// Click Modal Logic
+function openClientInfoModal(btnEl) {
+    hideCrmInfoPopover();
+    const rawData = btnEl.getAttribute('data-info');
+    if (!rawData) return;
+    
+    let info;
+    try {
+        info = JSON.parse(rawData);
+    } catch(e) { return; }
+
+    document.getElementById('info-modal-title').textContent = info.title || 'Client Information';
+    document.getElementById('info-modal-subtitle').textContent = info.subtitle || '';
+    document.getElementById('info-modal-avatar').textContent = info.avatar || 'i';
+    
+    const badgeEl = document.getElementById('info-modal-badge');
+    if (info.badge) {
+        badgeEl.textContent = info.badge;
+        badgeEl.style.display = 'inline-block';
+        badgeEl.style.background = 'rgba(59, 130, 246, 0.12)';
+        badgeEl.style.color = '#2563eb';
+    } else {
+        badgeEl.style.display = 'none';
+    }
+
+    const itemsContainer = document.getElementById('info-modal-items');
+    itemsContainer.innerHTML = '';
+
+    (info.items || []).forEach(it => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'p-3 border-radius-sm';
+        itemDiv.style.background = 'var(--bg-body)';
+        itemDiv.style.border = '1px solid var(--border-color)';
+        itemDiv.style.display = 'flex';
+        itemDiv.style.justifyContent = 'space-between';
+        itemDiv.style.alignItems = 'center';
+        itemDiv.style.gap = '12px';
+
+        let actionHtml = '';
+        if (it.copy) {
+            const safeVal = (it.value || '').replace(/'/g, "\\'");
+            actionHtml += `
+                <button type="button" class="btn btn-sm btn-icon" style="width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;" onclick="copyToClipboard('${safeVal}', '${it.label}')" title="Copy ${it.label}">
+                    <i data-lucide="copy" style="width: 13px; height: 13px; color: var(--primary);"></i>
+                </button>
+            `;
+        }
+        if (it.link) {
+            actionHtml += `
+                <a href="${it.link}" class="btn btn-sm btn-primary text-xs flex align-center gap-1" style="padding: 3px 10px; font-size: 0.72rem; text-decoration: none;" target="_blank">
+                    <span>Open</span>
+                    <i data-lucide="external-link" style="width: 10px; height: 10px;"></i>
+                </a>
+            `;
+        }
+
+        itemDiv.innerHTML = `
+            <div style="min-width: 0; flex: 1;">
+                <span class="text-xs text-muted block" style="font-size: 0.7rem; display: flex; align-items: center; gap: 5px; margin-bottom: 2px;">
+                    <i data-lucide="${it.icon || 'circle'}" style="width: 12px; height: 12px; color: var(--primary);"></i>
+                    ${it.label}
+                </span>
+                <strong class="text-xs font-mono" style="color: var(--text-main); word-break: break-all; display: block; font-size: 0.78rem; line-height: 1.35;">
+                    ${it.value}
+                </strong>
+            </div>
+            ${actionHtml ? `<div style="display: flex; gap: 4px; align-items: center; flex-shrink: 0;">${actionHtml}</div>` : ''}
+        `;
+        itemsContainer.appendChild(itemDiv);
+    });
+
+    if (window.lucide) lucide.createIcons();
+    window.openModal('client-details-info-modal');
+}
 
 function openEditPlanModal(tenantId, companyName, ownerName, ownerEmail, phone, plan, status, expiryDate) {
     document.getElementById('edit-tenant-id').value = tenantId;
