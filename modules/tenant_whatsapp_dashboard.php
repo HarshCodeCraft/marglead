@@ -38,40 +38,76 @@ if ($db_master) {
     } catch (\PDOException $ex) {}
 }
 
-// Fetch WhatsApp Gateway Connection Status from tenant's isolated settings
+// Fetch WhatsApp Gateway Connection Status from tenant's settings (Fast, accurate binding)
 $is_waba_connected = false;
 $connected_phone = '';
 $gateway_mode = 'Self-Hosted WhatsApp Web Engine';
 $last_synced = 'Never';
 
+$wabaSettings = null;
+
+// 1. Try via active tenant PDO (automatically routes to t_code_merchant_waba_settings if tenant prefix active)
 if ($pdo) {
     try {
         $stmtW = $pdo->query("SELECT * FROM merchant_waba_settings ORDER BY id DESC LIMIT 1");
         $wabaSettings = $stmtW ? $stmtW->fetch(PDO::FETCH_ASSOC) : null;
-        if ($wabaSettings) {
-            $gt = strtolower($wabaSettings['gateway_type'] ?? 'web_api');
-            $gateway_mode = ($gt === 'meta_cloud') ? 'Official Meta Cloud WABA' : 'WhatsApp Web Engine';
-            if (!empty($wabaSettings['phone_number'])) {
-                $connected_phone = $wabaSettings['phone_number'];
-            }
-            $wStatus = strtolower($wabaSettings['whatsapp_status'] ?? '');
-            if (in_array($wStatus, ['connected', 'authenticated', 'open', 'active'])) {
-                $is_waba_connected = true;
-            } elseif (!empty($connected_phone)) {
-                $is_waba_connected = true;
-            }
-            $last_synced = !empty($wabaSettings['updated_at']) ? date('d M, h:i A', strtotime($wabaSettings['updated_at'])) : 'Recently';
-        }
     } catch (\PDOException $ex) {}
 }
 
-// Fetch Metrics strictly from tenant's isolated message logs
+// 2. Direct Fallback using tenant table name if empty
+if (empty($wabaSettings) && !empty($active_tenant_db) && strpos($active_tenant_db, 't_') === 0 && $db_master) {
+    try {
+        $tblName = $active_tenant_db . 'merchant_waba_settings';
+        $stmtW = $db_master->query("SELECT * FROM `{$tblName}` ORDER BY id DESC LIMIT 1");
+        $wabaSettings = $stmtW ? $stmtW->fetch(PDO::FETCH_ASSOC) : null;
+    } catch (\PDOException $ex) {}
+}
+
+// 3. Fallback by user_id or owner_phone from master table
+if (empty($wabaSettings) && $db_master) {
+    try {
+        $tId = $_SESSION['tenant_id'] ?? $_SESSION['user_id'] ?? 0;
+        $cleanOwner10 = !empty($owner_phone) ? substr(preg_replace('/\D/', '', $owner_phone), -10) : '';
+        $stmtW = $db_master->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? OR (business_phone LIKE ? AND ? != '') ORDER BY id DESC LIMIT 1");
+        $stmtW->execute([$tId, '%' . $cleanOwner10, $cleanOwner10]);
+        $wabaSettings = $stmtW->fetch(PDO::FETCH_ASSOC);
+    } catch (\PDOException $ex) {}
+}
+
+if ($wabaSettings) {
+    $gt = strtolower($wabaSettings['gateway_type'] ?? 'web_api');
+    $gateway_mode = ($gt === 'meta_cloud') ? 'Official Meta Cloud WABA' : 'WhatsApp Web Engine';
+
+    // Map business_phone or phone_number accurately
+    $connected_phone = !empty($wabaSettings['business_phone']) 
+        ? $wabaSettings['business_phone'] 
+        : (!empty($wabaSettings['phone_number']) 
+            ? $wabaSettings['phone_number'] 
+            : (!empty($wabaSettings['phone']) 
+                ? $wabaSettings['phone'] 
+                : $owner_phone));
+
+    // Map web_api_session_status or status accurately
+    $wStatus = strtolower($wabaSettings['web_api_session_status'] ?? ($wabaSettings['whatsapp_status'] ?? ($wabaSettings['status'] ?? '')));
+    if (in_array($wStatus, ['connected', 'authenticated', 'open', 'active'])) {
+        $is_waba_connected = true;
+    } elseif (!empty($connected_phone) && !in_array($wStatus, ['disconnected', 'inactive', 'failed', 'close', 'closed'])) {
+        $is_waba_connected = true;
+    }
+
+    $last_synced = !empty($wabaSettings['updated_at']) ? date('d M, h:i A', strtotime($wabaSettings['updated_at'])) : date('d M, h:i A');
+}
+
+// Fetch Metrics strictly from tenant's message logs (with fast phone matching fallback)
+$clean_phone_10 = !empty($connected_phone) ? substr(preg_replace('/\D/', '', $connected_phone), -10) : (!empty($owner_phone) ? substr(preg_replace('/\D/', '', $owner_phone), -10) : '');
+
 $messages_today = 0;
 $messages_total = 0;
 $messages_inbound = 0;
 $messages_failed = 0;
 $recent_logs = [];
 
+// 1. First check tenant-isolated message_logs
 if ($pdo) {
     try {
         $stmtToday = $pdo->query("SELECT COUNT(*) FROM message_logs WHERE DATE(created_at) = CURRENT_DATE() AND direction = 'OUTBOUND'");
@@ -90,6 +126,33 @@ if ($pdo) {
         if ($stmtLogs) {
             $recent_logs = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
         }
+    } catch (\PDOException $ex) {}
+}
+
+// 2. If tenant table is empty, fall back to matching phone in master message_logs
+if ($messages_total === 0 && !empty($clean_phone_10) && $db_master) {
+    try {
+        $phonePattern = '%' . $clean_phone_10;
+
+        $stmtToday = $db_master->prepare("SELECT COUNT(*) FROM message_logs WHERE DATE(created_at) = CURRENT_DATE() AND direction = 'OUTBOUND' AND recipient_or_sender LIKE ?");
+        $stmtToday->execute([$phonePattern]);
+        $messages_today = (int)$stmtToday->fetchColumn();
+
+        $stmtTotal = $db_master->prepare("SELECT COUNT(*) FROM message_logs WHERE direction = 'OUTBOUND' AND recipient_or_sender LIKE ?");
+        $stmtTotal->execute([$phonePattern]);
+        $messages_total = (int)$stmtTotal->fetchColumn();
+
+        $stmtInbound = $db_master->prepare("SELECT COUNT(*) FROM message_logs WHERE direction = 'INBOUND' AND recipient_or_sender LIKE ?");
+        $stmtInbound->execute([$phonePattern]);
+        $messages_inbound = (int)$stmtInbound->fetchColumn();
+
+        $stmtFail = $db_master->prepare("SELECT COUNT(*) FROM message_logs WHERE status IN ('failed', 'error', 'undelivered') AND recipient_or_sender LIKE ?");
+        $stmtFail->execute([$phonePattern]);
+        $messages_failed = (int)$stmtFail->fetchColumn();
+
+        $stmtLogs = $db_master->prepare("SELECT * FROM message_logs WHERE recipient_or_sender LIKE ? ORDER BY id DESC LIMIT 15");
+        $stmtLogs->execute([$phonePattern]);
+        $recent_logs = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
     } catch (\PDOException $ex) {}
 }
 
