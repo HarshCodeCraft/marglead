@@ -98,16 +98,14 @@ if ($wabaSettings) {
     $last_synced = !empty($wabaSettings['updated_at']) ? date('d M, h:i A', strtotime($wabaSettings['updated_at'])) : date('d M, h:i A');
 }
 
-// Fetch Metrics strictly from tenant's message logs (with fast phone matching fallback)
-$clean_phone_10 = !empty($connected_phone) ? substr(preg_replace('/\D/', '', $connected_phone), -10) : (!empty($owner_phone) ? substr(preg_replace('/\D/', '', $owner_phone), -10) : '');
-
+// Fetch Metrics strictly from tenant's isolated message logs (Enforce 100% Data Isolation)
 $messages_today = 0;
 $messages_total = 0;
 $messages_inbound = 0;
 $messages_failed = 0;
 $recent_logs = [];
 
-// 1. First check tenant-isolated message_logs
+// Query tenant's own isolated message_logs table
 if ($pdo) {
     try {
         $stmtToday = $pdo->query("SELECT COUNT(*) FROM message_logs WHERE DATE(created_at) = CURRENT_DATE() AND direction = 'OUTBOUND'");
@@ -129,30 +127,23 @@ if ($pdo) {
     } catch (\PDOException $ex) {}
 }
 
-// 2. If tenant table is empty, fall back to matching phone in master message_logs
-if ($messages_total === 0 && !empty($clean_phone_10) && $db_master) {
+// Fallback to explicit tenant-prefixed table name if needed (strictly isolated to active tenant)
+if (empty($recent_logs) && !empty($active_tenant_db) && strpos($active_tenant_db, 't_') === 0 && $db_master) {
     try {
-        $phonePattern = '%' . $clean_phone_10;
+        $tblName = $active_tenant_db . 'message_logs';
+        $stmtToday = $db_master->query("SELECT COUNT(*) FROM `{$tblName}` WHERE DATE(created_at) = CURRENT_DATE() AND direction = 'OUTBOUND'");
+        if ($stmtToday) $messages_today = (int)$stmtToday->fetchColumn();
 
-        $stmtToday = $db_master->prepare("SELECT COUNT(*) FROM message_logs WHERE DATE(created_at) = CURRENT_DATE() AND direction = 'OUTBOUND' AND recipient_or_sender LIKE ?");
-        $stmtToday->execute([$phonePattern]);
-        $messages_today = (int)$stmtToday->fetchColumn();
+        $stmtTotal = $db_master->query("SELECT COUNT(*) FROM `{$tblName}` WHERE direction = 'OUTBOUND'");
+        if ($stmtTotal) $messages_total = (int)$stmtTotal->fetchColumn();
 
-        $stmtTotal = $db_master->prepare("SELECT COUNT(*) FROM message_logs WHERE direction = 'OUTBOUND' AND recipient_or_sender LIKE ?");
-        $stmtTotal->execute([$phonePattern]);
-        $messages_total = (int)$stmtTotal->fetchColumn();
+        $stmtInbound = $db_master->query("SELECT COUNT(*) FROM `{$tblName}` WHERE direction = 'INBOUND'");
+        if ($stmtInbound) $messages_inbound = (int)$stmtInbound->fetchColumn();
 
-        $stmtInbound = $db_master->prepare("SELECT COUNT(*) FROM message_logs WHERE direction = 'INBOUND' AND recipient_or_sender LIKE ?");
-        $stmtInbound->execute([$phonePattern]);
-        $messages_inbound = (int)$stmtInbound->fetchColumn();
-
-        $stmtFail = $db_master->prepare("SELECT COUNT(*) FROM message_logs WHERE status IN ('failed', 'error', 'undelivered') AND recipient_or_sender LIKE ?");
-        $stmtFail->execute([$phonePattern]);
-        $messages_failed = (int)$stmtFail->fetchColumn();
-
-        $stmtLogs = $db_master->prepare("SELECT * FROM message_logs WHERE recipient_or_sender LIKE ? ORDER BY id DESC LIMIT 15");
-        $stmtLogs->execute([$phonePattern]);
-        $recent_logs = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
+        $stmtLogs = $db_master->query("SELECT * FROM `{$tblName}` ORDER BY id DESC LIMIT 15");
+        if ($stmtLogs) {
+            $recent_logs = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
+        }
     } catch (\PDOException $ex) {}
 }
 
