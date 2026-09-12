@@ -940,7 +940,7 @@ if (isset($pdo_master)) {
                         <th class="p-3 text-xs font-bold text-muted">ID &amp; COMPANY</th>
                         <th class="p-3 text-xs font-bold text-muted">OWNER / EMAIL</th>
                         <th class="p-3 text-xs font-bold text-muted">WHATSAPP GATEWAY &amp; STATUS</th>
-                        <th class="p-3 text-xs font-bold text-muted">STORAGE MODE</th>
+                        <th class="p-3 text-xs font-bold text-muted">ERP DISPATCHES</th>
                         <th class="p-3 text-xs font-bold text-muted">PLAN</th>
                         <th class="p-3 text-xs font-bold text-muted">STATUS</th>
                         <th class="p-3 text-xs font-bold text-muted">EXPIRY DATE</th>
@@ -1069,7 +1069,7 @@ if (isset($pdo_master)) {
                                         <?php elseif ($wInfo['session_state'] === 'logged_out'): ?>
                                             <!-- Web API Logged Out from Phone -->
                                             <div class="flex align-center gap-2 flex-wrap">
-                                                <span class="status-pill status-pill-loggedout" title="User logged out from WhatsApp on phone or Baileys session expired">
+                                                <span class="status-pill status-pill-loggedout" title="User logged out from WhatsApp on phone or session expired">
                                                     <i data-lucide="alert-triangle" style="width: 11px; height: 11px;"></i> Logged Out
                                                 </span>
                                                 <span class="badge" style="background: rgba(239, 68, 68, 0.08); color: #dc2626; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25);">
@@ -1083,11 +1083,6 @@ if (isset($pdo_master)) {
                                                     <span>Session disconnected from phone</span>
                                                 <?php endif; ?>
                                             </div>
-                                            <div class="mt-1">
-                                                <button type="button" class="btn btn-xs" style="background: #2563eb; color: white; border: none; font-size: 0.7rem; padding: 3px 9px; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(37,99,235,0.3);" onclick="openQrPairModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '<?php echo htmlspecialchars($wInfo['last_phone'] ?? ''); ?>')">
-                                                    <i data-lucide="qr-code" style="width: 11px; height: 11px;"></i> Reconnect QR
-                                                </button>
-                                            </div>
 
                                         <?php elseif ($wInfo['session_state'] === 'not_paired'): ?>
                                             <!-- Web API Fresh Client / Never Paired -->
@@ -1099,12 +1094,7 @@ if (isset($pdo_master)) {
                                                     Web API (Baileys)
                                                 </span>
                                             </div>
-                                            <span class="text-xs text-muted mt-0.5" style="font-size: 0.72rem; font-style: italic;">No WhatsApp Paired Yet</span>
-                                            <div class="mt-1">
-                                                <button type="button" class="btn btn-xs" style="background: #10b981; color: white; border: none; font-size: 0.7rem; padding: 3px 9px; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(16,185,129,0.3);" onclick="openQrPairModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '')">
-                                                    <i data-lucide="qr-code" style="width: 11px; height: 11px;"></i> Pair WhatsApp
-                                                </button>
-                                            </div>
+                                            <span class="text-xs text-muted mt-0.5" style="font-size: 0.72rem; font-style: italic;">⚪ No WhatsApp Device Linked</span>
 
                                         <?php else: ?>
                                             <!-- Meta Incomplete -->
@@ -1126,28 +1116,15 @@ if (isset($pdo_master)) {
                                         </div>
                                     </div>
                                 </td>
-                                <!-- Storage Mode & Accurate Counts Column -->
+                                <!-- Clean ERP Dispatches Column -->
                                 <td class="p-3">
                                     <div class="flex flex-col gap-1">
-                                        <div>
-                                            <?php if ($cl['id'] == 1 || $cl['company_code'] === 'master'): ?>
-                                                <span class="badge text-xs font-mono" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 7px;">
-                                                    <i data-lucide="database" style="width: 11px; height: 11px; margin-right: 3px; vertical-align: middle;"></i>
-                                                    Master DB
-                                                </span>
-                                            <?php else: ?>
-                                                <span class="badge text-xs font-mono" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.7rem; padding: 2px 7px;">
-                                                    <i data-lucide="shield-check" style="width: 11px; height: 11px; margin-right: 3px; vertical-align: middle;"></i>
-                                                    <?php echo htmlspecialchars($cl['db_name']); ?>
-                                                </span>
-                                            <?php endif; ?>
-                                        </div>
-                                        <div class="text-xs text-muted" style="font-size: 0.725rem; font-weight: 500;">
-                                            👥 Users: <strong style="color: var(--text-main);"><?php echo $tenant_users_cnt; ?></strong> | 📊 Leads: <strong style="color: var(--text-main);"><?php echo number_format($tenant_leads_cnt); ?></strong>
-                                        </div>
-                                        <div class="text-xs" style="font-size: 0.725rem; color: #10b981; font-weight: 600;">
-                                            ✉️ Msgs Today: <strong><?php echo $tenant_msgs_today; ?></strong> | Mo: <strong><?php echo $tenant_msgs_month; ?></strong>
-                                        </div>
+                                        <span class="text-xs" style="font-size: 0.75rem; color: #10b981; font-weight: 700;">
+                                             Today: <strong><?php echo $tenant_msgs_today; ?> bills</strong>
+                                        </span>
+                                        <span class="text-xs text-muted" style="font-size: 0.72rem;">
+                                             Month: <strong><?php echo $tenant_msgs_month; ?> bills</strong>
+                                        </span>
                                     </div>
                                 </td>
                                 <td class="p-3">
@@ -1181,20 +1158,8 @@ if (isset($pdo_master)) {
                                                 onclick='openTestWabaModal(<?php echo $cl['id']; ?>, <?php echo json_encode($cl['company_name']); ?>, <?php echo json_encode($wInfo['api_key']); ?>, <?php echo json_encode($wInfo['gateway_type']); ?>, <?php echo $wInfo['is_connected'] ? "true" : "false"; ?>, <?php echo json_encode($wInfo['phone']); ?>)'
                                                 title="Test WhatsApp Dispatch for <?php echo htmlspecialchars($cl['company_name']); ?>">
                                             <i data-lucide="send" style="width: 13px; height: 13px;"></i>
-                                            <span>Test API</span>
+                                            <span> </span>
                                         </button>
-
-                                        <!-- Direct WhatsApp QR Pair Button for Web API -->
-                                        <?php if ($wInfo['gateway_type'] === 'web_api'): ?>
-                                            <button type="button" 
-                                                    class="btn btn-sm text-xs flex align-center gap-1" 
-                                                    style="background: rgba(37, 99, 235, 0.12); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.3); font-weight: 600;"
-                                                    onclick="openQrPairModal(<?php echo $cl['id']; ?>, '<?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>', '<?php echo htmlspecialchars($wInfo['phone'] ?: ($wInfo['last_phone'] ?? '')); ?>')"
-                                                    title="Pair / Scan WhatsApp QR Code for <?php echo htmlspecialchars($cl['company_name']); ?>">
-                                                <i data-lucide="qr-code" style="width: 13px; height: 13px;"></i>
-                                                <span>QR Pair</span>
-                                            </button>
-                                        <?php endif; ?>
 
                                         <!-- Download config.json Button -->
                                         <button type="button" 
@@ -1586,162 +1551,7 @@ if (isset($pdo_master)) {
     </div>
 </div>
 
-<!-- Modal 5: Admin Live WhatsApp QR Pairing & Status Modal -->
-<div id="admin-tenant-qr-modal" class="modal-overlay">
-    <div class="modal-container" style="max-width: 480px;">
-        <div class="modal-header">
-            <div>
-                <h3 class="m-0" style="font-family: var(--font-heading);" id="qr-modal-title">WhatsApp Pairing Console</h3>
-                <span class="text-xs text-muted" id="qr-modal-subtitle">Scan QR code or use Phone Pairing Code</span>
-            </div>
-            <button class="btn-icon" onclick="closeQrPairModal()"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
-        </div>
-        <div class="modal-body flex flex-col gap-4 p-4 text-center">
-            <input type="hidden" id="qr-modal-tenant-id" value="">
-
-            <div id="qr-loading-spinner" class="py-6 flex flex-col align-center justify-center gap-3">
-                <div style="width: 36px; height: 36px; border: 3px solid rgba(59,130,246,0.2); border-top-color: #2563eb; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto;"></div>
-                <span class="text-xs text-muted">Connecting to WhatsApp Engine...</span>
-            </div>
-
-            <div id="qr-display-container" style="display: none;" class="flex flex-col align-center justify-center">
-                <div style="padding: 12px; background: white; border-radius: 12px; border: 1px solid var(--border-color); display: inline-block; box-shadow: 0 4px 12px rgba(0,0,0,0.06); margin: 0 auto;">
-                    <img id="qr-image-tag" src="" alt="WhatsApp QR Code" style="width: 240px; height: 240px; display: block;">
-                </div>
-                <div class="flex align-center justify-center gap-2 mt-3">
-                    <span class="pulse-dot-green"></span>
-                    <span class="text-xs font-semibold" style="color: var(--text-main);">Open WhatsApp &gt; Linked Devices &gt; Link a device</span>
-                </div>
-                <span class="text-xs text-muted mt-1" style="font-size: 0.72rem;">QR code auto-refreshes every 20 seconds</span>
-            </div>
-
-            <div id="qr-success-banner" style="display: none; background: rgba(16,185,129,0.12); border: 1px solid #10b981; border-radius: 8px;" class="p-4">
-                <i data-lucide="check-circle-2" style="width: 36px; height: 36px; color: #10b981; margin: 0 auto 8px auto;"></i>
-                <h4 class="m-0 font-bold" style="color: #059669;">WhatsApp Connected Successfully!</h4>
-                <p class="text-xs text-muted mt-1 mb-0" id="qr-success-phone"></p>
-            </div>
-
-            <div class="p-3 border-radius-sm text-left" style="background: var(--bg-body); border: 1px solid var(--border-color);">
-                <span class="text-xs font-bold block mb-1" style="color: var(--text-main);">Or Pair with Phone Number (No QR needed):</span>
-                <div class="flex gap-2">
-                    <input type="text" id="qr-phone-input" class="form-control text-xs" placeholder="e.g. 9876543210" style="flex: 1;">
-                    <button type="button" class="btn btn-sm btn-primary text-xs" onclick="requestTenantPairingCode()">Get Code</button>
-                </div>
-                <div id="qr-pairing-code-display" class="mt-2 text-center" style="display: none; background: rgba(37,99,235,0.08); padding: 8px; border-radius: 6px; border: 1px dashed #2563eb;">
-                    <span class="text-xs text-muted block">Enter this 8-digit code on your WhatsApp phone:</span>
-                    <strong class="font-mono text-lg" id="qr-code-text" style="color: #2563eb; letter-spacing: 0.15em;"></strong>
-                </div>
-            </div>
-
-            <div class="flex justify-between align-center mt-1">
-                <button type="button" class="btn btn-secondary text-xs" onclick="closeQrPairModal()">Close</button>
-                <button type="button" class="btn btn-sm text-xs flex align-center gap-1" style="background: rgba(59,130,246,0.1); color: var(--primary); border: 1px solid var(--primary);" onclick="refreshCurrentQr()">
-                    <i data-lucide="refresh-cw" style="width: 12px; height: 12px;"></i> Refresh QR
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <script>
-let qrPollTimer = null;
-let currentQrTenantId = null;
-
-function openQrPairModal(tenantId, companyName, lastPhone) {
-    currentQrTenantId = tenantId;
-    document.getElementById('qr-modal-tenant-id').value = tenantId;
-    document.getElementById('qr-modal-title').textContent = 'WhatsApp Pairing: ' + companyName;
-    document.getElementById('qr-modal-subtitle').textContent = 'Tenant #' + tenantId + ' • Live WhatsApp Web Pairing';
-    document.getElementById('qr-phone-input').value = lastPhone ? lastPhone.replace(/\D/g, '').slice(-10) : '';
-    document.getElementById('qr-loading-spinner').style.display = 'flex';
-    document.getElementById('qr-display-container').style.display = 'none';
-    document.getElementById('qr-success-banner').style.display = 'none';
-    document.getElementById('qr-pairing-code-display').style.display = 'none';
-    
-    window.openModal('admin-tenant-qr-modal');
-    loadTenantQrCode();
-    
-    clearInterval(qrPollTimer);
-    qrPollTimer = setInterval(pollTenantStatus, 3500);
-}
-
-function closeQrPairModal() {
-    clearInterval(qrPollTimer);
-    window.closeModal('admin-tenant-qr-modal');
-}
-
-function loadTenantQrCode() {
-    if (!currentQrTenantId) return;
-    fetch('api/whatsapp_web_engine.php?action=get_qr&user_id=' + currentQrTenantId)
-        .then(res => res.json())
-        .then(data => {
-            document.getElementById('qr-loading-spinner').style.display = 'none';
-            if (data.status === 'connected') {
-                showQrSuccess(data.phone || data.phone_number);
-            } else if (data.qr_image || data.qr_code) {
-                const imgUrl = data.qr_image || ('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(data.qr_code));
-                document.getElementById('qr-image-tag').src = imgUrl;
-                document.getElementById('qr-display-container').style.display = 'flex';
-            } else {
-                document.getElementById('qr-loading-spinner').style.display = 'flex';
-            }
-        })
-        .catch(err => {
-            console.error('QR Load error:', err);
-        });
-}
-
-function pollTenantStatus() {
-    if (!currentQrTenantId) return;
-    fetch('api/whatsapp_web_engine.php?action=check_status&user_id=' + currentQrTenantId)
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'connected') {
-                showQrSuccess(data.phone || data.phone_number);
-                clearInterval(qrPollTimer);
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000);
-            }
-        })
-        .catch(() => {});
-}
-
-function showQrSuccess(phone) {
-    document.getElementById('qr-loading-spinner').style.display = 'none';
-    document.getElementById('qr-display-container').style.display = 'none';
-    const banner = document.getElementById('qr-success-banner');
-    banner.style.display = 'block';
-    document.getElementById('qr-success-phone').textContent = phone ? ('Paired Number: +' + phone.replace(/\D/g, '')) : 'Device linked!';
-}
-
-function refreshCurrentQr() {
-    document.getElementById('qr-loading-spinner').style.display = 'flex';
-    document.getElementById('qr-display-container').style.display = 'none';
-    loadTenantQrCode();
-}
-
-function requestTenantPairingCode() {
-    const phone = document.getElementById('qr-phone-input').value.trim();
-    if (!phone || phone.length < 10) {
-        alert('Please enter a valid 10-digit mobile number');
-        return;
-    }
-    fetch('api/whatsapp_web_engine.php?action=get_pairing_code&user_id=' + currentQrTenantId + '&phone=' + encodeURIComponent(phone))
-        .then(res => res.json())
-        .then(data => {
-            if (data.code || data.pairing_code) {
-                const code = data.code || data.pairing_code;
-                document.getElementById('qr-code-text').textContent = code;
-                document.getElementById('qr-pairing-code-display').style.display = 'block';
-            } else if (data.message) {
-                alert(data.message);
-            }
-        })
-        .catch(err => {
-            alert('Failed to request pairing code: ' + err.message);
-        });
-}
 
 function openEditPlanModal(tenantId, companyName, ownerName, ownerEmail, phone, plan, status, expiryDate) {
     document.getElementById('edit-tenant-id').value = tenantId;
