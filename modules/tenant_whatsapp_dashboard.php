@@ -97,7 +97,7 @@ if ($wabaSettings) {
 
     $last_synced = !empty($wabaSettings['updated_at']) ? date('d M, h:i A', strtotime($wabaSettings['updated_at'])) : date('d M, h:i A');
 
-    // Fast live verification with Node engine to instantly detect if user logged out from their phone
+    // Fast live verification with to instantly detect if user logged out from their phone
     if ($gt === 'web_api') {
         $engineUrl = defined('WHATSAPP_ENGINE_URL') ? WHATSAPP_ENGINE_URL : 'http://140.238.167.58:3000';
         $tUserId = $_SESSION['tenant_id'] ?? $_SESSION['user_id'] ?? 1;
@@ -595,7 +595,7 @@ $delivery_rate = ($messages_total > 0) ? round((($messages_total - $messages_fai
                         <?php echo $is_waba_connected ? htmlspecialchars($connected_phone ?: 'Connected & Ready') : 'Pairing Required'; ?>
                     </div>
                     <div class="gateway-live-text" style="color: <?php echo $is_waba_connected ? '#34d399' : '#fbbf24'; ?>;">
-                        <?php echo $is_waba_connected ? '🟢 Gateway Online & Dispatched' : '⚠️ Scan QR Code to connect'; ?>
+                        <?php echo $is_waba_connected ? '  Gateway Online & Dispatched' : '⚠️ Scan QR Code to connect'; ?>
                     </div>
                 </div>
                 <div>
@@ -664,7 +664,7 @@ $delivery_rate = ($messages_total > 0) ? round((($messages_total - $messages_fai
                 </div>
             </div>
             <div class="kpi-num" style="font-size: 1.45rem;">
-                <?php echo $is_waba_connected ? '🟢 Online' : '⚠️ Offline'; ?>
+                <?php echo $is_waba_connected ? '  Online' : '⚠️ Offline'; ?>
             </div>
             <div class="kpi-foot" style="color: #10b981;">
                 <i data-lucide="clock" style="width: 13px; height: 13px;"></i>

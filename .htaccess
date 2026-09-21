@@ -1,7 +1,7 @@
 # Marg ERP CRM - Root Security & Custom 404/403 Error Handlers
 
-ErrorDocument 404 /MARGLEAD/404.php
-ErrorDocument 403 /MARGLEAD/404.php
+ErrorDocument 404 /404.php
+ErrorDocument 403 /404.php
 
 # Prevent Directory Browsing
 Options -Indexes
@@ -11,4 +11,25 @@ Options -Indexes
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
     Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
+
+# =========================================================
+# Block Direct Access to Sensitive Files
+# =========================================================
+<FilesMatch "\.(sql|md|log|sh|bat|ps1|py|lock|env|bak|ini|git)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Block access to hidden dot files (except .htaccess itself)
+<FilesMatch "^\.(?!htaccess)">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Block direct access to sensitive PHP setup & config files
+<FilesMatch "^(schema|setup_db|update_live_db|cron_scheduler|marg_bridge|composer)\.(php|sql|json|lock|ps1|py|bat)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>

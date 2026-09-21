@@ -558,7 +558,7 @@ if ($db_connected && $pdo) {
                 All Clients (<?php echo $tabCntAll; ?>)
             </a>
             <a href="index.php?page=renewals&status=expiring_soon<?php echo !empty($search)?'&search='.urlencode($search):''; ?>" class="status-tab-btn <?php echo ($status==='expiring_soon')?'active':''; ?>" style="<?php echo ($status==='expiring_soon')?'':'color: #d97706;'; ?>">
-                ⚡ Expiring Soon (<?php echo $tabCntExpiring; ?>)
+                 Expiring Soon (<?php echo $tabCntExpiring; ?>)
             </a>
             <a href="index.php?page=renewals&status=expired<?php echo !empty($search)?'&search='.urlencode($search):''; ?>" class="status-tab-btn <?php echo ($status==='expired')?'active':''; ?>" style="<?php echo ($status==='expired')?'':'color: #ef4444;'; ?>">
                 🚨 Overdue / Expired (<?php echo $tabCntExpired; ?>)
@@ -567,7 +567,7 @@ if ($db_connected && $pdo) {
                 ⌛ Grace Period (<?php echo $tabCntGrace; ?>)
             </a>
             <a href="index.php?page=renewals&status=active<?php echo !empty($search)?'&search='.urlencode($search):''; ?>" class="status-tab-btn <?php echo ($status==='active')?'active':''; ?>" style="<?php echo ($status==='active')?'':'color: #10b981;'; ?>">
-                🟢 Active (<?php echo $tabCntActive; ?>)
+                  Active (<?php echo $tabCntActive; ?>)
             </a>
         </div>
 
@@ -693,7 +693,7 @@ if ($db_connected && $pdo) {
                                 $timelineHtml = "<span class='text-xs font-bold' style='color: #ef4444;'>🚨 Expired {$overdueDays} days ago</span>";
                                 $badgeHtml = "<span class='badge' style='background: rgba(239, 68, 68, 0.12); color: #ef4444; font-weight: 700;'>Expired</span>";
                             } elseif ($daysRemaining <= 30) {
-                                $timelineHtml = "<span class='text-xs font-bold' style='color: #d97706;'>⚡ Expires in {$daysRemaining} days!</span>";
+                                $timelineHtml = "<span class='text-xs font-bold' style='color: #d97706;'> Expires in {$daysRemaining} days!</span>";
                                 $badgeHtml = "<span class='badge' style='background: rgba(245, 158, 11, 0.12); color: #d97706; font-weight: 700;'>Expiring Soon</span>";
                             } else {
                                 $timelineHtml = "<span class='text-xs text-muted'>{$daysRemaining} days remaining</span>";

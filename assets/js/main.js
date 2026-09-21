@@ -3,7 +3,7 @@
  */
 
 // Overwrite native browser localhost alert() with a custom non-blocking CRM toast banner
-window.alert = function(msg) {
+window.alert = function (msg) {
     if (!msg) return;
     let toastContainer = document.getElementById('crm-global-toast-container');
     if (!toastContainer) {
@@ -12,19 +12,19 @@ window.alert = function(msg) {
         toastContainer.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 99999; display: flex; flex-direction: column; gap: 8px; max-width: 420px; pointer-events: none;';
         document.body.appendChild(toastContainer);
     }
-    
+
     const toast = document.createElement('div');
     toast.style.cssText = 'background: var(--bg-card, #1e293b); color: var(--text-main, #f8fafc); border: 1px solid var(--primary, #3b82f6); padding: 12px 18px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 10px; opacity: 0; transform: translateY(10px); transition: all 0.3s ease; pointer-events: auto;';
     toast.innerHTML = '<i data-lucide="info" style="width: 18px; height: 18px; color: var(--primary, #3b82f6); flex-shrink: 0;"></i><span>' + String(msg).replace(/\n/g, '<br>') + '</span>';
-    
+
     toastContainer.appendChild(toast);
     if (typeof lucide !== 'undefined') lucide.createIcons();
-    
+
     setTimeout(() => {
         toast.style.opacity = '1';
         toast.style.transform = 'translateY(0)';
     }, 10);
-    
+
     setTimeout(() => {
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(10px)';
@@ -49,12 +49,12 @@ function initMainApp() {
     const sidebar = document.querySelector('.sidebar');
     const sidebarToggle = document.querySelector('.sidebar-toggle');
     const autohideToggle = document.getElementById('sidebar-autohide-btn');
-    
+
     // Auto-Hide is enabled by default (saved in localStorage)
     let isAutoHideEnabled = localStorage.getItem('sidebar_autohide_enabled') !== 'false';
     const AUTO_HIDE_SECONDS = 5; // 5 seconds of inactivity
     let sidebarTimer = null;
-    
+
     function isSidebarOpen() {
         if (!sidebar) return false;
         const isMobile = window.innerWidth <= 1024;
@@ -173,11 +173,11 @@ function initMainApp() {
             isAutoHideEnabled = !isAutoHideEnabled;
             localStorage.setItem('sidebar_autohide_enabled', isAutoHideEnabled ? 'true' : 'false');
             updateAutohideUI();
-            
+
             if (isAutoHideEnabled) {
                 resetSidebarTimer();
                 if (typeof window.alert === 'function') {
-                    window.alert('⚡ Sidebar Auto-Hide Enabled (Auto-closes after 5s of inactivity)');
+                    window.alert(' Sidebar Auto-Hide Enabled (Auto-closes after 5s of inactivity)');
                 }
             } else {
                 clearTimeout(sidebarTimer);
@@ -188,7 +188,7 @@ function initMainApp() {
         });
     }
 
-    window.toggleSidebarDropdown = function(e, element) {
+    window.toggleSidebarDropdown = function (e, element) {
         if (e.target.closest('.menu-chevron')) {
             e.preventDefault();
             e.stopPropagation();
@@ -206,7 +206,7 @@ function initMainApp() {
             e.stopPropagation();
             const targetId = trigger.getAttribute('data-dropdown');
             const targetMenu = document.getElementById(targetId);
-            
+
             // Close other open dropdowns first
             document.querySelectorAll('.dropdown-menu.show').forEach(menu => {
                 if (menu !== targetMenu) {
@@ -226,14 +226,14 @@ function initMainApp() {
         themeToggleBtn.addEventListener('click', () => {
             const activeTheme = htmlEl.getAttribute('data-theme');
             const newTheme = activeTheme === 'light' ? 'dark' : 'light';
-            
+
             htmlEl.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
             document.cookie = "app_theme=" + encodeURIComponent(newTheme) + "; path=/; max-age=31536000; SameSite=Lax";
-            
+
             const metaTheme = document.querySelector('meta[name="theme-color"]');
             if (metaTheme) metaTheme.setAttribute('content', newTheme === 'dark' ? '#0b0f19' : '#f8fafc');
-            
+
             const icon = themeToggleBtn.querySelector('i');
             if (icon) {
                 icon.setAttribute('data-lucide', newTheme === 'light' ? 'moon' : 'sun');
@@ -271,21 +271,21 @@ function initMainApp() {
     const searchResultsSection = searchModal ? searchModal.querySelector('.search-results-section .results-list') : null;
 
     if (searchModalInput && searchResultsSection) {
-        searchModalInput.addEventListener('input', function() {
+        searchModalInput.addEventListener('input', function () {
             const query = this.value.trim();
             if (query.length === 0) return;
 
             fetch('index.php?action=global_search&q=' + encodeURIComponent(query))
-            .then(res => res.json())
-            .then(data => {
-                if (data.success && data.results) {
-                    if (data.results.length === 0) {
-                        searchResultsSection.innerHTML = '<div class="p-3 text-xs text-muted text-center">No leads or records found for "' + query + '"</div>';
-                    } else {
-                        let html = '';
-                        data.results.forEach(item => {
-                            const pClass = item.priority === 'hot' ? 'danger' : (item.priority === 'warm' ? 'warning' : 'secondary');
-                            html += `
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.results) {
+                        if (data.results.length === 0) {
+                            searchResultsSection.innerHTML = '<div class="p-3 text-xs text-muted text-center">No leads or records found for "' + query + '"</div>';
+                        } else {
+                            let html = '';
+                            data.results.forEach(item => {
+                                const pClass = item.priority === 'hot' ? 'danger' : (item.priority === 'warm' ? 'warning' : 'secondary');
+                                html += `
                                 <a href="index.php?page=lead_details&id=${item.id}" class="result-item flex align-center justify-between pointer" style="padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); margin-bottom: 0.5rem; text-decoration: none;">
                                     <div class="flex align-center gap-3">
                                         <i data-lucide="user" class="text-muted" style="width: 18px; height: 18px;"></i>
@@ -297,15 +297,15 @@ function initMainApp() {
                                     <span class="badge" style="--badge-bg: var(--${pClass}-light); --badge-color: var(--${pClass}); text-transform: uppercase;">${item.priority}</span>
                                 </a>
                             `;
-                        });
-                        searchResultsSection.innerHTML = html;
-                        if (typeof lucide !== 'undefined') {
-                            lucide.createIcons();
+                            });
+                            searchResultsSection.innerHTML = html;
+                            if (typeof lucide !== 'undefined') {
+                                lucide.createIcons();
+                            }
                         }
                     }
-                }
-            })
-            .catch(err => console.error(err));
+                })
+                .catch(err => console.error(err));
         });
     }
 
@@ -355,7 +355,7 @@ if (document.readyState === 'loading') {
 }
 
 // Modal helper controls
-window.openModal = function(modalId) {
+window.openModal = function (modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
         modal.classList.add('open');
@@ -363,7 +363,7 @@ window.openModal = function(modalId) {
     }
 };
 
-window.closeModal = function(modalId) {
+window.closeModal = function (modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
         modal.classList.remove('open');
@@ -376,7 +376,7 @@ window.closeModal = function(modalId) {
 let isTypingInForm = false;
 
 // Track user typing activity across all forms
-document.addEventListener('input', function(e) {
+document.addEventListener('input', function (e) {
     if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
         isTypingInForm = true;
         clearTimeout(window._typingTimer);
@@ -388,7 +388,7 @@ document.addEventListener('input', function(e) {
     }
 }, true);
 
-document.addEventListener('focusout', function(e) {
+document.addEventListener('focusout', function (e) {
     if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
         setTimeout(() => {
             const active = document.activeElement;
@@ -442,134 +442,134 @@ function refreshDataWithoutReload(force = false) {
     return fetch(window.location.href, {
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' }
     })
-    .then(response => {
-        if (!response.ok) return null;
-        return response.text();
-    })
-    .then(html => {
-        if (!html) return false;
-        
-        if (!force && isUserFillingForm()) return false;
+        .then(response => {
+            if (!response.ok) return null;
+            return response.text();
+        })
+        .then(html => {
+            if (!html) return false;
 
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+            if (!force && isUserFillingForm()) return false;
 
-        let updatedAny = false;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
 
-        // Extract and execute inline script tags (e.g., window.dashboardChartData)
-        const scripts = doc.querySelectorAll('script');
-        scripts.forEach(script => {
-            if (script.textContent && script.textContent.includes('dashboardChartData')) {
-                try {
-                    eval(script.textContent);
-                } catch (e) {}
-            }
-        });
+            let updatedAny = false;
 
-        // Container Selectors for Universal Auto-Sync across all pages
-        const containerSelectors = [
-            '.dashboard-container',
-            '.kpi-grid',
-            '.charts-grid',
-            '.kpi-card',
-            '.live-metric-cards-container',
-            '.table-responsive',
-            'tbody',
-            '.grid-4',
-            '.grid-3',
-            '.grid-2',
-            '.history-timeline',
-            '.timeline',
-            '.activity-feed',
-            '.chat-messages',
-            '.chat-list',
-            '.notif-badge',
-            '#unread-count',
-            '.detail-card',
-            '.lead-info',
-            '.card-body-scroll',
-            '#kpi-cards-wrapper',
-            '#followups-list-container',
-            '#leads-table-container'
-        ];
+            // Extract and execute inline script tags (e.g., window.dashboardChartData)
+            const scripts = doc.querySelectorAll('script');
+            scripts.forEach(script => {
+                if (script.textContent && script.textContent.includes('dashboardChartData')) {
+                    try {
+                        eval(script.textContent);
+                    } catch (e) { }
+                }
+            });
 
-        containerSelectors.forEach(selector => {
-            const currentEls = document.querySelectorAll(selector);
-            const newEls = doc.querySelectorAll(selector);
+            // Container Selectors for Universal Auto-Sync across all pages
+            const containerSelectors = [
+                '.dashboard-container',
+                '.kpi-grid',
+                '.charts-grid',
+                '.kpi-card',
+                '.live-metric-cards-container',
+                '.table-responsive',
+                'tbody',
+                '.grid-4',
+                '.grid-3',
+                '.grid-2',
+                '.history-timeline',
+                '.timeline',
+                '.activity-feed',
+                '.chat-messages',
+                '.chat-list',
+                '.notif-badge',
+                '#unread-count',
+                '.detail-card',
+                '.lead-info',
+                '.card-body-scroll',
+                '#kpi-cards-wrapper',
+                '#followups-list-container',
+                '#leads-table-container'
+            ];
 
-            currentEls.forEach((el, idx) => {
-                if (newEls[idx] && el.innerHTML !== newEls[idx].innerHTML) {
-                    // Remember checked items before replacement in table
-                    const checkedValues = new Set(
-                        Array.from(el.querySelectorAll('.lead-checkbox:checked, .client-checkbox:checked, input[type="checkbox"]:checked'))
-                            .map(cb => cb.value)
-                    );
-                    const isSelectAllChecked = el.querySelector('#select-all-leads')?.checked;
+            containerSelectors.forEach(selector => {
+                const currentEls = document.querySelectorAll(selector);
+                const newEls = doc.querySelectorAll(selector);
 
-                    el.innerHTML = newEls[idx].innerHTML;
-                    updatedAny = true;
+                currentEls.forEach((el, idx) => {
+                    if (newEls[idx] && el.innerHTML !== newEls[idx].innerHTML) {
+                        // Remember checked items before replacement in table
+                        const checkedValues = new Set(
+                            Array.from(el.querySelectorAll('.lead-checkbox:checked, .client-checkbox:checked, input[type="checkbox"]:checked'))
+                                .map(cb => cb.value)
+                        );
+                        const isSelectAllChecked = el.querySelector('#select-all-leads')?.checked;
 
-                    // Restore checked items
-                    if (checkedValues.size > 0) {
-                        el.querySelectorAll('.lead-checkbox, .client-checkbox, input[type="checkbox"]').forEach(cb => {
-                            if (checkedValues.has(cb.value)) {
-                                cb.checked = true;
-                            }
-                        });
+                        el.innerHTML = newEls[idx].innerHTML;
+                        updatedAny = true;
+
+                        // Restore checked items
+                        if (checkedValues.size > 0) {
+                            el.querySelectorAll('.lead-checkbox, .client-checkbox, input[type="checkbox"]').forEach(cb => {
+                                if (checkedValues.has(cb.value)) {
+                                    cb.checked = true;
+                                }
+                            });
+                        }
+                        if (isSelectAllChecked) {
+                            const selectAll = el.querySelector('#select-all-leads');
+                            if (selectAll) selectAll.checked = true;
+                        }
                     }
-                    if (isSelectAllChecked) {
-                        const selectAll = el.querySelector('#select-all-leads');
-                        if (selectAll) selectAll.checked = true;
+                });
+            });
+
+            // Sync individual count badges / metric spans matching id="cnt-*"
+            const cntSpans = document.querySelectorAll('[id^="cnt-"]');
+            cntSpans.forEach(span => {
+                const newSpan = doc.querySelector('#' + CSS.escape(span.id));
+                if (newSpan && span.innerHTML !== newSpan.innerHTML) {
+                    span.innerHTML = newSpan.innerHTML;
+                    updatedAny = true;
+                }
+            });
+
+            // Check elements with data-auto-sync attribute or ID
+            const autoSyncEls = document.querySelectorAll('[data-auto-sync]');
+            autoSyncEls.forEach(el => {
+                const syncId = el.getAttribute('data-auto-sync') || el.id;
+                if (syncId) {
+                    const newEl = doc.querySelector(`[data-auto-sync="${syncId}"], #${syncId}`);
+                    if (newEl && el.innerHTML !== newEl.innerHTML) {
+                        el.innerHTML = newEl.innerHTML;
+                        updatedAny = true;
                     }
                 }
             });
-        });
 
-        // Sync individual count badges / metric spans matching id="cnt-*"
-        const cntSpans = document.querySelectorAll('[id^="cnt-"]');
-        cntSpans.forEach(span => {
-            const newSpan = doc.querySelector('#' + CSS.escape(span.id));
-            if (newSpan && span.innerHTML !== newSpan.innerHTML) {
-                span.innerHTML = newSpan.innerHTML;
-                updatedAny = true;
-            }
-        });
-
-        // Check elements with data-auto-sync attribute or ID
-        const autoSyncEls = document.querySelectorAll('[data-auto-sync]');
-        autoSyncEls.forEach(el => {
-            const syncId = el.getAttribute('data-auto-sync') || el.id;
-            if (syncId) {
-                const newEl = doc.querySelector(`[data-auto-sync="${syncId}"], #${syncId}`);
-                if (newEl && el.innerHTML !== newEl.innerHTML) {
-                    el.innerHTML = newEl.innerHTML;
-                    updatedAny = true;
+            if (updatedAny) {
+                // Re-initialize Lucide Icons, Column Preferences & Charts
+                if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                    lucide.createIcons();
+                }
+                if (typeof loadDirColumnPreferences === 'function') {
+                    loadDirColumnPreferences();
+                }
+                if (typeof loadColumnPreferences === 'function') {
+                    loadColumnPreferences();
+                }
+                if (typeof window.initCRMCharts === 'function') {
+                    window.initCRMCharts();
                 }
             }
+
+            return updatedAny;
+        })
+        .catch(err => {
+            // Silent catch for network drops
+            return false;
         });
-
-        if (updatedAny) {
-            // Re-initialize Lucide Icons, Column Preferences & Charts
-            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
-                lucide.createIcons();
-            }
-            if (typeof loadDirColumnPreferences === 'function') {
-                loadDirColumnPreferences();
-            }
-            if (typeof loadColumnPreferences === 'function') {
-                loadColumnPreferences();
-            }
-            if (typeof window.initCRMCharts === 'function') {
-                window.initCRMCharts();
-            }
-        }
-
-        return updatedAny;
-    })
-    .catch(err => {
-        // Silent catch for network drops
-        return false;
-    });
 }
 
 window.refreshDataWithoutReload = refreshDataWithoutReload;
@@ -580,7 +580,7 @@ setInterval(autoSyncPageData, 1000);
 /**
  * Easy Date-Time Picker Shortcut Enhancements
  */
-window.applyQuickDT = function(btn, dateAction, timeStr) {
+window.applyQuickDT = function (btn, dateAction, timeStr) {
     const container = btn.closest('.quick-dt-presets-container');
     if (!container) return;
     const input = container.previousElementSibling || container.parentElement.querySelector('input[type="datetime-local"], input[type="date"]');
@@ -635,7 +635,7 @@ window.applyQuickDT = function(btn, dateAction, timeStr) {
     setTimeout(() => { btn.style.transform = ''; }, 150);
 };
 
-window.initEasyDateTimePickers = function() {
+window.initEasyDateTimePickers = function () {
     const dtInputs = document.querySelectorAll('input[type="datetime-local"], input[type="date"]');
     dtInputs.forEach(input => {
         if (input.dataset.quickDtInit === 'true' || input.dataset.noQuick === 'true' || input.classList.contains('no-quick')) return;
@@ -648,14 +648,14 @@ window.initEasyDateTimePickers = function() {
         if (isDateOnly) {
             container.innerHTML = `
                 <span class="quick-dt-label">Quick:</span>
-                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'today')">📅 Today</button>
+                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'today')"> Today</button>
                 <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'tomorrow')">🌅 Tomorrow</button>
                 <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, '+2days')">⏩ +2 Days</button>
             `;
         } else {
             container.innerHTML = `
                 <span class="quick-dt-label">Quick:</span>
-                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'today')">📅 Today</button>
+                <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'today')"> Today</button>
                 <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, 'tomorrow')">🌅 Tomorrow</button>
                 <button type="button" class="quick-dt-chip" onclick="applyQuickDT(this, '+2days')">⏩ +2 Days</button>
                 <button type="button" class="quick-dt-chip quick-dt-chip-time" onclick="applyQuickDT(this, null, '10:00')">🕘 10 AM</button>
@@ -681,7 +681,7 @@ setInterval(initEasyDateTimePickers, 500);
 // =========================================================================
 // Global Real-Time Single-Device Session Monitor & Concurrent Login Watcher
 // =========================================================================
-(function() {
+(function () {
     // Only monitor on authenticated pages (where dashboard/sidebar exists)
     function isAuthPage() {
         return !!(document.querySelector('.sidebar') || document.querySelector('.navbar-user') || document.getElementById('user-profile-menu'));
@@ -689,7 +689,7 @@ setInterval(initEasyDateTimePickers, 500);
 
     // 1. Intercept all global fetch calls for 401 session terminations
     const originalFetch = window.fetch;
-    window.fetch = function(...args) {
+    window.fetch = function (...args) {
         return originalFetch.apply(this, args).then(res => {
             if (res && (res.status === 401 || res.status === 403)) {
                 // Clone response to inspect json body without consuming stream
@@ -697,7 +697,7 @@ setInterval(initEasyDateTimePickers, 500);
                     if (data && (data.status === 'session_terminated' || data.status === 'session_expired')) {
                         window.location.href = data.redirect || 'auth/login.php?reason=concurrent_login';
                     }
-                }).catch(() => {});
+                }).catch(() => { });
             }
             return res;
         });
@@ -711,22 +711,22 @@ setInterval(initEasyDateTimePickers, 500);
         originalFetch('api/check_session.php?_t=' + Date.now(), {
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' }
         })
-        .then(res => {
-            if (res.status === 401 || res.status === 403) {
-                return res.json().catch(() => ({})).then(data => {
-                    window.location.href = (data && data.redirect) ? data.redirect : 'auth/login.php?reason=concurrent_login';
-                });
-            }
-            return res.json();
-        })
-        .then(data => {
-            if (data && data.status === 'session_terminated') {
-                window.location.href = data.redirect || 'auth/login.php?reason=concurrent_login';
-            }
-        })
-        .catch(() => {
-            // Silently ignore temporary network blips
-        });
+            .then(res => {
+                if (res.status === 401 || res.status === 403) {
+                    return res.json().catch(() => ({})).then(data => {
+                        window.location.href = (data && data.redirect) ? data.redirect : 'auth/login.php?reason=concurrent_login';
+                    });
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data && data.status === 'session_terminated') {
+                    window.location.href = data.redirect || 'auth/login.php?reason=concurrent_login';
+                }
+            })
+            .catch(() => {
+                // Silently ignore temporary network blips
+            });
     }
 
     document.addEventListener('DOMContentLoaded', () => {

@@ -161,11 +161,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Fetch all users from database
+// Fetch all users from database (Only company staff & operators, excluding CRM client/tenant accounts)
 $users_list = [];
 if ($db_connected && $pdo) {
     try {
-        $stmt = $pdo->query("SELECT * FROM users ORDER BY role ASC, name ASC");
+        $stmt = $pdo->query("
+            SELECT * FROM users 
+            WHERE LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') 
+              AND LOWER(role) NOT LIKE 'tenant%' 
+            ORDER BY role ASC, name ASC
+        ");
         $users_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         $users_list = [];
@@ -462,7 +467,7 @@ $sel_mod_perms = $selected_user ? getUserPermissions($selected_user) : array_key
             <!-- 2. Quick Preset Buttons Bar -->
             <div class="matrix-section-card">
                 <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); uppercase; letter-spacing: 0.05em;">
-                    ⚡ 1-CLICK ROLE PRESETS
+                     1-CLICK ROLE PRESETS
                 </div>
                 <div class="preset-bar">
                     <button type="button" class="preset-pill" onclick="applyRolePreset('sales_exec')">Sales Executive Standard</button>

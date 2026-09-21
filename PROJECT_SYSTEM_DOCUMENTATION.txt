@@ -291,7 +291,7 @@ A. Client Management Workspace (page=clients)
   - Folder Icon (📁): Opens Client Licence & AMC Workspace Window (matching exact
     2-card side-by-side screenshot layout with MARG ERP / Marg Books toggles, search bar,
     licence info, AMC update calculator with live +18% GST calculation, and reasons checklist).
-  - Edit Icon (✏️): Opens Edit Client Record Modal to save profile updates directly to MySQL.
+  - Edit Icon ( ): Opens Edit Client Record Modal to save profile updates directly to MySQL.
 
 B. Support Tickets Operations (page=support)
 --------------------------------------------

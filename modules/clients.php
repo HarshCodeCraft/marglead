@@ -107,25 +107,36 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_city_areas') {
     
     $areas = [];
     if (!empty($city)) {
+        $seenLower = [];
         if ($pdo) {
+            $raw = [];
+            // 1. Fetch from city_areas master table (Collation safe)
             try {
-                $stmt = $pdo->prepare("
-                    SELECT DISTINCT area_name FROM city_areas WHERE LOWER(TRIM(city)) = LOWER(TRIM(?))
-                    UNION
-                    SELECT DISTINCT TRIM(area) as area_name FROM client_directory 
-                    WHERE LOWER(TRIM(city)) = LOWER(TRIM(?)) AND area IS NOT NULL AND TRIM(area) != ''
-                    ORDER BY area_name ASC
-                ");
-                $stmt->execute([$city, $city]);
-                $raw = $stmt->fetchAll(PDO::FETCH_COLUMN);
-                foreach ($raw as $a) {
-                    $aClean = trim($a);
-                    if (!empty($aClean) && !in_array($aClean, $areas)) {
-                        $areas[] = $aClean;
-                    }
+                $stmt1 = $pdo->prepare("SELECT DISTINCT area_name FROM city_areas WHERE LOWER(TRIM(city)) = LOWER(TRIM(?)) ORDER BY area_name ASC");
+                $stmt1->execute([$city]);
+                $res1 = $stmt1->fetchAll(PDO::FETCH_COLUMN);
+                if (!empty($res1)) {
+                    $raw = array_merge($raw, $res1);
                 }
-            } catch (Exception $e) {
-                $areas = [];
+            } catch (Exception $e1) {}
+
+            // 2. Fetch from client_directory table
+            try {
+                $stmt2 = $pdo->prepare("SELECT DISTINCT TRIM(area) as area_name FROM client_directory WHERE LOWER(TRIM(city)) = LOWER(TRIM(?)) AND area IS NOT NULL AND TRIM(area) != '' ORDER BY area ASC");
+                $stmt2->execute([$city]);
+                $res2 = $stmt2->fetchAll(PDO::FETCH_COLUMN);
+                if (!empty($res2)) {
+                    $raw = array_merge($raw, $res2);
+                }
+            } catch (Exception $e2) {}
+
+            foreach ($raw as $a) {
+                $aClean = trim($a);
+                $aLower = strtolower($aClean);
+                if (!empty($aClean) && !isset($seenLower[$aLower])) {
+                    $seenLower[$aLower] = true;
+                    $areas[] = $aClean;
+                }
             }
         }
 
@@ -141,7 +152,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_city_areas') {
         if ($matchedDefaultCity && !empty($default_city_areas_map[$matchedDefaultCity])) {
             $defList = $default_city_areas_map[$matchedDefaultCity];
             foreach ($defList as $defArea) {
-                if (!in_array($defArea, $areas)) {
+                $defLower = strtolower(trim($defArea));
+                if (!isset($seenLower[$defLower])) {
+                    $seenLower[$defLower] = true;
                     $areas[] = $defArea;
                 }
             }
@@ -567,78 +580,161 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
     
     if (!empty($party_name) && $pdo) {
         try {
+            $num_of_companies_val = (isset($_POST['no_of_companies']) && $_POST['no_of_companies'] !== '') 
+                ? intval($_POST['no_of_companies']) 
+                : ((isset($_POST['company_using']) && is_numeric($_POST['company_using'])) ? intval($_POST['company_using']) : 1);
+            $comp_using_val = !empty($_POST['company_using']) ? trim($_POST['company_using']) : (string)$num_of_companies_val;
+
             if ($id > 0) {
-                // Update Existing Client
-                $stmt = $pdo->prepare("
-                    UPDATE client_directory SET
-                        sw_type = ?,
-                        customer_id = ?,
-                        category = ?,
-                        party_name = ?,
-                        mobile = ?,
-                        alt_mobile = ?,
-                        email = ?,
-                        contact_person = ?,
-                        software_type = ?,
-                        user_type = ?,
-                        no_of_users = ?,
-                        no_of_companies = ?,
-                        subpartner_code = ?,
-                        subpartner_name = ?,
-                        nature_of_business = ?,
-                        software_trade = ?,
-                        total_amount = ?,
-                        party_status = ?,
-                        address = ?,
-                        area = ?,
-                        city = ?,
-                        state = ?,
-                        online_zip_code = ?,
-                        due_on = ?,
-                        act_on = ?,
-                        software_hit_date = ?,
-                        version = ?,
-                        company_using = ?,
-                        home_user = ?,
-                        transferred_party = ?,
-                        wallet_id = ?
-                    WHERE id = ?
-                ");
-                
-                $stmt->execute([
-                    !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
-                    $customer_id,
-                    $category,
-                    $party_name,
-                    !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
-                    !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
-                    !empty($_POST['email']) ? trim($_POST['email']) : null,
-                    !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
-                    !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
-                    !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
-                    intval($_POST['no_of_users'] ?? 1),
-                    isset($_POST['no_of_companies']) && $_POST['no_of_companies'] !== '' ? intval($_POST['no_of_companies']) : null,
-                    !empty($_POST['subpartner_code']) ? trim($_POST['subpartner_code']) : null,
-                    !empty($_POST['subpartner_name']) ? trim($_POST['subpartner_name']) : null,
-                    !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
-                    !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
-                    floatval($_POST['total_amount'] ?? 0.00),
-                    !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
-                    !empty($_POST['address']) ? trim($_POST['address']) : null,
-                    !empty($_POST['area']) ? trim($_POST['area']) : null,
-                    !empty($_POST['city']) ? trim($_POST['city']) : null,
-                    !empty($_POST['state']) ? trim($_POST['state']) : null,
-                    !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
-                    !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
-                    !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
-                    !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
-                    !empty($_POST['version']) ? trim($_POST['version']) : null,
-                    !empty($_POST['company_using']) ? trim($_POST['company_using']) : null,
-                    !empty($_POST['home_user']) ? trim($_POST['home_user']) : null,
-                    !empty($_POST['transferred_party']) ? trim($_POST['transferred_party']) : null,
-                    !empty($_POST['wallet_id']) ? trim($_POST['wallet_id']) : null,
-                    $id
-                ]);
+                // Update Existing Client (Try with no_of_companies, fallback to company_using if column missing)
+                try {
+                    $stmt = $pdo->prepare("
+                        UPDATE client_directory SET
+                            sw_type = ?,
+                            customer_id = ?,
+                            category = ?,
+                            party_name = ?,
+                            mobile = ?,
+                            alt_mobile = ?,
+                            email = ?,
+                            contact_person = ?,
+                            software_type = ?,
+                            user_type = ?,
+                            no_of_users = ?,
+                            no_of_companies = ?,
+                            subpartner_code = ?,
+                            subpartner_name = ?,
+                            nature_of_business = ?,
+                            software_trade = ?,
+                            total_amount = ?,
+                            party_status = ?,
+                            address = ?,
+                            area = ?,
+                            city = ?,
+                            state = ?,
+                            online_zip_code = ?,
+                            due_on = ?,
+                            act_on = ?,
+                            software_hit_date = ?,
+                            version = ?,
+                            company_using = ?,
+                            home_user = ?,
+                            transferred_party = ?,
+                            wallet_id = ?
+                        WHERE id = ?
+                    ");
+                    
+                    $stmt->execute([
+                        !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
+                        $customer_id,
+                        $category,
+                        $party_name,
+                        !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                        !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
+                        !empty($_POST['email']) ? trim($_POST['email']) : null,
+                        !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
+                        !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
+                        !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
+                        intval($_POST['no_of_users'] ?? 1),
+                        $num_of_companies_val,
+                        !empty($_POST['subpartner_code']) ? trim($_POST['subpartner_code']) : null,
+                        !empty($_POST['subpartner_name']) ? trim($_POST['subpartner_name']) : null,
+                        !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
+                        !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
+                        floatval($_POST['total_amount'] ?? 0.00),
+                        !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
+                        !empty($_POST['address']) ? trim($_POST['address']) : null,
+                        !empty($_POST['area']) ? trim($_POST['area']) : null,
+                        !empty($_POST['city']) ? trim($_POST['city']) : null,
+                        !empty($_POST['state']) ? trim($_POST['state']) : null,
+                        !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
+                        !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
+                        !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
+                        !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
+                        !empty($_POST['version']) ? trim($_POST['version']) : null,
+                        $comp_using_val,
+                        !empty($_POST['home_user']) ? trim($_POST['home_user']) : null,
+                        !empty($_POST['transferred_party']) ? trim($_POST['transferred_party']) : null,
+                        !empty($_POST['wallet_id']) ? trim($_POST['wallet_id']) : null,
+                        $id
+                    ]);
+                } catch (PDOException $pdoEx) {
+                    if (strpos($pdoEx->getMessage(), 'no_of_companies') !== false) {
+                        try {
+                            $pdo->exec("ALTER TABLE client_directory ADD COLUMN no_of_companies INT NULL DEFAULT 1 AFTER no_of_users");
+                        } catch (Exception $eIgnore) {}
+
+                        $stmt = $pdo->prepare("
+                            UPDATE client_directory SET
+                                sw_type = ?,
+                                customer_id = ?,
+                                category = ?,
+                                party_name = ?,
+                                mobile = ?,
+                                alt_mobile = ?,
+                                email = ?,
+                                contact_person = ?,
+                                software_type = ?,
+                                user_type = ?,
+                                no_of_users = ?,
+                                subpartner_code = ?,
+                                subpartner_name = ?,
+                                nature_of_business = ?,
+                                software_trade = ?,
+                                total_amount = ?,
+                                party_status = ?,
+                                address = ?,
+                                area = ?,
+                                city = ?,
+                                state = ?,
+                                online_zip_code = ?,
+                                due_on = ?,
+                                act_on = ?,
+                                software_hit_date = ?,
+                                version = ?,
+                                company_using = ?,
+                                home_user = ?,
+                                transferred_party = ?,
+                                wallet_id = ?
+                            WHERE id = ?
+                        ");
+                        $stmt->execute([
+                            !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
+                            $customer_id,
+                            $category,
+                            $party_name,
+                            !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                            !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
+                            !empty($_POST['email']) ? trim($_POST['email']) : null,
+                            !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
+                            !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
+                            !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
+                            intval($_POST['no_of_users'] ?? 1),
+                            !empty($_POST['subpartner_code']) ? trim($_POST['subpartner_code']) : null,
+                            !empty($_POST['subpartner_name']) ? trim($_POST['subpartner_name']) : null,
+                            !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
+                            !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
+                            floatval($_POST['total_amount'] ?? 0.00),
+                            !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
+                            !empty($_POST['address']) ? trim($_POST['address']) : null,
+                            !empty($_POST['area']) ? trim($_POST['area']) : null,
+                            !empty($_POST['city']) ? trim($_POST['city']) : null,
+                            !empty($_POST['state']) ? trim($_POST['state']) : null,
+                            !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
+                            !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
+                            !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
+                            !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
+                            !empty($_POST['version']) ? trim($_POST['version']) : null,
+                            $comp_using_val,
+                            !empty($_POST['home_user']) ? trim($_POST['home_user']) : null,
+                            !empty($_POST['transferred_party']) ? trim($_POST['transferred_party']) : null,
+                            !empty($_POST['wallet_id']) ? trim($_POST['wallet_id']) : null,
+                            $id
+                        ]);
+                    } else {
+                        throw $pdoEx;
+                    }
+                }
                 
                 $import_result = [
                     'success' => true,
@@ -664,60 +760,123 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                     $maxSno = $pdo->query("SELECT COALESCE(MAX(sno), 0) FROM client_directory")->fetchColumn();
                     $nextSno = intval($maxSno) + 1;
                     
-                    $stmt = $pdo->prepare("
-                        INSERT INTO client_directory (
-                            sno, sw_type, customer_id, category, party_name,
-                            mobile, alt_mobile, email, contact_person, software_type, user_type,
-                            no_of_users, no_of_companies, subpartner_code, subpartner_name,
-                            nature_of_business, software_trade, total_amount, party_status,
-                            address, area, city, state, online_zip_code,
-                            due_on, act_on, software_hit_date,
-                            version, company_using, home_user, transferred_party, wallet_id
-                        ) VALUES (
-                            ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?,
-                            ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?,
-                            ?, ?, ?,
-                            ?, ?, ?, ?, ?
-                        )
-                    ");
-                    
-                    $stmt->execute([
-                        $nextSno,
-                        !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
-                        $customer_id,
-                        $category,
-                        $party_name,
-                        !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
-                        !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
-                        !empty($_POST['email']) ? trim($_POST['email']) : null,
-                        !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
-                        !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
-                        !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
-                        intval($_POST['no_of_users'] ?? 1),
-                        isset($_POST['no_of_companies']) && $_POST['no_of_companies'] !== '' ? intval($_POST['no_of_companies']) : null,
-                        !empty($_POST['subpartner_code']) ? trim($_POST['subpartner_code']) : null,
-                        !empty($_POST['subpartner_name']) ? trim($_POST['subpartner_name']) : null,
-                        !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
-                        !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
-                        floatval($_POST['total_amount'] ?? 0.00),
-                        !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
-                        !empty($_POST['address']) ? trim($_POST['address']) : null,
-                        !empty($_POST['area']) ? trim($_POST['area']) : null,
-                        !empty($_POST['city']) ? trim($_POST['city']) : null,
-                        !empty($_POST['state']) ? trim($_POST['state']) : null,
-                        !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
-                        !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
-                        !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
-                        !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
-                        !empty($_POST['version']) ? trim($_POST['version']) : null,
-                        !empty($_POST['company_using']) ? trim($_POST['company_using']) : null,
-                        !empty($_POST['home_user']) ? trim($_POST['home_user']) : null,
-                        !empty($_POST['transferred_party']) ? trim($_POST['transferred_party']) : null,
-                        !empty($_POST['wallet_id']) ? trim($_POST['wallet_id']) : null
-                    ]);
+                    try {
+                        $stmt = $pdo->prepare("
+                            INSERT INTO client_directory (
+                                sno, sw_type, customer_id, category, party_name,
+                                mobile, alt_mobile, email, contact_person, software_type, user_type,
+                                no_of_users, no_of_companies, subpartner_code, subpartner_name,
+                                nature_of_business, software_trade, total_amount, party_status,
+                                address, area, city, state, online_zip_code,
+                                due_on, act_on, software_hit_date,
+                                version, company_using, home_user, transferred_party, wallet_id
+                            ) VALUES (
+                                ?, ?, ?, ?, ?,
+                                ?, ?, ?, ?, ?, ?,
+                                ?, ?, ?, ?,
+                                ?, ?, ?, ?,
+                                ?, ?, ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?, ?, ?
+                            )
+                        ");
+                        
+                        $stmt->execute([
+                            $nextSno,
+                            !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
+                            $customer_id,
+                            $category,
+                            $party_name,
+                            !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                            !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
+                            !empty($_POST['email']) ? trim($_POST['email']) : null,
+                            !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
+                            !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
+                            !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
+                            intval($_POST['no_of_users'] ?? 1),
+                            $num_of_companies_val,
+                            !empty($_POST['subpartner_code']) ? trim($_POST['subpartner_code']) : null,
+                            !empty($_POST['subpartner_name']) ? trim($_POST['subpartner_name']) : null,
+                            !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
+                            !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
+                            floatval($_POST['total_amount'] ?? 0.00),
+                            !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
+                            !empty($_POST['address']) ? trim($_POST['address']) : null,
+                            !empty($_POST['area']) ? trim($_POST['area']) : null,
+                            !empty($_POST['city']) ? trim($_POST['city']) : null,
+                            !empty($_POST['state']) ? trim($_POST['state']) : null,
+                            !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
+                            !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
+                            !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
+                            !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
+                            !empty($_POST['version']) ? trim($_POST['version']) : null,
+                            $comp_using_val,
+                            !empty($_POST['home_user']) ? trim($_POST['home_user']) : null,
+                            !empty($_POST['transferred_party']) ? trim($_POST['transferred_party']) : null,
+                            !empty($_POST['wallet_id']) ? trim($_POST['wallet_id']) : null
+                        ]);
+                    } catch (PDOException $pdoEx) {
+                        if (strpos($pdoEx->getMessage(), 'no_of_companies') !== false) {
+                            try {
+                                $pdo->exec("ALTER TABLE client_directory ADD COLUMN no_of_companies INT NULL DEFAULT 1 AFTER no_of_users");
+                            } catch (Exception $eIgnore) {}
+
+                            $stmt = $pdo->prepare("
+                                INSERT INTO client_directory (
+                                    sno, sw_type, customer_id, category, party_name,
+                                    mobile, alt_mobile, email, contact_person, software_type, user_type,
+                                    no_of_users, subpartner_code, subpartner_name,
+                                    nature_of_business, software_trade, total_amount, party_status,
+                                    address, area, city, state, online_zip_code,
+                                    due_on, act_on, software_hit_date,
+                                    version, company_using, home_user, transferred_party, wallet_id
+                                ) VALUES (
+                                    ?, ?, ?, ?, ?,
+                                    ?, ?, ?, ?, ?, ?,
+                                    ?, ?, ?,
+                                    ?, ?, ?, ?,
+                                    ?, ?, ?, ?, ?,
+                                    ?, ?, ?,
+                                    ?, ?, ?, ?, ?
+                                )
+                            ");
+                            $stmt->execute([
+                                $nextSno,
+                                !empty($_POST['sw_type']) ? trim($_POST['sw_type']) : 'Marg ERP',
+                                $customer_id,
+                                $category,
+                                $party_name,
+                                !empty($_POST['mobile']) ? trim($_POST['mobile']) : null,
+                                !empty($_POST['alt_mobile']) ? trim($_POST['alt_mobile']) : null,
+                                !empty($_POST['email']) ? trim($_POST['email']) : null,
+                                !empty($_POST['contact_person']) ? trim($_POST['contact_person']) : null,
+                                !empty($_POST['software_type']) ? trim($_POST['software_type']) : null,
+                                !empty($_POST['user_type']) ? trim($_POST['user_type']) : 'Single User',
+                                intval($_POST['no_of_users'] ?? 1),
+                                !empty($_POST['subpartner_code']) ? trim($_POST['subpartner_code']) : null,
+                                !empty($_POST['subpartner_name']) ? trim($_POST['subpartner_name']) : null,
+                                !empty($_POST['nature_of_business']) ? trim($_POST['nature_of_business']) : null,
+                                !empty($_POST['software_trade']) ? trim($_POST['software_trade']) : null,
+                                floatval($_POST['total_amount'] ?? 0.00),
+                                !empty($_POST['party_status']) ? trim($_POST['party_status']) : 'Running',
+                                !empty($_POST['address']) ? trim($_POST['address']) : null,
+                                !empty($_POST['area']) ? trim($_POST['area']) : null,
+                                !empty($_POST['city']) ? trim($_POST['city']) : null,
+                                !empty($_POST['state']) ? trim($_POST['state']) : null,
+                                !empty($_POST['online_zip_code']) ? trim($_POST['online_zip_code']) : null,
+                                !empty($_POST['due_on']) ? trim($_POST['due_on']) : null,
+                                !empty($_POST['act_on']) ? trim($_POST['act_on']) : null,
+                                !empty($_POST['software_hit_date']) ? trim($_POST['software_hit_date']) : null,
+                                !empty($_POST['version']) ? trim($_POST['version']) : null,
+                                $comp_using_val,
+                                !empty($_POST['home_user']) ? trim($_POST['home_user']) : null,
+                                !empty($_POST['transferred_party']) ? trim($_POST['transferred_party']) : null,
+                                !empty($_POST['wallet_id']) ? trim($_POST['wallet_id']) : null
+                            ]);
+                        } else {
+                            throw $pdoEx;
+                        }
+                    }
                     
                     $import_result = [
                         'success' => true,
@@ -1066,7 +1225,7 @@ $operators_list = [];
 
 if ($db_connected && $pdo) {
     try {
-        $opStmt = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC");
+        $opStmt = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         $operators_list = $opStmt->fetchAll(PDO::FETCH_COLUMN);
 
         $crm_total_count = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(status) IN ('won', 'closed_won', 'payment_received', 'install_pending', 'install_completed', 'training_completed', 'support', 'renewal')")->fetchColumn();
@@ -1264,7 +1423,7 @@ function getClientsPageUrl($tab, $p, $limit) {
 
         <!-- Search & Filter Panel for Directory — Modern Premium Redesign -->
         <div class="card mb-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 18px; padding: 1.25rem 1.5rem; box-shadow: 0 4px 16px rgba(0,0,0,0.03);">
-            <form action="index.php" method="GET" class="flex flex-col gap-4">
+            <form action="index.php" method="GET" class="flex flex-col gap-4" id="directory-filter-form" onsubmit="handleDirectoryFilterSubmit(event)">
                 <input type="hidden" name="page" value="clients">
                 <input type="hidden" name="tab" value="directory">
 
@@ -1275,28 +1434,30 @@ function getClientsPageUrl($tab, $p, $limit) {
                         </div>
                         <h3 class="m-0 text-sm font-extrabold" style="font-family: var(--font-heading); color: var(--text-main);">Filter Client Directory Data</h3>
                     </div>
-                    <?php if (!empty($search_query) || !empty($status_filter) || !empty($category_filter) || !empty($trade_filter)): ?>
-                        <a href="index.php?page=clients&tab=directory" class="btn text-xs flex align-center gap-1" style="background: rgba(239, 68, 68, 0.08); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; font-weight: 600; padding: 0.35rem 0.85rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.16)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.08)'">
-                            <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
-                            <span>Clear Search Filters</span>
-                        </a>
-                    <?php endif; ?>
+                    <div id="dir-clear-filter-container">
+                        <?php if (!empty($search_query) || !empty($status_filter) || !empty($category_filter) || !empty($trade_filter)): ?>
+                            <button type="button" onclick="clearDirectorySearchFilters()" class="btn text-xs flex align-center gap-1" style="background: rgba(239, 68, 68, 0.08); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; font-weight: 600; padding: 0.35rem 0.85rem; transition: all 0.2s; cursor: pointer;" onmouseover="this.style.background='rgba(239, 68, 68, 0.16)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.08)'">
+                                <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
+                                <span>Clear Search Filters</span>
+                            </button>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <div class="grid" style="grid-template-columns: 2fr 1.1fr 1.2fr 1fr 1fr 1fr; gap: 0.75rem; align-items: end;">
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Search Client Directory</label>
                         <div style="display: flex; align-items: center; width: 100%; height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); overflow: hidden; transition: border-color 0.2s, box-shadow 0.2s;" onfocusin="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 3px rgba(37, 99, 235, 0.15)';" onfocusout="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none';">
-                            <div style="padding-left: 14px; padding-right: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary);">
+                            <div id="dir_search_icon" style="padding-left: 14px; padding-right: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary);">
                                 <i data-lucide="search" style="width: 16px; height: 16px;"></i>
                             </div>
-                            <input type="text" name="search" placeholder="Party Name, Customer ID, Mobile, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="border: none !important; outline: none !important; background: transparent !important; height: 100%; width: 100%; padding: 0 14px 0 0 !important; color: var(--text-main); font-size: 0.85rem; box-shadow: none !important;">
+                            <input type="text" id="dir_search_input" name="search" placeholder="Party Name, Customer ID, Mobile, City..." value="<?php echo htmlspecialchars($search_query); ?>" oninput="onDirectorySearchInput(this.value)" style="border: none !important; outline: none !important; background: transparent !important; height: 100%; width: 100%; padding: 0 14px 0 0 !important; color: var(--text-main); font-size: 0.85rem; box-shadow: none !important;">
                         </div>
                     </div>
 
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Category</label>
-                        <select name="category" class="form-control form-control-focus text-sm font-semibold" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
+                        <select name="category" id="dir_filter_category" onchange="triggerDirectoryFilterAjax()" class="form-control form-control-focus text-sm font-semibold" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Categories</option>
                             <option value="A" <?php echo (strcasecmp($category_filter, 'A') === 0 || strcasecmp($category_filter, 'Category A') === 0) ? 'selected' : ''; ?>>A - Premium</option>
                             <option value="B" <?php echo (strcasecmp($category_filter, 'B') === 0 || strcasecmp($category_filter, 'Category B') === 0) ? 'selected' : ''; ?>>B - Standard</option>
@@ -1306,7 +1467,7 @@ function getClientsPageUrl($tab, $p, $limit) {
 
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Sort By</label>
-                        <select name="sort" class="form-control form-control-focus text-sm font-semibold" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
+                        <select name="sort" id="dir_filter_sort" onchange="triggerDirectoryFilterAjax()" class="form-control form-control-focus text-sm font-semibold" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="id_desc" <?php echo ($sort_filter === 'id_desc') ? 'selected' : ''; ?>>Recently Added</option>
                             <option value="name_asc" <?php echo ($sort_filter === 'name_asc') ? 'selected' : ''; ?>>Party Name (A to Z)</option>
                             <option value="name_desc" <?php echo ($sort_filter === 'name_desc') ? 'selected' : ''; ?>>Party Name (Z to A)</option>
@@ -1322,7 +1483,7 @@ function getClientsPageUrl($tab, $p, $limit) {
 
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Party Status</label>
-                        <select name="status" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
+                        <select name="status" id="dir_filter_status" onchange="triggerDirectoryFilterAjax()" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Statuses</option>
                             <option value="Running" <?php echo (strcasecmp($status_filter, 'Running') === 0) ? 'selected' : ''; ?>>Running</option>
                             <option value="Expired" <?php echo (strcasecmp($status_filter, 'Expired') === 0) ? 'selected' : ''; ?>>Expired</option>
@@ -1333,7 +1494,7 @@ function getClientsPageUrl($tab, $p, $limit) {
 
                     <div class="form-group m-0">
                         <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Software Trade</label>
-                        <select name="trade" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
+                        <select name="trade" id="dir_filter_trade" onchange="triggerDirectoryFilterAjax()" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
                             <option value="">All Trades</option>
                             <?php foreach ($dir_trade_types as $tr): ?>
                                 <option value="<?php echo htmlspecialchars($tr); ?>" <?php echo ($trade_filter === $tr) ? 'selected' : ''; ?>>
@@ -1355,7 +1516,7 @@ function getClientsPageUrl($tab, $p, $limit) {
         </div>
 
         <!-- Directory Data Table Card -->
-        <div class="card p-0" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-lg); overflow: hidden;">
+        <div class="card p-0" id="directory-table-card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-lg); overflow: hidden;">
             <div class="p-4 flex justify-between align-center flex-wrap gap-3" style="border-bottom: 1px solid var(--border-color); background-color: var(--border-card);">
                 <div class="flex align-center gap-2">
                     <span class="text-sm font-bold text-main">Matching Directory Records:</span>
@@ -1480,7 +1641,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td class="col-dir-party-name">
                                         <strong style="color: var(--text-main);"><?php echo htmlspecialchars($r['party_name']); ?></strong>
                                         <?php if (!empty($r['user_id'])): ?>
-                                            <span class="badge" style="--badge-bg: rgba(16,185,129,0.1); --badge-color: #10b981; font-size: 10px; margin-left: 4px;">Login Account</span>
+                                            <!-- <span class="badge" style="--badge-bg: rgba(16,185,129,0.1); --badge-color: #10b981; font-size: 10px; margin-left: 4px;">Login Account</span> -->
                                         <?php endif; ?>
                                     </td>
                                     <td class="col-dir-company-using"><?php echo htmlspecialchars($r['company_using'] ?? '-'); ?></td>
@@ -2782,6 +2943,197 @@ function resetDefaultDirColumns() {
 }
 
 // --------------------------------------------------------------------------
+// Real-time AJAX Search & Partial Table Filter Controller (No Page Reload)
+// --------------------------------------------------------------------------
+let dirActiveFetchController = null;
+let dirSearchDebounceTimer = null;
+
+function onDirectorySearchInput(val) {
+    clearTimeout(dirSearchDebounceTimer);
+    dirSearchDebounceTimer = setTimeout(() => {
+        triggerDirectoryFilterAjax(1);
+    }, 350);
+}
+window.onDirectorySearchInput = onDirectorySearchInput;
+
+function handleDirectoryFilterSubmit(e) {
+    if (e) e.preventDefault();
+    clearTimeout(dirSearchDebounceTimer);
+    triggerDirectoryFilterAjax(1);
+    return false;
+}
+window.handleDirectoryFilterSubmit = handleDirectoryFilterSubmit;
+
+function triggerDirectoryFilterAjax(page = 1) {
+    const form = document.getElementById('directory-filter-form');
+    if (!form) return;
+
+    const formData = new FormData(form);
+    const params = new URLSearchParams();
+
+    params.set('page', 'clients');
+    params.set('tab', 'directory');
+
+    const searchVal = (formData.get('search') || '').trim();
+    if (searchVal) params.set('search', searchVal);
+
+    const catVal = (formData.get('category') || '').trim();
+    if (catVal) params.set('category', catVal);
+
+    const sortVal = (formData.get('sort') || 'id_desc').trim();
+    if (sortVal) params.set('sort', sortVal);
+
+    const statVal = (formData.get('status') || '').trim();
+    if (statVal) params.set('status', statVal);
+
+    const tradeVal = (formData.get('trade') || '').trim();
+    if (tradeVal) params.set('trade', tradeVal);
+
+    const currentUrlParams = new URLSearchParams(window.location.search);
+    const currentLimit = currentUrlParams.get('limit') || '25';
+    params.set('limit', currentLimit);
+
+    if (page && page > 1) {
+        params.set('p', page);
+    }
+
+    const targetUrl = 'index.php?' + params.toString();
+    fetchDirectoryPartialWithoutReload(targetUrl);
+}
+window.triggerDirectoryFilterAjax = triggerDirectoryFilterAjax;
+
+function clearDirectorySearchFilters() {
+    clearTimeout(dirSearchDebounceTimer);
+    const form = document.getElementById('directory-filter-form');
+    if (form) {
+        const searchInp = form.querySelector('input[name="search"]');
+        if (searchInp) searchInp.value = '';
+        const catSelect = form.querySelector('select[name="category"]');
+        if (catSelect) catSelect.value = '';
+        const sortSelect = form.querySelector('select[name="sort"]');
+        if (sortSelect) sortSelect.value = 'id_desc';
+        const statSelect = form.querySelector('select[name="status"]');
+        if (statSelect) statSelect.value = '';
+        const tradeSelect = form.querySelector('select[name="trade"]');
+        if (tradeSelect) tradeSelect.value = '';
+    }
+    const currentUrlParams = new URLSearchParams(window.location.search);
+    const currentLimit = currentUrlParams.get('limit') || '25';
+    const targetUrl = 'index.php?page=clients&tab=directory&limit=' + encodeURIComponent(currentLimit);
+    fetchDirectoryPartialWithoutReload(targetUrl);
+}
+window.clearDirectorySearchFilters = clearDirectorySearchFilters;
+
+function fetchDirectoryPartialWithoutReload(targetUrl, pushState = true) {
+    if (!targetUrl) return Promise.resolve(false);
+
+    if (dirActiveFetchController) {
+        dirActiveFetchController.abort();
+    }
+    dirActiveFetchController = new AbortController();
+    const signal = dirActiveFetchController.signal;
+
+    if (pushState && history.pushState) {
+        history.pushState(null, '', targetUrl);
+    }
+
+    const tableCard = document.getElementById('directory-table-card');
+    if (tableCard) {
+        tableCard.style.opacity = '0.5';
+        tableCard.style.pointerEvents = 'none';
+        tableCard.style.transition = 'opacity 0.15s ease';
+    }
+    const searchIcon = document.getElementById('dir_search_icon');
+    if (searchIcon) {
+        searchIcon.innerHTML = '<span style="font-size:10px; color:var(--primary); font-weight:bold;">...</span>';
+    }
+
+    return fetch(targetUrl, {
+        signal,
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' }
+    })
+    .then(res => {
+        if (!res.ok) return null;
+        return res.text();
+    })
+    .then(html => {
+        if (!html) return false;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        // 1. Swap table card container & pagination
+        const newTableCard = doc.querySelector('#directory-table-card');
+        const currentTableCard = document.querySelector('#directory-table-card');
+        if (newTableCard && currentTableCard) {
+            currentTableCard.innerHTML = newTableCard.innerHTML;
+        }
+
+        // 2. Swap clear filter button state
+        const newClearContainer = doc.querySelector('#dir-clear-filter-container');
+        const curClearContainer = document.querySelector('#dir-clear-filter-container');
+        if (newClearContainer && curClearContainer) {
+            curClearContainer.innerHTML = newClearContainer.innerHTML;
+        }
+
+        // 3. Sync search input value if not active element
+        const newSearchInput = doc.querySelector('#dir_search_input');
+        const curSearchInput = document.querySelector('#dir_search_input');
+        if (newSearchInput && curSearchInput && curSearchInput !== document.activeElement) {
+            curSearchInput.value = newSearchInput.value;
+        }
+
+        // 4. Re-initialize Lucide Icons & Column preferences
+        if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+            lucide.createIcons();
+        }
+        if (typeof loadDirColumnPreferences === 'function') {
+            loadDirColumnPreferences();
+        }
+
+        // Restore table visibility
+        if (tableCard) {
+            tableCard.style.opacity = '1';
+            tableCard.style.pointerEvents = '';
+        }
+        if (searchIcon) {
+            searchIcon.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i>';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+        return true;
+    })
+    .catch(err => {
+        if (err.name === 'AbortError') return false;
+        if (tableCard) {
+            tableCard.style.opacity = '1';
+            tableCard.style.pointerEvents = '';
+        }
+        if (searchIcon) {
+            searchIcon.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i>';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+        console.error('Directory AJAX partial update failed:', err);
+        return false;
+    });
+}
+window.fetchDirectoryPartialWithoutReload = fetchDirectoryPartialWithoutReload;
+
+// Intercept pagination & rows-per-page link clicks inside #directory-table-card
+document.addEventListener('click', function(e) {
+    const link = e.target.closest('#directory-table-card a[href*="tab=directory"]');
+    if (link && !link.hasAttribute('download') && link.getAttribute('href') && !link.getAttribute('href').startsWith('tel:')) {
+        e.preventDefault();
+        fetchDirectoryPartialWithoutReload(link.getAttribute('href'));
+    }
+});
+
+// Handle Browser Back/Forward buttons without page reload
+window.addEventListener('popstate', function() {
+    if (window.location.search.includes('tab=directory') || (!window.location.search.includes('tab=crm') && window.location.search.includes('page=clients'))) {
+        fetchDirectoryPartialWithoutReload(window.location.href, false);
+    }
+});
+
+// --------------------------------------------------------------------------
 // Window 1: Open Licence & AMC Update Window (Folder Icon 📁)
 // --------------------------------------------------------------------------
 let currentActiveClientRecord = null;
@@ -3279,11 +3631,13 @@ async function quickAddNewArea(areaName) {
         const data = await res.json();
 
         if (data.success) {
-            if (!currentCityAreasCache.includes(data.area)) {
-                currentCityAreasCache.push(data.area);
-                currentCityAreasCache.sort();
+            const addedArea = (data.area || areaName).trim();
+            const exists = currentCityAreasCache.some(a => a.toLowerCase() === addedArea.toLowerCase());
+            if (!exists) {
+                currentCityAreasCache.push(addedArea);
+                currentCityAreasCache.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
             }
-            selectArea(data.area);
+            selectArea(addedArea);
         } else {
             alert(data.message || 'Could not add area.');
         }
@@ -3691,7 +4045,7 @@ function openAddClientModal() {
 window.openAddClientModal = openAddClientModal;
 
 // --------------------------------------------------------------------------
-// Window 2B: Open Edit Client Record Modal (Edit Icon ✏️)
+// Window 2B: Open Edit Client Record Modal (Edit Icon  )
 // --------------------------------------------------------------------------
 function openEditClientRecordModal(client) {
     var titleEl = document.getElementById('edit_client_modal_title');

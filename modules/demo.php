@@ -422,7 +422,7 @@ if ($db_connected && $pdo) {
 $engineers = [];
 if ($db_connected && $pdo) {
     try {
-        $stmtEng = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC");
+        $stmtEng = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         $engineers = $stmtEng->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
         $engineers = ['Harsh Vardhan', 'Amit Sen', 'Vikas Patel', 'Sonal Mehta', 'MOIN KHAN'];

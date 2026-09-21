@@ -49,8 +49,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $updateStmt = $pdo->prepare("UPDATE users SET otp_code = ?, otp_expires_at = ?, reset_token = NULL, reset_token_expires_at = NULL, reset_ip = ?, reset_user_agent = ? WHERE id = ?");
                     $updateStmt->execute([$otp_code, $otp_expires_at, $user_ip, $user_agent, $user['id']]);
 
-                    // Send email OTP
-                    Mailer::sendEmailVerificationOTP($user['email'], $user['name'], $otp_code);
+                    // Send dedicated password reset email OTP
+                    Mailer::sendPasswordResetOTP($user['email'], $user['name'], $otp_code);
 
                     $_SESSION['reset_email'] = $user['email'];
                     $_SESSION['reset_device_ip'] = $user_ip;

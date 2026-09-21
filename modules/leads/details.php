@@ -45,9 +45,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Wrap plain text body in a premium advertising theme
     $title = $subject;
     $header_title = $subject;
-    $subtitle = "Custom client service communication from Marg Soft Solutions.";
+    $subtitle = "Custom client service communication from Friendly AI Solution.";
     $cta_text = "Visit Portal";
-    $cta_url = "https://margsoft.com";
+    $cta_url = "https://friendlyaisolution.com";
     
     if (strpos($subject, 'Demo') !== false) {
         $subtitle = "Confirming your upcoming product demonstration session.";
@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } elseif (strpos($subject, 'Payment') !== false || strpos($subject, 'Invoice') !== false) {
         $subtitle = "Important invoice settlement notice.";
         $cta_text = "Review Invoice & Pay";
-        $cta_url = "http://localhost/marglead/index.php?page=payments";
+        $cta_url = Mailer::getBaseUrl() . "index.php?page=payments";
     }
     
     $htmlBody = nl2br(htmlspecialchars($body));
@@ -294,7 +294,7 @@ $assigned_operators = [
 
 if ($db_connected && $pdo) {
     try {
-        $stmt = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC");
+        $stmt = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         $db_ops = $stmt->fetchAll(PDO::FETCH_COLUMN);
         if (!empty($db_ops)) {
             $assigned_operators = $db_ops;
@@ -438,7 +438,7 @@ $software_trades_list = [
 $operators = [];
 if ($db_connected && $pdo) {
     try {
-        $stmtOp = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC");
+        $stmtOp = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         $operators = $stmtOp->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {}
 }
@@ -518,9 +518,18 @@ if ($db_connected && $pdo) {
                         <i data-lucide="map-pin" class="text-muted" style="width: 16px; height: 16px;"></i>
                         <div class="flex flex-col">
                             <span class="text-xs text-muted">Location</span>
-                            <span class="text-sm font-semibold"><?php echo htmlspecialchars(($lead['city'] ?? '') . ', ' . ($lead['state'] ?? '')); ?></span>
+                            <span class="text-sm font-semibold"><?php echo htmlspecialchars(trim(($lead['city'] ?? '') . ', ' . ($lead['state'] ?? ''), ', ')); ?></span>
                         </div>
                     </div>
+                    <?php if (!empty($lead['gst'])): ?>
+                    <div class="flex align-center gap-2">
+                        <i data-lucide="receipt" class="text-muted" style="width: 16px; height: 16px; color: var(--primary);"></i>
+                        <div class="flex flex-col">
+                            <span class="text-xs text-muted">GST Number</span>
+                            <span class="text-sm font-bold" style="font-family: monospace; color: var(--primary); letter-spacing: 0.5px;"><?php echo htmlspecialchars($lead['gst']); ?></span>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -1527,6 +1536,7 @@ if ($db_connected && $pdo) {
                             <select name="group_stage" id="qf-group-stage" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
                                 <option value="Fresh">Fresh</option>
                                 <option value="Followup">Followup</option>
+                                <option value="Future Prospect">Future Prospect</option>
                                 <option value="Demo Scheduled">Demo Scheduled</option>
                                 <option value="Demo Done">Demo Done</option>
                                 <option value="Installation Done">Installation Done</option>
@@ -1578,6 +1588,7 @@ if ($db_connected && $pdo) {
                                 <option value="Office">Office</option>
                                 <option value="Self">Self</option>
                                 <option value="Door to Door">Door to Door</option>
+                                <option value="GSTN Data">GSTN Data</option>
                                 <option value="Imported">Imported</option>
                             </select>
                         </div>

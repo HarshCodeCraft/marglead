@@ -21,7 +21,7 @@ $assigned_operators = [
 
 if ($db_connected && $pdo) {
     try {
-        $stmt = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC");
+        $stmt = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         $db_ops = $stmt->fetchAll(PDO::FETCH_COLUMN);
         if (!empty($db_ops)) {
             $assigned_operators = $db_ops;
@@ -79,6 +79,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'save_followup' && $_SERVER['R
     $enq_for = $_POST['enq_for'] ?? '';
     $contact_person = $_POST['contact_person'] ?? '';
     $remark = $_POST['remark'] ?? '';
+    $gst = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', trim($_POST['gst'] ?? '')));
     $follow_up_type = $_POST['follow_up_type'] ?? 'Call';
     $follow_type = $_POST['follow_type'] ?? '';
     $comment = $_POST['comment'] ?? '';
@@ -109,8 +110,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'save_followup' && $_SERVER['R
             if (empty($newAssignedBy) || ($existingAssignedTo && $existingAssignedTo['assigned_to'] !== $assigned_to)) {
                 $newAssignedBy = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
             }
-            $stmt = $pdo->prepare("UPDATE leads SET address = ?, tags = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, assigned_to = ?, assigned_by = ?, group_stage = COALESCE(NULLIF(?, ''), group_stage), company = COALESCE(NULLIF(?, ''), company) WHERE id = ?");
-            $stmt->execute([$address, $tags, $source, $enq_for, $contact_person, $remark, $assigned_to, $newAssignedBy, $group, $group, $lead_id]);
+            $stmt = $pdo->prepare("UPDATE leads SET address = ?, tags = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, assigned_to = ?, assigned_by = ?, group_stage = COALESCE(NULLIF(?, ''), group_stage), company = COALESCE(NULLIF(?, ''), company), gst = COALESCE(NULLIF(?, ''), gst) WHERE id = ?");
+            $stmt->execute([$address, $tags, $source, $enq_for, $contact_person, $remark, $assigned_to, $newAssignedBy, $group, $group, $gst ?: null, $lead_id]);
 
             header("Location: index.php?page=leads");
             exit;
@@ -145,6 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
     $enq_for = $_POST['enq_for'] ?? '';
     $contact_person = $_POST['contact_person'] ?? '';
     $remark = $_POST['remark'] ?? '';
+    $gst = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', trim($_POST['gst'] ?? '')));
 
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_raw);
     if (empty($phone_raw) || strlen($clean_phone) !== 10) {
@@ -169,8 +171,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     }
                 }
 
-                $stmt = $pdo->prepare("UPDATE leads SET name = ?, company = ?, group_stage = ?, email = ?, phone = ?, address = ?, source = ?, tags = ?, assigned_to = ?, assigned_by = ?, enq_for = ?, contact_person = ?, remarks = ? {$status_clause} WHERE id = ?");
-                $stmt->execute([$name, $group_name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $newAssignedBy, $enq_for, $contact_person, $remark, $leadId]);
+                $stmt = $pdo->prepare("UPDATE leads SET name = ?, company = ?, group_stage = ?, email = ?, phone = ?, address = ?, source = ?, tags = ?, assigned_to = ?, assigned_by = ?, enq_for = ?, contact_person = ?, remarks = ?, gst = ? {$status_clause} WHERE id = ?");
+                $stmt->execute([$name, $group_name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $newAssignedBy, $enq_for, $contact_person, $remark, $gst ?: null, $leadId]);
                 
                 // Add activity timeline record
                 $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead details modified by operator')");
@@ -215,8 +217,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
                     $initial_status = (strcasecmp($group_name, 'Not Required') === 0) ? 'dropped' : 'new';
                     
-                    $stmt = $pdo->prepare("INSERT INTO leads (id, name, company, group_stage, email, phone, address, source, tags, assigned_to, assigned_by, enq_for, contact_person, remarks, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$newId, $name, $group_name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $assigned_by, $enq_for, $contact_person, $remark, $initial_status]);
+                    $stmt = $pdo->prepare("INSERT INTO leads (id, name, company, group_stage, email, phone, address, source, tags, assigned_to, assigned_by, enq_for, contact_person, remarks, status, gst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$newId, $name, $group_name, $group_name, $email, $phone, $address, $source, $tags, $assigned_to, $assigned_by, $enq_for, $contact_person, $remark, $initial_status, $gst ?: null]);
                     
                     // Add activity log
                     $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead file registered')");
@@ -486,7 +488,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     <select name="group_name" class="form-control form-control-focus">
                         <option value="">-- Select Group --</option>
                         <?php 
-                        $group_options = ['Fresh', 'Followup', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required'];
+                        $group_options = ['Fresh', 'Followup', 'Future Prospect', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required'];
                         $cur_grp = !empty($editLead['group_stage']) ? $editLead['group_stage'] : ($editLead['company'] ?? '');
                         foreach ($group_options as $grp): 
                         ?>
@@ -570,7 +572,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Source</label>
                     <?php 
                     $cur_src = $editLead['source'] ?? 'Website';
-                    $src_options = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Self', 'Door to Door', 'Imported'];
+                    $src_options = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Self', 'Door to Door', 'GSTN Data', 'Imported'];
                     if (!empty($cur_src) && !in_array($cur_src, $src_options)) {
                         $src_options[] = $cur_src;
                     }
@@ -594,10 +596,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <!-- <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Contact Person</label>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Contact Person / Legal Name</label>
                     <input type="text" name="contact_person" class="form-control form-control-focus" placeholder="E.g. Dheerendra Vyas" value="<?php echo htmlspecialchars($editLead['contact_person'] ?? ''); ?>">
-                </div> -->
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold" style="color: var(--text-main);">GST Number</label>
+                    <input type="text" name="gst" class="form-control form-control-focus" placeholder="E.g. 09ABCDE1234F1Z5" maxlength="15" style="text-transform: uppercase;" value="<?php echo htmlspecialchars($editLead['gst'] ?? ''); ?>">
+                </div>
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold" style="color: var(--text-main);">Remark</label>
                     <input type="text" name="remark" class="form-control form-control-focus" placeholder="E.g. Follow-up required" value="<?php echo htmlspecialchars($editLead['remarks'] ?? ''); ?>">
@@ -647,6 +653,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                     <select name="group_name" class="form-control">
                         <option value="Fresh" selected>Fresh</option>
                         <option value="Followup">Followup</option>
+                        <option value="Future Prospect">Future Prospect</option>
                         <option value="Demo Scheduled">Demo Scheduled</option>
                         <option value="Demo Done">Demo Done</option>
                         <option value="Installation Done">Installation Done</option>
@@ -717,12 +724,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                         <option value="Office">Office</option>
                         <option value="Self">Self</option>
                         <option value="Door to Door">Door to Door</option>
+                        <option value="GSTN Data">GSTN Data</option>
                         <option value="Imported">Imported</option>
                     </select>
                 </div>
                 <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold">Contact Person</label>
+                    <label class="form-label text-xs font-semibold">Contact Person / Legal Name</label>
                     <input type="text" name="contact_person" class="form-control" placeholder="Contact Person Name" value="">
+                </div>
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold">GST Number</label>
+                    <input type="text" name="gst" class="form-control" placeholder="E.g. 09ABCDE1234F1Z5" maxlength="15" style="text-transform: uppercase;" value="">
                 </div>
                 <div class="form-group m-0">
                     <label class="form-label text-xs font-semibold">Enq_For</label>

@@ -212,11 +212,17 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
     }
 }
 
-// 3. Fetch system users dynamically
+// 3. Fetch system users dynamically (Only company staff & operators, excluding CRM client/tenant accounts)
 $users_list = [];
 if ($db_connected && $pdo) {
     try {
-        $stmt = $pdo->query("SELECT id, name, email, role, status, permissions FROM users ORDER BY id DESC");
+        $stmt = $pdo->query("
+            SELECT id, name, email, role, status, permissions 
+            FROM users 
+            WHERE LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') 
+              AND LOWER(role) NOT LIKE 'tenant%' 
+            ORDER BY id DESC
+        ");
         $users_list = $stmt->fetchAll();
     } catch (PDOException $e) {
         $users_list = [];

@@ -58,7 +58,7 @@ if ($method === 'GET') {
             'ref_id' => $f['id'],
             'type' => 'followup',
             'action_type' => $f['action_type'],
-            'title' => ($isOverdue ? '⚠️ OVERDUE: ' : ($isToday ? '⏰ TODAY: ' : '📅 ')) . strtoupper($f['action_type']) . ' REMINDER',
+            'title' => ($isOverdue ? '⚠️ OVERDUE: ' : ($isToday ? '⏰ TODAY: ' : ' ')) . strtoupper($f['action_type']) . ' REMINDER',
             'message' => 'Followup with ' . ($f['lead_name'] ?: $f['lead_id']) . ' (' . ($f['company'] ?: 'Client') . ')',
             'scheduled_at' => $f['scheduled_at'],
             'formatted_time' => date('h:i A', $schedTime),

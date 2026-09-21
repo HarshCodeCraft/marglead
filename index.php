@@ -355,27 +355,27 @@ if (isset($_POST['action']) && $_POST['action'] === 'batch_update') {
             
             if ($batch_action === 'assign') {
                 $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
-                $stmt = $pdo->prepare("UPDATE leads SET assigned_to = ?, assigned_by = ? WHERE id IN ($in_clause)");
+                $stmt = $pdo->prepare("UPDATE leads SET assigned_to = ?, assigned_by = ?, updated_at = NOW() WHERE id IN ($in_clause)");
                 $params = array_merge([$val, $assigned_by], $ids);
                 $stmt->execute($params);
                 $msg = "Successfully assigned " . count($ids) . " lead(s) to " . htmlspecialchars($val) . ".";
             } elseif ($batch_action === 'status') {
-                $stmt = $pdo->prepare("UPDATE leads SET status = ? WHERE id IN ($in_clause)");
+                $stmt = $pdo->prepare("UPDATE leads SET status = ?, updated_at = NOW() WHERE id IN ($in_clause)");
                 $params = array_merge([$val], $ids);
                 $stmt->execute($params);
                 $msg = "Successfully updated status of " . count($ids) . " lead(s).";
             } elseif ($batch_action === 'priority') {
-                $stmt = $pdo->prepare("UPDATE leads SET priority = ? WHERE id IN ($in_clause)");
+                $stmt = $pdo->prepare("UPDATE leads SET priority = ?, updated_at = NOW() WHERE id IN ($in_clause)");
                 $params = array_merge([$val], $ids);
                 $stmt->execute($params);
                 $msg = "Successfully updated priority of " . count($ids) . " lead(s) to " . ucfirst($val) . ".";
             } elseif ($batch_action === 'drop') {
-                $stmt = $pdo->prepare("UPDATE leads SET status = 'dropped' WHERE id IN ($in_clause)");
+                $stmt = $pdo->prepare("UPDATE leads SET status = 'dropped', updated_at = NOW() WHERE id IN ($in_clause)");
                 $stmt->execute($ids);
                 $msg = "Successfully moved " . count($ids) . " lead(s) to DROPPED status. No leads were deleted.";
             } elseif ($batch_action === 'restore' || $batch_action === 'reactivate') {
                 $target_stage = !empty($val) ? $val : 'new';
-                $stmt = $pdo->prepare("UPDATE leads SET status = ? WHERE id IN ($in_clause)");
+                $stmt = $pdo->prepare("UPDATE leads SET status = ?, updated_at = NOW() WHERE id IN ($in_clause)");
                 $params = array_merge([$target_stage], $ids);
                 $stmt->execute($params);
                 $msg = "Successfully re-activated " . count($ids) . " lead(s) back to Active Lead status.";
@@ -470,11 +470,13 @@ if (isset($_REQUEST['action']) && $_REQUEST['action'] === 'complete_followup') {
             $stmt = $pdo->prepare("UPDATE followups SET status = 'completed' WHERE id = ?");
             $stmt->execute([$fup_id]);
             
-            // Add activity timeline record
+            // Add activity timeline record and update leads.updated_at
             $getLead = $pdo->prepare("SELECT lead_id FROM followups WHERE id = ?");
             $getLead->execute([$fup_id]);
             $leadId = $getLead->fetchColumn();
             if ($leadId) {
+                $updLeadTime = $pdo->prepare("UPDATE leads SET updated_at = NOW() WHERE id = ?");
+                $updLeadTime->execute([$leadId]);
                 $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Follow-up marked as COMPLETED')");
                 $log->execute([$leadId, $_SESSION['user_name'] ?? 'System User']);
             }
@@ -521,6 +523,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_lead_json') {
                         'assigned' => $l['assigned_to'] ?? '',
                         'assigned_by' => !empty($l['assigned_by']) ? $l['assigned_by'] : (!empty($_SESSION['user_name']) ? $_SESSION['user_name'] : ''),
                         'address' => $l['address'] ?? '',
+                        'city' => $l['city'] ?? '',
+                        'state' => $l['state'] ?? '',
+                        'gst' => $l['gst'] ?? '',
                         'tags' => $l['tags'] ?? '',
                         'enq_for' => $l['enq_for'] ?? '',
                         'contact_person' => $l['contact_person'] ?? '',
@@ -563,12 +568,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $contact_person = $_POST['contact_person'] ?? '';
             $remarks = $_POST['remarks'] ?? '';
             
-            // 1. Update leads table (Properly update group_stage)
+            // 1. Update leads table (Properly update group_stage and guarantee updated_at = NOW())
             if (!empty($status)) {
-                $upd = $pdo->prepare("UPDATE leads SET group_stage = ?, status = ?, assigned_to = ?, tags = ?, address = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
+                $upd = $pdo->prepare("UPDATE leads SET group_stage = ?, status = ?, assigned_to = ?, tags = ?, address = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, updated_at = NOW() WHERE id = ?");
                 $upd->execute([$group_stage, $status, $assigned_to, $tags, $address, $source, $enq_for, $contact_person, $remarks, $lead_id]);
             } else {
-                $upd = $pdo->prepare("UPDATE leads SET group_stage = ?, assigned_to = ?, tags = ?, address = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ? WHERE id = ?");
+                $upd = $pdo->prepare("UPDATE leads SET group_stage = ?, assigned_to = ?, tags = ?, address = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, updated_at = NOW() WHERE id = ?");
                 $upd->execute([$group_stage, $assigned_to, $tags, $address, $source, $enq_for, $contact_person, $remarks, $lead_id]);
             }
             
@@ -764,6 +769,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'schedule_followup' && $_SERVE
                     $fup_id = $pdo->lastInsertId();
                 }
                 
+                // Always stamp lead updated_at
+                $pdo->prepare("UPDATE leads SET updated_at = NOW() WHERE id = ?")->execute([$lead_id]);
+
                 // Write to activity timeline
                 $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, ?)");
                 $action_desc = "Scheduled a follow-up " . htmlspecialchars($action_type) . " for " . htmlspecialchars($scheduled_at);
@@ -787,7 +795,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'schedule_followup' && $_SERVE
                     }
                     $body .= "<p>If you need to reschedule or have any queries, please let us know.</p>";
                     
-                    $compiledMail = Mailer::wrapHTMLTemplate($title, $header, $subtitle, $body, "Launch CRM Dashboard", "http://localhost/marglead/auth/login.php");
+                    $compiledMail = Mailer::wrapHTMLTemplate($title, $header, $subtitle, $body, "Launch CRM Dashboard", Mailer::getBaseUrl() . "auth/login.php");
                     if (Mailer::send($lead['email'], $subject, $compiledMail)) {
                         $pdo->prepare("UPDATE followups SET email_sent = 1 WHERE id = ?")->execute([$fup_id]);
                     }

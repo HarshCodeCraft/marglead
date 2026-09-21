@@ -30,7 +30,7 @@ if (empty($text)) {
 // -------------------------------------------------------------
 // 1. Check Gemini API (Google AI)
 // -------------------------------------------------------------
-$geminiKey = getenv('GEMINI_API_KEY');
+$geminiKey = defined('GEMINI_API_KEY') ? GEMINI_API_KEY : (getenv('GEMINI_API_KEY') ?: '');
 if (!$geminiKey && function_exists('getSystemSetting')) {
     $geminiKey = getSystemSetting('gemini_api_key', '');
 }
@@ -56,7 +56,7 @@ CRITICAL CONSTRAINT: Return ONLY a valid JSON object without markdown code block
   \"changes_count\": number_of_corrections_made
 }";
 
-        $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" . urlencode($geminiKey);
+        $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=" . urlencode($geminiKey);
         $postFields = [
             'contents' => [
                 ['parts' => [['text' => $sysPrompt . "\n\nTechnician Raw Input: " . $text]]]

@@ -93,13 +93,13 @@ async function startUserSession(userId) {
 
                 if (isLoggedOut) {
                     console.log(`[User ${userId}] Logged out - clearing credentials`);
-                    try { fs.rmSync(authPath, { recursive: true, force: true }); } catch (e) {}
+                    try { fs.rmSync(authPath, { recursive: true, force: true }); } catch (e) { }
                     sessionObj.qrCodeData = '';
 
                     // Notify PHP CRM
                     try {
-                        fetch(`https://friendlyaisolution.com/api/whatsapp_web_engine.php?action=check_status&user_id=${userId}`).catch(() => {});
-                    } catch (e) {}
+                        fetch(`https://friendlyaisolution.com/api/whatsapp_web_engine.php?action=check_status&user_id=${userId}`).catch(() => { });
+                    } catch (e) { }
 
                     setTimeout(() => startUserSession(userId), 3000);
                 } else {
@@ -118,8 +118,8 @@ async function startUserSession(userId) {
 
                     // Notify PHP CRM of this specific user's connection
                     try {
-                        fetch(`https://friendlyaisolution.com/api/whatsapp_web_engine.php?action=check_status&user_id=${userId}`).catch(() => {});
-                    } catch (e) {}
+                        fetch(`https://friendlyaisolution.com/api/whatsapp_web_engine.php?action=check_status&user_id=${userId}`).catch(() => { });
+                    } catch (e) { }
                 }
             }
         });
@@ -361,7 +361,7 @@ app.post('/logout', async (req, res) => {
         sessions.delete(userId);
 
         const authPath = path.join(__dirname, 'auth_info_baileys', `user_${userId}`);
-        try { fs.rmSync(authPath, { recursive: true, force: true }); } catch (e) {}
+        try { fs.rmSync(authPath, { recursive: true, force: true }); } catch (e) { }
 
         console.log(`[User ${userId}] Logged out & session cleared`);
         res.json({ status: 'success', message: `User ${userId} session cleared.` });

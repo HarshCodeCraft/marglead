@@ -722,6 +722,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $stmt = $pdo->prepare("UPDATE support_tickets SET priority = ?, status = ?, subject = ?, problem = ?, resolution = ?, assigned_to = ?, due_date = ?, callback_number = ?, lead_id = ?, customer_name = ?, phone = ?, email = ?, product = ?, renewal_date = ?, address = ? WHERE id = ?");
                     $stmt->execute([$priority, $status, $subject, $problem, $finalResolution, $assigned_to, $due_date, $callback_number, $lead_id, $customer_name, $phone, $email, $product, $renewal_date, $address, $ticketId]);
 
+                    // Auto-close chat in Team Inbox silently (NO chat message shown in conversation) when ticket is resolved/closed
+                    if (in_array(strtolower($status), ['resolved', 'closed'])) {
+                        $custPhone = !empty($phone) ? $phone : (!empty($orig['phone']) ? $orig['phone'] : (!empty($callback_number) ? $callback_number : ''));
+                        if (!empty($custPhone)) {
+                            $cleanPhone = preg_replace('/[^0-9]/', '', $custPhone);
+                            $last10 = substr($cleanPhone, -10);
+                            if (!empty($cleanPhone)) {
+                                try {
+                                    $stmtCloseChat = $pdo->prepare("UPDATE chat_conversations SET status = 'closed' WHERE phone = ? OR phone LIKE ? OR phone LIKE ?");
+                                    $stmtCloseChat->execute([$custPhone, "%$cleanPhone%", "%$last10%"]);
+                                } catch (Throwable $eCC) {}
+                            }
+                        }
+                    }
+
                     $actorName = !empty($user_name) ? $user_name : (!empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Support Team');
                     $actorRole = !empty($user_role) ? $user_role : (!empty($_SESSION['user_role']) ? $_SESSION['user_role'] : 'Technical Support');
 
@@ -983,7 +998,7 @@ if ($db_connected && $pdo) {
         $db_leads = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Fetch Active Technicians / Operators
-        $stmt = $pdo->query("SELECT name, role FROM users WHERE status = 'Active' ORDER BY name ASC");
+        $stmt = $pdo->query("SELECT name, role FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         $db_operators = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         // Ignore fetch errors
@@ -2318,7 +2333,7 @@ function updateClientCompactView(data) {
     const prod = data.product || data.software_type || (pName !== '-' ? 'Marg ERP' : '-');
     const swType = data.sw_type || (pName !== '-' ? 'Marg' : '-');
     const uType = (data.user_type || data.no_of_users) ? ((data.user_type || 'Multi User') + (data.no_of_users ? ' (' + data.no_of_users + ')' : '')) : (pName !== '-' ? 'Multi User (1)' : '-');
-    const numComp = data.no_of_companies || (pName !== '-' ? 250 : '-');
+    const numComp = data.company_using || data.no_of_companies || (pName !== '-' ? 250 : '-');
     const stat = data.party_status || (pName !== '-' ? 'Running' : '-');
     const trade = data.software_trade || (pName !== '-' ? 'Business Services' : '-');
     const homeUser = data.home_user || (pName !== '-' ? 'No' : '-');
@@ -2502,7 +2517,7 @@ function updateClientCompactView(data) {
                 if (renSub) {
                     renSub.style.display = 'block';
                     renSub.style.color = '#ca8a04';
-                    renSub.innerText = '⚡ Renewal is due today';
+                    renSub.innerText = ' Renewal is due today';
                 }
             } else if (diffDays <= 7) {
                 // 1-7 days left
@@ -2538,7 +2553,7 @@ function updateClientCompactView(data) {
                 if (renSub) {
                     renSub.style.display = 'block';
                     renSub.style.color = '#2563eb';
-                    renSub.innerText = '📅 ' + diffDays + ' days left';
+                    renSub.innerText = ' ' + diffDays + ' days left';
                 }
             } else {
                 // Active (> 30 days)

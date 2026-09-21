@@ -13,7 +13,7 @@ $system_users = [];
 if ($db_connected && $pdo) {
     try {
         // Active registered users
-        $uStmt = $pdo->query("SELECT name, role FROM users ORDER BY name ASC");
+        $uStmt = $pdo->query("SELECT name, role FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         while ($u = $uStmt->fetch(PDO::FETCH_ASSOC)) {
             $system_users[$u['name']] = $u['role'];
         }
@@ -772,7 +772,7 @@ if ($db_connected && $pdo) {
                                         <?php if (strtolower($row['priority']) === 'hot'): ?>
                                             <span class="badge" style="--badge-bg: var(--danger-light); --badge-color: var(--danger);">🔥 Hot</span>
                                         <?php elseif (strtolower($row['priority']) === 'warm'): ?>
-                                            <span class="badge" style="--badge-bg: var(--warning-light); --badge-color: var(--warning);">⚡ Warm</span>
+                                            <span class="badge" style="--badge-bg: var(--warning-light); --badge-color: var(--warning);"> Warm</span>
                                         <?php else: ?>
                                             <span class="badge" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted);">Cold</span>
                                         <?php endif; ?>

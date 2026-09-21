@@ -42,7 +42,7 @@ class Mailer {
                     <tr>
                         <td style='background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%); padding: 35px 40px; text-align: center; border-bottom: 4px solid #f97316;'>
                             <div style='font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: 1px; margin-bottom: 8px;'>
-                                <span style='color: #f97316;'>MARG</span> SOFT SOLUTIONS
+                                <span style='color: #f97316;'>FRIENDLY</span> AI SOLUTION
                             </div>
                             <div style='font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 2px; font-weight: 600;'>Advanced Lead & Enterprise ERP CRM</div>
                         </td>
@@ -70,14 +70,14 @@ class Mailer {
                     <!-- Corporate Footer Branding -->
                     <tr>
                         <td style='background-color: #f1f5f9; padding: 30px 40px; text-align: center; border-top: 1px solid #e2e8f0;'>
-                            <p style='font-size: 13px; font-weight: 600; color: #475569; margin: 0 0 8px 0;'>MARG SOFT SOLUTIONS INC.</p>
-                            <p style='font-size: 11px; color: #64748b; margin: 0 0 15px 0;'>Opp. Okhla Metro Station, Phase III, New Delhi - 110020</p>
+                            <p style='font-size: 13px; font-weight: 600; color: #475569; margin: 0 0 8px 0;'>FRIENDLY AI SOLUTION</p>
+                            <p style='font-size: 11px; color: #64748b; margin: 0 0 15px 0;'>Modern Enterprise CRM & Lead Intelligence Suite</p>
                             <div style='margin-bottom: 20px;'>
-                                <a href='https://margsoft.com' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Website</a> • 
-                                <a href='mailto:support@margsoft.com' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Support Center</a> • 
-                                <a href='privacy.php' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Privacy Policy</a>
+                                <a href='https://friendlyaisolution.com' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Website</a> • 
+                                <a href='mailto:support@friendlyaisolution.com' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Support Center</a> • 
+                                <a href='https://friendlyaisolution.com/privacy.php' style='color: #3b82f6; text-decoration: none; font-size: 12px; font-weight: 600; margin: 0 10px;'>Privacy Policy</a>
                             </div>
-                            <p style='font-size: 10px; color: #94a3b8; margin: 0;'>This is an automated operational transmission from Marg Soft Solution. If you did not request this communication, please ignore.</p>
+                            <p style='font-size: 10px; color: #94a3b8; margin: 0;'>This is an automated operational transmission from Friendly AI Solution. If you did not request this communication, please ignore.</p>
                         </td>
                     </tr>
                 </table>
@@ -103,13 +103,14 @@ class Mailer {
             $mail->isSMTP();
             $mail->Host       = 'smtp.hostinger.com';
             $mail->SMTPAuth   = true;
-            $mail->Username   = 'info@friendlyaisolution.com';
+            $mail->Username   = 'support@friendlyaisolution.com';
             $mail->Password   = 'Liahshsrahinahs%$#@12345';
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
             $mail->Port       = 465;
             
             // Sender and Recipient settings
-            $mail->setFrom('info@friendlyaisolution.com', 'Friendly AI Solution');
+            $mail->setFrom('support@friendlyaisolution.com', 'Friendly AI Solution');
+            $mail->addReplyTo('support@friendlyaisolution.com', 'Friendly AI Solution');
             $mail->addAddress($to);
             
             // Email message details
@@ -125,7 +126,8 @@ class Mailer {
             try {
                 $headers = "MIME-Version: 1.0\r\n";
                 $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-                $headers .= "From: MARG SOFT SOLUTIONS <noreply@marglead.com>\r\n";
+                $headers .= "From: Friendly AI Solution <support@friendlyaisolution.com>\r\n";
+                $headers .= "Reply-To: support@friendlyaisolution.com\r\n";
                 $success = @mail($to, $subject, $body, $headers);
                 if ($success) {
                     $status = 'Sent (Fallback)';
@@ -149,14 +151,26 @@ class Mailer {
     }
     
     /**
+     * Get dynamic Base URL for outgoing email links
+     */
+    public static function getBaseUrl() {
+        if (defined('BASE_URL') && !empty(BASE_URL)) {
+            return rtrim(BASE_URL, '/') . '/';
+        }
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443) ? 'https://' : 'http://';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        return $scheme . $host . '/marglead/';
+    }
+
+    /**
      * Send User Approval/Decline Notifications using dynamic layout wrapper
      */
     public static function sendUserApproval($email, $name, $status) {
-        $subject = "Marg Soft Solution Account Status: " . ($status === 'Active' ? 'Approved' : 'Suspended/Declined');
+        $subject = "Friendly AI Solution Account Status: " . ($status === 'Active' ? 'Approved' : 'Suspended/Declined');
         
         $title = "Account Status Notification";
         $header_title = $status === 'Active' ? "Welcome to the Team, " . $name . "!" : "Account Registration Notice";
-        $subtitle = $status === 'Active' ? "Your Marg Soft Solution profile has been activated." : "Update on your Marg Soft Solution access request.";
+        $subtitle = $status === 'Active' ? "Your Friendly AI Solution profile has been activated." : "Update on your Friendly AI Solution access request.";
         
         $body = "<p>Hello <strong>" . htmlspecialchars($name) . "</strong>,</p>";
         if ($status === 'Active') {
@@ -164,13 +178,13 @@ class Mailer {
             $body .= "<p>Your customized operational permissions matrix is active. You can now log in, schedule demo sessions, generate quotations, and manage workflows on your profile panel.</p>";
             
             $cta_text = "Launch CRM Dashboard";
-            $cta_url = "http://localhost/marglead/auth/login.php";
+            $cta_url = self::getBaseUrl() . "auth/login.php";
         } else {
-            $body .= "<p>We regret to inform you that your request to access the Marg Soft Solution database has been <strong>declined</strong> or <strong>suspended</strong> at this time.</p>";
+            $body .= "<p>We regret to inform you that your request to access the Friendly AI Solution database has been <strong>declined</strong> or <strong>suspended</strong> at this time.</p>";
             $body .= "<p>If you believe this is an error or require manual configuration, please get in touch with the management team.</p>";
             
             $cta_text = "Contact Manager";
-            $cta_url = "mailto:admin@marglead.com";
+            $cta_url = "mailto:support@friendlyaisolution.com";
         }
         
         $compiledBody = self::wrapHTMLTemplate($title, $header_title, $subtitle, $body, $cta_text, $cta_url);
@@ -196,36 +210,36 @@ class Mailer {
         $adminBody .= "<p>Please sign in to the administrative Users Matrix panel to review their credentials, configure their role powers (Sales Executive, Team Leader, etc.), and approve their login access.</p>";
         
         $adminCtaText = "Manage User Matrix";
-        $adminCtaUrl = "http://localhost/marglead/index.php?page=admin_users";
+        $adminCtaUrl = self::getBaseUrl() . "index.php?page=admin_users";
         $adminCompiled = self::wrapHTMLTemplate($adminTitle, $adminHeader, $adminSubtitle, $adminBody, $adminCtaText, $adminCtaUrl);
-        self::send('admin@marglead.com', $adminSubject, $adminCompiled);
+        self::send('support@friendlyaisolution.com', $adminSubject, $adminCompiled);
         
         // 2. Email to User
-        $userSubject = "Marg Soft Solution Account Request Received";
+        $userSubject = "Friendly AI Solution Account Request Received";
         $userTitle = "Account Registration Received";
         $userHeader = "Hi " . $name . ", we are reviewing your request!";
-        $userSubtitle = "Your Marg Soft Solution profile is currently pending activation.";
+        $userSubtitle = "Your Friendly AI Solution profile is currently pending activation.";
         
         $userBody = "<p>Hello <strong>" . htmlspecialchars($name) . "</strong>,</p>";
-        $userBody .= "<p>Thank you for submitting your account registration request with <strong>Marg Soft Solution</strong>.</p>";
+        $userBody .= "<p>Thank you for submitting your account registration request with <strong>Friendly AI Solution</strong>.</p>";
         $userBody .= "<p>Our administrative team is currently configuring your default security credentials and workspace modules permissions matrix. You will receive an automated email notification once your profile has been authorized and activated.</p>";
         $userBody .= "<p>Thank you for your patience.</p>";
         
-        $userCompiled = self::wrapHTMLTemplate($userTitle, $userHeader, $userSubtitle, $userBody, "Visit Support Center", "https://margsoft.com");
+        $userCompiled = self::wrapHTMLTemplate($userTitle, $userHeader, $userSubtitle, $userBody, "Visit Support Center", "https://friendlyaisolution.com");
         return self::send($email, $userSubject, $userCompiled);
     }
 
     /**
-     * Send email verification OTP code to new user
+     * Send email verification OTP code to new user (Includes 1-Click Verification CTA)
      */
     public static function sendEmailVerificationOTP($email, $name, $otp) {
-        $subject = "Your Verification Code: " . $otp . " - Marg Soft Solution";
+        $subject = "Your Verification Code: " . $otp . " - Friendly AI Solution";
         $title = "Email Verification OTP";
         $header_title = "Verify Your Email Address";
-        $subtitle = "Hi " . htmlspecialchars($name) . ", enter this 6-digit code to complete registration.";
+        $subtitle = "Hi " . htmlspecialchars($name) . ", enter this 6-digit code or click below to complete registration.";
         
         $body = "<p>Hello <strong>" . htmlspecialchars($name) . "</strong>,</p>";
-        $body .= "<p>Thank you for signing up for <strong>Marg Soft Solution CRM</strong>. Please use the following One-Time Password (OTP) code to verify your email address and activate your account request:</p>";
+        $body .= "<p>Thank you for signing up for <strong>Friendly AI Solution CRM</strong>. Please use the following One-Time Password (OTP) code or click the button below to verify your email address and activate your account request:</p>";
         
         $body .= "<div style='text-align: center; margin: 25px 0;'>
             <div style='font-size: 34px; font-weight: 800; letter-spacing: 10px; color: #2563eb; background-color: #f1f5f9; padding: 18px 30px; border-radius: 12px; border: 2px dashed #3b82f6; display: inline-block; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); font-family: monospace;'>
@@ -236,7 +250,34 @@ class Mailer {
         $body .= "<p style='color: #64748b; font-size: 13px; text-align: center;'>This verification code is valid for <strong>10 minutes</strong>. If you did not initiate this request, please ignore this email.</p>";
         
         $cta_text = "Verify Email Address";
-        $cta_url = "http://localhost/marglead/auth/verify-otp.php?email=" . urlencode($email);
+        $cta_url = self::getBaseUrl() . "auth/verify-otp.php?email=" . urlencode($email) . "&code=" . urlencode($otp);
+        
+        $compiledBody = self::wrapHTMLTemplate($title, $header_title, $subtitle, $body, $cta_text, $cta_url);
+        return self::send($email, $subject, $compiledBody);
+    }
+
+    /**
+     * Send dedicated password reset OTP code to user (Includes 1-Click Reset CTA)
+     */
+    public static function sendPasswordResetOTP($email, $name, $otp) {
+        $subject = "Your Password Reset Code: " . $otp . " - Friendly AI Solution";
+        $title = "Password Reset Request";
+        $header_title = "Reset Your Password";
+        $subtitle = "Hi " . htmlspecialchars($name) . ", enter this 6-digit code or click below to reset your password.";
+        
+        $body = "<p>Hello <strong>" . htmlspecialchars($name) . "</strong>,</p>";
+        $body .= "<p>We received a request to reset the password for your <strong>Friendly AI Solution CRM</strong> account. Please use the following verification code or click the button below:</p>";
+        
+        $body .= "<div style='text-align: center; margin: 25px 0;'>
+            <div style='font-size: 34px; font-weight: 800; letter-spacing: 10px; color: #ea580c; background-color: #fff7ed; padding: 18px 30px; border-radius: 12px; border: 2px dashed #f97316; display: inline-block; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); font-family: monospace;'>
+                " . htmlspecialchars($otp) . "
+            </div>
+        </div>";
+        
+        $body .= "<p style='color: #64748b; font-size: 13px; text-align: center;'>This code is valid for <strong>10 minutes</strong>. If you did not initiate this password reset request, your account remains secure and you may safely ignore this email.</p>";
+        
+        $cta_text = "Reset My Password";
+        $cta_url = self::getBaseUrl() . "auth/otp-reset.php?email=" . urlencode($email) . "&code=" . urlencode($otp);
         
         $compiledBody = self::wrapHTMLTemplate($title, $header_title, $subtitle, $body, $cta_text, $cta_url);
         return self::send($email, $subject, $compiledBody);
@@ -250,7 +291,7 @@ class Mailer {
             return false;
         }
         
-        $subject = "Official Quotation & Proposal - " . $quoteId . " | Marg Soft Solutions";
+        $subject = "Official Quotation & Proposal - " . $quoteId . " | Friendly AI Solution";
         $title = "Official Quotation & Proposal";
         $header_title = "Quotation Proposal for " . ($companyName ?: $clientName);
         $subtitle = "Proposal ID: " . $quoteId . " | Date: " . date('d M, Y');
@@ -275,7 +316,7 @@ class Mailer {
         if (!empty($items) && is_array($items)) {
             foreach ($items as $item) {
                 $itemsTable .= "<tr style='border-bottom: 1px solid #e2e8f0;'>
-                    <td style='padding: 8px; color: #334155;'><strong>" . htmlspecialchars($item['product'] ?? 'Marg ERP License') . "</strong></td>
+                    <td style='padding: 8px; color: #334155;'><strong>" . htmlspecialchars($item['product'] ?? 'ERP CRM License') . "</strong></td>
                     <td style='padding: 8px; text-align: center; color: #334155;'>" . intval($item['qty'] ?? 1) . "</td>
                     <td style='padding: 8px; text-align: right; color: #334155;'>₹" . number_format(floatval($item['price'] ?? 0), 2) . "</td>
                     <td style='padding: 8px; text-align: right; font-weight: bold; color: #0f172a;'>₹" . number_format(floatval($item['total'] ?? 0), 2) . "</td>
@@ -283,7 +324,7 @@ class Mailer {
             }
         } else {
             $itemsTable .= "<tr style='border-bottom: 1px solid #e2e8f0;'>
-                <td style='padding: 8px; color: #334155;'><strong>Marg ERP Software Solution & Implementation</strong></td>
+                <td style='padding: 8px; color: #334155;'><strong>Friendly AI Solution - ERP CRM Implementation</strong></td>
                 <td style='padding: 8px; text-align: center; color: #334155;'>1</td>
                 <td style='padding: 8px; text-align: right; color: #334155;'>₹" . number_format(floatval($grandTotal), 2) . "</td>
                 <td style='padding: 8px; text-align: right; font-weight: bold; color: #0f172a;'>₹" . number_format(floatval($grandTotal), 2) . "</td>
@@ -293,7 +334,7 @@ class Mailer {
         $itemsTable .= "</tbody></table>";
         
         $body = "<p>Dear <strong>" . htmlspecialchars($clientName ?: 'Valued Customer') . "</strong>,</p>";
-        $body .= "<p>Thank you for expressing interest in <strong>Marg Soft Solutions</strong>. We are pleased to send you the official software proposal and price quote <strong>" . htmlspecialchars($quoteId) . "</strong> for <strong>" . htmlspecialchars($companyName ?: 'your organization') . "</strong>.</p>";
+        $body .= "<p>Thank you for expressing interest in <strong>Friendly AI Solution</strong>. We are pleased to send you the official software proposal and price quote <strong>" . htmlspecialchars($quoteId) . "</strong> for <strong>" . htmlspecialchars($companyName ?: 'your organization') . "</strong>.</p>";
         
         $body .= "<div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 20px 0;'>
             <div style='font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 10px;'>Quotation Summary:</div>
@@ -306,7 +347,7 @@ class Mailer {
         $body .= "<p>You can view and review your complete proposal sheet online by clicking the link below:</p>";
         
         $cta_text = "View Proposal Online";
-        $cta_url = "http://localhost/marglead/index.php?page=quotation_view&id=" . urlencode($quoteId);
+        $cta_url = self::getBaseUrl() . "index.php?page=quotation_view&id=" . urlencode($quoteId);
         
         $compiledBody = self::wrapHTMLTemplate($title, $header_title, $subtitle, $body, $cta_text, $cta_url);
         return self::send($recipientEmail, $subject, $compiledBody);

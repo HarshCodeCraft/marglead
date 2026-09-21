@@ -553,20 +553,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmtGetT = $pdo_master->prepare("SELECT * FROM tenant_companies WHERE id = ?");
                 $stmtGetT->execute([$tenantId]);
                 $tComp = $stmtGetT->fetch(PDO::FETCH_ASSOC);
-                if ($tComp && !empty($tComp['db_name'])) {
-                    if (strpos($tComp['db_name'], 't_') === 0) {
+                if ($tComp) {
+                    // Update master users table for Admin / Super Admin if client is code 'master' or ID 1
+                    if ($tComp['id'] == 1 || $tComp['company_code'] === 'master') {
                         try {
-                            $userTbl = $tComp['db_name'] . 'users';
-                            $stmtUpdUser = $pdo_master->prepare("UPDATE `{$userTbl}` SET permissions = ? WHERE role = 'Admin'");
+                            $stmtUpdUser = $pdo_master->prepare("UPDATE users SET permissions = ? WHERE role IN ('Admin', 'Super Admin')");
                             $stmtUpdUser->execute([$modulesJson]);
                         } catch (PDOException $tEx) {}
-                    } else {
-                        try {
-                            $tDsn = "mysql:host=$db_host;port=$db_port;dbname={$tComp['db_name']};charset=utf8mb4";
-                            $tPdo = new PDO($tDsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-                            $stmtUpdUser = $tPdo->prepare("UPDATE users SET permissions = ? WHERE role = 'Admin'");
-                            $stmtUpdUser->execute([$modulesJson]);
-                        } catch (PDOException $tEx) {}
+                    }
+                    if (!empty($tComp['db_name'])) {
+                        if (strpos($tComp['db_name'], 't_') === 0) {
+                            try {
+                                $userTbl = $tComp['db_name'] . 'users';
+                                $stmtUpdUser = $pdo_master->prepare("UPDATE `{$userTbl}` SET permissions = ? WHERE role = 'Admin'");
+                                $stmtUpdUser->execute([$modulesJson]);
+                            } catch (PDOException $tEx) {}
+                        } else {
+                            try {
+                                $tDsn = "mysql:host=$db_host;port=$db_port;dbname={$tComp['db_name']};charset=utf8mb4";
+                                $tPdo = new PDO($tDsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                                $stmtUpdUser = $tPdo->prepare("UPDATE users SET permissions = ? WHERE role = 'Admin'");
+                                $stmtUpdUser->execute([$modulesJson]);
+                            } catch (PDOException $tEx) {}
+                        }
                     }
                 }
 
@@ -844,18 +853,68 @@ if (isset($pdo_master)) {
             border: 1px solid rgba(245, 158, 11, 0.35);
         }
         .pulse-dot-green {
-            width: 7px;
-            height: 7px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             background: #10b981;
             display: inline-block;
             box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
             animation: pulseGreen 1.8s infinite;
         }
+        .pulse-dot-red {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+            display: inline-block;
+            box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+            animation: pulseRed 1.8s infinite;
+        }
+        .pulse-dot-yellow {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f59e0b;
+            display: inline-block;
+            box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
+            animation: pulseYellow 1.8s infinite;
+        }
         @keyframes pulseGreen {
             0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
             70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        @keyframes pulseRed {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        @keyframes pulseYellow {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+        /* Gateway Status Dot Ring */
+        .gateway-status-dot-wrap {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .gateway-status-dot-wrap.connected {
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.35);
+        }
+        .gateway-status-dot-wrap.logged-out {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+        }
+        .gateway-status-dot-wrap.not-paired {
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.35);
         }
         /* Sleek Info Trigger Button */
         .client-info-trigger {
@@ -1039,7 +1098,7 @@ if (isset($pdo_master)) {
                         <th style="min-width: 95px;">PLAN</th>
                         <th style="min-width: 85px;">STATUS</th>
                         <th style="min-width: 100px;">EXPIRY DATE</th>
-                        <th style="min-width: 210px; text-align: right;">ACTIONS</th>
+                        <th style="min-width: 310px; text-align: right;">ACTIONS</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1141,7 +1200,7 @@ if (isset($pdo_master)) {
                                 'category' => 'gateway',
                                 'title' => 'WhatsApp Gateway Diagnostics',
                                 'subtitle' => $cl['company_name'] . ' • Tenant #' . $cl['id'],
-                                'badge' => ($wInfo['is_connected'] ? '🟢 Connected' : ($wInfo['session_state'] === 'logged_out' ? '🔴 Logged Out' : '🟡 Not Paired')),
+                                'badge' => ($wInfo['is_connected'] ? '🟢 Connected' : ($wInfo['session_state'] === 'logged_out' ? '🔴 Logged Out' : ' Not Paired')),
                                 'avatar' => 'WA',
                                 'items' => [
                                     ['label' => 'Integration Mode', 'value' => ($wInfo['gateway_type'] === 'meta' ? 'Meta Cloud WABA (Official API)' : 'WhatsApp Web API (Baileys v6 Engine)'), 'icon' => 'radio'],
@@ -1157,35 +1216,35 @@ if (isset($pdo_master)) {
                             <tr class="client-row">
                                 <!-- 1. ID & COMPANY COLUMN -->
                                 <td>
-                                    <div class="flex align-center gap-3">
-                                        <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(99, 102, 241, 0.22)); color: var(--primary); font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 0.88rem; border: 1px solid rgba(59, 130, 246, 0.25); flex-shrink: 0;">
-                                            <?php echo strtoupper(substr($cl['company_code'], 0, 2)); ?>
-                                        </div>
-                                        <div class="flex align-center gap-1.5" style="min-width: 0;">
-                                            <span class="text-sm font-bold" style="color: var(--text-main); line-height: 1.3;" title="<?php echo htmlspecialchars($cl['company_name']); ?>">
+                                    <div class="flex align-center justify-between gap-2" style="width: 100%;">
+                                        <div class="flex align-center gap-3" style="min-width: 0;">
+                                            <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(99, 102, 241, 0.22)); color: var(--primary); font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 0.88rem; border: 1px solid rgba(59, 130, 246, 0.25); flex-shrink: 0;">
+                                                <?php echo strtoupper(substr($cl['company_code'], 0, 2)); ?>
+                                            </div>
+                                            <span class="text-sm font-bold" style="color: var(--text-main); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo htmlspecialchars($cl['company_name']); ?>">
                                                 <?php echo htmlspecialchars($cl['company_name']); ?>
                                             </span>
-                                            <!-- Company Info Trigger Icon (i) -->
-                                            <button type="button" 
-                                                    class="client-info-trigger" 
-                                                    data-info="<?php echo htmlspecialchars(json_encode($companyInfoData), ENT_QUOTES, 'UTF-8'); ?>"
-                                                    onmouseenter="showCrmInfoPopover(this)" 
-                                                    onmouseleave="hideCrmInfoPopover()" 
-                                                    onclick="openClientInfoModal(this)"
-                                                    title="Click to view company details">
-                                                <i data-lucide="info"></i>
-                                            </button>
                                         </div>
+                                        <!-- Company Info Trigger Icon (i) aligned right -->
+                                        <button type="button" 
+                                                class="client-info-trigger" 
+                                                data-info="<?php echo htmlspecialchars(json_encode($companyInfoData), ENT_QUOTES, 'UTF-8'); ?>"
+                                                onmouseenter="showCrmInfoPopover(this)" 
+                                                onmouseleave="hideCrmInfoPopover()" 
+                                                onclick="openClientInfoModal(this)"
+                                                title="Click to view company details">
+                                            <i data-lucide="info"></i>
+                                        </button>
                                     </div>
                                 </td>
 
                                 <!-- 2. OWNER / EMAIL COLUMN -->
                                 <td>
-                                    <div class="flex align-center gap-1.5">
-                                        <span class="text-xs font-bold" style="color: var(--text-main); line-height: 1.2;">
+                                    <div class="flex align-center justify-between gap-2" style="width: 100%;">
+                                        <span class="text-xs font-bold" style="color: var(--text-main); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo htmlspecialchars($cl['owner_name']); ?>">
                                             <?php echo htmlspecialchars($cl['owner_name']); ?>
                                         </span>
-                                        <!-- Owner Info Trigger Icon (i) -->
+                                        <!-- Owner Info Trigger Icon (i) aligned right -->
                                         <button type="button" 
                                                 class="client-info-trigger" 
                                                 data-info="<?php echo htmlspecialchars(json_encode($ownerInfoData), ENT_QUOTES, 'UTF-8'); ?>"
@@ -1200,43 +1259,26 @@ if (isset($pdo_master)) {
 
                                 <!-- 3. WHATSAPP GATEWAY & STATUS COLUMN -->
                                 <td>
-                                    <div class="flex flex-col gap-1.5">
-                                        <div class="flex align-center gap-1.5 flex-wrap">
-                                            <?php if ($wInfo['session_state'] === 'meta_connected'): ?>
-                                                <span class="status-pill status-pill-connected">
-                                                    <span class="pulse-dot-green"></span> Connected
-                                                </span>
-                                                <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #6366f1; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.25);">
-                                                    Meta Cloud WABA
-                                                </span>
-                                            <?php elseif ($wInfo['session_state'] === 'connected'): ?>
-                                                <span class="status-pill status-pill-connected">
-                                                    <span class="pulse-dot-green"></span> Connected
-                                                </span>
-                                                <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.25);">
-                                                    Web API (Baileys)
-                                                </span>
-                                            <?php elseif ($wInfo['session_state'] === 'logged_out'): ?>
-                                                <span class="status-pill status-pill-loggedout" title="User logged out from WhatsApp on phone or session expired">
-                                                    <i data-lucide="alert-triangle" style="width: 11px; height: 11px;"></i> Logged Out
-                                                </span>
-                                                <span class="badge" style="background: rgba(239, 68, 68, 0.08); color: #dc2626; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25);">
-                                                    Re-Scan Required
-                                                </span>
-                                            <?php elseif ($wInfo['session_state'] === 'not_paired'): ?>
-                                                <span class="status-pill status-pill-notpaired">
-                                                    <i data-lucide="scan" style="width: 11px; height: 11px;"></i> Not Paired
-                                                </span>
-                                                <span class="badge" style="background: rgba(100, 116, 139, 0.1); color: #64748b; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px;">
-                                                    Web API (Baileys)
-                                                </span>
-                                            <?php else: ?>
-                                                <span class="status-pill" style="background: rgba(100, 116, 139, 0.14); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.3);">
-                                                    <i data-lucide="shield-off" style="width: 11px; height: 11px;"></i> Meta Pending
-                                                </span>
-                                            <?php endif; ?>
+                                    <div class="flex flex-col gap-1.5" style="width: 100%;">
+                                        <div class="flex align-center justify-between gap-2">
+                                            <!-- Pure Status Dot: Green (Connected), Red (Logged Out), Yellow (Not Paired) -->
+                                            <div class="flex align-center gap-1.5">
+                                                <?php if ($wInfo['session_state'] === 'meta_connected' || $wInfo['session_state'] === 'connected'): ?>
+                                                    <div class="gateway-status-dot-wrap connected" title="WhatsApp Gateway: Live Connected">
+                                                        <span class="pulse-dot-green"></span>
+                                                    </div>
+                                                <?php elseif ($wInfo['session_state'] === 'logged_out'): ?>
+                                                    <div class="gateway-status-dot-wrap logged-out" title="WhatsApp Gateway: Logged Out / Re-Scan Required">
+                                                        <span class="pulse-dot-red"></span>
+                                                    </div>
+                                                <?php else: ?>
+                                                    <div class="gateway-status-dot-wrap not-paired" title="WhatsApp Gateway: Not Paired">
+                                                        <span class="pulse-dot-yellow"></span>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
 
-                                            <!-- Gateway Diagnostics Info Trigger Icon (i) -->
+                                            <!-- Gateway Diagnostics Info Trigger Icon (i) aligned right -->
                                             <button type="button" 
                                                     class="client-info-trigger" 
                                                     data-info="<?php echo htmlspecialchars(json_encode($gatewayInfoData), ENT_QUOTES, 'UTF-8'); ?>"
@@ -1299,6 +1341,18 @@ if (isset($pdo_master)) {
                                 <!-- 8. ACTIONS COLUMN -->
                                 <td class="text-right">
                                     <div class="flex align-center justify-end gap-1.5 flex-nowrap">
+                                        <!-- Power Manage & Page Permissions Button -->
+                                        <button type="button" 
+                                                class="btn btn-sm btn-cyan text-xs flex align-center gap-1" 
+                                                style="background: #0891b2; color: #ffffff; border: none; font-weight: 600; padding: 0.35rem 0.65rem;"
+                                                data-tenant-id="<?php echo $cl['id']; ?>"
+                                                data-company-name="<?php echo htmlspecialchars($cl['company_name'], ENT_QUOTES, 'UTF-8'); ?>"
+                                                data-allowed-modules="<?php echo htmlspecialchars(json_encode($allowed_modules), ENT_QUOTES, 'UTF-8'); ?>"
+                                                onclick="handleOpenPermissions(this)"
+                                                title="Power Manage: Configure workspace modules &amp; page access for <?php echo htmlspecialchars($cl['company_name']); ?>">
+                                            <i data-lucide="shield-check" style="width: 13px; height: 13px;"></i>
+                                            <span>Power Manage</span>
+                                        </button>
                                         <!-- Test Client WhatsApp API Button -->
                                         <button type="button" 
                                                 class="btn btn-sm btn-success text-xs flex align-center gap-1" 
@@ -1924,6 +1978,19 @@ function openEditPlanModal(tenantId, companyName, ownerName, ownerEmail, phone, 
     window.openModal('edit-client-plan-modal');
 }
 
+function handleOpenPermissions(btn) {
+    if (!btn) return;
+    const tenantId = btn.getAttribute('data-tenant-id');
+    const companyName = btn.getAttribute('data-company-name');
+    let allowedModules = [];
+    try {
+        allowedModules = JSON.parse(btn.getAttribute('data-allowed-modules'));
+    } catch(e) {
+        allowedModules = [];
+    }
+    openPermissionsModal(tenantId, companyName, allowedModules);
+}
+
 function openPermissionsModal(tenantId, companyName, allowedModules) {
     document.getElementById('perm-tenant-id').value = tenantId;
     document.getElementById('perm-modal-title').textContent = 'Power Permissions: ' + companyName;
@@ -1953,6 +2020,7 @@ function openPermissionsModal(tenantId, companyName, allowedModules) {
         chk.checked = isChecked;
     });
 
+    if (window.lucide) lucide.createIcons();
     window.openModal('edit-client-permissions-modal');
 }
 

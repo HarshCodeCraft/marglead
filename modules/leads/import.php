@@ -298,10 +298,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_template') {
         header('Content-Type: text/csv');
         header('Content-Disposition: attachment; filename="sample_leads_template.csv"');
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['Name', 'Phone', 'Email', 'Company', 'Assigned To', 'Last Follow Up']);
-        fputcsv($out, ['Amit Sharma', '919454883552', 'amit.sharma@apexpharma.com', 'Apex Pharma Solutions', 'AJAY RATHOUR', '2026-08-25 10:00:00']);
-        fputcsv($out, ['Dr. Satish Verma', '919998877766', 'drverma@diagnostic.in', 'Dr. Verma Diagnostic Clinic', 'HARSH SAINI', '']);
-        fputcsv($out, ['Rajesh Gupta', '919123456789', 'rgupta@metrochem.org', 'Metro Chemicals & Co.', 'MOIN KHAN', '2026-08-28 14:30:00']);
+        fputcsv($out, ['Name', 'Phone', 'Email', 'Company', 'Assigned To', 'Last Follow Up', 'Source']);
+        fputcsv($out, ['Amit Sharma', '919454883552', 'amit.sharma@apexpharma.com', 'Apex Pharma Solutions', 'AJAY RATHOUR', '2026-08-25 10:00:00', 'GSTN Data']);
+        fputcsv($out, ['Dr. Satish Verma', '919998877766', 'drverma@diagnostic.in', 'Dr. Verma Diagnostic Clinic', 'HARSH SAINI', '', 'GSTN Data']);
+        fputcsv($out, ['Rajesh Gupta', '919123456789', 'rgupta@metrochem.org', 'Metro Chemicals & Co.', 'MOIN KHAN', '2026-08-28 14:30:00', 'GSTN Data']);
         fclose($out);
         exit;
     }
@@ -311,12 +311,19 @@ $message = '';
 $message_type = '';
 $parsed_rows = [];
 $show_preview = false;
+$selected_source = $_SESSION['import_default_source'] ?? 'GSTN Data';
 
 // Process File Upload (CSV or Excel XLSX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
     // Increase environment resource limits for large spreadsheets (up to 5000+ lines)
     @set_time_limit(300);
     @ini_set('memory_limit', '256M');
+
+    $selected_source = trim($_POST['lead_source'] ?? 'GSTN Data');
+    if (empty($selected_source)) {
+        $selected_source = 'GSTN Data';
+    }
+    $_SESSION['import_default_source'] = $selected_source;
 
     if ($_FILES['excel_file']['error'] === UPLOAD_ERR_OK) {
         $file_tmp = $_FILES['excel_file']['tmp_name'];
@@ -344,60 +351,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
                 $header = [];
             }
             
-            // NOTE: Marg ERP exports 'Name' = Firm/Business Name, NOT a person name.
-            // So 'name', 'partyname', 'clientname', 'fullname' all map to 'company' DB field.
+            // Map spreadsheet headers to CRM lead fields
+            // Supports Marg ERP exports, GST Portal / GSTN exports, and custom formats
             $field_mappings = [
-                'created_on'        => ['createdon', 'createdat', 'datecreated', 'createddate'],
-                'company'           => ['name', 'partyname', 'clientname', 'fullname', 'company', 'companyname', 'contactbusiness', 'firmname', 'organization', 'firm', 'shopname', 'businessname'],
+                'company'           => ['tradename', 'trade', 'tradebusinessname', 'tradenamebusinessname', 'company', 'companyname', 'contactbusiness', 'firmname', 'organization', 'firm', 'shopname', 'businessname', 'partyname', 'clientname', 'fullname', 'name'],
+                'contact_person'    => ['legalname', 'contactperson', 'person', 'contactpersonname', 'personname', 'ownername', 'proprietor', 'proprietorname', 'authorizedsignatory', 'contactname', 'promoter'],
                 'phone'             => ['contact', 'phone', 'contactnumber', 'phonenumber', 'mobile', 'mobilephone', 'mobileno', 'mobilenumber', 'phoneno', 'contactno', 'cell', 'whatsapp'],
                 'email'             => ['email', 'emailaddress', 'mail', 'emailid'],
+                'gst'               => ['gst', 'gstno', 'gstin', 'gstnumber', 'gstinno', 'gstcode', 'gstinun'],
+                'city'              => ['city', 'cityname', 'district', 'town'],
+                'state'             => ['state', 'statename', 'province', 'stateregion', 'region'],
+                'pincode'           => ['pincode', 'pin', 'zip', 'zipcode', 'postalcode'],
+                'address'           => ['address', 'addr', 'location', 'area', 'fulladdress', 'street', 'locality'],
+                'source'            => ['source', 'leadsource', 'channel', 'origin'],
+                'enq_for'           => ['enqfor', 'product', 'enquiryfor', 'products', 'item', 'module'],
                 'group_stage'       => ['group', 'leadgroup', 'stage', 'groupstatus'],
+                'remarks'           => ['remark', 'remarks', 'note', 'notes', 'comment'],
+                'assigned_to'       => ['assignedto', 'assigned', 'operator', 'assignee', 'representative', 'executive'],
+                'tags'              => ['tags', 'tag', 'category'],
+                'created_on'        => ['date', 'createdon', 'createdat', 'datecreated', 'createddate', 'datetime', 'regdate', 'registrationdate'],
                 'last_followup_text'=> ['lastfollowup', 'contactlastfollowup', 'lastfollowuptext'],
                 'last_followup_date'=> ['lastfollowupdate', 'contactfollowupdate'],
                 'reminder_date'     => ['reminder', 'reminderdate'],
                 'reminder_time'     => ['remindertime', 'remindtime'],
-                'address'           => ['address', 'pincode', 'location', 'city', 'district', 'area', 'state'],
-                'source'            => ['source', 'leadsource', 'channel'],
-                'enq_for'           => ['enqfor', 'product', 'enquiryfor', 'products', 'item', 'module'],
-                'contact_person'    => ['contactperson', 'person', 'contactpersonname', 'personname'],
-                'remarks'           => ['remark', 'remarks', 'note', 'notes', 'comment'],
-                'assigned_to'       => ['assignedto', 'assigned', 'operator', 'assignee', 'representative', 'executive'],
-                'tags'              => ['tags', 'tag', 'category'],
             ];
 
-            $col_indices = [
-                'company'           => -1,
-                'contact_person'    => -1,
-                'phone'             => -1,
-                'email'             => -1,
-                'assigned_to'       => -1,
-                'address'           => -1,
-                'source'            => -1,
-                'enq_for'           => -1,
-                'group_stage'       => -1,
-                'remarks'           => -1,
-                'tags'              => -1,
-                'created_on'        => -1,
-                'last_followup_text'=> -1,
-                'last_followup_date'=> -1,
-                'reminder_date'     => -1,
-                'reminder_time'     => -1,
-            ];
+            $col_indices = [];
+            foreach (array_keys($field_mappings) as $k) {
+                $col_indices[$k] = -1;
+            }
             
             foreach ($header as $idx => $header_val) {
                 $sanitized = sanitizeHeaderName($header_val);
                 if (empty($sanitized)) continue;
                 
                 foreach ($field_mappings as $field_key => $aliases) {
-                    if (in_array($sanitized, $aliases) && $col_indices[$field_key] === -1) {
+                    if (in_array($sanitized, $aliases) && ($col_indices[$field_key] ?? -1) === -1) {
                         $col_indices[$field_key] = $idx;
                         break;
                     }
                 }
             }
 
+            // Auto-detect GST export spreadsheets: if GST column exists, lock source to 'GSTN Data'
+            if (($col_indices['gst'] ?? -1) >= 0) {
+                $selected_source = 'GSTN Data';
+                $_SESSION['import_default_source'] = 'GSTN Data';
+            }
+
+            // If Trade Name was not found but Legal Name exists, fallback company to Legal Name
+            if (($col_indices['company'] ?? -1) === -1 && ($col_indices['contact_person'] ?? -1) !== -1) {
+                $col_indices['company'] = $col_indices['contact_person'];
+            }
+
             // Fallback 1: Smart Phone Column Auto-Detection if header didn't match exact alias
-            if ($col_indices['phone'] === -1 && !empty($rows_data)) {
+            if (($col_indices['phone'] ?? -1) === -1 && !empty($rows_data)) {
                 $phone_scores = [];
                 foreach (array_slice($rows_data, 0, 10) as $sampleRow) {
                     foreach ((array)$sampleRow as $cIdx => $cVal) {
@@ -414,10 +422,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
             }
 
             // Fallback 2: Smart Business / Name Column Auto-Detection if header didn't match exact alias
-            if ($col_indices['company'] === -1 && ($col_indices['name'] ?? -1) === -1 && !empty($rows_data)) {
+            if (($col_indices['company'] ?? -1) === -1 && ($col_indices['name'] ?? -1) === -1 && !empty($rows_data)) {
                 foreach (array_slice($rows_data, 0, 5) as $sampleRow) {
                     foreach ((array)$sampleRow as $cIdx => $cVal) {
-                        if ($cIdx == $col_indices['phone']) continue;
+                        if ($cIdx == ($col_indices['phone'] ?? -1) || $cIdx == ($col_indices['gst'] ?? -1) || $cIdx == ($col_indices['contact_person'] ?? -1) || $cIdx == ($col_indices['pincode'] ?? -1) || $cIdx == ($col_indices['state'] ?? -1)) continue;
                         $sVal = trim((string)$cVal);
                         if (strlen($sVal) > 2 && !is_numeric($sVal) && !str_contains($sVal, '@')) {
                             $col_indices['company'] = $cIdx;
@@ -431,22 +439,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
             foreach ($rows_data as $row) {
                 $row_idx++;
                 
-                $raw_phone   = trim($col_indices['phone']            >= 0 ? ($row[$col_indices['phone']]            ?? '') : '');
-                $raw_email   = trim($col_indices['email']            >= 0 ? ($row[$col_indices['email']]            ?? '') : '');
-                $raw_company = trim($col_indices['company']          >= 0 ? ($row[$col_indices['company']]          ?? '') : '');
-                $assigned_to = trim($col_indices['assigned_to']      >= 0 ? ($row[$col_indices['assigned_to']]      ?? '') : '');
-                $address     = trim($col_indices['address']          >= 0 ? ($row[$col_indices['address']]          ?? '') : '');
-                $source      = trim($col_indices['source']           >= 0 ? ($row[$col_indices['source']]           ?? '') : '');
-                $enq_for     = trim($col_indices['enq_for']          >= 0 ? ($row[$col_indices['enq_for']]          ?? '') : '');
-                $raw_contact_person = trim($col_indices['contact_person'] >= 0 ? ($row[$col_indices['contact_person']] ?? '') : '');
-                $group_stage = trim($col_indices['group_stage']      >= 0 ? ($row[$col_indices['group_stage']]      ?? '') : '');
-                $remarks     = trim($col_indices['remarks']          >= 0 ? ($row[$col_indices['remarks']]          ?? '') : '');
-                $tags        = trim($col_indices['tags']             >= 0 ? ($row[$col_indices['tags']]             ?? '') : '');
-                $created_on  = trim($col_indices['created_on']       >= 0 ? ($row[$col_indices['created_on']]       ?? '') : '');
-                $last_followup_text = trim($col_indices['last_followup_text'] >= 0 ? ($row[$col_indices['last_followup_text']] ?? '') : '');
-                $last_followup_date = trim($col_indices['last_followup_date'] >= 0 ? ($row[$col_indices['last_followup_date']] ?? '') : '');
-                $reminder_date = trim($col_indices['reminder_date']  >= 0 ? ($row[$col_indices['reminder_date']]    ?? '') : '');
-                $reminder_time = trim($col_indices['reminder_time']  >= 0 ? ($row[$col_indices['reminder_time']]    ?? '') : '');
+                $raw_phone   = trim(($col_indices['phone'] ?? -1) >= 0 ? ($row[$col_indices['phone']] ?? '') : '');
+                $raw_email   = trim(($col_indices['email'] ?? -1) >= 0 ? ($row[$col_indices['email']] ?? '') : '');
+                $raw_company = trim(($col_indices['company'] ?? -1) >= 0 ? ($row[$col_indices['company']] ?? '') : '');
+                $raw_contact_person = trim(($col_indices['contact_person'] ?? -1) >= 0 ? ($row[$col_indices['contact_person']] ?? '') : '');
+                $raw_gst     = trim(($col_indices['gst'] ?? -1) >= 0 ? ($row[$col_indices['gst']] ?? '') : '');
+                $raw_city    = trim(($col_indices['city'] ?? -1) >= 0 ? ($row[$col_indices['city']] ?? '') : '');
+                $raw_state   = trim(($col_indices['state'] ?? -1) >= 0 ? ($row[$col_indices['state']] ?? '') : '');
+                $raw_pincode = trim(($col_indices['pincode'] ?? -1) >= 0 ? ($row[$col_indices['pincode']] ?? '') : '');
+                $raw_address = trim(($col_indices['address'] ?? -1) >= 0 ? ($row[$col_indices['address']] ?? '') : '');
+                $assigned_to = trim(($col_indices['assigned_to'] ?? -1) >= 0 ? ($row[$col_indices['assigned_to']] ?? '') : '');
+                $source      = trim(($col_indices['source'] ?? -1) >= 0 ? ($row[$col_indices['source']] ?? '') : '');
+                $enq_for     = trim(($col_indices['enq_for'] ?? -1) >= 0 ? ($row[$col_indices['enq_for']] ?? '') : '');
+                $group_stage = trim(($col_indices['group_stage'] ?? -1) >= 0 ? ($row[$col_indices['group_stage']] ?? '') : '');
+                $remarks     = trim(($col_indices['remarks'] ?? -1) >= 0 ? ($row[$col_indices['remarks']] ?? '') : '');
+                $tags        = trim(($col_indices['tags'] ?? -1) >= 0 ? ($row[$col_indices['tags']] ?? '') : '');
+                $created_on  = trim(($col_indices['created_on'] ?? -1) >= 0 ? ($row[$col_indices['created_on']] ?? '') : '');
+                $last_followup_text = trim(($col_indices['last_followup_text'] ?? -1) >= 0 ? ($row[$col_indices['last_followup_text']] ?? '') : '');
+                $last_followup_date = trim(($col_indices['last_followup_date'] ?? -1) >= 0 ? ($row[$col_indices['last_followup_date']] ?? '') : '');
+                $reminder_date = trim(($col_indices['reminder_date'] ?? -1) >= 0 ? ($row[$col_indices['reminder_date']] ?? '') : '');
+                $reminder_time = trim(($col_indices['reminder_time'] ?? -1) >= 0 ? ($row[$col_indices['reminder_time']] ?? '') : '');
                 
                 // Clean up text values (remove quotes, extra commas, NA placeholders)
                 $clean_val = function($str) {
@@ -462,16 +474,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
                 }
                 $phone = preg_replace('/[^0-9]/', '', $raw_phone);
 
-                // company = Marg ERP 'Name' column (firm/business name)
                 $company        = $clean_val($raw_company);
                 $contact_person = $clean_val($raw_contact_person);
+                $gst            = strtoupper(trim($clean_val($raw_gst)));
+                $gst            = preg_replace('/[^A-Z0-9]/', '', $gst);
+                $city           = $clean_val($raw_city);
+                $state          = $clean_val($raw_state);
+                $raw_pin        = $clean_val($raw_pincode);
+                if (str_contains($raw_pin, '.')) {
+                    $raw_pin = explode('.', $raw_pin)[0];
+                }
+                $pincode        = preg_replace('/[^0-9]/', '', $raw_pin);
+                $address        = $clean_val($raw_address);
+
+                // Build complete formatted address if city/state/pincode are separate columns
+                $addr_parts = [];
+                if (!empty($address) && $address !== $city && $address !== $state) {
+                    $addr_parts[] = $address;
+                }
+                if (!empty($city)) {
+                    $addr_parts[] = $city;
+                }
+                if (!empty($state)) {
+                    $st_str = $state;
+                    if (!empty($pincode)) {
+                        $st_str .= ' - ' . $pincode;
+                    }
+                    $addr_parts[] = $st_str;
+                } elseif (!empty($pincode)) {
+                    $addr_parts[] = $pincode;
+                }
+                if (!empty($addr_parts)) {
+                    $address = implode(', ', $addr_parts);
+                }
+
                 $enq_for        = $clean_val($enq_for);
-                $address        = $clean_val($address);
                 $source         = $clean_val($source);
+                if (empty($source)) {
+                    $source = (!empty($gst) || ($col_indices['gst'] ?? -1) >= 0) ? 'GSTN Data' : $selected_source;
+                }
                 $tags           = $clean_val($tags);
                 $remarks        = $clean_val($remarks);
                 $assigned_to    = $clean_val($assigned_to);
                 $group_stage    = $clean_val($group_stage);
+                if (empty($group_stage) && (!empty($gst) || ($col_indices['gst'] ?? -1) >= 0)) {
+                    $group_stage = 'Fresh';
+                }
                 
                 // Executive email resolution check: If email matches executive/admin email, do not save as client email
                 $email = $clean_val($raw_email);
@@ -482,13 +530,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
                     $email = ''; // Clear client email field
                 }
 
-                // Display name = company first, then contact person, then phone fallback
+                // Display name = Trade Name / Company first, then Contact Person / Legal Name, then phone fallback
                 if (!empty($company)) {
                     $name = $company;
                 } elseif (!empty($contact_person)) {
                     $name = $contact_person;
+                    $company = $contact_person;
                 } else {
                     $name = !empty($phone) ? 'Lead (' . $phone . ')' : 'New Lead';
+                }
+
+                // Parse created_at timestamp if Date column provided
+                $created_at_val = null;
+                if (!empty($created_on)) {
+                    $parsed_dt = parseImportedFollowupDate($created_on);
+                    if ($parsed_dt) {
+                        $created_at_val = $parsed_dt;
+                    }
                 }
 
                 // Determine Lead Status & Pipeline Stage from Group
@@ -497,7 +555,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
                     $gLower = strtolower($group_stage);
                     if (str_contains($gLower, 'demo')) {
                         $lead_stage_status = 'interested';
-                    } elseif (str_contains($gLower, 'follow')) {
+                    } elseif (str_contains($gLower, 'follow') || str_contains($gLower, 'prospect')) {
                         $lead_stage_status = 'contacted';
                     } elseif (str_contains($gLower, 'not required') || str_contains($gLower, 'lost') || str_contains($gLower, 'not int')) {
                         $lead_stage_status = 'dropped';
@@ -520,16 +578,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
                     continue; // Skip empty rows
                 }
                 
-                // Cross reference database duplicates
+                // Cross reference database duplicates (match by phone or GST)
                 $duplicate_lead_id = null;
                 $clean_phone = preg_replace('/[^0-9]/', '', $phone);
-                if ($db_connected && $pdo && !empty($clean_phone)) {
+                if ($db_connected && $pdo) {
                     try {
-                        $chk = $pdo->prepare("SELECT id FROM leads WHERE REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+91', '') LIKE ? LIMIT 1");
-                        $chk->execute(['%' . substr($clean_phone, -10)]);
-                        $lead = $chk->fetch();
-                        if ($lead) {
-                            $duplicate_lead_id = $lead['id'];
+                        if (!empty($clean_phone)) {
+                            $chk = $pdo->prepare("SELECT id FROM leads WHERE REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+91', '') LIKE ? LIMIT 1");
+                            $chk->execute(['%' . substr($clean_phone, -10)]);
+                            $lead = $chk->fetch();
+                            if ($lead) {
+                                $duplicate_lead_id = $lead['id'];
+                            }
+                        }
+                        if (empty($duplicate_lead_id) && !empty($gst)) {
+                            $chkGst = $pdo->prepare("SELECT id FROM leads WHERE gst = ? LIMIT 1");
+                            $chkGst->execute([$gst]);
+                            $leadGst = $chkGst->fetch();
+                            if ($leadGst) {
+                                $duplicate_lead_id = $leadGst['id'];
+                            }
                         }
                     } catch (PDOException $e) {}
                 }
@@ -547,6 +615,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
                     'company' => $company,
                     'assigned_to' => $assigned_to,
                     'address' => $address,
+                    'city' => $city,
+                    'state' => $state,
+                    'pincode' => $pincode,
+                    'gst' => $gst,
                     'source' => $source,
                     'enq_for' => $enq_for,
                     'contact_person' => $contact_person,
@@ -554,6 +626,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
                     'group_stage' => $group_stage,
                     'tags' => $tags,
                     'created_on' => $created_on,
+                    'created_at_val' => $created_at_val,
                     'last_followup_text' => $last_followup_text,
                     'effective_fup_date' => $effective_fup_date,
                     'duplicate_id' => $duplicate_lead_id,
@@ -564,6 +637,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
             
             if (!empty($parsed_rows)) {
                 $_SESSION['imported_leads'] = $parsed_rows;
+                $_SESSION['import_default_source'] = $selected_source;
                 $show_preview = true;
                 $message = "Spreadsheet file parsed successfully. Check the validation grid below before confirming import.";
                 $message_type = "success";
@@ -583,6 +657,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
     @set_time_limit(300);
     @ini_set('memory_limit', '256M');
 
+    $confirm_source = trim($_POST['confirm_source'] ?? ($_SESSION['import_default_source'] ?? 'GSTN Data'));
+    if (empty($confirm_source)) {
+        $confirm_source = 'GSTN Data';
+    }
+
     $leads_to_import = $_SESSION['imported_leads'] ?? [];
     if (!empty($leads_to_import) && $db_connected && $pdo) {
         $inserted = 0;
@@ -597,7 +676,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
             $super_admin_name = 'Admin';
 
             try {
-                $uStmt = $pdo->query("SELECT name, email, role FROM users WHERE status = 'Active'");
+                $uStmt = $pdo->query("SELECT name, email, role FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant')");
                 while ($u = $uStmt->fetch(PDO::FETCH_ASSOC)) {
                     $uName = trim($u['name']);
                     $uEmail = strtolower(trim($u['email']));
@@ -613,8 +692,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                 }
             } catch (PDOException $exU) {}
             
-            $ins = $pdo->prepare("INSERT INTO leads (id, company_id, name, company, email, phone, address, source, tags, group_stage, assigned_to, assigned_by, enq_for, contact_person, remarks, status, priority) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'warm')");
-            $upd = $pdo->prepare("UPDATE leads SET name = COALESCE(?, name), company = COALESCE(?, company), email = COALESCE(?, email), address = COALESCE(?, address), source = COALESCE(?, source), tags = COALESCE(?, tags), group_stage = COALESCE(?, group_stage), assigned_to = COALESCE(?, assigned_to), assigned_by = COALESCE(?, assigned_by), enq_for = COALESCE(?, enq_for), contact_person = COALESCE(?, contact_person), remarks = COALESCE(?, remarks), status = COALESCE(?, status) WHERE id = ?");
+            $ins = $pdo->prepare("INSERT INTO leads (id, company_id, name, company, email, phone, address, city, state, gst, source, tags, group_stage, assigned_to, assigned_by, enq_for, contact_person, remarks, status, priority, created_at) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'warm', COALESCE(?, NOW()))");
+            $upd = $pdo->prepare("UPDATE leads SET name = COALESCE(?, name), company = COALESCE(?, company), email = COALESCE(?, email), address = COALESCE(?, address), city = COALESCE(?, city), state = COALESCE(?, state), gst = COALESCE(?, gst), source = COALESCE(?, source), tags = COALESCE(?, tags), group_stage = COALESCE(?, group_stage), assigned_to = COALESCE(?, assigned_to), assigned_by = COALESCE(?, assigned_by), enq_for = COALESCE(?, enq_for), contact_person = COALESCE(?, contact_person), remarks = COALESCE(?, remarks), status = COALESCE(?, status) WHERE id = ?");
             $log = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, 'Lead file registered via bulk spreadsheet import')");
             $generated_ids = [];
             foreach ($leads_to_import as $lead) {
@@ -653,7 +732,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                     }
                 }
                 
-                $lead_stage_status = $lead['lead_stage_status'] ?? 'new';
+                $lead_source_final = !empty($lead['source']) ? $lead['source'] : $confirm_source;
 
                 if (!empty($lead['duplicate_id'])) {
                     $assigned_by = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
@@ -663,7 +742,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                         $finalCompany ?: null,
                         !empty($lead['email']) ? $lead['email'] : null,
                         !empty($lead['address']) ? $lead['address'] : null,
-                        !empty($lead['source']) ? $lead['source'] : 'Imported',
+                        !empty($lead['city']) ? $lead['city'] : null,
+                        !empty($lead['state']) ? $lead['state'] : null,
+                        !empty($lead['gst']) ? $lead['gst'] : null,
+                        $lead_source_final,
                         !empty($lead['tags']) ? $lead['tags'] : null,
                         !empty($lead['group_stage']) ? $lead['group_stage'] : null,
                         $finalAssignee ?: null,
@@ -697,15 +779,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                         $lead['email'] ?: null,
                         $lead['phone'],
                         $lead['address'] ?: null,
-                        $lead['source'] ?: 'Imported',
+                        !empty($lead['city']) ? $lead['city'] : null,
+                        !empty($lead['state']) ? $lead['state'] : null,
+                        !empty($lead['gst']) ? $lead['gst'] : null,
+                        $lead_source_final,
                         $lead['tags'] ?: null,
                         $lead['group_stage'] ?: null,
                         $finalAssignee,
                         $assigned_by,
                         $lead['enq_for'] ?: null,
-                        $lead['contact_person'] ?: null,
+                        !empty($lead['contact_person']) ? $lead['contact_person'] : null,
                         $lead['remarks'] ?: null,
-                        $lead_stage_status
+                        $lead_stage_status,
+                        !empty($lead['created_at_val']) ? $lead['created_at_val'] : null
                     ]);
                     
                     // Log to timeline
@@ -778,26 +864,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
     <form action="index.php?page=lead_import" method="POST" enctype="multipart/form-data">
         <div class="grid" style="grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; margin-bottom: 2rem;">
             
-            <!-- Left: Upload Box -->
-            <div class="card p-6 flex flex-col align-center text-center justify-center pointer" style="border: 2px dashed var(--border-color); border-radius: var(--border-radius-md); height: 260px; transition: border-color var(--transition-fast);" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border-color)'" onclick="document.getElementById('import-file-selector').click();">
-                <input type="file" name="excel_file" id="import-file-selector" class="hidden" accept=".xlsx, .xls, .csv" onchange="this.form.submit();">
-                <div class="flex flex-col align-center justify-center">
-                    <i data-lucide="upload-cloud" class="text-muted mb-4" style="width: 48px; height: 48px; color: var(--primary);"></i>
-                    <h4 class="mb-2">Choose Excel or CSV spreadsheet</h4>
-                    <p class="text-xs text-muted mb-4">Click to browse or drop your Excel (.xlsx, .xls) or CSV file from your device.</p>
-                    <span class="badge" style="--badge-bg: var(--primary-light); --badge-color: var(--primary);">Format supported: .XLSX / .XLS / .CSV</span>
+            <!-- Left: Upload Box with Source Selection -->
+            <div class="card p-5 flex flex-col justify-between" style="border: 1px solid var(--border-color); border-radius: var(--border-radius-md); min-height: 260px;">
+                <!-- Source Selection Bar -->
+                <div class="flex align-center justify-between gap-3 mb-3 p-2 border-radius-sm" style="background: var(--bg-hover); border: 1px solid var(--border-color);">
+                    <div class="flex align-center gap-2">
+                        <i data-lucide="tag" style="width: 15px; height: 15px; color: var(--primary);"></i>
+                        <label for="upload-lead-source" class="text-xs font-bold text-main m-0" style="white-space: nowrap;">Import Lead Source:</label>
+                    </div>
+                    <select name="lead_source" id="upload-lead-source" class="form-control text-xs font-semibold" style="width: auto; max-width: 210px; height: 32px; padding: 0.2rem 0.5rem; border-color: var(--primary); background: var(--bg-card);" onclick="event.stopPropagation();">
+                        <option value="GSTN Data" <?php echo ($selected_source === 'GSTN Data') ? 'selected' : ''; ?>>GSTN Data (Recommended)</option>
+                        <option value="Imported" <?php echo ($selected_source === 'Imported') ? 'selected' : ''; ?>>Imported</option>
+                        <option value="Website" <?php echo ($selected_source === 'Website') ? 'selected' : ''; ?>>Website</option>
+                        <option value="Google Ads" <?php echo ($selected_source === 'Google Ads') ? 'selected' : ''; ?>>Google Ads</option>
+                        <option value="Cold Calls" <?php echo ($selected_source === 'Cold Calls') ? 'selected' : ''; ?>>Cold Calls</option>
+                        <option value="Referrals" <?php echo ($selected_source === 'Referrals') ? 'selected' : ''; ?>>Referrals</option>
+                        <option value="Exhibitions" <?php echo ($selected_source === 'Exhibitions') ? 'selected' : ''; ?>>Exhibitions</option>
+                        <option value="HO" <?php echo ($selected_source === 'HO') ? 'selected' : ''; ?>>HO</option>
+                        <option value="Office" <?php echo ($selected_source === 'Office') ? 'selected' : ''; ?>>Office</option>
+                        <option value="Self" <?php echo ($selected_source === 'Self') ? 'selected' : ''; ?>>Self</option>
+                        <option value="Door to Door" <?php echo ($selected_source === 'Door to Door') ? 'selected' : ''; ?>>Door to Door</option>
+                    </select>
+                </div>
+
+                <!-- Dropzone Box -->
+                <div class="flex flex-col align-center text-center justify-center pointer p-3" style="border: 2px dashed var(--border-color); border-radius: var(--border-radius-sm); flex: 1; min-height: 150px; transition: border-color var(--transition-fast);" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border-color)'" onclick="document.getElementById('import-file-selector').click();">
+                    <input type="file" name="excel_file" id="import-file-selector" class="hidden" accept=".xlsx, .xls, .csv" onchange="this.form.submit();">
+                    <div class="flex flex-col align-center justify-center">
+                        <i data-lucide="upload-cloud" class="text-muted mb-2" style="width: 36px; height: 36px; color: var(--primary);"></i>
+                        <h4 class="mb-1 text-sm font-bold">Choose Excel or CSV spreadsheet</h4>
+                        <p class="text-xs text-muted mb-2">Click to browse or drop your Excel (.xlsx, .xls) or CSV file from your device.</p>
+                        <span class="badge" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-size: 0.72rem;">Format supported: .XLSX / .XLS / .CSV</span>
+                    </div>
                 </div>
             </div>
 
             <!-- Right: Guidelines panel -->
-            <div class="card p-6" style="border: 1px solid var(--border-color); height: 260px; display: flex; flex-direction: column;">
+            <div class="card p-6" style="border: 1px solid var(--border-color); min-height: 260px; display: flex; flex-direction: column;">
                 <h3 class="text-sm font-semibold mb-3">Formatting Guidelines</h3>
                 <p class="text-xs text-muted mb-4">Ensure your spreadsheet matches these column configurations to avoid mapping check failures:</p>
                 <ul class="flex flex-col gap-2 text-xs text-muted" style="flex: 1; overflow-y: auto;">
-                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>Contact / Business</strong> (Firm Name)</li>
-                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>Mobile / Phone</strong> (Unique identifier)</li>
-                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>Group</strong> (Lead Stage / Followup status)</li>
-                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>Contact Person, Enq For, Address, Source, Remarks, Tags</strong></li>
+                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>GST / Tax Columns</strong> (GST No. &rarr; GST, Trade Name &rarr; Firm, Legal Name &rarr; Contact)</li>
+                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>Mobile / Phone</strong> (Unique identifier & duplicate check)</li>
+                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>State, City, Pincode</strong> (Auto-combined into complete address)</li>
+                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>Source</strong> (Auto-detected & locked to 'GSTN Data')</li>
+                    <li class="flex align-center gap-2"><i data-lucide="check" style="width: 14px; height: 14px; color: var(--success);"></i> <strong>Date / Timestamp</strong> (Auto-parsed into Lead creation date)</li>
                 </ul>
                 <div class="flex gap-2 mt-4" style="margin-top: auto;">
                     <a href="index.php?page=lead_import&action=download_template&format=xlsx" class="btn btn-secondary text-xs flex-1" style="padding: 0.5rem; justify-content: center; display: flex; align-items: center; gap: 4px;">
@@ -842,7 +953,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                         </select>
                     </div>
 
-                    <form action="index.php?page=lead_import" method="POST" style="margin: 0;">
+                    <form action="index.php?page=lead_import" method="POST" style="margin: 0;" class="flex align-center gap-2 flex-wrap">
+                        <div class="flex align-center gap-2 bg-card p-1" style="border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);">
+                            <label for="batch-source-select" class="text-xs font-semibold text-muted pl-2" style="white-space: nowrap;">Source:</label>
+                            <select name="confirm_source" id="batch-source-select" class="form-control text-xs font-semibold" style="width: auto; padding: 0.25rem 0.5rem; height: 30px;" onchange="updateAllPreviewSources(this.value)">
+                                <?php 
+                                $preview_src_val = $_SESSION['import_default_source'] ?? 'GSTN Data';
+                                $available_sources = ['GSTN Data', 'Imported', 'Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Self', 'Door to Door'];
+                                foreach ($available_sources as $as): 
+                                ?>
+                                    <option value="<?php echo htmlspecialchars($as); ?>" <?php echo (strcasecmp($preview_src_val, $as) === 0) ? 'selected' : ''; ?>><?php echo htmlspecialchars($as); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                         <div class="flex gap-2">
                             <button type="button" class="btn btn-secondary text-xs" style="padding: 0.5rem 1rem;" onclick="window.location.href='index.php?page=lead_import'">Cancel</button>
                             <button type="submit" name="confirm_import_action" class="btn btn-primary text-xs font-bold" style="padding: 0.5rem 1.25rem;">
@@ -873,6 +996,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                             <th style="width: 60px; text-align: center; background: var(--bg-card);">Row #</th>
                             <th style="background: var(--bg-card);">Contact Person</th>
                             <th style="background: var(--bg-card);">Company / Firm Name</th>
+                            <th style="background: var(--bg-card);">GST No.</th>
                             <th style="background: var(--bg-card);">Contact Number</th>
                             <th style="background: var(--bg-card);">Email Address</th>
                             <th style="background: var(--bg-card);">Group / Stage</th>
@@ -896,6 +1020,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                                 <td style="text-align: center; font-weight: 600; color: var(--text-muted);">#<?php echo $row['row_num']; ?></td>
                                 <td class="font-semibold" style="color: var(--text-color);"><?php echo htmlspecialchars($row['contact_person'] ?: '---'); ?></td>
                                 <td class="font-bold" style="color: var(--primary);"><?php echo htmlspecialchars($row['company'] ?: 'MARG ERP Softwares'); ?></td>
+                                <td>
+                                    <?php if (!empty($row['gst'])): ?>
+                                        <span class="badge" style="--badge-bg: rgba(16, 185, 129, 0.1); --badge-color: #059669; font-weight: 700; font-family: monospace; font-size: 0.72rem; letter-spacing: 0.5px;"><?php echo htmlspecialchars($row['gst']); ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted">---</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="font-semibold"><?php echo htmlspecialchars($row['phone'] ?: '---'); ?></td>
                                 <td class="text-muted"><?php echo htmlspecialchars($row['email'] ?: '---'); ?></td>
                                 <td>
@@ -913,7 +1044,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
                                     <?php endif; ?>
                                 </td>
                                 <td class="font-semibold text-muted"><?php echo htmlspecialchars($row['assigned_to'] ?: 'Admin'); ?></td>
-                                <td><span class="badge" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted);"><?php echo htmlspecialchars($row['source'] ?: 'HO'); ?></span></td>
+                                <td><span class="badge source-badge-cell" style="--badge-bg: var(--border-card); --badge-color: var(--text-muted); font-weight: 600;"><?php echo htmlspecialchars($row['source'] ?: ($preview_src_val ?? 'GSTN Data')); ?></span></td>
                                 <td class="text-muted" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis;"><?php echo htmlspecialchars($row['address'] ?: '---'); ?></td>
                                 <td>
                                     <?php if (!empty($row['effective_fup_date'])): ?>
@@ -1020,6 +1151,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import_action
     function navigateImportPage(direction) {
         currentImportPage += direction;
         renderImportPagination();
+    }
+
+    function updateAllPreviewSources(newSource) {
+        document.querySelectorAll('.source-badge-cell').forEach(badge => {
+            badge.textContent = newSource;
+        });
     }
 
     document.addEventListener('DOMContentLoaded', () => {

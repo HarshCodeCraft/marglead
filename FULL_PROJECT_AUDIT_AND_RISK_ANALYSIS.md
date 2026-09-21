@@ -14,7 +14,7 @@ While the application offers extensive features and modern visual aesthetics, an
 
 ---
 
-## 2. 🔴 Critical Vulnerabilities & Security Risks (Present & Future)
+## 2.  Critical Vulnerabilities & Security Risks (Present & Future)
 
 ### 2.1 Lack of Cross-Site Request Forgery (CSRF) Protection
 - **Present Vulnerability:** Almost all form POST requests (`index.php?page=admin_users`, `admin_permissions`, `settings`, `leads`, `support`) lack Anti-CSRF verification tokens (`$_SESSION['csrf_token']`).
@@ -34,7 +34,7 @@ While the application offers extensive features and modern visual aesthetics, an
 
 ---
 
-## 3. ⚡ Performance Bottlenecks & Scalability Limits
+## 3.  Performance Bottlenecks & Scalability Limits
 
 ### 3.1 Synchronous Bulk Broadcast Processing (Risk of HTTP 504 Timeouts)
 - **Present Bottleneck:** In `modules/bulk_broadcast.php` and `api/campaign-api.php`, when sending WhatsApp broadcast campaigns to thousands of contacts, messages are sent synchronously inside a `foreach` loop using `curl_exec`.
@@ -62,7 +62,7 @@ While the application offers extensive features and modern visual aesthetics, an
 
 ---
 
-## 5. 📱 Meta WhatsApp Integration & Edge Case Risks
+## 5.  Meta WhatsApp Integration & Edge Case Risks
 
 ### 5.1 Meta Webhook 3-Second Timeout Rule Violation
 - **Present Risk:** Meta WhatsApp Webhook (`api/webhook.php`, `api/whatsapp_webhook.php`) must acknowledge incoming webhook payloads with an HTTP 200 OK status within 3 seconds.
@@ -90,13 +90,13 @@ While the application offers extensive features and modern visual aesthetics, an
 
 | Priority | Issue / Vulnerability | Recommended Solution |
 | :--- | :--- | :--- |
-| 🔴 **High (P1)** | CSRF Protection | Implement global `$_SESSION['csrf_token']` validation for all form POST submissions. |
-| 🔴 **High (P1)** | Upload Directory Execution | Add `.htaccess` inside `uploads/` with `php_flag engine off` and enforce MIME type checks. |
-| 🟡 **Medium (P2)** | Bulk Broadcast Timeout | Transition bulk WhatsApp messaging to background queue workers (Cron / Queue Job table). |
-| 🟡 **Medium (P2)** | Foreign Key Constraints | Add Foreign Key constraints (`ON DELETE CASCADE`) to prevent orphaned rows. |
-| 🟡 **Medium (P2)** | Operator Name Storage | Store `assigned_to_user_id` (Integer FK) instead of operator name strings. |
-| 🟢 **Low (P3)** | DOM Polling Optimization | Replace `setInterval(..., 500)` in `main.js` with Event Listeners or `MutationObserver`. |
-| 🟢 **Low (P3)** | Code Refactoring | Separate SQL database queries from HTML template views using modular controller patterns. |
+|  **High (P1)** | CSRF Protection | Implement global `$_SESSION['csrf_token']` validation for all form POST submissions. |
+|  **High (P1)** | Upload Directory Execution | Add `.htaccess` inside `uploads/` with `php_flag engine off` and enforce MIME type checks. |
+|  **Medium (P2)** | Bulk Broadcast Timeout | Transition bulk WhatsApp messaging to background queue workers (Cron / Queue Job table). |
+|  **Medium (P2)** | Foreign Key Constraints | Add Foreign Key constraints (`ON DELETE CASCADE`) to prevent orphaned rows. |
+|  **Medium (P2)** | Operator Name Storage | Store `assigned_to_user_id` (Integer FK) instead of operator name strings. |
+|   **Low (P3)** | DOM Polling Optimization | Replace `setInterval(..., 500)` in `main.js` with Event Listeners or `MutationObserver`. |
+|   **Low (P3)** | Code Refactoring | Separate SQL database queries from HTML template views using modular controller patterns. |
 
 ---
 *Report compiled automatically for system record.*

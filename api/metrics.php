@@ -8,7 +8,8 @@ if (!$db_connected || !$pdo) {
 try {
     $auth = getAuthUserContext();
     $user_name = $auth['name'] ?? ($_SESSION['user_name'] ?? '');
-    $is_admin = $auth['isAdmin'] ?? (($_SESSION['user_role'] ?? '') === 'Admin' || ($_SESSION['user_role'] ?? '') === 'Super Admin');
+    $r = strtolower($_SESSION['user_role'] ?? '');
+    $is_admin = $auth['isAdmin'] ?? ($r === 'admin' || $r === 'super admin' || str_contains($r, 'admin') || str_contains($r, 'super') || str_contains($r, 'manager'));
 
     $metrics = getLiveMetricCounts($pdo, $is_admin, $user_name);
 

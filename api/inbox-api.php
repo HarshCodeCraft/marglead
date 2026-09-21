@@ -557,11 +557,11 @@ switch ($action) {
                 $remarks = "Chat Closed by $actor ($role)";
             } elseif ($status === 'pending') {
                 $actionName = 'pending';
-                $statusEmoji = '🟡';
+                $statusEmoji = '';
                 $remarks = "Chat Status set to Pending by $actor ($role)";
             } else {
                 $actionName = 'reopened';
-                $statusEmoji = '🟢';
+                $statusEmoji = ' ';
                 $remarks = "Chat Re-opened by $actor ($role)";
             }
 
@@ -592,7 +592,7 @@ switch ($action) {
         }
 
         if (isChatClosed($pdo, $phone)) {
-            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "🟢 Re-open Chat" before sending messages.']);
+            echo json_encode(['success' => false, 'message' => '🔒 Conversation is Closed. You must click "  Re-open Chat" before sending messages.']);
             exit;
         }
 

@@ -566,21 +566,39 @@ function closeAudienceModal() {
     }
 }
 
+const bulkCampaignCooldowns = {};
+
 function runActiveCampaignsLoop() {
     if (runningCampaignIds.size === 0) return;
 
+    const now = Date.now();
+
     runningCampaignIds.forEach(id => {
-        fetch(`api/campaign-api.php?action=process_batch&id=${id}&batch_size=5`)
+        const nextAllowed = bulkCampaignCooldowns[id] || 0;
+        if (now < nextAllowed) return;
+
+        bulkCampaignCooldowns[id] = now + 999999;
+
+        fetch(`api/campaign-api.php?action=process_batch&id=${id}&batch_size=1`)
         .then(res => res.json())
         .then(data => {
             if (data.success && data.campaign) {
-                if (data.status === 'completed') {
+                if (data.status === 'completed' || data.campaign.status === 'completed' || data.status === 'paused') {
                     runningCampaignIds.delete(id);
+                    delete bulkCampaignCooldowns[id];
                     fetchCampaigns();
+                    return;
                 }
+                const delaySec = parseInt(data.delay_seconds !== undefined ? data.delay_seconds : (data.campaign.delay_seconds || 0));
+                bulkCampaignCooldowns[id] = Date.now() + (Math.max(1, delaySec) * 1000);
+            } else {
+                bulkCampaignCooldowns[id] = Date.now() + 10000;
             }
         })
-        .catch(err => console.error(err));
+        .catch(err => {
+            console.error(err);
+            bulkCampaignCooldowns[id] = Date.now() + 15000;
+        });
     });
 }
 

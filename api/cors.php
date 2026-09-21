@@ -33,6 +33,16 @@ function getJsonInput() {
  * Enforce strict API authentication: Requires active CRM Session OR valid X-API-KEY header
  */
 function requireApiAuth() {
+    // 0. Allow CLI / Cron execution without blocking
+    if (php_sapi_name() === 'cli' || (defined('IS_CRON_EXECUTION') && IS_CRON_EXECUTION)) {
+        return [
+            'user_id' => 1,
+            'name'    => 'Cron System',
+            'role'    => 'Super Admin',
+            'isAdmin' => true
+        ];
+    }
+
     // 1. Check if user is logged into CRM Session
     if (isset($_SESSION['user_id']) && !empty($_SESSION['user_name'])) {
         $role = $_SESSION['user_role'] ?? 'User';

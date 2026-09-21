@@ -34,9 +34,7 @@ $is_tenant_session = (
 // 2. Strict Project Owner / Deepak Awasthi verification
 if (!$is_tenant_session) {
     $is_deepak_email = in_array($user_email, [
-        'deepakawasthi587@gmail.com',
-        'harshsaini20172018@gmail.com',
-        'operator@domain.local'
+        'deepakawasthi587@gmail.com'
     ]);
     $is_deepak_name = (stripos($user_name, 'deepak') !== false);
     $is_super_admin_role = in_array(strtolower($user_role), ['super admin', 'superadmin']);
@@ -210,7 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
 
         $gateway_label = ($gateway_type === 'web_api') ? 'Self-Hosted WhatsApp Web API (QR Code Instance)' : 'Meta WhatsApp Cloud API';
-        $message = "🎉 Gateway Settings saved! Active Integration Method: " . $gateway_label;
+        $message = " Gateway Settings saved! Active Integration Method: " . $gateway_label;
         $message_type = "success";
 
         // Refresh settings
@@ -252,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $postFields = [
                 'action'    => 'send_message',
                 'recipient' => $phoneDigits,
-                'message'   => "🎉 Marg ERP 9+ Self-Hosted WhatsApp Web Test Message!\nBill No: {$test_bill_no}\nSent cleanly via paired phone camera session.",
+                'message'   => " Marg ERP 9+ Self-Hosted WhatsApp Web Test Message!\nBill No: {$test_bill_no}\nSent cleanly via paired phone camera session.",
                 'token'     => $webToken,
                 'instance'  => $webInstance
             ];
@@ -273,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             if ($httpCode === 200 || (!empty($resJson['status']) && strtolower($resJson['status']) === 'success')) {
                 $msgId = $resJson['message_id'] ?? $resJson['id'] ?? ('SELF-WEB-' . time());
-                $message = "🎉 SUCCESS! Test message dispatched via Self-Hosted WhatsApp Web API to {$phoneDigits}!";
+                $message = " SUCCESS! Test message dispatched via Self-Hosted WhatsApp Web API to {$phoneDigits}!";
                 $message_type = "success";
 
                 try {
@@ -363,7 +361,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                 if ($httpCode === 200 && isset($resJson['messages'][0]['id'])) {
                     $metaId = $resJson['messages'][0]['id'];
-                    $message = "🎉 SUCCESS! Test Meta Cloud API Message sent to {$phoneDigits}! Message ID: {$metaId}";
+                    $message = " SUCCESS! Test Meta Cloud API Message sent to {$phoneDigits}! Message ID: {$metaId}";
                     $message_type = "success";
 
                     try {
@@ -710,10 +708,10 @@ try {
                 All (<span id="countPillAll"><?php echo count($recentDispatches); ?></span>)
             </button>
             <button type="button" onclick="filterLogs('Sent')" id="btnFilterSent" class="btn btn-sm" style="padding: 4px 12px; font-size: 0.75rem; border-radius: 20px; font-weight: 700; border: 1px solid var(--border-color); background: var(--bg-body); color: #10b981;">
-                🟢 Sent (<span id="countPillSent"><?php echo count(array_filter($recentDispatches, fn($r) => strtolower($r['status'] ?? '') === 'sent')); ?></span>)
+                  Sent (<span id="countPillSent"><?php echo count(array_filter($recentDispatches, fn($r) => strtolower($r['status'] ?? '') === 'sent')); ?></span>)
             </button>
             <button type="button" onclick="filterLogs('Failed')" id="btnFilterFailed" class="btn btn-sm" style="padding: 4px 12px; font-size: 0.75rem; border-radius: 20px; font-weight: 700; border: 1px solid var(--border-color); background: var(--bg-body); color: #ef4444;">
-                🔴 Failed (<span id="countPillFailed"><?php echo count(array_filter($recentDispatches, fn($r) => strtolower($r['status'] ?? '') === 'failed')); ?></span>)
+                 Failed (<span id="countPillFailed"><?php echo count(array_filter($recentDispatches, fn($r) => strtolower($r['status'] ?? '') === 'failed')); ?></span>)
             </button>
         </div>
         <span style="font-size: 0.72rem; color: var(--text-muted);">
@@ -1070,7 +1068,7 @@ function escapeHtml(text) {
                     </span>
                 <?php else: ?>
                     <span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.72rem; padding: 3px 8px; border-radius: 6px;">
-                        ⚪ Not Configured
+                         Not Configured
                     </span>
                 <?php endif; ?>
             </div>
@@ -1101,7 +1099,7 @@ function escapeHtml(text) {
                     </span>
                 <?php else: ?>
                     <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #fde68a; font-weight: 600; font-size: 0.72rem; padding: 3px 8px; border-radius: 6px;">
-                        🟡 Ready to Scan / Pair
+                         Ready to Scan / Pair
                     </span>
                 <?php endif; ?>
             </div>
@@ -1282,7 +1280,7 @@ function escapeHtml(text) {
                                 <span style="font-size: 0.75rem; color: #64748b; font-family: monospace;"><?php echo htmlspecialchars($web_display_phone ?: 'Paired'); ?></span>
                             </div>
                         <?php else: ?>
-                            ⚡ <strong>Node Engine Status</strong><br>
+                             <strong>Status</strong><br>
                             Connecting to WhatsApp instance...
                         <?php endif; ?>
                     </div>
@@ -1293,11 +1291,11 @@ function escapeHtml(text) {
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
                     <?php if ($is_web_connected): ?>
                         <span class="badge" id="sessionStatusBadge" style="background: #10b981; color: white; font-weight: 700; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem;">
-                            🟢 Status: Connected (<?php echo htmlspecialchars($web_display_phone ?: 'Paired'); ?>)
+                              Status: Connected (<?php echo htmlspecialchars($web_display_phone ?: 'Paired'); ?>)
                         </span>
                     <?php else: ?>
                         <span class="badge" id="sessionStatusBadge" style="background: #f59e0b; color: white; font-weight: 700; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem;">
-                            🟡 Status: Ready / Select Pairing Method
+                             Status: Ready / Select Pairing Method
                         </span>
                     <?php endif; ?>
                 </div>
@@ -1307,7 +1305,7 @@ function escapeHtml(text) {
                     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
                         <div>
                             <span style="font-size: 0.85rem; color: #10b981; font-weight: 700; display: block; margin-bottom: 2px;">
-                                🎉 WhatsApp Account Linked &amp; Active!
+                                 WhatsApp Account Linked &amp; Active!
                             </span>
                             <span style="font-size: 0.775rem; color: var(--text-muted);">
                                 Paired Phone: <strong id="connectedPhoneDisplay" style="color: var(--text-main); font-family: monospace;"><?php echo htmlspecialchars($web_display_phone ?: 'Connected'); ?></strong> &bull; Marg ERP Invoices will send automatically.
@@ -1473,7 +1471,7 @@ function updateWebSessionUI(data) {
             ph.innerHTML = "<div style='text-align:center;'><i data-lucide='check-circle-2' style='width:36px;height:36px;color:#10b981;margin-bottom:6px;'></i><br><strong style='color:#10b981;font-size:0.9rem;'>Connected</strong><br><span style='font-size:0.75rem;color:#64748b;font-family:monospace;'>" + formattedPhone + "</span></div>";
         }
         if (badge) {
-            badge.innerHTML = "🟢 Status: Connected (" + formattedPhone + ")";
+            badge.innerHTML = "  Status: Connected (" + formattedPhone + ")";
             badge.style.background = "#10b981";
         }
         if (connectedBox) {
@@ -1492,7 +1490,7 @@ function updateWebSessionUI(data) {
         }
         if (ph) ph.style.display = 'none';
         if (badge) {
-            badge.innerHTML = "🟡 Status: Ready / Scan QR Code";
+            badge.innerHTML = " Status: Ready / Scan QR Code";
             badge.style.background = "#f59e0b";
         }
         if (connectedBox) connectedBox.style.display = 'none';
@@ -1505,7 +1503,7 @@ function updateWebSessionUI(data) {
             ph.innerHTML = "<div style='text-align:center;padding:4px;'><i data-lucide='alert-circle' style='width:32px;height:32px;color:#ef4444;margin-bottom:6px;'></i><br><strong style='color:#ef4444;font-size:0.85rem;'>Cloud Engine Reconnecting</strong><br><span style='font-size:0.75rem;color:#64748b;'>Click 'Refresh Status' in a few seconds.</span></div>";
         }
         if (badge) {
-            badge.innerHTML = "🔴 Status: Cloud Engine Reconnecting";
+            badge.innerHTML = " Status: Cloud Engine Reconnecting";
             badge.style.background = "#ef4444";
         }
         if (connectedBox) connectedBox.style.display = 'none';
@@ -1516,10 +1514,10 @@ function updateWebSessionUI(data) {
         if (img) img.style.display = 'none';
         if (ph) {
             ph.style.display = 'block';
-            ph.innerHTML = "⚡ <strong>Generating QR Code...</strong><br><span style='font-size:0.75rem;color:#64748b;'>Please wait a moment...</span>";
+            ph.innerHTML = " <strong>Generating QR Code...</strong><br><span style='font-size:0.75rem;color:#64748b;'>Please wait a moment...</span>";
         }
         if (badge) {
-            badge.innerHTML = "🟡 Status: Generating QR Code...";
+            badge.innerHTML = " Status: Generating QR Code...";
             badge.style.background = "#f59e0b";
         }
         setTimeout(loadLiveQrCode, 2500);
@@ -1528,13 +1526,13 @@ function updateWebSessionUI(data) {
         if (ph) {
             ph.style.display = 'block';
             if (data && data.message) {
-                ph.innerHTML = "⚡ <strong>Node Engine Status</strong><br>" + data.message;
+                ph.innerHTML = " <strong> Status</strong><br>" + data.message;
             } else {
-                ph.innerHTML = "⚡ <strong>Node Engine Ready</strong><br>Click 'Refresh Status' or scan QR.";
+                ph.innerHTML = " Click 'Refresh Status' or scan QR.";
             }
         }
         if (badge) {
-            badge.innerHTML = "🟡 Status: Ready / Select Pairing Method";
+            badge.innerHTML = " Status: Ready / Select Pairing Method";
             badge.style.background = "#f59e0b";
         }
         if (connectedBox) connectedBox.style.display = 'none';
@@ -1603,7 +1601,7 @@ function generatePhonePairingCode() {
                 document.getElementById('displayPairingCode').innerText = data.pairing_code;
                 document.getElementById('pairingCodeResult').style.display = 'block';
             } else {
-                alert(data.message || 'Node Engine offline. Run "npm start" inside whatsapp_engine folder first.');
+                alert(data.message || 'offline. Run "npm start" inside whatsapp_engine folder first.');
             }
         })
         .catch(err => {

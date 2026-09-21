@@ -303,18 +303,41 @@ if ($action === 'send_message') {
 
     $recipient = $post['recipient'] ?? $post['phone'] ?? $post['mob'] ?? '';
     $message = $post['message'] ?? $post['msg'] ?? '';
-    $pdf_url = $post['document_url'] ?? $post['pdf_url'] ?? '';
+    $rawMedia = $post['media_url'] ?? $post['image_url'] ?? $post['document_url'] ?? $post['pdf_url'] ?? '';
+    $mediaPosition = $post['media_position'] ?? 'top';
+    $mediaType = $post['media_type'] ?? '';
+    $fileName = $post['file_name'] ?? '';
 
     $phoneDigits = preg_replace('/\D/', '', $recipient);
     if (strlen($phoneDigits) === 10) $phoneDigits = '91' . $phoneDigits;
 
-    // Dispatch via local Node engine for this specific user
-    $nodeRes = callLocalNodeEngine('/send-message', [
-        'user_id'   => $user_id,
-        'recipient' => $phoneDigits,
-        'message'   => $message,
-        'pdf_url'   => $pdf_url
-    ]);
+    // Detect real media extension and type
+    $ext = strtolower(pathinfo(parse_url($rawMedia, PHP_URL_PATH), PATHINFO_EXTENSION));
+    $isImg = in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif']) || ($mediaType === 'image');
+    $isPdf = ($ext === 'pdf') || ($mediaType === 'pdf') || !empty($post['pdf_url']);
+
+    // Build payload preserving 100% backward compatibility for Marg ERP billing invoices
+    $nodePayload = [
+        'user_id'        => $user_id,
+        'recipient'      => $phoneDigits,
+        'message'        => $message,
+        'media_position' => $mediaPosition,
+        'media_type'     => $isImg ? 'image' : ($isPdf ? 'pdf' : 'document'),
+        'file_name'      => !empty($fileName) ? $fileName : ($isImg ? ('Image.' . ($ext ?: 'jpeg')) : 'Invoice.pdf')
+    ];
+
+    if (!empty($rawMedia)) {
+        $nodePayload['media_url'] = $rawMedia;
+        if ($isImg) {
+            $nodePayload['image_url'] = $rawMedia;
+        } else {
+            $nodePayload['document_url'] = $rawMedia;
+            $nodePayload['pdf_url'] = $rawMedia;
+        }
+    }
+
+    // Dispatch via local/cloud Node engine for this specific user
+    $nodeRes = callLocalNodeEngine('/send-message', $nodePayload);
 
     if ($nodeRes) {
         echo json_encode($nodeRes, JSON_PRETTY_PRINT);

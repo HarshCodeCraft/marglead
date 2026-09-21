@@ -13,21 +13,40 @@ if (isset($_GET['msg']) && $_GET['msg'] === 'sent') {
 }
 
 if ($db_connected && $pdo && !empty($email)) {
+    // Check user profile initially
+    try {
+        $stmtCheck = $pdo->prepare("SELECT id, name, status, otp_code, otp_expires_at FROM users WHERE LOWER(email) = ?");
+        $stmtCheck->execute([strtolower($email)]);
+        $userProfile = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $userProfile = null;
+    }
+
+    // If user is already Active:
+    if ($userProfile && $userProfile['status'] === 'Active') {
+        // If an OTP code was actively requested for password reset, reroute them to otp-reset.php
+        if (!empty($userProfile['otp_code'])) {
+            $fwdCode = isset($_GET['code']) ? trim($_GET['code']) : (isset($_GET['otp']) ? trim($_GET['otp']) : '');
+            $fwdUrl = "otp-reset.php?email=" . urlencode($email) . (!empty($fwdCode) ? "&code=" . urlencode($fwdCode) : '');
+            header("Location: " . $fwdUrl);
+            exit;
+        } else {
+            header("Location: login.php?verified=already");
+            exit;
+        }
+    }
+
     // 1. Handle Resend Request
     if (isset($_POST['action']) && $_POST['action'] === 'resend') {
         try {
-            $stmt = $pdo->prepare("SELECT id, name, status FROM users WHERE email = ?");
-            $stmt->execute([$email]);
-            $user = $stmt->fetch();
-
-            if ($user && $user['status'] === 'Unverified') {
+            if ($userProfile && $userProfile['status'] === 'Unverified') {
                 $new_otp = sprintf("%06d", mt_rand(100000, 999999));
                 $new_expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
 
                 $updateStmt = $pdo->prepare("UPDATE users SET otp_code = ?, otp_expires_at = ? WHERE id = ?");
-                $updateStmt->execute([$new_otp, $new_expiry, $user['id']]);
+                $updateStmt->execute([$new_otp, $new_expiry, $userProfile['id']]);
 
-                Mailer::sendEmailVerificationOTP($email, $user['name'], $new_otp);
+                Mailer::sendEmailVerificationOTP($email, $userProfile['name'], $new_otp);
 
                 $message = "A fresh 6-digit verification code has been dispatched to " . htmlspecialchars($email) . ".";
                 $message_type = "success";
@@ -40,7 +59,48 @@ if ($db_connected && $pdo && !empty($email)) {
             $message_type = "danger";
         }
     }
-    // 2. Handle OTP Submission
+    // 2. Handle Direct 1-Click Verification via GET link from email
+    elseif (empty($_POST) && (isset($_GET['code']) || isset($_GET['otp']))) {
+        $get_code = trim($_GET['code'] ?? $_GET['otp'] ?? '');
+        if (strlen($get_code) === 6 && preg_match('/^\d{6}$/', $get_code)) {
+            if (!$userProfile) {
+                $message = "No account found matching email: " . htmlspecialchars($email);
+                $message_type = "danger";
+            } elseif ($userProfile['status'] !== 'Unverified') {
+                header("Location: login.php?verified=already");
+                exit;
+            } else {
+                $db_otp = $userProfile['otp_code'];
+                $expires_at = $userProfile['otp_expires_at'] ? strtotime($userProfile['otp_expires_at']) : 0;
+
+                if (empty($db_otp) || $db_otp !== $get_code) {
+                    $message = "Incorrect or expired verification link. Please enter code manually or click 'Resend Code'.";
+                    $message_type = "danger";
+                } elseif (time() > $expires_at) {
+                    $message = "This verification code has expired. Please click 'Resend Code' below.";
+                    $message_type = "warning";
+                } else {
+                    try {
+                        $updateStmt = $pdo->prepare("UPDATE users SET status = 'Pending Approval', otp_code = NULL, otp_expires_at = NULL WHERE id = ?");
+                        $updateStmt->execute([$userProfile['id']]);
+
+                        Mailer::sendUserRegistrationNotification($email, $userProfile['name']);
+
+                        $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, type) VALUES ('Admin', 'New User Registration', ?, 'warning')");
+                        $adminNotifMsg = "Operator \"" . $userProfile['name'] . "\" verified email and is pending approval.";
+                        $adminNotifStmt->execute([$adminNotifMsg]);
+
+                        header("Location: login.php?verified=success");
+                        exit;
+                    } catch (PDOException $e) {
+                        $message = "Verification failed: " . $e->getMessage();
+                        $message_type = "danger";
+                    }
+                }
+            }
+        }
+    }
+    // 3. Handle OTP Submission via POST
     elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $digits = isset($_POST['otp']) ? $_POST['otp'] : [];
         $code = is_array($digits) ? implode('', $digits) : trim($digits);
@@ -262,8 +322,17 @@ if ($db_connected && $pdo && !empty($email)) {
             
             const inputs = document.querySelectorAll('.otp-input');
             
+            // Pre-fill from URL param if available
+            const urlParams = new URLSearchParams(window.location.search);
+            const codeParam = urlParams.get('code') || urlParams.get('otp');
+            if (codeParam && codeParam.length === 6 && /^\d{6}$/.test(codeParam)) {
+                for (let i = 0; i < 6 && i < inputs.length; i++) {
+                    inputs[i].value = codeParam[i];
+                }
+            }
+            
             inputs.forEach((input, index) => {
-                if (index === 0) input.focus();
+                if (index === 0 && !inputs[0].value) input.focus();
                 
                 input.addEventListener('keyup', (e) => {
                     if (e.key >= 0 && e.key <= 9) {

@@ -71,12 +71,26 @@ if ($method === 'GET') {
             sendJsonResponse(['success' => false, 'message' => 'Ticket ID and status required.'], 400);
         }
 
-        $origStmt = $pdo->prepare("SELECT status FROM support_tickets WHERE id = ?");
+        $origStmt = $pdo->prepare("SELECT status, phone, callback_number FROM support_tickets WHERE id = ?");
         $origStmt->execute([$ticket_id]);
-        $origStatus = $origStmt->fetchColumn() ?: 'open';
+        $origRow = $origStmt->fetch(PDO::FETCH_ASSOC);
+        $origStatus = $origRow['status'] ?? 'open';
+        $custPhone = !empty($origRow['phone']) ? $origRow['phone'] : ($origRow['callback_number'] ?? '');
         
         $stmt = $pdo->prepare("UPDATE support_tickets SET status = ? WHERE id = ?");
         $stmt->execute([$status, $ticket_id]);
+
+        // Auto-close chat in Team Inbox silently (NO chat message logged)
+        if (in_array(strtolower($status), ['resolved', 'closed']) && !empty($custPhone)) {
+            $cleanPhone = preg_replace('/[^0-9]/', '', $custPhone);
+            $last10 = substr($cleanPhone, -10);
+            if (!empty($cleanPhone)) {
+                try {
+                    $stmtCloseChat = $pdo->prepare("UPDATE chat_conversations SET status = 'closed' WHERE phone = ? OR phone LIKE ? OR phone LIKE ?");
+                    $stmtCloseChat->execute([$custPhone, "%$cleanPhone%", "%$last10%"]);
+                } catch (Throwable $eCC) {}
+            }
+        }
 
         try {
             $isReopen = in_array(strtolower($origStatus), ['resolved', 'closed']) && in_array(strtolower($status), ['open', 'in_progress', 'pending']);

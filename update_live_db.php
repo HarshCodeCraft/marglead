@@ -61,6 +61,12 @@ if ($db_connected && $pdo) {
         } else {
             $results[] = ["status" => "info", "msg" => "'client_directory' table is fully updated with 'area' column."];
         }
+        if (!in_array('no_of_companies', $cdCols)) {
+            $pdo->exec("ALTER TABLE client_directory ADD COLUMN no_of_companies INT NULL DEFAULT 1 AFTER no_of_users");
+            $results[] = ["status" => "success", "msg" => "Added 'no_of_companies' column to 'client_directory' table."];
+        } else {
+            $results[] = ["status" => "info", "msg" => "'client_directory' table is fully updated with 'no_of_companies' column."];
+        }
 
         // 2. Customers Table
         $pdo->exec("CREATE TABLE IF NOT EXISTS customers (
@@ -99,9 +105,14 @@ if ($db_connected && $pdo) {
                 $results[] = ["status" => "success", "msg" => "Added '$col' column to 'leads' table."];
             }
         }
+        if (!in_array('gst', $leadCols)) {
+            $pdo->exec("ALTER TABLE leads ADD COLUMN gst VARCHAR(15) NULL AFTER address");
+            $results[] = ["status" => "success", "msg" => "Added 'gst' column to 'leads' table."];
+        }
         $pdo->exec("ALTER TABLE leads MODIFY COLUMN city VARCHAR(50) NULL");
         $pdo->exec("ALTER TABLE leads MODIFY COLUMN state VARCHAR(50) NULL");
-        $results[] = ["status" => "info", "msg" => "'leads' table schema updated successfully."];
+        $normCount = $pdo->exec("UPDATE leads SET status = 'new' WHERE status IS NULL OR TRIM(status) = ''");
+        $results[] = ["status" => "info", "msg" => "'leads' table schema updated successfully (" . intval($normCount) . " empty statuses fixed)."];
 
         // 4. Users Table Security Columns
         $userCols = $pdo->query("SHOW COLUMNS FROM users")->fetchAll(PDO::FETCH_COLUMN);

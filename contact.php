@@ -220,7 +220,7 @@ $requested_page = 'contact';
                     alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
                     alertBox.style.border = '1px solid #10b981';
                     alertBox.style.color = '#059669';
-                    alertBox.textContent = '🎉 Thank you! ' + (res.message || 'Our team will contact you in 15 minutes.');
+                    alertBox.textContent = ' Thank you! ' + (res.message || 'Our team will contact you in 15 minutes.');
                     document.getElementById('contactPageForm').reset();
                 } else {
                     alertBox.style.display = 'block';

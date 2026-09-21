@@ -193,7 +193,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     $stmtAudit->execute([$from]);
 
                     // Log system message in message_logs
-                    $stmtSys = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status, created_at) VALUES ('OUTBOUND', ?, 'system', '🟢 Chat auto-reopened on receiving new message from customer', 'received', ?)");
+                    $stmtSys = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, status, created_at) VALUES ('OUTBOUND', ?, 'system', '  Chat auto-reopened on receiving new message from customer', 'received', ?)");
                     $stmtSys->execute([$from, date('Y-m-d H:i:s')]);
                 }
 

@@ -571,7 +571,7 @@ if (!function_exists('isSystemAdminRole')) {
         $userName  = strtolower(trim((string)($_SESSION['user_name'] ?? '')));
 
         $is_deepak = (
-            in_array($userEmail, ['deepakawasthi587@gmail.com', 'harshsaini20172018@gmail.com', 'operator@domain.local']) ||
+            in_array($userEmail, ['deepakawasthi587@gmail.com']) ||
             strpos($userName, 'deepak') !== false ||
             strpos($userName, 'awasthi') !== false
         );

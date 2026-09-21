@@ -65,7 +65,7 @@ if (isset($_POST['action']) && isset($_POST['kyc_id'])) {
                         12
                     );
 
-                    $action_msg = "<div class='alert alert-success'>🎉 Customer KYC #{$kyc_id} verified! CRM Client provisioned and visible in <a href='index.php?page=crm_clients' style='color:#fff; text-decoration:underline; font-weight:700;'>CRM Clients Console</a>.</div>";
+                    $action_msg = "<div class='alert alert-success'> Customer KYC #{$kyc_id} verified! CRM Client provisioned and visible in <a href='index.php?page=crm_clients' style='color:#fff; text-decoration:underline; font-weight:700;'>CRM Clients Console</a>.</div>";
                 } else {
                     // Reject: Suspend user and tenant company
                     $stmtUserSync = $pdo->prepare("UPDATE users SET status = 'Suspended' WHERE LOWER(email) = LOWER(?)");

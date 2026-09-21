@@ -37,6 +37,21 @@ if ($id > 0 && $pdo) {
                 $syncStmt->execute([strtolower($status), $assignedTo, $ticket['ticket_number']]);
             } catch (Throwable $eSync) {}
 
+            // Auto-close chat in Team Inbox silently (NO chat message shown)
+            if (in_array(strtolower($status), ['resolved', 'closed'])) {
+                $custPhone = $ticket['phone'] ?? '';
+                if (!empty($custPhone)) {
+                    $cleanPhone = preg_replace('/[^0-9]/', '', $custPhone);
+                    $last10 = substr($cleanPhone, -10);
+                    if (!empty($cleanPhone)) {
+                        try {
+                            $stmtCloseChat = $pdo->prepare("UPDATE chat_conversations SET status = 'closed' WHERE phone = ? OR phone LIKE ? OR phone LIKE ?");
+                            $stmtCloseChat->execute([$custPhone, "%$cleanPhone%", "%$last10%"]);
+                        } catch (Throwable $eCC) {}
+                    }
+                }
+            }
+
             // Log activity history in support_ticket_history
             $adminUser = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
             $adminRole = !empty($_SESSION['user_role']) ? $_SESSION['user_role'] : 'Admin';

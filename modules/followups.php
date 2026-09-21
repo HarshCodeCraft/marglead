@@ -11,7 +11,7 @@ $operators = [
 if ($db_connected && $pdo) {
     try {
         $fup_leads = $pdo->query("SELECT id, name, company FROM leads ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
-        $db_ops = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC")->fetchAll(PDO::FETCH_COLUMN);
+        $db_ops = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC")->fetchAll(PDO::FETCH_COLUMN);
         if (!empty($db_ops)) {
             $operators = $db_ops;
         }
@@ -963,6 +963,7 @@ if (!function_exists('getFilterStyle')) {
                             <select name="group_stage" id="qf-group-stage" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
                                 <option value="Fresh">Fresh</option>
                                 <option value="Followup">Followup</option>
+                                <option value="Future Prospect">Future Prospect</option>
                                 <option value="Demo Scheduled">Demo Scheduled</option>
                                 <option value="Demo Done">Demo Done</option>
                                 <option value="Installation Done">Installation Done</option>
@@ -1010,6 +1011,7 @@ if (!function_exists('getFilterStyle')) {
                                 <option value="Office">Office</option>
                                 <option value="Self">Self</option>
                                 <option value="Door to Door">Door to Door</option>
+                                <option value="GSTN Data">GSTN Data</option>
                                 <option value="Imported">Imported</option>
                             </select>
                         </div>

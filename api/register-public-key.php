@@ -182,7 +182,7 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
         
         <?php if ($isSuccess && $successfulAttempt): ?>
             <div class="success">
-                <strong>🎉 SUCCESS! RSA Public Key registered with Meta Graph API!</strong><br>
+                <strong> SUCCESS! RSA Public Key registered with Meta Graph API!</strong><br>
                 Successful Method: <code><?php echo htmlspecialchars($successfulAttempt['name']); ?></code><br>
                 Meta Response: <code><?php echo htmlspecialchars(json_encode($successfulAttempt['res'])); ?></code>
             </div>

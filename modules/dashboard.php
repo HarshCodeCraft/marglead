@@ -57,7 +57,17 @@ $resolvedTickets = 0;
 // Default chart baselines (fallbacks)
 $leads_baseline = array_fill(0, 12, 0);
 $sales_baseline = array_fill(0, 12, 0);
-$source_counts = [];
+$source_counts = [
+    'Website' => 0,
+    'Google Ads' => 0,
+    'Cold Calls' => 0,
+    'Referrals' => 0,
+    'Exhibitions' => 0,
+    'Self' => 0,
+    'Door to Door' => 0,
+    'GSTN Data' => 0,
+    'Imported' => 0
+];
 $exec_performance = [];
 $funnel_data = [0, 0, 0, 0, 0, 0];
 
@@ -247,8 +257,8 @@ if ($db_connected && $pdo) {
             $db_source_counts = $stmtSrc->fetchAll(PDO::FETCH_ASSOC);
         }
         foreach ($db_source_counts as $row) {
-            $src = $row['source'];
-            if (array_key_exists($src, $source_counts)) {
+            $src = trim($row['source'] ?? '');
+            if (!empty($src)) {
                 $source_counts[$src] = intval($row['c']);
             }
         }

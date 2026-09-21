@@ -311,7 +311,7 @@
                 alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
                 alertBox.style.border = '1px solid #10b981';
                 alertBox.style.color = '#059669';
-                alertBox.textContent = '🎉 Thank you! ' + (res.message || 'Our Friendly AI Solution product team will reach out in 15 minutes.');
+                alertBox.textContent = ' Thank you! ' + (res.message || 'Our Friendly AI Solution product team will reach out in 15 minutes.');
 
                 document.getElementById('publicLeadForm').reset();
                 setTimeout(() => {

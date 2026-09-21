@@ -452,6 +452,110 @@ if ($gateway_type === 'meta') {
     // ==========================================
     // 2. SELF-HOSTED WHATSAPP WEB ENGINE DISPATCH
     // ==========================================
+
+    // =======================================================================
+    // ⚡ MANDATORY PHONE MATCH ENFORCEMENT — STRICT SECURITY LAYER ⚡
+    // Policy: Client MUST scan WhatsApp QR with their CRM-registered phone.
+    // "Jo number register kiya hai, usi se WhatsApp login karo."
+    // Ensures bill sender identity = registered firm number always.
+    // =======================================================================
+    $tenantRegisteredPhone = preg_replace('/\D/', '', $tenantCompany['phone'] ?? '');
+    if (strlen($tenantRegisteredPhone) === 10) $tenantRegisteredPhone = '91' . $tenantRegisteredPhone;
+
+    $engineUrl = defined('WHATSAPP_ENGINE_URL') ? WHATSAPP_ENGINE_URL : 'http://140.238.167.58:3000';
+    $engineCheckData = null;
+    try {
+        $chkCh = curl_init(rtrim($engineUrl, '/') . '/status?user_id=' . $tenantId);
+        curl_setopt($chkCh, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($chkCh, CURLOPT_TIMEOUT, 3);
+        curl_setopt($chkCh, CURLOPT_CONNECTTIMEOUT, 2);
+        $chkRes = curl_exec($chkCh);
+        curl_close($chkCh);
+        if ($chkRes) $engineCheckData = json_decode($chkRes, true);
+    } catch (\Exception $ex) {}
+
+    if ($engineCheckData !== null) {
+        $engineStatus   = $engineCheckData['status'] ?? 'disconnected';
+        $engineUserId   = $engineCheckData['user_id'] ?? '';
+        $engineLivePhone = preg_replace('/\D/', '', $engineCheckData['phone_number'] ?? $engineCheckData['phone'] ?? '');
+
+        // SAFETY CHECK: Engine returned a session for a DIFFERENT user_id (should never happen with v3.0)
+        if (!empty($engineUserId) && (string)$engineUserId !== (string)$tenantId && $engineStatus === 'connected') {
+            $blockReason = 'SESSION_MISMATCH: Engine returned user_id ' . $engineUserId . ' but request is for tenant #' . $tenantId . '. Dispatch blocked.';
+            try {
+                $stmtBlock = $pdo->prepare("INSERT INTO marg_erp_logs (user_id, tenant_api_key, recipient_phone, event_type, bill_number, bill_amount, template_name, status, meta_message_id, error_message, payload_json) VALUES (?, ?, ?, 'Marg ERP Bill', ?, ?, 'web_api_blocked', 'Failed', ?, ?, ?)");
+                $stmtBlock->execute([
+                    $tenantId, $api_key, $phoneDigits,
+                    $parsedData['bill_no'], $parsedData['bill_amount'],
+                    'BLOCKED_SESSION_MISMATCH_' . time(), $blockReason,
+                    json_encode(['tenant_id' => $tenantId, 'engine_user_id' => $engineUserId, 'engine_phone' => $engineLivePhone, 'bill_no' => $parsedData['bill_no']])
+                ]);
+            } catch (\PDOException $ex) {}
+
+            http_response_code(503);
+            echo json_encode([
+                'status'  => 'error',
+                'success' => false,
+                'error'   => 503,
+                'bill_no' => $parsedData['bill_no'],
+                'message' => 'WhatsApp session mismatch detected. Please re-connect your WhatsApp in Gateway Settings.',
+                'action_required' => 'SCAN_QR'
+            ], JSON_PRETTY_PRINT);
+            exit;
+        }
+
+        // BLOCK: This tenant's session is not connected — must scan QR first
+        if ($engineStatus !== 'connected') {
+            $dbSavedStatus = $merchant['web_api_session_status'] ?? 'disconnected';
+            if ($dbSavedStatus !== 'connected') {
+                $hint = !empty($tenantRegisteredPhone) ? ' Please scan QR with your registered number: +' . $tenantRegisteredPhone . '.' : ' Please scan the QR code in WhatsApp Gateway Settings.';
+                $blockReason2 = 'DISPATCH_BLOCKED: WhatsApp session is "' . $engineStatus . '" for tenant #' . $tenantId;
+                try {
+                    $stmtBlock2 = $pdo->prepare("INSERT INTO marg_erp_logs (user_id, tenant_api_key, recipient_phone, event_type, bill_number, bill_amount, template_name, status, meta_message_id, error_message, payload_json) VALUES (?, ?, ?, 'Marg ERP Bill', ?, ?, 'web_api_blocked', 'Failed', ?, ?, ?)");
+                    $stmtBlock2->execute([
+                        $tenantId, $api_key, $phoneDigits,
+                        $parsedData['bill_no'], $parsedData['bill_amount'],
+                        'BLOCKED_DISCONNECTED_' . time(), $blockReason2,
+                        json_encode(['tenant_id' => $tenantId, 'engine_status' => $engineStatus, 'bill_no' => $parsedData['bill_no']])
+                    ]);
+                } catch (\PDOException $ex) {}
+                http_response_code(503);
+                echo json_encode(['status' => 'error', 'success' => false, 'error' => 503, 'bill_no' => $parsedData['bill_no'], 'message' => 'WhatsApp is not connected for your account.' . $hint, 'action_required' => 'SCAN_QR'], JSON_PRETTY_PRINT);
+                exit;
+            }
+        }
+
+        // MANDATORY PHONE MATCH — Scanned number MUST equal CRM registered number
+        if ($engineStatus === 'connected' && !empty($tenantRegisteredPhone) && !empty($engineLivePhone)) {
+            $livePhoneLast10       = substr($engineLivePhone, -10);
+            $registeredPhoneLast10 = substr($tenantRegisteredPhone, -10);
+
+            if ($livePhoneLast10 !== $registeredPhoneLast10) {
+                // ❌ BLOCK: Client scanned with wrong number
+                $maskedLive = '+91' . substr($livePhoneLast10, 0, 2) . 'XXXXXX' . substr($livePhoneLast10, -2);
+                $blockReason3 = 'PHONE_MISMATCH: Tenant #' . $tenantId . ' scanned with ' . $engineLivePhone . ' but registered phone is ' . $tenantRegisteredPhone;
+                try {
+                    $stmtB3 = $pdo->prepare("INSERT INTO marg_erp_logs (user_id, tenant_api_key, recipient_phone, event_type, bill_number, bill_amount, template_name, status, meta_message_id, error_message, payload_json) VALUES (?, ?, ?, 'Marg ERP Bill', ?, ?, 'web_api_blocked', 'Failed', ?, ?, ?)");
+                    $stmtB3->execute([$tenantId, $api_key, $phoneDigits, $parsedData['bill_no'], $parsedData['bill_amount'], 'BLOCKED_PHONE_MISMATCH_' . time(), $blockReason3, json_encode(['tenant_id' => $tenantId, 'registered' => $tenantRegisteredPhone, 'scanned' => $engineLivePhone])]);
+                } catch (\PDOException $ex) {}
+                http_response_code(403);
+                echo json_encode([
+                    'status'           => 'error',
+                    'success'          => false,
+                    'error'            => 403,
+                    'bill_no'          => $parsedData['bill_no'],
+                    'message'          => 'Wrong WhatsApp number! You connected ' . $maskedLive . ' but your account is registered with +91' . $registeredPhoneLast10 . '. Please logout from WhatsApp Gateway Settings and scan QR again with your registered number: +91' . $registeredPhoneLast10 . '.',
+                    'action_required'  => 'SCAN_WITH_REGISTERED_NUMBER',
+                    'registered_number'=> '+91' . $registeredPhoneLast10
+                ], JSON_PRETTY_PRINT);
+                exit;
+            }
+        }
+    }
+    // =======================================================================
+    // END MANDATORY PHONE MATCH ENFORCEMENT
+    // =======================================================================
+
     $defaultSelfHosted = (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://friendlyaisolution.com') . '/api/whatsapp_web_engine.php';
     $webApiUrl = !empty($merchant['web_api_url']) ? rtrim($merchant['web_api_url'], '/') : $defaultSelfHosted;
     $webApiToken = $merchant['web_api_token'] ?? '';

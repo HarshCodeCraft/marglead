@@ -33,7 +33,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'resend') {
                 $updateStmt = $pdo->prepare("UPDATE users SET otp_code = ?, otp_expires_at = ? WHERE id = ?");
                 $updateStmt->execute([$new_otp, $new_expiry, $user['id']]);
 
-                Mailer::sendEmailVerificationOTP($email, $user['name'], $new_otp);
+                Mailer::sendPasswordResetOTP($email, $user['name'], $new_otp);
 
                 $message = "A fresh 6-digit verification code has been sent to " . htmlspecialchars($email) . ".";
                 $message_type = "success";
@@ -44,7 +44,56 @@ if (isset($_POST['action']) && $_POST['action'] === 'resend') {
         }
     }
 }
-// 2. OTP Verification Submission handler
+// 2. Direct 1-Click Verification via GET link from email
+$get_code = isset($_GET['code']) ? trim($_GET['code']) : (isset($_GET['otp']) ? trim($_GET['otp']) : '');
+if (empty($_POST) && !empty($get_code) && strlen($get_code) === 6 && preg_match('/^\d{6}$/', $get_code)) {
+    if ($db_connected && $pdo) {
+        try {
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE LOWER(email) = ?");
+            $stmt->execute([$email]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($user) {
+                $db_otp = $user['otp_code'];
+                $expires_at = $user['otp_expires_at'] ? strtotime($user['otp_expires_at']) : 0;
+
+                if (!empty($db_otp) && $db_otp === $get_code) {
+                    if (time() > $expires_at) {
+                        $message = "This verification code has expired. Please click 'Resend Code' below.";
+                        $message_type = "warning";
+                    } else {
+                        // OTP VERIFIED DIRECTLY! Generate single-use secure reset token & bind to current device
+                        $reset_token = bin2hex(random_bytes(32));
+                        $cookie_secret = bin2hex(random_bytes(32));
+                        $secret_hash = hash('sha256', $cookie_secret);
+                        $token_expires = date('Y-m-d H:i:s', strtotime('+15 minutes'));
+                        $user_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+                        $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+
+                        $updStmt = $pdo->prepare("UPDATE users SET otp_code = NULL, otp_expires_at = NULL, reset_token = ?, reset_token_expires_at = ?, reset_ip = ?, reset_user_agent = ?, reset_session_secret = ? WHERE id = ?");
+                        $updStmt->execute([$reset_token, $token_expires, $user_ip, $user_agent, $secret_hash, $user['id']]);
+
+                        setcookie('reset_cookie_secret', $cookie_secret, time() + 900, '/', '', false, true);
+                        $_SESSION['reset_token'] = $reset_token;
+                        $_SESSION['reset_cookie_secret'] = $cookie_secret;
+                        $_SESSION['reset_authorized_email'] = $user['email'];
+                        $_SESSION['reset_device_ip'] = $user_ip;
+
+                        header("Location: change-password.php?token=" . urlencode($reset_token));
+                        exit;
+                    }
+                } else {
+                    $message = "Incorrect or already used verification link. Please enter the code below or click 'Resend Code'.";
+                    $message_type = "danger";
+                }
+            }
+        } catch (PDOException $e) {
+            $message = "Verification failed: " . $e->getMessage();
+            $message_type = "danger";
+        }
+    }
+}
+// 3. OTP Verification Manual Submission handler
 elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $digits = isset($_POST['otp']) ? $_POST['otp'] : [];
     $code = is_array($digits) ? implode('', $digits) : trim($digits);
@@ -60,9 +109,6 @@ elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if (!$user) {
                     $message = "No account found matching email address.";
-                    $message_type = "danger";
-                } elseif (!empty($user['reset_ip']) && $user['reset_ip'] !== $user_ip) {
-                    $message = "Security Violation: Verification attempt from an unrecognized device/IP address. Access denied.";
                     $message_type = "danger";
                 } else {
                     $db_otp = $user['otp_code'];
@@ -229,6 +275,11 @@ elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <i data-lucide="arrow-right" style="width: 18px; height: 18px;"></i>
                     </button>
                 </form>
+
+                <!-- Separate Resend Form -->
+                <form id="resend-form" action="otp-reset.php?email=<?php echo urlencode($email); ?>" method="POST" style="display: none;">
+                    <input type="hidden" name="action" value="resend">
+                </form>
                 
                 <div class="auth-switch-text">
                     Changed your mind? <a href="login.php">Back to Login</a>
@@ -253,9 +304,18 @@ elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             const inputs = document.querySelectorAll('.otp-input');
             
+            // Pre-fill from URL param if available
+            const urlParams = new URLSearchParams(window.location.search);
+            const codeParam = urlParams.get('code') || urlParams.get('otp');
+            if (codeParam && codeParam.length === 6 && /^\d{6}$/.test(codeParam)) {
+                for (let i = 0; i < 6 && i < inputs.length; i++) {
+                    inputs[i].value = codeParam[i];
+                }
+            }
+            
             inputs.forEach((input, index) => {
-                // Focus first box initially
-                if (index === 0) input.focus();
+                // Focus first box initially if not filled
+                if (index === 0 && !inputs[0].value) input.focus();
                 
                 input.addEventListener('keyup', (e) => {
                     if (e.key >= 0 && e.key <= 9) {
@@ -308,8 +368,10 @@ elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             if (resendButton) {
                 resendButton.addEventListener('click', () => {
-                    alert('A fresh verification token has been dispatched!');
-                    window.location.reload();
+                    const resendForm = document.getElementById('resend-form');
+                    if (resendForm) {
+                        resendForm.submit();
+                    }
                 });
             }
         });

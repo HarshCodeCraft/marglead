@@ -24,9 +24,7 @@ $is_tenant_session = (
 $is_super_admin = false;
 if (!$is_tenant_session) {
     $is_deepak_email = in_array($user_email, [
-        'deepakawasthi587@gmail.com',
-        'harshsaini20172018@gmail.com',
-        'operator@domain.local'
+        'deepakawasthi587@gmail.com'
     ]);
     $is_super_admin_role = in_array(strtolower($user_role), ['super admin', 'superadmin']);
     if (($is_deepak_email || (stripos($user_name, 'deepak') !== false)) && $is_super_admin_role) {
@@ -329,7 +327,7 @@ window.addEventListener('message', (event) => {
                 .then(res => res.json())
                 .then(result => {
                     if (result.success) {
-                        alert("🎉 WhatsApp Cloud API connected successfully via Meta Embedded Signup!");
+                        alert(" WhatsApp Cloud API connected successfully via Meta Embedded Signup!");
                         window.location.reload();
                     } else {
                         alert("Error connecting WhatsApp: " + result.message);
@@ -377,7 +375,7 @@ function launchMetaEmbeddedSignup() {
             .then(res => res.json())
             .then(result => {
                 if (result.success) {
-                    alert("🎉 WhatsApp Business Cloud API successfully connected!");
+                    alert(" WhatsApp Business Cloud API successfully connected!");
                     window.location.reload();
                 } else {
                     alert("Embedded Signup Error: " + result.message);

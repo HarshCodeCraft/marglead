@@ -72,7 +72,7 @@ try {
                 }
                 $body .= "<p>If you need to reschedule or have any queries, please let us know.</p>";
                 
-                $compiledMail = Mailer::wrapHTMLTemplate($title, $header, $subtitle, $body, "Launch CRM Dashboard", "http://localhost/marglead/auth/login.php");
+                $compiledMail = Mailer::wrapHTMLTemplate($title, $header, $subtitle, $body, "Launch CRM Dashboard", Mailer::getBaseUrl() . "auth/login.php");
                 
                 if (Mailer::send($f['client_email'], $subject, $compiledMail)) {
                     echo "    [EMAIL] Sent successfully to {$f['client_email']}\n";
@@ -128,8 +128,39 @@ try {
         
         echo "    [DB STATUS] Mapped to '{$status}'\n";
     }
+
+    // =========================================================================
+    // 2. BACKGROUND BROADCAST CAMPAIGNS WORKER (NO TAB-FREEZE ON BROWSER CLOSE)
+    // =========================================================================
+    echo "\n[CAMPAIGN WORKER] Checking for active running broadcast campaigns...\n";
+    try {
+        $stmtC = $pdo->query("SELECT id, name, created_by FROM broadcast_campaigns WHERE status = 'running' ORDER BY id ASC LIMIT 5");
+        $runningCampaigns = $stmtC ? $stmtC->fetchAll(PDO::FETCH_ASSOC) : [];
+        echo "Found " . count($runningCampaigns) . " running campaign(s).\n";
+
+        if (!empty($runningCampaigns)) {
+            if (!defined('IN_CRON_SCHEDULER')) {
+                define('IN_CRON_SCHEDULER', true);
+            }
+            require_once __DIR__ . '/api/campaign-api.php';
+
+            foreach ($runningCampaigns as $cRow) {
+                $cId = $cRow['id'];
+                $cName = $cRow['name'];
+                echo "--> Dispatching background batch for campaign ID: {$cId} [{$cName}]...\n";
+                $batchRes = internalProcessCampaignBatch($pdo, $cId, 5, true);
+                $proc = $batchRes['processed'] ?? 0;
+                $sent = $batchRes['sent'] ?? 0;
+                $fail = $batchRes['failed'] ?? 0;
+                $st = $batchRes['status'] ?? 'unknown';
+                echo "    [BATCH RESULT] Processed: {$proc} | Sent: {$sent} | Failed: {$fail} | Status: {$st}\n";
+            }
+        }
+    } catch (\Throwable $eCamp) {
+        echo "[CAMPAIGN WORKER ERROR] " . $eCamp->getMessage() . "\n";
+    }
     
-    echo "[CRON SCHEDULER COMPLETED] Execution finished successfully.\n";
+    echo "\n[CRON SCHEDULER COMPLETED] Execution finished successfully.\n";
 } catch (PDOException $e) {
     echo "[FATAL ERROR] Scheduler execution failed: " . $e->getMessage() . "\n";
 }

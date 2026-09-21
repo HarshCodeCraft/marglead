@@ -78,6 +78,10 @@ if (!defined('WHATSAPP_ENGINE_URL')) {
 }
 
 
+if (!defined('GEMINI_API_KEY')) {
+    define('GEMINI_API_KEY', getenv('GEMINI_API_KEY') ?: '');
+}
+
 // -------------------------------------------------------------
 // 3. Meta WhatsApp Cloud API Credentials & Webhook Token
 // -------------------------------------------------------------

@@ -20,7 +20,8 @@ $user_role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_name = trim($_SESSION['user_name'] ?? '');
 $user_email = trim($_SESSION['user_email'] ?? '');
 $user_id = trim(strval($_SESSION['user_id'] ?? ''));
-$is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
+$lr = strtolower($user_role);
+$is_admin = ($lr === 'admin' || $lr === 'super admin' || str_contains($lr, 'admin') || str_contains($lr, 'super') || str_contains($lr, 'manager'));
 
 // Collect all possible valid employee names/emails for the current logged-in employee (Strictly text-based, no numeric IDs)
 $user_identifiers = [];
@@ -119,14 +120,16 @@ if ($db_connected && $pdo) {
             $query_params[] = $filter_date;
             $query_params[] = $filter_date;
         } elseif (!empty($_GET['filter']) && $_GET['filter'] === 'today') {
-            $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled'))";
+            $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = ? AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = ? AND status = 'scheduled'))";
+            $query_params[] = $today_str;
+            $query_params[] = $today_str;
         }
 
         $search_term = trim($_GET['search'] ?? $_GET['q'] ?? '');
         if (!empty($search_term)) {
             $clean_search_phone = preg_replace('/[^0-9]/', '', $search_term);
             if (!empty($clean_search_phone) && strlen($clean_search_phone) >= 4) {
-                $where_conditions[] = "(id LIKE ? OR name LIKE ? OR company LIKE ? OR phone LIKE ? OR REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+91', '') LIKE ? OR email LIKE ? OR address LIKE ? OR source LIKE ? OR tags LIKE ? OR enq_for LIKE ? OR contact_person LIKE ? OR remarks LIKE ?)";
+                $where_conditions[] = "(id LIKE ? OR name LIKE ? OR company LIKE ? OR gst LIKE ? OR phone LIKE ? OR REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+91', '') LIKE ? OR email LIKE ? OR address LIKE ? OR source LIKE ? OR tags LIKE ? OR enq_for LIKE ? OR contact_person LIKE ? OR remarks LIKE ?)";
                 $st = '%' . $search_term . '%';
                 $pst = '%' . $clean_search_phone . '%';
                 $query_params[] = $st;
@@ -141,18 +144,21 @@ if ($db_connected && $pdo) {
                 $query_params[] = $st;
                 $query_params[] = $st;
                 $query_params[] = $st;
+                $query_params[] = $st;
             } else {
-                $where_conditions[] = "(id LIKE ? OR name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ? OR address LIKE ? OR source LIKE ? OR tags LIKE ? OR enq_for LIKE ? OR contact_person LIKE ? OR remarks LIKE ?)";
+                $where_conditions[] = "(id LIKE ? OR name LIKE ? OR company LIKE ? OR gst LIKE ? OR phone LIKE ? OR email LIKE ? OR address LIKE ? OR source LIKE ? OR tags LIKE ? OR enq_for LIKE ? OR contact_person LIKE ? OR remarks LIKE ?)";
                 $st = '%' . $search_term . '%';
-                for ($s = 0; $s < 11; $s++) {
+                for ($s = 0; $s < 12; $s++) {
                     $query_params[] = $st;
                 }
             }
         }
 
         if (!empty($_GET['source'])) {
-            $where_conditions[] = "LOWER(source) = ?";
-            $query_params[] = strtolower(trim($_GET['source']));
+            $req_src = strtolower(trim($_GET['source']));
+            $where_conditions[] = "(LOWER(TRIM(source)) = ? OR LOWER(TRIM(source)) LIKE ?)";
+            $query_params[] = $req_src;
+            $query_params[] = '%' . $req_src . '%';
         }
 
         if (!empty($_GET['assigned_to'])) {
@@ -172,6 +178,9 @@ if ($db_connected && $pdo) {
             $query_params[] = strtolower($_GET['priority']);
         }
 
+        // Quick Presets Dropdown Filter Handler
+        $quick_preset = trim($_GET['quick_preset'] ?? '');
+
         if (!empty($_GET['status'])) {
             $st = strtolower($_GET['status']);
             if ($st === 'won') {
@@ -183,8 +192,10 @@ if ($db_connected && $pdo) {
                 $query_params[] = $st;
             }
         } else {
-            // Default: hide Closed Won leads unless explicitly filtered
-            $where_conditions[] = "LOWER(status) NOT IN ('won', 'closed_won', 'install_pending', 'payment_pending')";
+            // Default: hide Closed Won leads unless explicitly filtered or using daily activity presets
+            if (!in_array($quick_preset, ['updated_today', 'attended', 'created_today'])) {
+                $where_conditions[] = "(status IS NULL OR TRIM(status) = '' OR LOWER(status) NOT IN ('won', 'closed_won', 'install_pending', 'payment_pending'))";
+            }
         }
 
         if (!empty($_GET['group_stage'])) {
@@ -192,27 +203,45 @@ if ($db_connected && $pdo) {
             $query_params[] = '%' . trim($_GET['group_stage']) . '%';
         }
 
-        // Quick Presets Dropdown Filter Handler
-        $quick_preset = trim($_GET['quick_preset'] ?? '');
         if (!empty($quick_preset)) {
             if ($quick_preset === 'created_today') {
-                $where_conditions[] = "DATE(leads.created_at) = CURRENT_DATE()";
+                $where_conditions[] = "DATE(leads.created_at) = ?";
+                $query_params[] = $today_str;
             } elseif ($quick_preset === 'assigned_today') {
-                $where_conditions[] = "(assigned_to IS NOT NULL AND TRIM(assigned_to) != '' AND LOWER(TRIM(assigned_to)) != 'unassigned' AND (DATE(leads.created_at) = CURRENT_DATE() OR DATE(leads.updated_at) = CURRENT_DATE()))";
+                $where_conditions[] = "(assigned_to IS NOT NULL AND TRIM(assigned_to) != '' AND LOWER(TRIM(assigned_to)) != 'unassigned' AND (DATE(leads.created_at) = ? OR DATE(leads.updated_at) = ?))";
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
             } elseif ($quick_preset === 'updated_today') {
-                $where_conditions[] = "DATE(leads.updated_at) = CURRENT_DATE()";
+                // Leads updated today via lead edit, completed/rescheduled followup, or timeline entry
+                $where_conditions[] = "(DATE(leads.updated_at) = ? OR id IN (SELECT lead_id FROM followups WHERE DATE(created_at) = ? OR (status IN ('completed', 'rescheduled') AND DATE(scheduled_at) = ?)) OR id IN (SELECT lead_id FROM timeline WHERE DATE(log_time) = ?))";
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
             } elseif ($quick_preset === 'not_updated_today') {
-                $where_conditions[] = "(leads.updated_at IS NULL OR DATE(leads.updated_at) < CURRENT_DATE())";
+                $where_conditions[] = "(leads.updated_at IS NULL OR DATE(leads.updated_at) < ?) AND id NOT IN (SELECT lead_id FROM followups WHERE DATE(created_at) = ? OR (status IN ('completed', 'rescheduled') AND DATE(scheduled_at) = ?)) AND id NOT IN (SELECT lead_id FROM timeline WHERE DATE(log_time) = ?)";
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
             } elseif ($quick_preset === 'scheduled_today') {
-                $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'scheduled'))";
+                $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = ? AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = ? AND status = 'scheduled'))";
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
             } elseif ($quick_preset === 'unassigned') {
                 $where_conditions[] = "(assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
             } elseif ($quick_preset === 'unattended') {
                 // Leads where telecaller has NOT attended/called/updated today
-                $where_conditions[] = "(DATE(leads.updated_at) < CURRENT_DATE() OR leads.updated_at IS NULL) AND id NOT IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'completed')";
+                $where_conditions[] = "(leads.updated_at IS NULL OR DATE(leads.updated_at) < ?) AND id NOT IN (SELECT lead_id FROM followups WHERE (status IN ('completed', 'rescheduled')) AND DATE(scheduled_at) = ?) AND id NOT IN (SELECT lead_id FROM timeline WHERE DATE(log_time) = ?)";
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
             } elseif ($quick_preset === 'attended') {
-                // Leads attended / contacted / updated today
-                $where_conditions[] = "(DATE(leads.updated_at) = CURRENT_DATE() OR id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = CURRENT_DATE() AND status = 'completed'))";
+                // Leads attended / contacted / updated today (including rescheduled and completed calls)
+                $where_conditions[] = "(DATE(leads.updated_at) = ? OR id IN (SELECT lead_id FROM followups WHERE (status IN ('completed', 'rescheduled')) AND DATE(scheduled_at) = ?) OR id IN (SELECT lead_id FROM timeline WHERE DATE(log_time) = ?))";
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
+                $query_params[] = $today_str;
             }
         }
 
@@ -317,7 +346,9 @@ if ($db_connected && $pdo) {
                 'id' => $l['id'],
                 'name' => $l['name'],
                 'company' => $l['company'],
-                'city' => $l['city'],
+                'city' => $l['city'] ?? '',
+                'state' => $l['state'] ?? '',
+                'gst' => $l['gst'] ?? '',
                 'phone' => $l['phone'],
                 'email' => $l['email'],
                 'source' => $l['source'],
@@ -334,7 +365,7 @@ if ($db_connected && $pdo) {
                 'created_at' => $l['created_at'] ?? '',
                 'address' => $l['address'] ?? '',
                 'tags' => $l['tags'] ?? '',
-                'group_stage' => !empty($l['group_stage']) ? $l['group_stage'] : (!empty($l['company']) && in_array($l['company'], ['Fresh', 'Followup', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required']) ? $l['company'] : ''),
+                'group_stage' => !empty($l['group_stage']) ? $l['group_stage'] : (!empty($l['company']) && in_array($l['company'], ['Fresh', 'Followup', 'Future Prospect', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required']) ? $l['company'] : ''),
                 'enq_for' => $l['enq_for'] ?? '',
                 'contact_person' => $l['contact_person'] ?? '',
                 'remarks' => $l['remarks'] ?? ''
@@ -349,15 +380,17 @@ $operators = [];
 $available_groups = [];
 if ($db_connected && $pdo) {
     try {
-        $stmtOp = $pdo->query("SELECT name FROM users WHERE status = 'Active' ORDER BY name ASC");
+        $stmtOp = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         $operators = $stmtOp->fetchAll(PDO::FETCH_COLUMN);
 
         $stmtGrp = $pdo->query("SELECT DISTINCT group_stage FROM leads WHERE group_stage IS NOT NULL AND TRIM(group_stage) != '' ORDER BY group_stage ASC");
-        $available_groups = $stmtGrp->fetchAll(PDO::FETCH_COLUMN);
+        $db_groups = $stmtGrp->fetchAll(PDO::FETCH_COLUMN);
+        $standard_groups = ['Fresh', 'Followup', 'Future Prospect', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required'];
+        $available_groups = array_values(array_unique(array_merge($standard_groups, $db_groups)));
     } catch (PDOException $e) {}
 }
 if (empty($available_groups)) {
-    $available_groups = ['Fresh', 'Followup', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required'];
+    $available_groups = ['Fresh', 'Followup', 'Future Prospect', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required'];
 }
 
 // Helper to build URL with paginated query parameters
@@ -783,7 +816,7 @@ if (empty($leads)) {
                     <option value="">All Sources</option>
                     <?php 
                     $cur_src = $_GET['source'] ?? '';
-                    $src_list = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Self', 'Door to Door', 'Imported'];
+                    $src_list = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Self', 'Door to Door', 'GSTN Data', 'Imported'];
                     foreach ($src_list as $srcItem): 
                     ?>
                         <option value="<?php echo htmlspecialchars($srcItem); ?>" <?php echo (strcasecmp($cur_src, $srcItem) === 0) ? 'selected' : ''; ?>><?php echo htmlspecialchars($srcItem); ?></option>
@@ -969,6 +1002,11 @@ if (empty($leads)) {
                                             <span><?php echo htmlspecialchars($lead['contact_person']); ?></span>
                                         </span>
                                     <?php endif; ?>
+                                    <?php if (!empty($lead['gst'])): ?>
+                                        <span class="badge mt-0.5" style="--badge-bg: rgba(16, 185, 129, 0.1); --badge-color: #059669; font-size: 0.65rem; font-family: monospace; font-weight: 700; width: fit-content; letter-spacing: 0.3px;" title="GST Number">
+                                            GST: <?php echo htmlspecialchars($lead['gst']); ?>
+                                        </span>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                             <td class="col-name">
@@ -1148,6 +1186,7 @@ if (empty($leads)) {
                             <select name="group_stage" id="qf-group-stage" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
                                 <option value="Fresh">Fresh</option>
                                 <option value="Followup">Followup</option>
+                                <option value="Future Prospect">Future Prospect</option>
                                 <option value="Demo Scheduled">Demo Scheduled</option>
                                 <option value="Demo Done">Demo Done</option>
                                 <option value="Installation Done">Installation Done</option>
@@ -1219,6 +1258,7 @@ if (empty($leads)) {
                                 <option value="Office">Office</option>
                                 <option value="Self">Self</option>
                                 <option value="Door to Door">Door to Door</option>
+                                <option value="GSTN Data">GSTN Data</option>
                                 <option value="Imported">Imported</option>
                             </select>
                         </div>
@@ -1770,6 +1810,13 @@ if (empty($leads)) {
             } else {
                 url.searchParams.delete('lead_date');
                 url.searchParams.delete('date');
+            }
+            if (sourceVal || priorityVal || statusVal || assignedVal || groupVal) {
+                url.searchParams.delete('card_filter');
+                url.searchParams.delete('filter_card');
+                url.searchParams.delete('day');
+                url.searchParams.delete('filter');
+                url.searchParams.delete('quick_preset');
             }
             if (sourceVal) url.searchParams.set('source', sourceVal); else url.searchParams.delete('source');
             if (priorityVal) url.searchParams.set('priority', priorityVal); else url.searchParams.delete('priority');

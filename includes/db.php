@@ -58,11 +58,31 @@ if (!class_exists('TenantAwarePDO')) {
                     return $sql;
                 }
 
+                private function isConnLost(\Throwable $e): bool {
+                    $msg = strtolower($e->getMessage());
+                    return ($e->getCode() == 2006 || $e->getCode() == 2013 || strpos($msg, 'server has gone away') !== false || strpos($msg, 'lost connection') !== false);
+                }
+
+                private function tryReconnectMaster(): void {
+                    if (function_exists('ensure_db_connection')) {
+                        $fresh = ensure_db_connection();
+                        if ($fresh instanceof PDO) {
+                            if (!($fresh instanceof TenantAwarePDO)) {
+                                $this->realPdo = $fresh;
+                            }
+                        }
+                    }
+                }
+
                 public function prepare($query, $options = []): PDOStatement|false {
                     $rewritten = $this->rewriteSql($query);
                     try {
                         return $this->realPdo->prepare($rewritten, $options ?: []);
                     } catch (\PDOException $e) {
+                        if ($this->isConnLost($e)) {
+                            $this->tryReconnectMaster();
+                            return $this->realPdo->prepare($rewritten, $options ?: []);
+                        }
                         if ($e->getCode() == '42S02' || strpos($e->getMessage(), "doesn't exist") !== false) {
                             // Retry after auto-table creation attempt
                             return $this->realPdo->prepare($rewritten, $options ?: []);
@@ -79,6 +99,13 @@ if (!class_exists('TenantAwarePDO')) {
                         }
                         return $this->realPdo->query($rewritten);
                     } catch (\PDOException $e) {
+                        if ($this->isConnLost($e)) {
+                            $this->tryReconnectMaster();
+                            if ($fetchMode !== null) {
+                                return $this->realPdo->query($rewritten, $fetchMode, ...$fetchModeArgs);
+                            }
+                            return $this->realPdo->query($rewritten);
+                        }
                         if ($e->getCode() == '42S02' || strpos($e->getMessage(), "doesn't exist") !== false) {
                             if ($fetchMode !== null) {
                                 return $this->realPdo->query($rewritten, $fetchMode, ...$fetchModeArgs);
@@ -94,6 +121,10 @@ if (!class_exists('TenantAwarePDO')) {
                     try {
                         return $this->realPdo->exec($rewritten);
                     } catch (\PDOException $e) {
+                        if ($this->isConnLost($e)) {
+                            $this->tryReconnectMaster();
+                            return $this->realPdo->exec($rewritten);
+                        }
                         if ($e->getCode() == '42S02' || strpos($e->getMessage(), "doesn't exist") !== false) {
                             return $this->realPdo->exec($rewritten);
                         }
@@ -122,7 +153,11 @@ if (!class_exists('TenantAwarePDO')) {
                 }
 
                 public function lastInsertId($name = null): string|false {
-                    return $this->realPdo->lastInsertId($name);
+                    try {
+                        return $this->realPdo->lastInsertId($name);
+                    } catch (\Throwable $e) {
+                        return false;
+                    }
                 }
 
                 public function beginTransaction(): bool {
@@ -158,9 +193,91 @@ $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
-    PDO::ATTR_TIMEOUT            => 3,
-    PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+05:30'",
+    PDO::ATTR_TIMEOUT            => 25,
+    PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+05:30', SESSION wait_timeout = 28800, SESSION interactive_timeout = 28800",
 ];
+
+if (!function_exists('ensure_db_connection')) {
+    /**
+     * Resilient Database Connection Verifier & Auto-Reconnect
+     * Checks if socket is alive; reconnects if MySQL server has gone away.
+     */
+    function ensure_db_connection(&$conn = null): PDO {
+        global $pdo, $pdo_master, $db_host, $db_name, $db_user, $db_pass, $db_port, $db_charset, $options;
+        
+        $current = ($conn !== null) ? $conn : $pdo;
+        $isAlive = false;
+        if (!empty($current)) {
+            try {
+                $test = @$current->query("SELECT 1");
+                if ($test !== false) {
+                    $isAlive = true;
+                }
+            } catch (\Throwable $t) {
+                $isAlive = false;
+            }
+        }
+
+        if ($isAlive && !empty($current)) {
+            return $current;
+        }
+
+        // Reconnect to master DB
+        try {
+            $freshMaster = null;
+            try {
+                $freshMaster = new PDO("mysql:host=$db_host;port=$db_port;dbname=$db_name;charset=$db_charset", $db_user, $db_pass, $options);
+            } catch (\PDOException $e) {
+                $fallback_port = ($db_port === '3307') ? '3306' : '3307';
+                try {
+                    $freshMaster = new PDO("mysql:host=$db_host;port=$fallback_port;dbname=$db_name;charset=$db_charset", $db_user, $db_pass, $options);
+                    $db_port = $fallback_port;
+                } catch (\PDOException $e2) {
+                    try {
+                        $freshMaster = new PDO("mysql:host=localhost;port=3307;dbname=$db_name;charset=utf8mb4", "root", "", $options);
+                    } catch (\PDOException $e3) {
+                        $freshMaster = new PDO("mysql:host=localhost;port=3306;dbname=$db_name;charset=utf8mb4", "root", "", $options);
+                    }
+                }
+            }
+
+            if ($freshMaster) {
+                $pdo_master = $freshMaster;
+                $newPdo = $freshMaster;
+
+                $active_tenant = null;
+                if (isset($_SESSION['impersonate_tenant_db']) && !empty($_SESSION['impersonate_tenant_db'])) {
+                    $active_tenant = $_SESSION['impersonate_tenant_db'];
+                } elseif (isset($_SESSION['tenant_db']) && !empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== $db_name) {
+                    $active_tenant = $_SESSION['tenant_db'];
+                }
+
+                if (!empty($active_tenant) && $active_tenant !== $db_name) {
+                    if (strpos($active_tenant, 't_') === 0) {
+                        $newPdo = TenantAwarePDO::createFromExisting($freshMaster, $active_tenant);
+                    } else {
+                        try {
+                            $tenant_dsn = "mysql:host=$db_host;port=$db_port;dbname=$active_tenant;charset=$db_charset";
+                            $newPdo = new PDO($tenant_dsn, $db_user, $db_pass, $options);
+                        } catch (\Throwable $te) {
+                            $newPdo = $freshMaster;
+                        }
+                    }
+                }
+
+                $pdo = $newPdo;
+                if ($conn !== null) {
+                    $conn = $newPdo;
+                }
+                return $newPdo;
+            }
+        } catch (\Throwable $reErr) {
+            error_log("Database reconnection attempt failed: " . $reErr->getMessage());
+        }
+
+        return $current ?: $pdo;
+    }
+}
 
 try {
     try {
@@ -292,6 +409,17 @@ try {
         // Auto-fix empty allowed_modules for existing SaaS clients
         $defaultModulesJson = json_encode(["dashboard","leads","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","reports","settings","bot_flows","whatsapp_flows","team_inbox","broadcast_campaigns","merchant_waba_settings","whatsapp_settings","bulk_broadcast","clients"]);
         $pdo->exec("UPDATE tenant_companies SET allowed_modules = '{$defaultModulesJson}' WHERE allowed_modules IS NULL OR allowed_modules = '' OR allowed_modules = 'null'");
+    } catch (\Exception $e) {}
+
+    // Schema auto-upgrade to support client_directory no_of_companies column
+    try {
+        $cdChk = $pdo->query("SHOW TABLES LIKE 'client_directory'");
+        if ($cdChk && $cdChk->rowCount() > 0) {
+            $cdCols = $pdo->query("SHOW COLUMNS FROM client_directory")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('no_of_companies', $cdCols)) {
+                $pdo->exec("ALTER TABLE client_directory ADD COLUMN no_of_companies INT NULL DEFAULT 1 AFTER no_of_users");
+            }
+        }
     } catch (\Exception $e) {}
 
     // Schema auto-upgrade to support merchant WABA & Web API Dual Gateway settings
@@ -706,6 +834,33 @@ try {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
+
+        // Schema auto-upgrade to ensure broadcast_campaigns and campaign_audience columns exist
+        try {
+            $bcCols = $pdo->query("SHOW COLUMNS FROM broadcast_campaigns")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('media_url', $bcCols)) {
+                $pdo->exec("ALTER TABLE broadcast_campaigns ADD COLUMN media_url VARCHAR(500) NULL AFTER custom_message");
+            }
+            if (!in_array('media_position', $bcCols)) {
+                $pdo->exec("ALTER TABLE broadcast_campaigns ADD COLUMN media_position VARCHAR(20) DEFAULT 'top' AFTER media_url");
+            }
+            if (!in_array('daily_limit', $bcCols)) {
+                $pdo->exec("ALTER TABLE broadcast_campaigns ADD COLUMN daily_limit INT DEFAULT 0 AFTER delay_seconds");
+            }
+            if (!in_array('today_sent_count', $bcCols)) {
+                $pdo->exec("ALTER TABLE broadcast_campaigns ADD COLUMN today_sent_count INT DEFAULT 0 AFTER daily_limit");
+            }
+            if (!in_array('last_dispatched_date', $bcCols)) {
+                $pdo->exec("ALTER TABLE broadcast_campaigns ADD COLUMN last_dispatched_date DATE NULL AFTER today_sent_count");
+            }
+            $caCols = $pdo->query("SHOW COLUMNS FROM campaign_audience")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('variables_json', $caCols)) {
+                $pdo->exec("ALTER TABLE campaign_audience ADD COLUMN variables_json LONGTEXT NULL AFTER company_name");
+            }
+            if (!in_array('updated_at', $caCols)) {
+                $pdo->exec("ALTER TABLE campaign_audience ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+            }
+        } catch (\Throwable $bcEx) {}
     } catch (\Exception $e) {
         // Suppress individual table auto-upgrade exceptions
     }

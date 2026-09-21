@@ -392,7 +392,7 @@ input:checked + .slider:before {
         <!-- COLUMN 1: SCREENS LIST -->
         <div class="builder-card">
             <h3 class="builder-column-title">
-                <span>📱 Flow Screens</span>
+                <span> Flow Screens</span>
                 <span class="badge text-xs" style="background: rgba(16,185,129,0.1); color: #10b981;">Meta Flow</span>
             </h3>
             
@@ -426,7 +426,7 @@ input:checked + .slider:before {
         <!-- COLUMN 2: SCREEN & COMPONENT EDITOR -->
         <div class="builder-card" style="overflow-y: auto;">
             <h3 class="builder-column-title">
-                <span>✏️ Screen & Form Component Editor</span>
+                <span>  Screen & Form Component Editor</span>
                 <span class="text-xs text-muted" id="activeScreenIndicator">Editing Screen 1</span>
             </h3>
 
@@ -573,7 +573,7 @@ function renderScreensList() {
         const item = document.createElement('div');
         item.className = 'screen-item ' + (idx === activeScreenIndex ? 'active' : '');
         item.innerHTML = `
-            <span>📱 ${escapeHtml(screen.name || 'Screen ' + (idx + 1))}</span>
+            <span> ${escapeHtml(screen.name || 'Screen ' + (idx + 1))}</span>
             ${idx === activeScreenIndex ? '<span class="badge text-xs" style="background:#10b981; color:white;">Editing</span>' : ''}
         `;
         item.onclick = () => {
