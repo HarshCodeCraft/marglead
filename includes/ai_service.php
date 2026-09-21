@@ -7,7 +7,7 @@
  */
 
 if (!defined('GEMINI_DEFAULT_MODEL')) {
-    define('GEMINI_DEFAULT_MODEL', 'gemini-1.5-flash');
+    define('GEMINI_DEFAULT_MODEL', 'gemini-3.1-flash-lite');
 }
 
 /**
@@ -107,7 +107,19 @@ function callAIService($history, $userMessage, $customerContext = [], $pdo = nul
         ];
     }
 
-    $model = !empty($settings['ai_model']) ? trim($settings['ai_model']) : GEMINI_DEFAULT_MODEL;
+    $rawModel = !empty($settings['ai_model']) ? trim($settings['ai_model']) : GEMINI_DEFAULT_MODEL;
+
+    // Deprecated model alias mapping for Gemini models
+    $deprecatedMap = [
+        'gemini-1.5-flash'      => 'gemini-3.1-flash-lite',
+        'gemini-1.5-flash-8b'   => 'gemini-3.1-flash-lite',
+        'gemini-1.5-pro'        => 'gemini-3.1-flash-lite',
+        'gemini-2.0-flash'      => 'gemini-3.1-flash-lite',
+        'gemini-2.0-flash-lite' => 'gemini-3.1-flash-lite',
+        'gemini-2.0-flash-thinking-exp' => 'gemini-3.1-flash-lite',
+        'gemini-2.5-flash'      => 'gemini-3.1-flash-lite'
+    ];
+    $model = $deprecatedMap[$rawModel] ?? $rawModel;
 
     // Build the Master System Instruction with strict Guardrails
     $sysPrompt = $settings['system_prompt'] ?? '';
@@ -205,6 +217,32 @@ PROMPT;
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlErr  = curl_error($ch);
     curl_close($ch);
+
+    // If request failed and model was not gemini-3.1-flash-lite, auto-retry with gemini-3.1-flash-lite
+    if ((!empty($curlErr) || $httpCode !== 200) && $model !== 'gemini-3.1-flash-lite') {
+        $fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=" . urlencode($apiKey);
+        $chFb = curl_init($fallbackUrl);
+        curl_setopt_array($chFb, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 12,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false
+        ]);
+        $fbResponse = curl_exec($chFb);
+        $fbHttpCode = curl_getinfo($chFb, CURLINFO_HTTP_CODE);
+        $fbCurlErr  = curl_error($chFb);
+        curl_close($chFb);
+
+        if (empty($fbCurlErr) && $fbHttpCode === 200) {
+            $response = $fbResponse;
+            $httpCode = $fbHttpCode;
+            $curlErr  = '';
+        }
+    }
 
     if (!empty($curlErr) || $httpCode !== 200) {
         // Graceful fallback response on connection error

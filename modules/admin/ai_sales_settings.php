@@ -23,6 +23,7 @@ $message_type = 'success';
 
 // Handle AJAX Simulator Request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'test_ai_simulator') {
+    while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json; charset=utf-8');
     $testMsg = trim($_POST['test_message'] ?? '');
     if (empty($testMsg)) {
@@ -47,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $bot_enabled = isset($_POST['bot_enabled']) ? 1 : 0;
     $ai_provider = trim($_POST['ai_provider'] ?? 'gemini');
     $api_key = trim($_POST['api_key'] ?? '');
-    $ai_model = trim($_POST['ai_model'] ?? 'gemini-1.5-flash');
+    $ai_model = trim($_POST['ai_model'] ?? 'gemini-3.1-flash-lite');
     $pricing_basic = trim($_POST['pricing_basic'] ?? '₹8,999 + 18% GST');
     $pricing_silver = trim($_POST['pricing_silver'] ?? '₹12,600 + 18% GST');
     $pricing_gold = trim($_POST['pricing_gold'] ?? '₹25,200 + 18% GST');
@@ -164,8 +165,9 @@ $activeKeyMasked = !empty($settings['api_key']) ? substr($settings['api_key'], 0
                     <div>
                         <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted, #64748b); display: block; margin-bottom: 4px;">Model Version</label>
                         <select name="ai_model" class="form-control" style="height: 38px; font-size: 0.82rem; border-radius: 8px;">
-                            <option value="gemini-1.5-flash" <?php echo (($settings['ai_model'] ?? '') === 'gemini-1.5-flash') ? 'selected' : ''; ?>>Gemini 1.5 Flash (Ultra Fast & Low Latency)</option>
-                            <option value="gemini-2.0-flash" <?php echo (($settings['ai_model'] ?? '') === 'gemini-2.0-flash') ? 'selected' : ''; ?>>Gemini 2.0 Flash (Next-Gen Intelligence)</option>
+                            <option value="gemini-3.1-flash-lite" <?php echo (empty($settings['ai_model']) || ($settings['ai_model'] ?? '') === 'gemini-3.1-flash-lite' || strpos($settings['ai_model'], '1.5') !== false || strpos($settings['ai_model'], '2.0') !== false) ? 'selected' : ''; ?>>Gemini 3.1 Flash-Lite (Recommended - Fast & Free Quota)</option>
+                            <option value="gemini-3.5-flash-lite" <?php echo (($settings['ai_model'] ?? '') === 'gemini-3.5-flash-lite') ? 'selected' : ''; ?>>Gemini 3.5 Flash-Lite (High Accuracy)</option>
+                            <option value="gemini-3.6-flash" <?php echo (($settings['ai_model'] ?? '') === 'gemini-3.6-flash') ? 'selected' : ''; ?>>Gemini 3.6 Flash (Advanced Next-Gen)</option>
                         </select>
                     </div>
                 </div>
@@ -364,19 +366,40 @@ function sendSimMessage() {
 
     sendBtn.disabled = true;
 
-    const formData = new FormData();
-    formData.append('action', 'test_ai_simulator');
-    formData.append('test_message', msg);
+    const payload = {
+        test_message: msg
+    };
 
-    fetch('index.php?page=ai_sales_settings', {
+    fetch('api/ai-simulator.php', {
         method: 'POST',
-        body: formData
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
     })
-    .then(r => r.json())
+    .then(async r => {
+        const text = await r.text();
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            throw new Error('Server returned invalid JSON: ' + text.substring(0, 150));
+        }
+    })
     .then(data => {
         const lb = document.getElementById('simLoadingBubble');
         if (lb) lb.remove();
         sendBtn.disabled = false;
+
+        if (data.success === false && data.message) {
+            const errBubble = document.createElement('div');
+            errBubble.style.cssText = 'align-self: flex-start; max-width: 85%; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.8rem;';
+            errBubble.innerHTML = `<strong>Notice:</strong> ${escapeHtmlSim(data.message)}`;
+            chatWin.appendChild(errBubble);
+            chatWin.scrollTop = chatWin.scrollHeight;
+            return;
+        }
+
+        const replyContent = data.reply || (data.raw_err ? 'Error: ' + data.raw_err : 'No response generated.');
 
         const aiBubble = document.createElement('div');
         aiBubble.style.cssText = 'align-self: flex-start; max-width: 85%; background: white; border: 1px solid #e2e8f0; border-radius: 8px 8px 8px 2px; padding: 0.6rem 0.75rem; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);';
@@ -390,7 +413,7 @@ function sendSimMessage() {
 
         aiBubble.innerHTML = `
             <strong style="color: #10b981; font-size: 0.72rem; display: block; margin-bottom: 2px;">🤖 Marg AI Assistant</strong>
-            ${data.reply.replace(/\n/g, '<br>')}
+            ${escapeHtmlSim(replyContent).replace(/\n/g, '<br>')}
             ${actionBadge}
         `;
         chatWin.appendChild(aiBubble);
@@ -403,7 +426,7 @@ function sendSimMessage() {
 
         const errBubble = document.createElement('div');
         errBubble.style.cssText = 'align-self: flex-start; max-width: 85%; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.8rem;';
-        errBubble.innerHTML = 'Error communicating with AI engine. Please check your API key.';
+        errBubble.innerHTML = `<strong>Error:</strong> ${escapeHtmlSim(err.message || 'Error communicating with AI engine.')}`;
         chatWin.appendChild(errBubble);
         chatWin.scrollTop = chatWin.scrollHeight;
     });
