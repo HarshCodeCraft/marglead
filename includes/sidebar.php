@@ -201,6 +201,15 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             </a>
                         </li>
                     <?php endif; ?>
+                    <?php if (hasAccess('ai_sales_settings', $role) || $is_admin): ?>
+                        <li class="sidebar-item <?php echo isActivePage('ai_sales_settings') ? 'active' : ''; ?>">
+                            <a href="index.php?page=ai_sales_settings">
+                                <i data-lucide="sparkles" style="width: 18px; height: 18px; color: #10b981;"></i>
+                                <span>AI Sales Bot Setup</span>
+                                <span class="badge" style="margin-left: auto; background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">AI</span>
+                            </a>
+                        </li>
+                    <?php endif; ?>
                     <?php if (hasAccess('broadcast_campaigns', $role) || hasAccess('bulk_broadcast', $role)): ?>
                         <li class="sidebar-item <?php echo (isActivePage('broadcast_campaigns') || isActivePage('bulk_broadcast')) ? 'active' : ''; ?>">
                             <a href="index.php?page=broadcast_campaigns">
@@ -415,6 +424,16 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             <i data-lucide="message-square" style="width: 18px; height: 18px;"></i>
                             <span>Team Inbox & Live Chat</span>
                             <span class="badge" style="margin-left: auto; background: #10b981; color: white; font-size: 0.65rem;">LIVE</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <?php if (hasAccess('ai_sales_settings', $role) || $is_admin): ?>
+                    <li class="sidebar-item <?php echo isActivePage('ai_sales_settings'); ?>">
+                        <a href="index.php?page=ai_sales_settings">
+                            <i data-lucide="sparkles" style="width: 18px; height: 18px; color: #10b981;"></i>
+                            <span>AI Sales Bot Setup</span>
+                            <span class="badge" style="margin-left: auto; background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.65rem;">AI</span>
                         </a>
                     </li>
                 <?php endif; ?>

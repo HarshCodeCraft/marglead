@@ -12,6 +12,8 @@
 date_default_timezone_set('Asia/Kolkata');
 
 require_once __DIR__ . '/whatsapp-api.php';
+require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/../includes/ai_service.php';
 
 // -------------------------------------------------------------
 // 1. GET Request Handling (Meta Verification Challenge & Health Check)
@@ -871,7 +873,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
         }
 
         // =========================================================
-        // CASE 1: Standard Customer Text Messages (Greetings like Hi, Support)
+        // CASE 1: Standard Customer Text Messages (Greetings, Direct Questions, Support)
         // =========================================================
         if ($msgType === 'text') {
             $body = trim($msg['text']['body'] ?? '');
@@ -885,18 +887,48 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 continue;
             }
 
-            // Case-insensitive greeting recognition or default customer touchpoint
-            $greetings = ['hi', 'hello', 'hey', 'hii', 'support', 'help', 'start', 'menu', 'options'];
-            $isGreeting = false;
-            foreach ($greetings as $g) {
-                if (str_contains($cleanBody, $g)) {
-                    $isGreeting = true;
+            // 1. Check if conversation has active Human Takeover (Muted AI)
+            $isMuted = false;
+            if ($pdo) {
+                try {
+                    $cleanFrom = preg_replace('/[^\d]/', '', $from);
+                    $c10 = substr($cleanFrom, -10);
+                    $stmtMute = $pdo->prepare("SELECT is_muted FROM ai_chat_sessions WHERE phone = ? OR phone LIKE ? LIMIT 1");
+                    $stmtMute->execute([$from, "%$c10%"]);
+                    $isMuted = (bool)$stmtMute->fetchColumn();
+                } catch (Throwable $eM) {}
+            }
+
+            if ($isMuted) {
+                // A staff agent has taken over this conversation via Team Inbox
+                // Message is already logged in message_logs; do not auto-reply
+                continue;
+            }
+
+            // 2. Direct Technical Support Keywords Detection (Route immediately to Support Flow)
+            $supportKeywords = ['support', 'ticket', 'problem', 'error', 'printer', 'bill print', 'crash', 'not opening', 'not working', 'amc expired', 'bug', 'license issue', 'complaint'];
+            $isDirectSupport = false;
+            foreach ($supportKeywords as $skw) {
+                if (str_contains($cleanBody, $skw)) {
+                    $isDirectSupport = true;
                     break;
                 }
             }
 
-            // Always reply with welcome message and reply buttons for greetings / first messages
-            if ($isGreeting || true) { // Always respond to text queries with menu buttons
+            if ($isDirectSupport) {
+                $flowId   = FLOW_ID;
+                $ctaText  = "Create Ticket";
+                $bodyText = "We noticed you need technical support. Please submit your issue details below:";
+                $whatsapp->sendFlow($from, $flowId, $ctaText, $bodyText, 'WELCOME_SCREEN', null, "Marg Help Soft Solution", "Managed by Marg Soft Solution.");
+                continue;
+            }
+
+            // 3. Greeting Detection (Pure greeting word e.g. "Hi", "Hello", "Namaste")
+            $greetings = ['hi', 'hello', 'hey', 'hii', 'namaste', 'start', 'menu', 'options', 'hola'];
+            $wordCount = str_word_count($cleanBody);
+            $isPureGreeting = ($wordCount <= 2) && in_array($cleanBody, $greetings, true);
+
+            if ($isPureGreeting) {
                 $welcomeText = "Welcome To Marg Soft  Solution\nIndian business management and accounting software designed for small and medium businesses. It helps companies manage daily operations such as billing, accounting, inventory, GST compliance, sales, purchases, and reporting from a single platform.";
                 $buttons = [
                     ['id' => 'btn_sales', 'title' => 'Sales'],
@@ -904,7 +936,12 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 ];
                 $headerImage = "https://datapartner.btpr.online/ProductPictures/20851800671_download(4).png";
                 $whatsapp->sendReplyButtons($from, $welcomeText, $buttons, "Welcome to Marg Soft Solution", "Please select an option", $headerImage);
+                continue;
             }
+
+            // 4. Direct Sales Query / Feature / Pricing / Demo Question -> AI Sales Assistant
+            handleAISalesAssistantInteraction($whatsapp, $pdo, $from, $body);
+            continue;
         }
 
         // =========================================================
@@ -914,15 +951,9 @@ foreach ($data['entry'][0]['changes'] as $change) {
             $buttonId    = $msg['interactive']['button_reply']['id'] ?? '';
             $buttonTitle = strtolower($msg['interactive']['button_reply']['title'] ?? '');
 
-            // Option A: Sales Clicked
+            // Option A: Sales Clicked -> AI Sales Assistant engages
             if ($buttonId === 'btn_sales' || $buttonTitle === 'sales') {
-                if (defined('SALES_FLOW_ID') && !empty(SALES_FLOW_ID)) {
-                    // Send Sales WhatsApp Flow Form
-                    $whatsapp->sendFlow($from, SALES_FLOW_ID, "Enquire Now", "Please provide your details and requirement below", 'SALES_SCREEN', null, "Marg Soft Solution - Sales", "Sales & Licensing Inquiry");
-                } else {
-                    $salesResponse = "We have received your enquiry for Sales.\n\nOur sales representative will contact you shortly.\n\nFor an immediate discussion, you can also call:\n\n7523830026\n\nThank you for contacting us.\n\n🙏";
-                    $whatsapp->sendText($from, $salesResponse);
-                }
+                handleAISalesAssistantInteraction($whatsapp, $pdo, $from, "I want to know about Marg ERP software editions, pricing, and schedule a demo.");
             }
 
             // Option B: Support Clicked

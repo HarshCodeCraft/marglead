@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $email = trim($_POST['email']);
         $password = trim($_POST['password']);
         $role = trim($_POST['role']);
+        $inbox_visibility = trim($_POST['inbox_visibility'] ?? 'default');
         $status = isset($_POST['status']) ? trim($_POST['status']) : 'Active';
         $selected_modules = isset($_POST['modules']) && is_array($_POST['modules']) ? $_POST['modules'] : [];
         $selected_actions = isset($_POST['actions']) && is_array($_POST['actions']) ? $_POST['actions'] : [];
@@ -62,11 +63,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 if (!empty($password)) {
                     $hash = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare("UPDATE users SET name = ?, email = ?, password = ?, role = ?, status = ?, permissions = ?, action_permissions = ? WHERE id = ?");
-                    $stmt->execute([$name, $email, $hash, $role, $status, $permissions_json, $actions_json, $userId]);
+                    $stmt = $pdo->prepare("UPDATE users SET name = ?, email = ?, password = ?, role = ?, inbox_visibility = ?, status = ?, permissions = ?, action_permissions = ? WHERE id = ?");
+                    $stmt->execute([$name, $email, $hash, $role, $inbox_visibility, $status, $permissions_json, $actions_json, $userId]);
                 } else {
-                    $stmt = $pdo->prepare("UPDATE users SET name = ?, email = ?, role = ?, status = ?, permissions = ?, action_permissions = ? WHERE id = ?");
-                    $stmt->execute([$name, $email, $role, $status, $permissions_json, $actions_json, $userId]);
+                    $stmt = $pdo->prepare("UPDATE users SET name = ?, email = ?, role = ?, inbox_visibility = ?, status = ?, permissions = ?, action_permissions = ? WHERE id = ?");
+                    $stmt->execute([$name, $email, $role, $inbox_visibility, $status, $permissions_json, $actions_json, $userId]);
                 }
 
                 // If role is Client, ensure sync in client_directory table
@@ -434,6 +435,17 @@ $actions_meta = [
                                     <option value="Active" <?php echo ($selected_user['status'] === 'Active') ? 'selected' : ''; ?>>Active</option>
                                     <option value="Pending Approval" <?php echo ($selected_user['status'] === 'Pending Approval') ? 'selected' : ''; ?>>Pending Approval</option>
                                     <option value="Declined" <?php echo ($selected_user['status'] === 'Declined') ? 'selected' : ''; ?>>Declined/Suspended</option>
+                                </select>
+                            </div>
+                            <div class="form-group m-0" style="grid-column: span 2;">
+                                <label class="form-label text-xs">Team Inbox Chat Visibility</label>
+                                <select name="inbox_visibility" class="form-control text-xs font-semibold" style="height: 38px;">
+                                    <option value="default" <?php echo (($selected_user['inbox_visibility'] ?? 'default') === 'default') ? 'selected' : ''; ?>>Auto / Role Default (Support sees Support, Sales sees Sales)</option>
+                                    <option value="all" <?php echo (($selected_user['inbox_visibility'] ?? '') === 'all') ? 'selected' : ''; ?>>Full Company Access (All Chats)</option>
+                                    <option value="support_all" <?php echo (($selected_user['inbox_visibility'] ?? '') === 'support_all') ? 'selected' : ''; ?>>All Support Tickets (Hide Sales)</option>
+                                    <option value="support_assigned" <?php echo (($selected_user['inbox_visibility'] ?? '') === 'support_assigned') ? 'selected' : ''; ?>>My Assigned Tickets Only</option>
+                                    <option value="sales_all" <?php echo (($selected_user['inbox_visibility'] ?? '') === 'sales_all') ? 'selected' : ''; ?>>All Sales & AI Leads (Hide Support)</option>
+                                    <option value="sales_assigned" <?php echo (($selected_user['inbox_visibility'] ?? '') === 'sales_assigned') ? 'selected' : ''; ?>>My Assigned Leads Only</option>
                                 </select>
                             </div>
                         </div>

@@ -115,6 +115,36 @@ switch ($action) {
         try {
             $search = trim($_GET['search'] ?? '');
             $statusFilter = strtolower(trim($_GET['status'] ?? 'open')); // 'open', 'pending', 'closed', 'all'
+            $channelFilter = strtolower(trim($_GET['channel'] ?? 'all')); // 'all', 'support', 'sales'
+
+            // Determine Logged-In User's Team Inbox Visibility Mode
+            $userVisibility = 'default';
+            $userRole = $auth['role'] ?? '';
+            $userName = $auth['name'] ?? '';
+            $userId   = $auth['user_id'] ?? 0;
+
+            if ($userId > 0) {
+                try {
+                    $stmtVis = $pdo->prepare("SELECT inbox_visibility FROM users WHERE id = ? LIMIT 1");
+                    $stmtVis->execute([$userId]);
+                    $val = $stmtVis->fetchColumn();
+                    if (!empty($val)) $userVisibility = strtolower(trim($val));
+                } catch (Throwable $eV) {}
+            }
+
+            // Resolve smart defaults by role if set to 'default'
+            if ($userVisibility === 'default') {
+                $lr = strtolower($userRole);
+                if (str_contains($lr, 'super') || str_contains($lr, 'admin')) {
+                    $userVisibility = 'all';
+                } elseif (str_contains($lr, 'support')) {
+                    $userVisibility = 'support_all';
+                } elseif (str_contains($lr, 'sales') || str_contains($lr, 'telecaller')) {
+                    $userVisibility = 'sales_all';
+                } else {
+                    $userVisibility = 'all';
+                }
+            }
             
             // Query ALL distinct contact numbers for accurate global counts
             $sqlAll = "SELECT m1.*
@@ -145,6 +175,7 @@ switch ($action) {
             }
 
             $counts = ['open' => 0, 'pending' => 0, 'closed' => 0, 'all' => count($allConversations)];
+            $channelCounts = ['all' => 0, 'support' => 0, 'sales' => 0];
             $conversations = [];
 
             foreach ($allConversations as $c) {
@@ -158,32 +189,14 @@ switch ($action) {
                     $chatStatus = 'open';
                 }
 
-                if (isset($counts[$chatStatus])) {
-                    $counts[$chatStatus]++;
-                }
-
-                // If search query is active, filter list items
-                if (!empty($search)) {
-                    $matchSearch = (stripos($rawPhone, $search) !== false) || 
-                                  (stripos($c['message_body'] ?? '', $search) !== false);
-                    if (!$matchSearch) {
-                        continue;
-                    }
-                }
-
-                // If tab status filter is active, filter list items
-                if ($statusFilter !== 'all' && $chatStatus !== $statusFilter) {
-                    continue;
-                }
+                // Match with leads table
+                $stmtLead = $pdo->prepare("SELECT id, name, company, assigned_to FROM leads WHERE phone LIKE ? OR phone LIKE ? LIMIT 1");
+                $stmtLead->execute(["%$cleanPhone%", "%" . $rawPhone . "%"]);
+                $lead = $stmtLead->fetch(PDO::FETCH_ASSOC);
 
                 $name = 'Client (' . $rawPhone . ')';
                 $company = 'Marg Customer';
                 $leadId = null;
-
-                // Match with leads table
-                $stmtLead = $pdo->prepare("SELECT id, name, company FROM leads WHERE phone LIKE ? OR phone LIKE ? LIMIT 1");
-                $stmtLead->execute(["%$cleanPhone%", "%" . $rawPhone . "%"]);
-                $lead = $stmtLead->fetch(PDO::FETCH_ASSOC);
 
                 if ($lead) {
                     $name = $lead['name'];
@@ -199,7 +212,85 @@ switch ($action) {
                     }
                 }
 
-                // 24h window
+                // Check for linked Support Tickets
+                $ticketRow = null;
+                try {
+                    $stmtTicket = $pdo->prepare("SELECT id, assigned_to, status, subject FROM support_tickets WHERE phone LIKE ? OR callback_number LIKE ? ORDER BY id DESC LIMIT 1");
+                    $stmtTicket->execute(["%$cleanPhone%", "%$cleanPhone%"]);
+                    $ticketRow = $stmtTicket->fetch(PDO::FETCH_ASSOC);
+                } catch (Throwable $eT) {}
+
+                // Check for linked AI Chat Sessions
+                $aiSessRow = null;
+                try {
+                    $stmtAISess = $pdo->prepare("SELECT id, current_state, is_muted, lead_id FROM ai_chat_sessions WHERE phone LIKE ? LIMIT 1");
+                    $stmtAISess->execute(["%$cleanPhone%"]);
+                    $aiSessRow = $stmtAISess->fetch(PDO::FETCH_ASSOC);
+                } catch (Throwable $eA) {}
+
+                // Determine Channel: 'support', 'sales', 'general'
+                $channel = 'general';
+                if ($ticketRow) {
+                    $channel = 'support';
+                } elseif ($aiSessRow || $lead) {
+                    $channel = 'sales';
+                }
+
+                // -------------------------------------------------------------
+                // ENFORCE GRANULAR EMPLOYEE VISIBILITY PERMISSIONS
+                // -------------------------------------------------------------
+                if ($userVisibility === 'support_assigned') {
+                    if ($channel !== 'support') continue;
+                    $tAssign = strtolower(trim($ticketRow['assigned_to'] ?? ''));
+                    $uName = strtolower(trim($userName));
+                    if (!empty($tAssign) && $tAssign !== 'unassigned' && $tAssign !== $uName) {
+                        continue;
+                    }
+                } elseif ($userVisibility === 'support_all') {
+                    if ($channel !== 'support') continue;
+                } elseif ($userVisibility === 'sales_assigned') {
+                    if ($channel !== 'sales') continue;
+                    $lAssign = strtolower(trim($lead['assigned_to'] ?? ''));
+                    $uName = strtolower(trim($userName));
+                    if (!empty($lAssign) && $lAssign !== $uName) {
+                        continue;
+                    }
+                } elseif ($userVisibility === 'sales_all') {
+                    if ($channel !== 'sales') continue;
+                }
+
+                // Update Channel Counts for current visible dataset
+                $channelCounts['all']++;
+                if (isset($channelCounts[$channel])) {
+                    $channelCounts[$channel]++;
+                }
+
+                // Channel Filter (Tab Clicked)
+                if ($channelFilter !== 'all' && $channel !== $channelFilter) {
+                    continue;
+                }
+
+                if (isset($counts[$chatStatus])) {
+                    $counts[$chatStatus]++;
+                }
+
+                // If search query is active, filter list items
+                if (!empty($search)) {
+                    $matchSearch = (stripos($rawPhone, $search) !== false) || 
+                                  (stripos($c['message_body'] ?? '', $search) !== false) ||
+                                  (stripos($name, $search) !== false) ||
+                                  (stripos($company, $search) !== false);
+                    if (!$matchSearch) {
+                        continue;
+                    }
+                }
+
+                // If tab status filter is active, filter list items
+                if ($statusFilter !== 'all' && $chatStatus !== $statusFilter) {
+                    continue;
+                }
+
+                // 24h window calculation
                 $stmtLastIn = $pdo->prepare("SELECT created_at, raw_json FROM message_logs WHERE (recipient_or_sender = ? OR recipient_or_sender LIKE ?) AND direction = 'INBOUND' ORDER BY id DESC LIMIT 1");
                 $stmtLastIn->execute([$rawPhone, "%$cleanPhone%"]);
                 $lastInRow = $stmtLastIn->fetch(PDO::FETCH_ASSOC);
@@ -230,11 +321,25 @@ switch ($action) {
                 $c['window_status']   = $windowStatus;
                 $c['window_time_text']= $windowTimeText;
                 $c['window_seconds']  = $windowSeconds;
+                
+                // Channel & AI Metadata
+                $c['channel']            = $channel;
+                $c['ticket_id']          = $ticketRow['id'] ?? null;
+                $c['ticket_status']      = $ticketRow['status'] ?? null;
+                $c['ticket_assigned_to'] = $ticketRow['assigned_to'] ?? null;
+                $c['ai_state']           = $aiSessRow['current_state'] ?? null;
+                $c['is_ai_muted']        = (int)($aiSessRow['is_muted'] ?? 0);
 
                 $conversations[] = $c;
             }
 
-            echo json_encode(['success' => true, 'conversations' => $conversations, 'counts' => $counts]);
+            echo json_encode([
+                'success' => true,
+                'conversations' => $conversations,
+                'counts' => $counts,
+                'channel_counts' => $channelCounts,
+                'user_visibility' => $userVisibility
+            ]);
         } catch (Throwable $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         }
@@ -439,8 +544,18 @@ switch ($action) {
                 foreach ($auditLogs as &$aLog) {
                     $aLog['formatted_time'] = date('d M, h:i A', strtotime($aLog['created_at']));
                 }
-            } catch (Throwable $eAudit) {}
-            $profile['audit_logs'] = $auditLogs;
+            // Fetch AI chat session if exists
+            $profile['ai_session'] = null;
+            $profile['is_ai_muted'] = 0;
+            try {
+                $stmtAIS = $pdo->prepare("SELECT * FROM ai_chat_sessions WHERE phone LIKE ? OR phone LIKE ? LIMIT 1");
+                $stmtAIS->execute(["%$cleanDigits%", "%$clean10%"]);
+                $aiRow = $stmtAIS->fetch(PDO::FETCH_ASSOC);
+                if ($aiRow) {
+                    $profile['ai_session'] = $aiRow;
+                    $profile['is_ai_muted'] = (int)($aiRow['is_muted'] ?? 0);
+                }
+            } catch (Throwable $eAI) {}
 
             $profile['window_status']    = $windowStatus;
             $profile['window_time_text'] = $windowTimeText;
@@ -600,9 +715,32 @@ switch ($action) {
         $res = $whatsapp->sendText($phone, $message);
 
         if (!empty($res['success']) && $res['success']) {
+            // Auto-mute AI Bot so human agent conversation is not interrupted
+            require_once __DIR__ . '/../includes/ai_service.php';
+            muteAISession($pdo, $phone);
             echo json_encode(['success' => true, 'message' => 'Message sent successfully!', 'data' => $res]);
         } else {
             echo json_encode(['success' => false, 'message' => $res['error']['message'] ?? 'Failed to send WhatsApp message', 'details' => $res]);
+        }
+        exit;
+
+    // -------------------------------------------------------------
+    // Toggle AI Assistant Mute / Resume (Human Takeover)
+    // -------------------------------------------------------------
+    case 'toggle_ai_mute':
+        $phone = trim($_POST['phone'] ?? '');
+        $mute  = intval($_POST['mute'] ?? 1);
+        if (empty($phone)) {
+            echo json_encode(['success' => false, 'message' => 'Phone number is required']);
+            exit;
+        }
+        require_once __DIR__ . '/../includes/ai_service.php';
+        if ($mute) {
+            muteAISession($pdo, $phone);
+            echo json_encode(['success' => true, 'is_muted' => 1, 'message' => 'AI Assistant Muted (Human Takeover Active)']);
+        } else {
+            unmuteAISession($pdo, $phone);
+            echo json_encode(['success' => true, 'is_muted' => 0, 'message' => 'AI Assistant Resumed']);
         }
         exit;
 

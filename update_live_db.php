@@ -169,7 +169,68 @@ if ($db_connected && $pdo) {
 
         $results[] = ["status" => "success", "msg" => "Merchant WABA & ERP log tables verified."];
 
-    } catch (Exception $e) {
+        // 7. AI Chat Sessions Table (WhatsApp AI Sales Bot)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            phone VARCHAR(30) NOT NULL UNIQUE,
+            customer_name VARCHAR(100) NULL,
+            firm_name VARCHAR(150) NULL,
+            city VARCHAR(100) NULL,
+            product_interest VARCHAR(100) NULL,
+            current_state VARCHAR(50) DEFAULT 'idle',
+            conversation_history LONGTEXT NULL,
+            lead_id INT NULL,
+            demo_id INT NULL,
+            is_muted TINYINT(1) DEFAULT 0,
+            muted_at DATETIME NULL,
+            last_message_at DATETIME NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_phone (phone),
+            INDEX idx_lead (lead_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $results[] = ["status" => "success", "msg" => "'ai_chat_sessions' table verified."];
+
+        // 8. AI Bot Settings Table
+        $pdo->exec("CREATE TABLE IF NOT EXISTS ai_bot_settings (
+            id INT PRIMARY KEY DEFAULT 1,
+            bot_enabled TINYINT(1) DEFAULT 1,
+            ai_provider VARCHAR(50) DEFAULT 'gemini',
+            api_key VARCHAR(255) NULL,
+            ai_model VARCHAR(50) DEFAULT 'gemini-1.5-flash',
+            system_prompt LONGTEXT NULL,
+            knowledge_base LONGTEXT NULL,
+            pricing_basic VARCHAR(50) DEFAULT '₹8,999 + 18% GST',
+            pricing_silver VARCHAR(50) DEFAULT '₹12,600 + 18% GST',
+            pricing_gold VARCHAR(50) DEFAULT '₹25,200 + 18% GST',
+            show_sales_chats_in_inbox TINYINT(1) DEFAULT 1,
+            mute_on_human_reply TINYINT(1) DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        // Insert default AI Bot Settings row if not exists
+        $checkSettings = $pdo->query("SELECT id FROM ai_bot_settings WHERE id = 1")->fetchColumn();
+        if (!$checkSettings) {
+            $defaultSysPrompt = "You are the official WhatsApp AI Sales Assistant for Marg Soft Solution (Marg ERP). You speak in polite, professional Hinglish. You answer customer questions about Marg ERP, explain features, and guide them to schedule a free demo. Strict rules: Never offer unauthorized discounts; Marg Basic is ₹8,999, Silver is ₹12,600, Gold is ₹25,200 (+18% GST). Never badmouth competitors. If customer asks for technical support or reports a bug/error, politely advise them to click Support so engineers can connect. Always keep replies short and WhatsApp friendly (under 80 words).";
+            $defaultKb = "Marg ERP 9+ is India's #1 Pharma & Retail ERP. 60%+ pharmaceutical businesses in India use Marg. Key features: 7-second billing, Batch & Expiry management, Near-expiry alerts, 100% GST compliant invoicing, WhatsApp bill delivery, Barcode scanning, Auto purchase import from distributor CSV, Multi-rate pricing, Fast audit reports.";
+            $insSetting = $pdo->prepare("INSERT INTO ai_bot_settings (id, bot_enabled, ai_provider, ai_model, system_prompt, knowledge_base, pricing_basic, pricing_silver, pricing_gold, show_sales_chats_in_inbox, mute_on_human_reply) VALUES (1, 1, 'gemini', 'gemini-1.5-flash', ?, ?, '₹8,999 + 18% GST', '₹12,600 + 18% GST', '₹25,200 + 18% GST', 1, 1)");
+            $insSetting->execute([$defaultSysPrompt, $defaultKb]);
+            $results[] = ["status" => "success", "msg" => "Initialized default 'ai_bot_settings' configuration."];
+        } else {
+            $results[] = ["status" => "info", "msg" => "'ai_bot_settings' already configured."];
+        }
+
+        // 9. Users Table: Add 'inbox_visibility' column for Team Inbox Granular Access Control
+        $userCols = $pdo->query("SHOW COLUMNS FROM users")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('inbox_visibility', $userCols)) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN inbox_visibility VARCHAR(50) DEFAULT 'default' AFTER role");
+            $results[] = ["status" => "success", "msg" => "Added 'inbox_visibility' column to 'users' table."];
+        } else {
+            $results[] = ["status" => "info", "msg" => "'users' table has 'inbox_visibility' column."];
+        }
+
+    } catch (Throwable $e) {
         $results[] = ["status" => "danger", "msg" => "Migration Error: " . $e->getMessage()];
     }
 } else {

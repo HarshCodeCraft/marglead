@@ -1070,6 +1070,19 @@ require_once __DIR__ . '/../includes/db.php';
                 <input type="text" id="inboxSearchInput" class="inbox-search-input" placeholder="Search customer or phone..." onkeyup="fetchConversations()">
             </div>
         </div>
+        <!-- Channel Segment Tabs (All, Support Tickets, AI Sales) -->
+        <div class="inbox-channel-tabs" style="display: flex; gap: 4px; padding: 6px 8px; background: var(--bg-card, #ffffff); border-bottom: 1px solid var(--border-color, #e2e8f0);">
+            <button type="button" class="channel-btn active" id="chan-all" onclick="switchChannelTab('all')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1px solid transparent; background: rgba(37, 99, 235, 0.12); color: var(--primary, #2563eb); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
+                All <span class="tab-count" id="cnt-chan-all" style="background: rgba(37,99,235,0.15); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
+            </button>
+            <button type="button" class="channel-btn" id="chan-support" onclick="switchChannelTab('support')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color, #e2e8f0); background: transparent; color: #ef4444; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
+                🎫 Support <span class="tab-count" id="cnt-chan-support" style="background: rgba(239,68,68,0.1); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
+            </button>
+            <button type="button" class="channel-btn" id="chan-sales" onclick="switchChannelTab('sales')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color, #e2e8f0); background: transparent; color: #10b981; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
+                🤖 AI Sales <span class="tab-count" id="cnt-chan-sales" style="background: rgba(16,185,129,0.1); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
+            </button>
+        </div>
+
         <!-- Status Filter Tabs -->
         <div class="inbox-status-tabs">
             <button type="button" class="tab-btn active" id="tab-open" onclick="switchFilterTab('open')">
@@ -1108,6 +1121,7 @@ require_once __DIR__ . '/../includes/db.php';
                 </div>
             </div>
             <div class="chat-header-actions">
+                <div id="aiMuteActionBtn"></div>
                 <div id="ticketHeaderBadge"></div>
                 <div id="windowTimerBadge"></div>
 
@@ -1321,7 +1335,9 @@ require_once __DIR__ . '/../includes/db.php';
 <script>
 let currentActivePhone = '';
 let currentFilterTab = 'open';
+let currentChannelTab = 'all';
 let currentChatStatus = 'open';
+let currentAiMuted = 0;
 let isPolling = true;
 
 let lastConversationsHash = '';
@@ -1375,6 +1391,24 @@ function switchFilterTab(tab) {
     fetchConversations();
 }
 
+function switchChannelTab(channel) {
+    currentChannelTab = channel;
+    lastConversationsHash = '';
+    ['all', 'support', 'sales'].forEach(ch => {
+        const btn = document.getElementById('chan-' + ch);
+        if (btn) {
+            if (ch === channel) {
+                btn.style.background = (ch === 'support') ? 'rgba(239, 68, 68, 0.15)' : (ch === 'sales' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(37, 99, 235, 0.15)');
+                btn.style.fontWeight = '700';
+            } else {
+                btn.style.background = 'transparent';
+                btn.style.fontWeight = '600';
+            }
+        }
+    });
+    fetchConversations(false);
+}
+
 let lastCountsHash = '';
 
 function cleanPreviewText(text) {
@@ -1394,7 +1428,7 @@ function cleanPreviewText(text) {
 function fetchConversations(showLoading = true) {
     const searchInput = document.getElementById('inboxSearchInput');
     const search = searchInput ? searchInput.value : '';
-    fetch(`api/inbox-api.php?action=conversations&status=${encodeURIComponent(currentFilterTab)}&search=${encodeURIComponent(search)}`)
+    fetch(`api/inbox-api.php?action=conversations&status=${encodeURIComponent(currentFilterTab)}&channel=${encodeURIComponent(currentChannelTab)}&search=${encodeURIComponent(search)}`)
     .then(res => res.json())
     .then(data => {
         if (data.success) {
@@ -1408,6 +1442,14 @@ function fetchConversations(showLoading = true) {
                 if (cntPending) cntPending.innerText = (data.counts.pending !== undefined) ? data.counts.pending : 0;
                 if (cntClosed) cntClosed.innerText = (data.counts.closed !== undefined) ? data.counts.closed : 0;
                 if (cntAll) cntAll.innerText = (data.counts.all !== undefined) ? data.counts.all : 0;
+            }
+            if (data.channel_counts) {
+                const cntChAll = document.getElementById('cnt-chan-all');
+                const cntChSup = document.getElementById('cnt-chan-support');
+                const cntChSal = document.getElementById('cnt-chan-sales');
+                if (cntChAll) cntChAll.innerText = data.channel_counts.all || 0;
+                if (cntChSup) cntChSup.innerText = data.channel_counts.support || 0;
+                if (cntChSal) cntChSal.innerText = data.channel_counts.sales || 0;
             }
         }
     })
@@ -1494,6 +1536,18 @@ function renderConversations(list) {
 
         const previewText = cleanPreviewText(c.message_body);
 
+        let channelBadge = '';
+        if (c.channel === 'support') {
+            channelBadge = `<span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; margin-right: 3px;">🎫 ${c.ticket_id ? '#' + c.ticket_id : 'Ticket'}</span>`;
+        } else if (c.channel === 'sales') {
+            channelBadge = `<span style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; margin-right: 3px;">🤖 AI Sales</span>`;
+        }
+
+        let muteBadge = '';
+        if (c.is_ai_muted) {
+            muteBadge = `<span style="background: rgba(100, 116, 139, 0.12); color: #64748b; font-size: 0.6rem; padding: 1px 4px; border-radius: 4px; margin-right: 3px;" title="Human Agent Active">👤 Agent</span>`;
+        }
+
         html += `
         <div class="conv-item ${isActive}" onclick="selectConversation('${phone}')">
             <div class="conv-avatar-wrap">
@@ -1501,7 +1555,7 @@ function renderConversations(list) {
             </div>
             <div class="conv-details">
                 <div class="conv-name-row">
-                    <div class="conv-name">${escapeHtml(nameStr)}</div>
+                    <div class="conv-name">${channelBadge}${muteBadge}${escapeHtml(nameStr)}</div>
                     <div class="conv-time">${c.formatted_time}</div>
                 </div>
                 <div class="conv-preview-row">
@@ -1715,6 +1769,25 @@ function renderProfile(p) {
     if (rightEmail) rightEmail.innerText = p.email || 'N/A';
     if (rightAvatar) rightAvatar.innerText = p.name.charAt(0).toUpperCase();
 
+    // AI Mute / Human Takeover Button in Header
+    const aiBtnElem = document.getElementById('aiMuteActionBtn');
+    if (aiBtnElem) {
+        currentAiMuted = p.is_ai_muted || 0;
+        if (currentAiMuted) {
+            aiBtnElem.innerHTML = `
+                <button type="button" class="btn-pill text-xs" style="background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid #cbd5e1; padding: 4px 8px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="toggleAiMute('${p.phone}', 0)" title="Human Takeover Active. Click to Resume AI Assistant auto-reply.">
+                    <i data-lucide="user" style="width: 11px; height: 11px; color: #3b82f6;"></i> Agent Active • Resume AI
+                </button>
+            `;
+        } else {
+            aiBtnElem.innerHTML = `
+                <button type="button" class="btn-pill text-xs" style="background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 8px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="toggleAiMute('${p.phone}', 1)" title="AI Assistant is Auto-Replying. Click to Takeover manually.">
+                    <i data-lucide="bot" style="width: 11px; height: 11px; color: #10b981;"></i> 🤖 AI Active • Takeover
+                </button>
+            `;
+        }
+    }
+
     // Clean Single Action Button in Header (Close Chat vs Re-open Chat)
     const actionBtnElem = document.getElementById('chatStatusActionBtn');
     if (actionBtnElem) {
@@ -1885,6 +1958,31 @@ function updateChatStatus(status) {
             alert('Error: ' + (data.message || 'Failed updating status'));
         }
     });
+}
+
+function toggleAiMute(phone, muteState) {
+    if (!phone) return;
+    const formData = new FormData();
+    formData.append('action', 'toggle_ai_mute');
+    formData.append('phone', phone);
+    formData.append('mute', muteState);
+
+    fetch('api/inbox-api.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            currentAiMuted = d.is_muted;
+            lastProfileHash = '';
+            fetchMessages(phone, false);
+            fetchConversations(false);
+        } else {
+            alert(d.message || 'Failed toggling AI state');
+        }
+    })
+    .catch(err => console.error(err));
 }
 
 function insertQuickReply(selectElem) {

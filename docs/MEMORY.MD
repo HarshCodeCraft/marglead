@@ -135,8 +135,23 @@ The application operates on a LAMP/WAMP stack (PHP 8.x + MySQL/MariaDB + Apache)
 
 ---
 
-## 5. Upcoming Architecture: WhatsApp AI Sales Engine
-* **Isolation:** Two-track webhook router in `api/webhook.php`.
-* **Track A (Support):** Untouched existing ticket creation and resolution flow.
-* **Track B (Sales):** Centralized Gemini 1.5/2.0 Flash AI assistant answering questions in Hinglish and autonomously inserting leads into `leads` and `demos` tables upon agreement.
-* **Centralization:** Single API key and model setting managed via `includes/ai_service.php` and DB table `system_settings`.
+## 5. Implemented: WhatsApp AI Sales Assistant & Granular Team Inbox Access
+* **Dual-Track Webhook Routing (`api/webhook.php`):**
+  * **Track A (Support Desk):** Pure greetings ("Hi", "Hello") send Welcome buttons (`[Sales]`, `[Support]`). Direct technical issue queries (e.g. "print error", "not working", "ticket") or clicking `[Support]` instantly trigger Meta WhatsApp Ticket Flow (`FLOW_ID`). 100% regression-free.
+  * **Track B (AI Sales Assistant):** Direct questions or clicking `[Sales]` trigger `handleAISalesAssistantInteraction()`. AI answers in Hinglish, follows strict Lakshman Rekhas (official pricing only, zero data leak, support handoff), and autonomously schedules software demos in `demos`, creates leads in `leads`, and logs follow-ups.
+* **Centralized AI Adapter (`includes/ai_service.php`):**
+  * Reads configuration dynamically from `ai_bot_settings` table (with env variable fallback).
+  * Isolated REST API call to Google Gemini 1.5/2.0 Flash with JSON structured response (`reply_text`, `action`, `lead_details`).
+  * Graceful timeout and network failure fallback message.
+* **Team Inbox Granular Visibility & Channels (`modules/team_inbox.php` & `api/inbox-api.php`):**
+  * Channel tagging: `[All]`, `[🎫 Support Tickets]`, `[🤖 AI Sales]`.
+  * Employee visibility modes in `users.inbox_visibility`:
+    * `default`: Auto-segmented by role (Support Executives see Support Tickets, Sales Executives see Sales Leads, Admins see All).
+    * `support_assigned`: Only tickets assigned to this employee.
+    * `support_all`: All company support tickets.
+    * `sales_assigned`: Only leads assigned to this employee.
+    * `sales_all`: All sales and AI lead chats.
+    * `all`: Full company access.
+  * **Human Takeover & AI Muting:** When an agent replies manually from Team Inbox, `muteAISession()` automatically silences the AI for that contact. Header has `[🤖 AI Active • Takeover]` and `[👤 Agent Active • Resume AI]` toggle button.
+* **Admin Control Center (`modules/admin/ai_sales_settings.php`):**
+  * Master Bot Switch, API Key manager, Marg ERP pricing matrix editor, System Prompt & Knowledge Base editor, and live interactive AI Test Simulator.
