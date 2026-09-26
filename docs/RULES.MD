@@ -21,10 +21,15 @@
 
 The AI must **strictly adhere** to these authorized prices and edition boundaries:
 
-### Edition 1: Marg Basic Edition (Entry-Level)
+### Edition 0: Marg ERP Nano Edition
+* **Target Audience:** Micro traders, start-ups, small retailers.
+* **Official Price:** ₹5,550 + 18% GST.
+* **User & Company Limits:** Up to 2 users (₹3,000/extra user), Up to 2 companies (₹3,000/extra company).
+
+### Edition 1: Marg Basic Edition (Limited Edition)
 * **Target Audience:** Small shops, retail counters, basic traders.
-* **License Type:** Single User.
-* **Official Price:** ₹8,999 + 18% GST (Annual Maintenance / Renewal: Standard AMC applies).
+* **License Type:** Single User Full Rights (Max 2 users @ ₹3,000/extra user; Max 2 companies @ ₹3,000/extra company).
+* **Official Price:** ₹10,300 + 18% GST.
 * **Core Capabilities:**
   * Fast POS Cash/Credit Billing
   * Basic Stock & Inventory Management
@@ -34,8 +39,8 @@ The AI must **strictly adhere** to these authorized prices and edition boundarie
 
 ### Edition 2: Marg Silver Edition (Most Popular / Standard)
 * **Target Audience:** Chemists, Pharmacies, Garment stores, Supermarkets, Distributors.
-* **License Type:** Single User (1 System).
-* **Official Price:** ₹12,600 + 18% GST.
+* **License Type:** 1 User Full Rights + 1 User for View Only (₹3,000/extra user, ₹3,000/extra company).
+* **Official Price:** ₹13,900 + 18% GST.
 * **Core Capabilities:**
   * Complete Pharmaceutical & Expiry Tracking (Batch Number, Expiry Alerts, Dump Stock)
   * Drug License & Narcotic Drugs Register Compliance
@@ -47,8 +52,8 @@ The AI must **strictly adhere** to these authorized prices and edition boundarie
 
 ### Edition 3: Marg Gold Edition (Enterprise / Multi-User)
 * **Target Audience:** Large wholesalers, distributors, multi-counter supermarkets, enterprise warehouses.
-* **License Type:** Multi-User (**Unlimited Systems on Local LAN Network**).
-* **Official Price:** ₹25,200 + 18% GST.
+* **License Type:** Multi-User (**Unlimited Users & Unlimited Extra Companies**).
+* **Official Price:** ₹26,000 + 18% GST.
 * **Core Capabilities:**
   * All Silver Edition Features Included
   * Multi-Counter Concurrent Billing (Zero lag on LAN)

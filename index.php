@@ -844,7 +844,7 @@ $is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !
 if (!hasAccess($page, $_SESSION['user_role'])) {
     // Find first accessible page for this user and redirect silently
     $role = $_SESSION['user_role'] ?? '';
-    $candidate_pages = ['dashboard', 'whatsapp_dashboard', 'workspace_dashboard', 'leads', 'clients', 'customer_kyc', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'team_inbox', 'merchant_waba_settings', 'broadcast_campaigns', 'bot_flows', 'admin_reports', 'settings'];
+    $candidate_pages = ['dashboard', 'whatsapp_dashboard', 'workspace_dashboard', 'leads', 'clients', 'sub_partners', 'customer_kyc', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'team_inbox', 'merchant_waba_settings', 'broadcast_campaigns', 'bot_flows', 'notification_templates', 'admin_reports', 'settings'];
     $redirect_to = null;
     foreach ($candidate_pages as $candidate) {
         // Skip the current page to avoid infinite redirect loop
@@ -943,6 +943,9 @@ switch ($page) {
     case 'clients':
         $module_path = __DIR__ . '/modules/clients.php';
         break;
+    case 'sub_partners':
+        $module_path = __DIR__ . '/modules/sub_partners.php';
+        break;
     case 'crm_clients':
         $module_path = __DIR__ . '/modules/admin/crm_clients.php';
         break;
@@ -978,6 +981,9 @@ switch ($page) {
         break;
     case 'merchant_waba_settings':
         $module_path = __DIR__ . '/modules/merchant_waba_settings.php';
+        break;
+    case 'notification_templates':
+        $module_path = __DIR__ . '/modules/notification_templates.php';
         break;
     case 'bulk_broadcast':
         header("Location: index.php?page=broadcast_campaigns");

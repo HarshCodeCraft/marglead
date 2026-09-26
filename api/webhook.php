@@ -1,13 +1,4 @@
 <?php
-/**
- * Marg CRM - Meta WhatsApp Webhook Endpoint
- * 
- * URL: https://friendlyaisolution.com/api/webhook.php
- * 
- * Responsibilities:
- * 1. GET: Verify Meta Webhook Subscription (hub.challenge)
- * 2. POST: Handle incoming messages, interactive button replies, and WhatsApp flow submissions.
- */
 
 date_default_timezone_set('Asia/Kolkata');
 
@@ -265,18 +256,26 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
             if (empty($clientPhoneClean)) {
                 // Agent sent a message without a valid client phone number
-                $helpMsg = "Hello *{$teamAgent['name']}* 👋\n\n" .
-                           "📌 *To Schedule Training:*\n" .
-                           "`Training <10-digit mobile> <Trainer Name>` (Online)\n" .
-                           "`Offline Training <10-digit mobile> <Trainer Name>` (Offline)\n" .
-                           "• *Example:* `Training 7860510928 Harsh Saini`\n\n" .
-                           "📌 *To Create & Assign a Lead:*\n" .
-                           "`Lead <10-digit mobile> <Employee Name>`\n" .
-                           "• *Example:* `Lead 7860510928 Sahil savita`\n\n" .
-                           "📌 *To Create a Support Ticket:*\n" .
-                           "`<10-digit mobile> - <Issue Description>`\n" .
-                           "• *Example:* `9876543210 - Printer error`";
-                $whatsapp->sendText($from, $helpMsg);
+                $tplGuide = get_system_notification_template($pdo, 'team_agent_help_guide', [
+                    'agent_name' => $teamAgent['name']
+                ]);
+
+                if (!$tplGuide['found'] || $tplGuide['is_active']) {
+                    $helpMsg = !empty($tplGuide['whatsapp_body']) ? $tplGuide['whatsapp_body'] : (
+                        "Hello *{$teamAgent['name']}* 👋\n\n" .
+                        "📌 *To Schedule Training:*\n" .
+                        "`Training <10-digit mobile> <Trainer Name>` (Online)\n" .
+                        "`Offline Training <10-digit mobile> <Trainer Name>` (Offline)\n" .
+                        "• *Example:* `Training 7860510928 Harsh Saini`\n\n" .
+                        "📌 *To Create & Assign a Lead:*\n" .
+                        "`Lead <10-digit mobile> <Employee Name>`\n" .
+                        "• *Example:* `Lead 7860510928 Sahil savita`\n\n" .
+                        "📌 *To Create a Support Ticket:*\n" .
+                        "`<10-digit mobile> - <Issue Description>`\n" .
+                        "• *Example:* `9876543210 - Printer error`"
+                    );
+                    $whatsapp->sendText($from, $helpMsg);
+                }
             } elseif ($isLeadCommand) {
                 // =========================================================
                 // CASE 1: LEAD CREATION & AUTO-ASSIGNMENT COMMAND
@@ -486,38 +485,73 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     } catch (Throwable $eN) {}
 
                     // 4. Send Instant WhatsApp Confirmation to Sender (Team Member who dropped the lead)
-                    $senderReply = "*Lead Successfully Created & Assigned!*\n\n" .
-                                   "• *Lead ID:* {$leadId}\n" .
-                                   "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
-                                   (!empty($partyName) ? "• *Party / Company:* {$partyName}\n" : "") .
-                                   "• *Assigned To:* {$assignedName}\n" .
-                                   "• *Source:* {$parsedSource}\n" .
-                                   "• *Group / Stage:* {$parsedGroup}\n" .
-                                   (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
-                                   "• *Created By:* {$actorName}\n\n" .
-                                   (!empty($assignedPhone) ? "WhatsApp alert sent to {$assignedName} (" . format_phone_number($assignedPhone) . ")" : "Note: WhatsApp alert not sent (Assignee phone not configured in Team Agents).");
-                    $whatsapp->sendText($from, $senderReply);
+                    $tplLeadSender = get_system_notification_template($pdo, 'lead_created_confirmation', [
+                        'lead_id'           => $leadId,
+                        'lead_phone'        => $clientPhoneClean,
+                        'party_name'        => (!empty($partyName) ? $partyName : 'N/A'),
+                        'assigned_engineer' => $assignedName,
+                        'source'            => $parsedSource,
+                        'stage'             => $parsedGroup,
+                        'notes'             => (!empty($extraNotes) ? $extraNotes : 'No note'),
+                        'created_by'        => $actorName
+                    ]);
+
+                    if (!$tplLeadSender['found'] || $tplLeadSender['is_active']) {
+                        $senderReply = !empty($tplLeadSender['whatsapp_body']) ? $tplLeadSender['whatsapp_body'] : (
+                            "*Lead Successfully Created & Assigned!*\n\n" .
+                            "• *Lead ID:* {$leadId}\n" .
+                            "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
+                            (!empty($partyName) ? "• *Party / Company:* {$partyName}\n" : "") .
+                            "• *Assigned To:* {$assignedName}\n" .
+                            "• *Source:* {$parsedSource}\n" .
+                            "• *Group / Stage:* {$parsedGroup}\n" .
+                            (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
+                            "• *Created By:* {$actorName}"
+                        );
+                        if (!empty($assignedPhone)) {
+                            $senderReply .= "\n\nWhatsApp alert sent to {$assignedName} (" . format_phone_number($assignedPhone) . ")";
+                        } else {
+                            $senderReply .= "\n\nNote: WhatsApp alert not sent (Assignee phone not configured in Team Agents).";
+                        }
+                        $whatsapp->sendText($from, $senderReply);
+                    }
 
                     // 5. Send Instant WhatsApp Alert to Assigned Employee (e.g. Harsh Saini)
                     if (!empty($assignedPhone)) {
                         $assigneePhoneFormatted = format_phone_number($assignedPhone);
                         $baseUrl = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
-                        $assigneeAlert = "Hello *{$assignedName}*,\n\n" .
-                                         "You have a new lead assigned by *{$actorName}*.\n\n" .
-                                         "*Lead Details:*\n" .
-                                         "• *Lead ID:* {$leadId}\n" .
-                                         "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
-                                         (!empty($partyName) ? "• *Party / Company:* {$partyName}\n" : "") .
-                                         "• *Source:* {$parsedSource}\n" .
-                                         "• *Group / Stage:* {$parsedGroup}\n" .
-                                         (!empty($extraNotes) ? "• *Requirement / Note:* {$extraNotes}\n" : "") .
-                                         "• *Assigned By:* {$actorName}\n" .
-                                         "• *Date & Time:* " . date('d-m-Y h:i A') . "\n\n" .
-                                         "Please contact the customer promptly.\n\n" .
-                                         "CRM Lead Link: {$baseUrl}index.php?page=leads\n\n" .
-                                         "Marg Soft Solution";
+                        $tplLeadEmp = get_system_notification_template($pdo, 'lead_assigned_employee', [
+                            'assigned_engineer' => $assignedName,
+                            'created_by'        => $actorName,
+                            'lead_id'           => $leadId,
+                            'lead_phone'        => $clientPhoneClean,
+                            'party_name'        => (!empty($partyName) ? $partyName : 'Valued Client'),
+                            'source'            => $parsedSource,
+                            'stage'             => $parsedGroup,
+                            'notes'             => (!empty($extraNotes) ? $extraNotes : 'No additional note'),
+                            'created_at'        => date('d-m-Y h:i A'),
+                            'crm_link'          => "{$baseUrl}index.php?page=leads"
+                        ]);
 
-                        $whatsapp->sendText($assigneePhoneFormatted, $assigneeAlert);
+                        if (!$tplLeadEmp['found'] || $tplLeadEmp['is_active']) {
+                            $assigneeAlert = !empty($tplLeadEmp['whatsapp_body']) ? $tplLeadEmp['whatsapp_body'] : (
+                                "Hello *{$assignedName}*,\n\n" .
+                                "You have a new lead assigned by *{$actorName}*.\n\n" .
+                                "*Lead Details:*\n" .
+                                "• *Lead ID:* {$leadId}\n" .
+                                "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
+                                (!empty($partyName) ? "• *Party / Company:* {$partyName}\n" : "") .
+                                "• *Source:* {$parsedSource}\n" .
+                                "• *Group / Stage:* {$parsedGroup}\n" .
+                                (!empty($extraNotes) ? "• *Requirement / Note:* {$extraNotes}\n" : "") .
+                                "• *Assigned By:* {$actorName}\n" .
+                                "• *Date & Time:* " . date('d-m-Y h:i A') . "\n\n" .
+                                "Please contact the customer promptly.\n\n" .
+                                "CRM Lead Link: {$baseUrl}index.php?page=leads\n\n" .
+                                "Marg Soft Solution"
+                            );
+                            $whatsapp->sendText($assigneePhoneFormatted, $assigneeAlert);
+                        }
                     }
 
                 } catch (Throwable $e) {
@@ -712,53 +746,104 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     } catch (Throwable $eN) {}
 
                     // 4. Send Instant WhatsApp Confirmation to Sender (Team Member who dropped the training)
-                    $senderReply = "*Training Ticket Created & Allocated*\n\n" .
-                                   "• *Ticket ID:* `{$trainingTicketId}`\n" .
-                                   "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
-                                   (!empty($partyName) ? "• *Party Name:* {$partyName}\n" : "") .
-                                   "• *Training Mode:* *{$trainingMode}*\n" .
-                                   "• *Assigned Trainer:* *{$assignedTrainerName}*\n" .
-                                   (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
-                                   "• *Allocated By:* {$teamAgent['name']}\n\n" .
-                                   (!empty($assignedTrainerPhone) ? "WhatsApp alert sent to Trainer {$assignedTrainerName} (" . format_phone_number($assignedTrainerPhone) . ")" : "Note: Trainer WhatsApp alert not sent (Trainer phone not configured in Team Agents).");
-                    $whatsapp->sendText($from, $senderReply);
+                    $tplTrConf = get_system_notification_template($pdo, 'training_created_confirmation', [
+                        'ticket_id'      => $trainingTicketId,
+                        'client_phone'   => $clientPhoneClean,
+                        'party_name'     => (!empty($partyName) ? $partyName : 'N/A'),
+                        'training_mode'  => $trainingMode,
+                        'trainer_name'   => $assignedTrainerName,
+                        'notes'          => (!empty($extraNotes) ? $extraNotes : 'No note'),
+                        'created_by'     => $teamAgent['name']
+                    ]);
+
+                    if (!$tplTrConf['found'] || $tplTrConf['is_active']) {
+                        $senderReply = !empty($tplTrConf['whatsapp_body']) ? $tplTrConf['whatsapp_body'] : (
+                            "*Training Ticket Allocated!*\n\n" .
+                            "• *Ticket ID:* `{$trainingTicketId}`\n" .
+                            "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
+                            (!empty($partyName) ? "• *Party Name:* {$partyName}\n" : "") .
+                            "• *Training Mode:* *{$trainingMode}*\n" .
+                            "• *Assigned Trainer:* *{$assignedTrainerName}*\n" .
+                            (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
+                            "• *Allocated By:* {$teamAgent['name']}"
+                        );
+                        if (!empty($assignedTrainerPhone)) {
+                            $senderReply .= "\n\nWhatsApp alert sent to Trainer {$assignedTrainerName} (" . format_phone_number($assignedTrainerPhone) . ")";
+                        } else {
+                            $senderReply .= "\n\nNote: Trainer WhatsApp alert not sent (Trainer phone not configured in Team Agents).";
+                        }
+                        $whatsapp->sendText($from, $senderReply);
+                    }
 
                     // 5. Send Instant WhatsApp Alert to Assigned Trainer (e.g. Harsh Saini)
                     if (!empty($assignedTrainerPhone)) {
                         $trainerPhoneFormatted = format_phone_number($assignedTrainerPhone);
                         $baseUrl = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
-                        $trainerAlert = "Hi *{$assignedTrainerName}*,\n\n" .
-                                        "You have been allocated a new *Marg ERP Training* by *{$teamAgent['name']}*.\n\n" .
-                                        "*Training Details:*\n" .
-                                        "• *Ticket ID:* `{$trainingTicketId}`\n" .
-                                        "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
-                                        (!empty($partyName) ? "• *Party Name:* {$partyName}\n" : "") .
-                                        "• *Training Mode:* *{$trainingMode}*\n" .
-                                        "• *Software:* {$clientProduct}\n" .
-                                        (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
-                                        "• *Allocated By:* {$teamAgent['name']} ({$teamAgent['emp_code']})\n" .
-                                        "• *Date & Time:* " . date('d-m-Y h:i A') . "\n\n" .
-                                        "Please connect with the client promptly to conduct or schedule Day 1 training session.\n\n" .
-                                        "*CRM Training Portal:* {$baseUrl}index.php?page=training\n\n" .
-                                        "*Marg Soft Solution*";
+                        $tplTrainer = get_system_notification_template($pdo, 'training_allocated_trainer', [
+                            'trainer_name'  => $assignedTrainerName,
+                            'created_by'    => $teamAgent['name'] . ' (' . $teamAgent['emp_code'] . ')',
+                            'ticket_id'     => $trainingTicketId,
+                            'client_name'   => (!empty($partyName) ? $partyName : $clientPhoneClean),
+                            'client_phone'  => $clientPhoneClean,
+                            'software_type' => $clientProduct,
+                            'training_mode' => $trainingMode,
+                            'scheduled_at'  => date('d-m-Y h:i A'),
+                            'address'       => (!empty($clientAddress) ? $clientAddress : ''),
+                            'notes'         => (!empty($extraNotes) ? $extraNotes : ''),
+                            'crm_link'      => "{$baseUrl}index.php?page=training"
+                        ]);
 
-                        $whatsapp->sendText($trainerPhoneFormatted, $trainerAlert);
+                        if (!$tplTrainer['found'] || $tplTrainer['is_active']) {
+                            $trainerAlert = !empty($tplTrainer['whatsapp_body']) ? $tplTrainer['whatsapp_body'] : (
+                                "Hi *{$assignedTrainerName}*,\n\n" .
+                                "You have been allocated a new *Marg ERP Training* by *{$teamAgent['name']}*.\n\n" .
+                                "*Training Details:*\n" .
+                                "• *Ticket ID:* `{$trainingTicketId}`\n" .
+                                "• *Customer Mobile:* +91 {$clientPhoneClean}\n" .
+                                (!empty($partyName) ? "• *Party Name:* {$partyName}\n" : "") .
+                                "• *Training Mode:* *{$trainingMode}*\n" .
+                                "• *Software:* {$clientProduct}\n" .
+                                (!empty($extraNotes) ? "• *Note:* {$extraNotes}\n" : "") .
+                                "• *Allocated By:* {$teamAgent['name']} ({$teamAgent['emp_code']})\n" .
+                                "• *Date & Time:* " . date('d-m-Y h:i A') . "\n\n" .
+                                "Please connect with the client promptly to conduct or schedule Day 1 training session.\n\n" .
+                                "*CRM Training Portal:* {$baseUrl}index.php?page=training\n\n" .
+                                "*Marg Soft Solution*"
+                            );
+                            $whatsapp->sendText($trainerPhoneFormatted, $trainerAlert);
+                        }
                     }
 
                     // 6. Send Instant Welcome WhatsApp to Customer (Client)
                     try {
                         $clientPhoneFormatted = format_phone_number($clientPhoneClean);
-                        $clientGreeting = "Namaste" . (!empty($partyName) ? " *{$partyName}*" : "") . "\n\n" .
-                                          "Aapki *Marg ERP Software Training* request successfully schedule ho gayi hai.\n\n" .
-                                          "*Training Details:*\n" .
-                                          "• *Ticket ID:* `{$trainingTicketId}`\n" .
-                                          "• *Assigned Trainer:* *{$assignedTrainerName}*\n" .
-                                          (!empty($assignedTrainerPhone) ? "• *Trainer Helpline:* +91 {$assignedTrainerPhone}\n" : "") .
-                                          "• *Mode:* *{$trainingMode}*\n\n" .
-                                          "Hamare trainer aapse jaldi hi training time aur software setup ke liye contact karenge.\n\n" .
-                                          "Helpdesk: +91 93050 45727\n" .
-                                          "*Marg Soft Solution*";
-                        $whatsapp->sendText($clientPhoneFormatted, $clientGreeting);
+                        $tplCl = get_system_notification_template($pdo, 'training_scheduled_customer', [
+                            'client_name'    => (!empty($partyName) ? $partyName : 'Valued Client'),
+                            'ticket_id'      => $trainingTicketId,
+                            'software_type'  => $clientProduct,
+                            'trainer_name'   => $assignedTrainerName,
+                            'trainer_phone'  => $assignedTrainerPhone,
+                            'training_mode'  => $trainingMode,
+                            'scheduled_at'   => date('d-m-Y h:i A'),
+                            'total_days'     => '3',
+                            'total_hours'    => '6'
+                        ]);
+
+                        if (!$tplCl['found'] || $tplCl['is_active']) {
+                            $clientGreeting = !empty($tplCl['whatsapp_body']) ? $tplCl['whatsapp_body'] : (
+                                "Namaste" . (!empty($partyName) ? " *{$partyName}*" : "") . "\n\n" .
+                                "Aapki *Marg ERP Software Training* request successfully schedule ho gayi hai.\n\n" .
+                                "*Training Details:*\n" .
+                                "• *Ticket ID:* `{$trainingTicketId}`\n" .
+                                "• *Assigned Trainer:* *{$assignedTrainerName}*\n" .
+                                (!empty($assignedTrainerPhone) ? "• *Trainer Helpline:* +91 {$assignedTrainerPhone}\n" : "") .
+                                "• *Mode:* *{$trainingMode}*\n\n" .
+                                "Hamare trainer aapse jaldi hi training time aur software setup ke liye contact karenge.\n\n" .
+                                "Helpdesk: +91 93050 45727\n" .
+                                "*Marg Soft Solution*"
+                            );
+                            $whatsapp->sendText($clientPhoneFormatted, $clientGreeting);
+                        }
                     } catch (Throwable $eCl) {}
 
                 } catch (Throwable $e) {
@@ -905,31 +990,144 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 continue;
             }
 
-            // 2. Direct Technical Support Keywords Detection (Route immediately to Support Flow)
-            $supportKeywords = ['support', 'ticket', 'problem', 'error', 'printer', 'bill print', 'crash', 'not opening', 'not working', 'amc expired', 'bug', 'license issue', 'complaint'];
-            $isDirectSupport = false;
-            foreach ($supportKeywords as $skw) {
-                if (str_contains($cleanBody, $skw)) {
-                    $isDirectSupport = true;
-                    break;
-                }
-            }
+            // 2. Reschedule Demo Keywords Detection (with 12-Hour Validity Check)
+            $isRescheduleIntent = str_contains($cleanBody, 'reschedule') 
+                || str_contains($cleanBody, 'reshuclue')
+                || str_contains($cleanBody, 'reshudle')
+                || str_contains($cleanBody, 'change demo')
+                || (str_contains($cleanBody, 'demo') && (str_contains($cleanBody, 'change') || str_contains($cleanBody, 'update') || str_contains($cleanBody, 'shift') || str_contains($cleanBody, 'time change') || str_contains($cleanBody, 'date change')));
 
-            if ($isDirectSupport) {
-                $flowId   = FLOW_ID;
-                $ctaText  = "Create Ticket";
-                $bodyText = "We noticed you need technical support. Please submit your issue details below:";
-                $whatsapp->sendFlow($from, $flowId, $ctaText, $bodyText, 'WELCOME_SCREEN', null, "Marg Help Soft Solution", "Managed by Marg Soft Solution.");
+            // Slot mapping dictionary
+            $slotMap = [
+                'slot_any' => 'Any Time (Flexible)',
+                'slot_1'   => '10:00 AM - 12:00 PM',
+                'slot_2'   => '12:00 PM - 02:00 PM',
+                'slot_3'   => '02:00 PM - 04:00 PM',
+                'slot_4'   => '04:00 PM - 06:00 PM'
+            ];
+
+            if ($isRescheduleIntent) {
+                // Find existing lead & demo by sender's phone (phone, secondary_phone, or remarks)
+                $clean10 = substr(preg_replace('/[^\d]/', '', $from), -10);
+                $stmtLD = $pdo->prepare("
+                    SELECT d.id AS demo_id, d.scheduled_at, d.feedback, d.created_at, l.id AS lead_id, l.name,
+                           TIMESTAMPDIFF(HOUR, d.created_at, NOW()) AS hours_since_created
+                    FROM demos d
+                    JOIN leads l ON d.lead_id = l.id
+                    WHERE (RIGHT(REPLACE(REPLACE(l.phone, ' ', ''), '-', ''), 10) = ? 
+                        OR RIGHT(REPLACE(REPLACE(l.secondary_phone, ' ', ''), '-', ''), 10) = ?
+                        OR l.remarks LIKE ?)
+                    ORDER BY d.id DESC LIMIT 1
+                ");
+                $stmtLD->execute([$clean10, $clean10, "%$clean10%"]);
+                $demoInfo = $stmtLD->fetch(PDO::FETCH_ASSOC);
+
+                if ($demoInfo && intval($demoInfo['hours_since_created'] ?? 999) <= 12) {
+                    // Eligible for reschedule (Within 12 Hours)
+                    $currDate = date('d-M-Y', strtotime($demoInfo['scheduled_at']));
+                    $rawSlot = !empty($demoInfo['feedback']) ? preg_replace('/^Time Slot:\s*/i', '', explode('|', $demoInfo['feedback'])[0]) : 'Selected Slot';
+                    $currTime = $slotMap[trim($rawSlot)] ?? trim($rawSlot);
+
+                    $reschedBody = "Aapka demo filhal *{$currDate}* ({$currTime}) ke liye scheduled hai.\n\nNayi Date aur Time slot select karne ke liye neeche diye gaye button par click karein:";
+                    $demoFlowId = '1611148110659211';
+                    $whatsapp->sendFlow($from, $demoFlowId, "Reschedule Demo", $reschedBody, "DEMO_SCREEN", null, "Marg ERP Demo Reschedule", "Reschedule Window Active (12h)");
+                } elseif ($demoInfo) {
+                    // Demo exists but expired (> 12 hours)
+                    $expireMsg = "⚠️ *Demo Reschedule Window Expired*\n\n" .
+                                 "Aapka demo booking samay 12 ghante se adhik ho chuka hai, isliye self-reschedule uplabdh nahi hai.\n\n" .
+                                 "Kripya demo reschedule karwane ke liye hamare support executive se sampark karein:\n" .
+                                 "📞 *7523830026* / *9170009697*\n\n" .
+                                 "Naya demo schedule karne ke liye *\"Book Demo\"* likhein. Dhanyawad! 🙏";
+                    $whatsapp->sendText($from, $expireMsg);
+                } else {
+                    // No demo booked yet
+                    $noDemoMsg = "Aapka pehle se koi scheduled demo record nahi mila hai.\n\nNaya demo book karne ke liye *\"Book Demo\"* likhein ya neeche button se schedule karein:";
+                    $demoFlowId = '1611148110659211';
+                    $whatsapp->sendFlow($from, $demoFlowId, "Book Demo", $noDemoMsg, "DEMO_SCREEN", null, "Marg ERP Live Demo", "Marg Soft Solution");
+                }
                 continue;
             }
 
-            // 3. Greeting Detection (Pure greeting word e.g. "Hi", "Hello", "Namaste")
-            $greetings = ['hi', 'hello', 'hey', 'hii', 'namaste', 'start', 'menu', 'options', 'hola'];
+            // 2.4 Check Demo Schedule Status Intent ("Mera demo kab hai?", "When is my demo?", "Demo status")
+            $isCheckDemoIntent = preg_match('/\b(kab\s+hai|kab\s+h|kab\s+hoga|when\s+is|check\s+demo|demo\s+check|demo\s+status|demo\s+details|demo\s+timing|demo\s+time|demo\s+date|demo\s+detail|mera\s+demo)\b/i', $cleanBody)
+                || (str_contains($cleanBody, 'demo') && (str_contains($cleanBody, 'kab') || str_contains($cleanBody, 'status') || str_contains($cleanBody, 'check') || str_contains($cleanBody, 'batao') || str_contains($cleanBody, 'kis time') || str_contains($cleanBody, 'kis din')));
+
+            if ($isCheckDemoIntent) {
+                $clean10 = substr(preg_replace('/[^\d]/', '', $from), -10);
+                $stmtLD = $pdo->prepare("
+                    SELECT d.id AS demo_id, d.scheduled_at, d.feedback, d.mode, d.status AS demo_status,
+                           l.id AS lead_id, l.name, l.phone,
+                           TIMESTAMPDIFF(HOUR, d.created_at, NOW()) AS hours_since_created
+                    FROM demos d
+                    JOIN leads l ON d.lead_id = l.id
+                    WHERE (RIGHT(REPLACE(REPLACE(l.phone, ' ', ''), '-', ''), 10) = ? 
+                        OR RIGHT(REPLACE(REPLACE(l.secondary_phone, ' ', ''), '-', ''), 10) = ?
+                        OR l.remarks LIKE ?)
+                    ORDER BY d.id DESC LIMIT 1
+                ");
+                $stmtLD->execute([$clean10, $clean10, "%$clean10%"]);
+                $demoInfo = $stmtLD->fetch(PDO::FETCH_ASSOC);
+
+                if ($demoInfo && !empty($demoInfo['scheduled_at'])) {
+                    $demoDateFormatted = date('d-M-Y (l)', strtotime($demoInfo['scheduled_at']));
+                    $rawSlot = !empty($demoInfo['feedback']) ? preg_replace('/^Time Slot:\s*/i', '', explode('|', $demoInfo['feedback'])[0]) : 'Selected Slot';
+                    $timeSlot = $slotMap[trim($rawSlot)] ?? trim($rawSlot);
+                    $clientName = (!empty($demoInfo['name']) && $demoInfo['name'] !== 'WhatsApp Lead') ? $demoInfo['name'] : 'Customer';
+                    $demoMode = !empty($demoInfo['mode']) ? $demoInfo['mode'] : 'Online Live Walkthrough';
+                    $leadRef = $demoInfo['lead_id'];
+
+                    $statusMsg = "📋 *Marg ERP Demo Schedule Details* 🚀\n\n" .
+                                 "Namaste *{$clientName}*! Aapke demo ki details yeh hain:\n\n" .
+                                 "📅 *Demo Date:* {$demoDateFormatted}\n" .
+                                 "⏰ *Time Slot:* {$timeSlot}\n" .
+                                 "💻 *Mode:* {$demoMode}\n" .
+                                 "📋 *Lead Ref ID:* {$leadRef}\n" .
+                                 "✅ *Status:* Confirmed / Scheduled\n\n" .
+                                 "📌 *Note:* Hamaare Marg product specialist aapke select kiye gaye time par connect karenge.\n\n" .
+                                 "🔄 *Reschedule karna chahte hain?*\n" .
+                                 "Agar aap date/time badalna chahte hain to simply reply karein: *\"Reschedule Demo\"* (Booking ke 12h ke andar).\n\n" .
+                                 "📞 Support: *7523830026* / *9170009697*\n" .
+                                 "Thank you for choosing Marg ERP! 🙏";
+
+                    $whatsapp->sendText($from, $statusMsg);
+                } else {
+                    // No demo scheduled yet for this number
+                    $noDemoBody = "Namaste! Aapke is WhatsApp number (+{$from}) par abhi koi Marg ERP live demo scheduled nahi hai.\n\n" .
+                                  "Kya aap Marg ERP AI+ software ka live product walkthrough dekhna chahte hain?\n\n" .
+                                  "Neeche diye gaye button par click karke apna free demo slot schedule karein:";
+                    $demoFlowId = '1611148110659211';
+                    $whatsapp->sendFlow($from, $demoFlowId, "Book Free Demo", $noDemoBody, "DEMO_SCREEN", null, "Marg ERP Demo Booking", "Free 1-on-1 Walkthrough");
+                }
+                continue;
+            }
+
+            // 2.5 Explicit "Book Demo" keyword intent
+            if ($cleanBody === 'book demo' || $cleanBody === 'demo book' || $cleanBody === 'schedule demo') {
+                $demoFlowId = '1611148110659211';
+                $whatsapp->sendFlow($from, $demoFlowId, "Book Demo", "Please choose your preferred date and time for Marg ERP Live Demo walkthrough.", "DEMO_SCREEN", null, "Marg ERP Live Demo", "Marg Soft Solution");
+                continue;
+            }
+
+            // 3. Intelligent Greeting Detection (Avoid repetitive spamming of marketing banner if conversation is active)
+            $explicitMenuWords = ['menu', 'start', 'options', 'main menu'];
+            $isExplicitMenu = in_array($cleanBody, $explicitMenuWords, true);
+
+            $greetings = ['hi', 'hello', 'hey', 'hii', 'namaste', 'hola'];
             $wordCount = str_word_count($cleanBody);
             $isPureGreeting = ($wordCount <= 2) && in_array($cleanBody, $greetings, true);
 
-            if ($isPureGreeting) {
-                $welcomeText = "Welcome To Marg Soft  Solution\nIndian business management and accounting software designed for small and medium businesses. It helps companies manage daily operations such as billing, accounting, inventory, GST compliance, sales, purchases, and reporting from a single platform.";
+            // Check if there was recent interaction in the last 2 hours
+            $hasRecentInteraction = false;
+            try {
+                $stmtRecent = $pdo->prepare("SELECT COUNT(*) FROM message_logs WHERE recipient_or_sender = ? AND created_at > DATE_SUB(NOW(), INTERVAL 2 HOUR)");
+                $stmtRecent->execute([$from]);
+                $hasRecentInteraction = ($stmtRecent->fetchColumn() > 2);
+            } catch (Throwable $eR) {}
+
+            // Send full interactive welcome banner ONLY on explicit menu request or cold first message
+            if ($isExplicitMenu || ($isPureGreeting && !$hasRecentInteraction)) {
+                $tplGreet = get_system_notification_template($pdo, 'bot_greeting_welcome', []);
+                $welcomeText = !empty($tplGreet['whatsapp_body']) ? $tplGreet['whatsapp_body'] : "Welcome To Marg Soft Solution\nIndian business management and accounting software designed for small and medium businesses. It helps companies manage daily operations such as billing, accounting, inventory, GST compliance, sales, purchases, and reporting from a single platform.";
                 $buttons = [
                     ['id' => 'btn_sales', 'title' => 'Sales'],
                     ['id' => 'btn_support', 'title' => 'Support']
@@ -939,20 +1137,26 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 continue;
             }
 
-            // 4. Direct Sales Query / Feature / Pricing / Demo Question -> AI Sales Assistant
+            // 4. All Support Queries, Operational Questions, Sales & Consultations -> Super-Smart AI Assistant
             handleAISalesAssistantInteraction($whatsapp, $pdo, $from, $body);
             continue;
         }
 
         // =========================================================
-        // CASE 2: Interactive Button Replies (Sales, Support, AMC, Billing, Offers)
+        // CASE 2: Interactive Button Replies (Sales, Support, AMC, Billing, Offers, Demo)
         // =========================================================
         elseif ($msgType === 'interactive' && isset($msg['interactive']['button_reply'])) {
             $buttonId    = $msg['interactive']['button_reply']['id'] ?? '';
             $buttonTitle = strtolower($msg['interactive']['button_reply']['title'] ?? '');
 
+            // Option 0: Demo Clicked (e.g. "BOOK DEMO", "DEMO")
+            if (str_contains($buttonTitle, 'demo') || str_contains($buttonId, 'demo')) {
+                $demoFlowId = '1611148110659211';
+                $whatsapp->sendFlow($from, $demoFlowId, "Book Demo", "Please choose your preferred date and time for Marg ERP Live Demo walkthrough.", "DEMO_SCREEN", null, "Marg ERP Live Demo", "Marg Soft Solution");
+            }
+
             // Option A: Sales Clicked -> AI Sales Assistant engages
-            if ($buttonId === 'btn_sales' || $buttonTitle === 'sales') {
+            elseif ($buttonId === 'btn_sales' || $buttonTitle === 'sales') {
                 handleAISalesAssistantInteraction($whatsapp, $pdo, $from, "I want to know about Marg ERP software editions, pricing, and schedule a demo.");
             }
 
@@ -967,13 +1171,26 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
             // Option C: Pay AMC / Pay Invoice Clicked
             elseif ($buttonId === 'btn_pay_amc' || $buttonId === 'btn_pay_invoice' || str_contains($buttonTitle, 'pay')) {
-                $bankResponse = "🏦 *Marg Soft Solution - Official Bank & UPI Payment Details*\n\nAccount Name: *MARG SOFT SOLUTION*\nBank Name: *HDFC Bank*\nA/C No: *50200067891234*\nIFSC Code: *HDFC0001234*\nBranch: *Main Branch*\nUPI ID: *margsoft@upi*\n\nPlease transfer payment and send screenshot here. Thank you! 🙏";
+                $tplBank = get_system_notification_template($pdo, 'bank_payment_details', [
+                    'account_name'   => 'MARG SOFT SOLUTION',
+                    'bank_name'      => 'HDFC Bank',
+                    'account_number' => '50200067891234',
+                    'ifsc_code'      => 'HDFC0001234',
+                    'branch'         => 'Main Branch',
+                    'account_type'   => 'Current Account',
+                    'upi_id'         => 'margsoft@upi',
+                    'notes'          => 'Please transfer payment and send screenshot here.'
+                ]);
+                $bankResponse = !empty($tplBank['whatsapp_body']) ? $tplBank['whatsapp_body'] : "🏦 *Marg Soft Solution - Official Bank & UPI Payment Details*\n\nAccount Name: *MARG SOFT SOLUTION*\nBank Name: *HDFC Bank*\nA/C No: *50200067891234*\nIFSC Code: *HDFC0001234*\nBranch: *Main Branch*\nUPI ID: *margsoft@upi*\n\nPlease transfer payment and send screenshot here. Thank you! 🙏";
                 $whatsapp->sendText($from, $bankResponse);
             }
 
             // Option D: Request Callback Clicked
             elseif ($buttonId === 'btn_request_call' || str_contains($buttonTitle, 'callback') || str_contains($buttonTitle, 'call')) {
-                $callResponse = "📞 *Support Callback Request Received*\n\nThank you! Our support engineer has been notified and will call your mobile number shortly.\n\nFor immediate help, call: *7523830026*\nThank you for choosing Marg ERP! 🙏";
+                $tplCb = get_system_notification_template($pdo, 'bot_callback_request', [
+                    'helpline' => '7523830026'
+                ]);
+                $callResponse = !empty($tplCb['whatsapp_body']) ? $tplCb['whatsapp_body'] : "📞 *Support Callback Request Received*\n\nThank you! Our support engineer has been notified and will call your mobile number shortly.\n\nFor immediate help, call: *7523830026*\nThank you for choosing Marg ERP! 🙏";
                 $whatsapp->sendText($from, $callResponse);
             }
 
@@ -983,9 +1200,9 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 $whatsapp->sendText($from, $ssResponse);
             }
 
-            // Option F: Claim Discount Offer Clicked
+            // Option F: Offer / Commercial Query Clicked
             elseif ($buttonId === 'btn_claim_offer' || str_contains($buttonTitle, 'claim') || str_contains($buttonTitle, 'discount')) {
-                $promoResponse = "🎁 *Discount Coupon Unlocked!*\n\nYour 20% Upgrade Coupon Code: *MARG2026OFF*\n\nOur executive will call you shortly to assist with activation.\nCall: *7523830026*";
+                $promoResponse = "📋 *Marg ERP Best Commercial Package*\n\nMarg ERP software ke prices company ki taraf se standard aur fixed hain. Isme aapko full software license ke sath free onboarding training, GST setup aur dedicated support provide kiya jata hai.\n\nSpecial customized package aur free live demo ke liye hamare sales advisor aapse jald hi sampark karenge.\n\nHelpline: *7523830026* / *9170009697* 🙏";
                 $whatsapp->sendText($from, $promoResponse);
             }
         }
@@ -999,53 +1216,240 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
             write_log('flow', "Received Flow Submission Payload via Webhook", $flowData);
 
-            // Check if this is a Sales Flow Submission (Lead Creation)
-            $isSalesFlow = isset($flowData['requirement']) || (isset($flowData['flow_type']) && $flowData['flow_type'] === 'sales') || (!isset($flowData['license_number']) && !isset($flowData['problem']) && !isset($flowData['c1']));
+            // Check if this is a Sales or Demo Flow Submission
+            $isSalesFlow = isset($flowData['requirement']) 
+                || (isset($flowData['flow_type']) && $flowData['flow_type'] === 'sales') 
+                || isset($flowData['demo_date'])
+                || isset($flowData['full_name'])
+                || (!isset($flowData['license_number']) && !isset($flowData['problem']) && !isset($flowData['c1']));
 
-            if ($isSalesFlow && (isset($flowData['customer_name']) || isset($flowData['requirement']) || isset($flowData['phone_number']))) {
+            if ($isSalesFlow && (isset($flowData['customer_name']) || isset($flowData['full_name']) || isset($flowData['requirement']) || isset($flowData['phone_number']) || isset($flowData['phone']) || isset($flowData['demo_date']))) {
                 // =========================================================
-                // PROCESS SALES FLOW -> LEAD GENERATION
+                // PROCESS SALES / DEMO FLOW -> LEAD & DEMO GENERATION
                 // =========================================================
-                $leadName    = trim($flowData['customer_name'] ?? $flowData['name'] ?? $flowData['contact_person'] ?? 'WhatsApp Lead');
-                $leadPhone   = trim($flowData['phone_number'] ?? $flowData['phone'] ?? $flowData['callback_number'] ?? $flowData['mobile_number'] ?? $from);
-                $requirement = trim($flowData['requirement'] ?? $flowData['message'] ?? $flowData['notes'] ?? 'General Sales Inquiry');
+                $leadName    = trim($flowData['full_name'] ?? $flowData['customer_name'] ?? $flowData['name'] ?? $flowData['contact_person'] ?? 'Customer');
+                $formPhone   = trim($flowData['phone'] ?? $flowData['phone_number'] ?? $flowData['callback_number'] ?? $flowData['mobile_number'] ?? '');
+                $senderPhone = format_phone_number($from);
+                
+                // Primary phone is always the verified WhatsApp sender number; alternate form phone goes to secondary!
+                $leadPhone   = !empty($senderPhone) ? $senderPhone : (!empty($formPhone) ? format_phone_number($formPhone) : $from);
+                $secondaryPhone = (!empty($formPhone) && substr($formPhone, -10) !== substr($leadPhone, -10)) ? $formPhone : '';
+
+                $demoDate    = trim($flowData['demo_date'] ?? '');
+                $rawDemoTime = trim($flowData['demo_time'] ?? '');
+                $slotMap = [
+                    'slot_any' => 'Any Time (Flexible)',
+                    'slot_1'   => '10:00 AM - 12:00 PM',
+                    'slot_2'   => '12:00 PM - 02:00 PM',
+                    'slot_3'   => '02:00 PM - 04:00 PM',
+                    'slot_4'   => '04:00 PM - 06:00 PM'
+                ];
+                $demoTime = $slotMap[$rawDemoTime] ?? (!empty($rawDemoTime) ? $rawDemoTime : 'Selected Slot');
+                
+                if (!empty($demoDate)) {
+                    $requirement = "Marg ERP Demo scheduled for " . $demoDate . (!empty($demoTime) ? " (" . $demoTime . ")" : "");
+                } else {
+                    $requirement = trim($flowData['requirement'] ?? $flowData['message'] ?? $flowData['notes'] ?? 'General Sales Inquiry');
+                }
+                
                 $companyName = trim($flowData['company'] ?? $flowData['firm_name'] ?? $leadName);
-
-                $leadId = generate_lead_number($pdo);
 
                 if ($pdo) {
                     try {
-                        $stmtLead = $pdo->prepare("INSERT INTO leads (id, name, contact_person, company, phone, enq_for, remarks, source, status, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'WhatsApp Flow', 'new', 'warm', NOW())");
-                        $stmtLead->execute([
-                            $leadId,
-                            $leadName,
-                            $leadName,
-                            $companyName,
-                            $leadPhone,
-                            $requirement,
-                            $requirement
-                        ]);
+                        // -------------------------------------------------------------
+                        // 1. LEAD DEDUPLICATION CHECK
+                        // Check if lead already exists in CRM by form phone or sender phone
+                        // -------------------------------------------------------------
+                        $cleanFlowDigits = !empty($formPhone) ? substr(preg_replace('/[^\d]/', '', $formPhone), -10) : '';
+                        $cleanFromDigits = substr(preg_replace('/[^\d]/', '', $from), -10);
+                        $phoneDigits = array_unique(array_filter([$cleanFlowDigits, $cleanFromDigits]));
 
-                        // Timeline entry
-                        try {
-                            $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, 'WhatsApp Bot', 'New Lead captured via WhatsApp Sales Flow')");
-                            $stmtTime->execute([$leadId]);
-                        } catch (Throwable $eT) {}
+                        $existingLead = null;
+                        if (!empty($phoneDigits)) {
+                            $clauses = [];
+                            $params = [];
+                            foreach ($phoneDigits as $d) {
+                                if (strlen($d) === 10) {
+                                    $clauses[] = "RIGHT(REPLACE(REPLACE(phone, ' ', ''), '-', ''), 10) = ?";
+                                    $params[] = $d;
+                                    $clauses[] = "RIGHT(REPLACE(REPLACE(secondary_phone, ' ', ''), '-', ''), 10) = ?";
+                                    $params[] = $d;
+                                }
+                            }
+                            if (!empty($clauses)) {
+                                $stmtFind = $pdo->prepare("SELECT * FROM leads WHERE " . implode(' OR ', $clauses) . " ORDER BY id DESC LIMIT 1");
+                                $stmtFind->execute($params);
+                                $existingLead = $stmtFind->fetch(PDO::FETCH_ASSOC) ?: null;
+                            }
+                        }
 
-                        // Notification for Admin
-                        try {
-                            $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', 'New WhatsApp Sales Lead', ?, 'index.php?page=leads', 'info')");
-                            $stmtNotif->execute(["New Lead {$leadId} ({$leadName}) received via WhatsApp Sales Flow"]);
-                        } catch (Throwable $eN) {}
+                        $isReschedule = false;
+
+                        if ($existingLead) {
+                            // =========================================================
+                            // CASE A: EXISTING LEAD FOUND -> NO DUPLICATE!
+                            // UPDATE GROUP TO 'Demo Scheduled', UPDATE REMARKS & RESCHEDULE
+                            // =========================================================
+                            $leadId = $existingLead['id'];
+                            $updateName = (!empty($existingLead['name']) && $existingLead['name'] !== 'WhatsApp Lead') ? $existingLead['name'] : $leadName;
+
+                            // Check if a demo was already scheduled (Reschedule scenario)
+                            $stmtDCheck = $pdo->prepare("SELECT id, status, scheduled_at FROM demos WHERE lead_id = ? AND status IN ('scheduled', 'pending') ORDER BY id DESC LIMIT 1");
+                            $stmtDCheck->execute([$leadId]);
+                            $existingDemo = $stmtDCheck->fetch(PDO::FETCH_ASSOC);
+
+                            $isReschedule = ($existingLead['status'] === 'demo_scheduled' || !empty($existingDemo));
+                            $nowStr = date('d-m-Y H:i');
+                            $actionLabel = $isReschedule ? "Demo Rescheduled" : "Demo Scheduled";
+
+                            // Append booking details to remarks
+                            $remarkLine = "[{$actionLabel} via WhatsApp Flow on {$nowStr}]: Date: {$demoDate}, Time: {$demoTime}"
+                                . (!empty($leadPhone) ? " | Form Mobile: {$leadPhone}" : "")
+                                . " | WhatsApp: +{$from}";
+                            $updatedRemarks = !empty($existingLead['remarks']) ? $existingLead['remarks'] . "\n" . $remarkLine : $remarkLine;
+
+                            // Update secondary_phone if form phone differs from existing primary phone
+                            $secPhone = (!empty($leadPhone) && $leadPhone !== $existingLead['phone']) ? $leadPhone : $existingLead['secondary_phone'];
+
+                            // Update existing lead status, group_stage, remarks, and timestamp
+                            $stmtUpdLead = $pdo->prepare("UPDATE leads SET name = ?, contact_person = ?, status = 'demo_scheduled', group_stage = 'Demo Scheduled', remarks = ?, enq_for = ?, secondary_phone = ?, updated_at = NOW() WHERE id = ?");
+                            $stmtUpdLead->execute([$updateName, $updateName, $updatedRemarks, $requirement, $secPhone, $leadId]);
+
+                            // Update or Insert in demos table
+                            if (!empty($demoDate)) {
+                                try {
+                                    $schedAt = date('Y-m-d H:i:s', strtotime($demoDate . ' 11:00:00'));
+                                    if ($existingDemo) {
+                                        // Update existing scheduled demo (Reschedule)
+                                        $stmtUpdDemo = $pdo->prepare("UPDATE demos SET scheduled_at = ?, status = 'scheduled', feedback = ? WHERE id = ?");
+                                        $stmtUpdDemo->execute([$schedAt, "Time Slot: {$demoTime} | Rescheduled via WhatsApp Flow", $existingDemo['id']]);
+                                    } else {
+                                        // Create demo record under this existing lead
+                                        $demoId = 'DEMO-' . date('ymd') . '-' . rand(100, 999);
+                                        $stmtInsDemo = $pdo->prepare("INSERT INTO demos (id, company_id, lead_id, scheduled_at, mode, engineer, status, feedback) VALUES (?, 1, ?, ?, 'Online', 'Assigned Specialist', 'scheduled', ?)");
+                                        $stmtInsDemo->execute([$demoId, $leadId, $schedAt, "Time Slot: {$demoTime} | Booked via WhatsApp Flow"]);
+                                    }
+                                } catch (Throwable $eD) {}
+                            }
+
+                            // Timeline entry for existing lead
+                            try {
+                                $timelineText = $isReschedule
+                                    ? "Demo Rescheduled to {$demoDate} ({$demoTime}) by customer via WhatsApp Flow"
+                                    : "Demo Scheduled for {$demoDate} ({$demoTime}) via WhatsApp Flow (Group moved to Demo Scheduled)";
+                                $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, 'WhatsApp Bot', ?)");
+                                $stmtTime->execute([$leadId, $timelineText]);
+                            } catch (Throwable $eT) {}
+
+                            // Notification for Admin
+                            try {
+                                $notifTitle = $isReschedule ? "Marg ERP Demo Rescheduled" : "Marg ERP Demo Booked";
+                                $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, 'index.php?page=leads', 'info')");
+                                $stmtNotif->execute([$notifTitle, "Lead {$leadId} ({$updateName}) {$actionLabel} to {$demoDate} {$demoTime}"]);
+                            } catch (Throwable $eN) {}
+
+                        } else {
+                            // =========================================================
+                            // CASE B: NEW LEAD CREATION
+                            // =========================================================
+                            $leadId = generate_lead_number($pdo);
+                            $updateName = $leadName;
+
+                            $nowStr = date('d-m-Y H:i');
+                            $initialRemark = "[Demo Booked via WhatsApp Flow on {$nowStr}]: Date: {$demoDate}, Time: {$demoTime}"
+                                . (!empty($leadPhone) ? " | Form Mobile: {$leadPhone}" : "")
+                                . " | WhatsApp: +{$from}";
+
+                            $stmtLead = $pdo->prepare("INSERT INTO leads (id, name, contact_person, company, phone, secondary_phone, enq_for, remarks, source, status, group_stage, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WhatsApp Flow', 'demo_scheduled', 'Demo Scheduled', 'warm', NOW())");
+                            $stmtLead->execute([
+                                $leadId,
+                                $leadName,
+                                $leadName,
+                                $companyName,
+                                $leadPhone,
+                                $secondaryPhone,
+                                $requirement,
+                                $initialRemark
+                            ]);
+
+                            // Insert in demos table
+                            if (!empty($demoDate)) {
+                                try {
+                                    $demoId = 'DEMO-' . date('ymd') . '-' . rand(100, 999);
+                                    $schedAt = date('Y-m-d H:i:s', strtotime($demoDate . ' 11:00:00'));
+                                    $stmtDemo = $pdo->prepare("INSERT INTO demos (id, company_id, lead_id, scheduled_at, mode, engineer, status, feedback) VALUES (?, 1, ?, ?, 'Online', 'Assigned Specialist', 'scheduled', ?)");
+                                    $stmtDemo->execute([$demoId, $leadId, $schedAt, "Time Slot: {$demoTime} | Booked via WhatsApp Flow"]);
+                                } catch (Throwable $eD) {}
+                            }
+
+                            // Timeline entry
+                            try {
+                                $actionMsg = !empty($demoDate) ? "New Lead created & Demo booked for {$demoDate} {$demoTime} via WhatsApp Demo Flow" : "New Lead captured via WhatsApp Sales Flow";
+                                $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, 'WhatsApp Bot', ?)");
+                                $stmtTime->execute([$leadId, $actionMsg]);
+                            } catch (Throwable $eT) {}
+
+                            // Notification for Admin
+                            try {
+                                $notifTitle = !empty($demoDate) ? "New Marg ERP Demo Booked" : "New WhatsApp Sales Lead";
+                                $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, 'index.php?page=leads', 'info')");
+                                $stmtNotif->execute([$notifTitle, "Lead {$leadId} ({$leadName}) booked demo for {$demoDate} {$demoTime}"]);
+                            } catch (Throwable $eN) {}
+                        }
 
                         // Send Confirmation Message to Customer
-                        $confirmMsg = "✅ *Sales Enquiry Received Successfully*\n\n" .
-                                      "Dear *{$leadName}*,\n" .
-                                      "Thank you for contacting Marg Soft Solution.\n\n" .
-                                      "📋 *Enquiry Ref:* {$leadId}\n" .
-                                      "Our sales representative will call you on *{$leadPhone}* shortly.\n\n" .
-                                      "For instant assistance, you can call us at: *7523830026*\n\n" .
-                                      "Thank you! 🙏";
+                        if (!empty($demoDate)) {
+                            if ($isReschedule) {
+                                $confirmMsg = "✅ *Marg ERP Demo Rescheduled Successfully!* 🔄\n\n" .
+                                              "Dear *{$updateName}*,\n" .
+                                              "Aapka live product walkthrough demo successfully reschedule ho gaya hai:\n\n" .
+                                              "📅 *New Demo Date:* {$demoDate}\n" .
+                                              "⏰ *New Time Slot:* {$demoTime}\n" .
+                                              "📞 *Contact Number:* {$leadPhone}\n" .
+                                              "📋 *Lead Ref ID:* {$leadId}\n\n" .
+                                              "Hamaari Marg product specialist team aapke select kiye gaye slot par connect karegi.\n\n" .
+                                              "For instant support, call: *7523830026* / *9170009697*\n\n" .
+                                              "Thank you! 🙏";
+                            } else {
+                                $tplDemo = get_system_notification_template($pdo, 'demo_scheduled_confirmation', [
+                                    'demo_id'       => $leadId,
+                                    'client_name'   => $updateName,
+                                    'party_name'    => (!empty($partyName) ? $partyName : 'Marg ERP User'),
+                                    'software_type' => 'Marg ERP AI+ Software',
+                                    'scheduled_at'  => "{$demoDate} ({$demoTime})"
+                                ]);
+
+                                $confirmMsg = !empty($tplDemo['whatsapp_body']) ? $tplDemo['whatsapp_body'] : (
+                                    "✅ *Marg ERP Demo Scheduled Successfully!* 🚀\n\n" .
+                                    "Dear *{$updateName}*,\n" .
+                                    "Thank you for booking a Live Demo walkthrough of Marg ERP AI+ Software.\n\n" .
+                                    "📅 *Demo Date:* {$demoDate}\n" .
+                                    "⏰ *Time Slot:* {$demoTime}\n" .
+                                    "📞 *Contact Number:* {$leadPhone}\n" .
+                                    "📋 *Enquiry Ref:* {$leadId}\n\n" .
+                                    "Our product specialist will connect with you at your chosen slot.\n\n" .
+                                    "For instant assistance, you can call us at: *7523830026* / *9170009697*\n\n" .
+                                    "Thank you! 🙏"
+                                );
+                            }
+                        } else {
+                            $tplSale = get_system_notification_template($pdo, 'lead_sales_inquiry_ack', [
+                                'client_name' => $updateName,
+                                'lead_id'     => $leadId,
+                                'lead_phone'  => $leadPhone,
+                                'helpline'    => '7523830026'
+                            ]);
+
+                            $confirmMsg = !empty($tplSale['whatsapp_body']) ? $tplSale['whatsapp_body'] : (
+                                "✅ *Sales Enquiry Received Successfully*\n\n" .
+                                "Dear *{$updateName}*,\n" .
+                                "Thank you for contacting Marg Soft Solution.\n\n" .
+                                "📋 *Enquiry Ref:* {$leadId}\n" .
+                                "Our sales representative will call you on *{$leadPhone}* shortly.\n\n" .
+                                "For instant assistance, you can call us at: *7523830026*\n\n" .
+                                "Thank you! 🙏"
+                            );
+                        }
 
                         $whatsapp->sendText($from, $confirmMsg);
 
@@ -1165,12 +1569,20 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     } catch (Throwable $eSup) {}
 
                     // Send Instant Confirmation Message to Customer
-                    $confirmMsg = "✅ *Support Ticket Created*\n\n" .
-                                  "Dear Customer, your ticket *#{$ticketNumber}* has been registered successfully.\n\n" .
-                                  "Our technical support engineer will contact you shortly.\n\n" .
-                                  "Thank you for choosing *Marg Soft Solution*.";
+                    $tplTktConfirm = get_system_notification_template($pdo, 'ticket_created', [
+                        'ticket_id'   => $ticketNumber,
+                        'client_name' => $customerName
+                    ]);
 
-                    $whatsapp->sendText($from, $confirmMsg);
+                    if (!$tplTktConfirm['found'] || $tplTktConfirm['is_active']) {
+                        $confirmMsg = !empty($tplTktConfirm['whatsapp_body']) ? $tplTktConfirm['whatsapp_body'] : (
+                            "✅ *Support Ticket Created*\n\n" .
+                            "Dear Customer, your ticket *#{$ticketNumber}* has been registered successfully.\n\n" .
+                            "Our technical support engineer will contact you shortly.\n\n" .
+                            "Thank you for choosing *Marg Soft Solution*."
+                        );
+                        $whatsapp->sendText($from, $confirmMsg);
+                    }
 
                 } catch (Throwable $e) {
                     write_log('error', "Failed saving flow ticket in webhook: " . $e->getMessage());

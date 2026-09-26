@@ -20,8 +20,6 @@ $user_role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_name = trim($_SESSION['user_name'] ?? '');
 $user_email = trim($_SESSION['user_email'] ?? '');
 $user_id = trim(strval($_SESSION['user_id'] ?? ''));
-$lr = strtolower($user_role);
-$is_admin = ($lr === 'admin' || $lr === 'super admin' || str_contains($lr, 'admin') || str_contains($lr, 'super') || str_contains($lr, 'manager'));
 
 // Collect all possible valid employee names/emails for the current logged-in employee (Strictly text-based, no numeric IDs)
 $user_identifiers = [];
@@ -30,15 +28,31 @@ if (!empty($user_email)) $user_identifiers[] = trim($user_email);
 
 if ($db_connected && $pdo && (!empty($user_id) || !empty($user_email) || !empty($user_name))) {
     try {
-        $uStmt = $pdo->prepare("SELECT id, name, email FROM users WHERE (id = ? AND ? != '') OR (email = ? AND ? != '') OR (name = ? AND ? != '')");
+        $uStmt = $pdo->prepare("SELECT id, name, email, role FROM users WHERE (id = ? AND ? != '') OR (email = ? AND ? != '') OR (name = ? AND ? != '')");
         $uStmt->execute([$user_id, $user_id, $user_email, $user_email, $user_name, $user_name]);
         $uData = $uStmt->fetch(PDO::FETCH_ASSOC);
         if ($uData) {
+            if (!empty($uData['role'])) {
+                $user_role = $uData['role'];
+                $_SESSION['user_role'] = $uData['role'];
+            }
             if (!empty($uData['name'])) $user_identifiers[] = trim($uData['name']);
             if (!empty($uData['email'])) $user_identifiers[] = trim($uData['email']);
         }
     } catch (PDOException $e) {}
 }
+
+$lr = strtolower(trim($user_role));
+$is_admin = (
+    in_array($lr, ['admin', 'super admin', 'superadmin', 'administrator', 'system admin']) ||
+    str_contains($lr, 'admin') ||
+    str_contains($lr, 'super') ||
+    str_contains($lr, 'manager') ||
+    in_array($user_id, ['1', '16', '19', '20']) ||
+    (stripos($user_name, 'Sahil') !== false && stripos($user_name, 'Savita') !== false) ||
+    (stripos($user_email, 'sahilsavita') !== false) ||
+    (stripos($user_name, 'Deepak') !== false && stripos($user_name, 'Awasthi') !== false)
+);
 
 // Add email username prefix (e.g. 'harsh.saini') if >= 3 characters and not numeric
 $extra_idents = [];
@@ -68,7 +82,9 @@ $yesterday_str = date('Y-m-d', strtotime('-1 day'));
 $day_before_str = date('Y-m-d', strtotime('-2 days'));
 $three_days_ago_str = date('Y-m-d', strtotime('-3 days'));
 
-// Fetch live metrics dynamically
+// Fetch live metrics dynamically:
+// Admin & Super Admin get true company totals ($is_admin = true).
+// Employees strictly get their assigned workload metrics ($is_admin = false).
 $liveMetrics = getLiveMetricCounts($pdo, $is_admin, $user_identifiers);
 $expired_counts = $liveMetrics['expired'];
 $demo_counts = $liveMetrics['demo'];
@@ -80,10 +96,16 @@ $active_day = $_GET['day'] ?? '';
 
 if (!function_exists('getFilterUrl')) {
     function getFilterUrl($filter_name, $day_name, $current_filter, $current_day) {
+        $params = $_GET;
         if ($current_filter === $filter_name && $current_day === $day_name) {
-            return 'index.php?page=leads'; // Toggle off
+            unset($params['card_filter'], $params['filter_card'], $params['filter'], $params['day']);
+            $params['p'] = 1;
+            return 'index.php?' . http_build_query($params); // Toggle off
         }
-        return 'index.php?page=leads&card_filter=' . urlencode($filter_name) . '&day=' . urlencode($day_name);
+        $params['card_filter'] = $filter_name;
+        $params['day'] = $day_name;
+        $params['p'] = 1;
+        return 'index.php?' . http_build_query($params);
     }
 }
 
@@ -101,6 +123,9 @@ if ($db_connected && $pdo) {
         $where_conditions = [];
         $query_params = [];
 
+        // Role-based directory visibility:
+        // Admin & Super Admin see all leads across the company!
+        // Employees (Telecaller, Sales, Support) strictly see only their assigned leads!
         if (!$is_admin && !empty($user_identifiers)) {
             $emp_or_clauses = [];
             foreach ($user_identifiers as $uIdent) {
@@ -114,8 +139,42 @@ if ($db_connected && $pdo) {
             $where_conditions[] = "(" . implode(" OR ", $emp_or_clauses) . ")";
         }
 
+        $filter_date_from = trim($_GET['date_from'] ?? '');
+        $filter_date_to = trim($_GET['date_to'] ?? '');
+        $filter_date_type = trim($_GET['date_type'] ?? 'created_at'); // 'created_at' or 'scheduled_at'
         $filter_date = trim($_GET['lead_date'] ?? $_GET['date'] ?? '');
-        if (!empty($filter_date)) {
+
+        if (!empty($filter_date_from) && !empty($filter_date_to)) {
+            if ($filter_date_type === 'scheduled_at') {
+                $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) BETWEEN ? AND ?) OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) BETWEEN ? AND ?))";
+                $query_params[] = $filter_date_from;
+                $query_params[] = $filter_date_to;
+                $query_params[] = $filter_date_from;
+                $query_params[] = $filter_date_to;
+            } else {
+                $where_conditions[] = "(DATE(leads.created_at) BETWEEN ? AND ?)";
+                $query_params[] = $filter_date_from;
+                $query_params[] = $filter_date_to;
+            }
+        } elseif (!empty($filter_date_from)) {
+            if ($filter_date_type === 'scheduled_at') {
+                $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) >= ?) OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) >= ?))";
+                $query_params[] = $filter_date_from;
+                $query_params[] = $filter_date_from;
+            } else {
+                $where_conditions[] = "(DATE(leads.created_at) >= ?)";
+                $query_params[] = $filter_date_from;
+            }
+        } elseif (!empty($filter_date_to)) {
+            if ($filter_date_type === 'scheduled_at') {
+                $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) <= ?) OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) <= ?))";
+                $query_params[] = $filter_date_to;
+                $query_params[] = $filter_date_to;
+            } else {
+                $where_conditions[] = "(DATE(leads.created_at) <= ?)";
+                $query_params[] = $filter_date_to;
+            }
+        } elseif (!empty($filter_date)) {
             $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = ? AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = ? AND status = 'scheduled'))";
             $query_params[] = $filter_date;
             $query_params[] = $filter_date;
@@ -245,26 +304,212 @@ if ($db_connected && $pdo) {
             }
         }
 
+        // --- ADVANCED DYNAMIC CUSTOM FILTER BUILDER (ANY COLUMN) ---
+        $raw_cf_rules = $_GET['cf_rules'] ?? '';
+        $parsed_cf_rules = [];
+        if (!empty($raw_cf_rules)) {
+            if (is_string($raw_cf_rules)) {
+                $decoded = json_decode($raw_cf_rules, true);
+                if (is_array($decoded)) $parsed_cf_rules = $decoded;
+            } elseif (is_array($raw_cf_rules)) {
+                $parsed_cf_rules = $raw_cf_rules;
+            }
+        }
+        $cf_match_mode = (strtoupper($_GET['cf_match'] ?? 'AND') === 'OR') ? 'OR' : 'AND';
+
+        $CF_FIELD_MAP = [
+            'id'             => ['col' => 'leads.id',             'type' => 'text',   'label' => 'Lead ID'],
+            'name'           => ['col' => 'leads.name',           'type' => 'text',   'label' => 'Contact / Party Name'],
+            'company'        => ['col' => 'leads.company',        'type' => 'text',   'label' => 'Company / Firm Name'],
+            'phone'          => ['col' => 'leads.phone',          'type' => 'phone',  'label' => 'Phone / Mobile'],
+            'secondary_phone'=> ['col' => 'leads.secondary_phone','type' => 'phone',  'label' => 'Secondary Phone'],
+            'email'          => ['col' => 'leads.email',          'type' => 'text',   'label' => 'Email Address'],
+            'city'           => ['col' => 'leads.city',           'type' => 'text',   'label' => 'City'],
+            'state'          => ['col' => 'leads.state',          'type' => 'text',   'label' => 'State'],
+            'address'        => ['col' => 'leads.address',        'type' => 'text',   'label' => 'Address'],
+            'gst'            => ['col' => 'leads.gst',            'type' => 'text',   'label' => 'GST Number'],
+            'source'         => ['col' => 'leads.source',         'type' => 'select', 'label' => 'Lead Source'],
+            'priority'       => ['col' => 'leads.priority',       'type' => 'select', 'label' => 'Priority (Hot/Warm/Cold)'],
+            'status'         => ['col' => 'leads.status',         'type' => 'select', 'label' => 'Pipeline Status'],
+            'group_stage'    => ['col' => 'leads.group_stage',    'type' => 'select', 'label' => 'Group / Stage'],
+            'assigned_to'    => ['col' => 'leads.assigned_to',    'type' => 'select', 'label' => 'Assigned Employee'],
+            'assigned_by'    => ['col' => 'leads.assigned_by',    'type' => 'text',   'label' => 'Assigned By'],
+            'enq_for'        => ['col' => 'leads.enq_for',        'type' => 'text',   'label' => 'Enquiry For / Edition'],
+            'contact_person' => ['col' => 'leads.contact_person', 'type' => 'text',   'label' => 'Contact Person'],
+            'remarks'        => ['col' => 'leads.remarks',        'type' => 'text',   'label' => 'Remarks / Notes'],
+            'tags'           => ['col' => 'leads.tags',           'type' => 'text',   'label' => 'Tags'],
+            'created_at'     => ['col' => 'leads.created_at',     'type' => 'date',   'label' => 'Created Date'],
+            'updated_at'     => ['col' => 'leads.updated_at',     'type' => 'date',   'label' => 'Updated Date'],
+            'followup_date'  => ['col' => 'followup_date',        'type' => 'fup',    'label' => 'Next Scheduled Followup']
+        ];
+
+        $cf_sql_clauses = [];
+        if (!empty($parsed_cf_rules)) {
+            foreach ($parsed_cf_rules as $rItem) {
+                $field = trim($rItem['col'] ?? $rItem['field'] ?? '');
+                $op    = trim($rItem['op'] ?? 'contains');
+                $val   = trim($rItem['val'] ?? '');
+                if (!isset($CF_FIELD_MAP[$field])) continue;
+
+                $colDef = $CF_FIELD_MAP[$field];
+                $colSql = $colDef['col'];
+                $type   = $colDef['type'];
+
+                if ($type === 'fup') {
+                    if ($op === 'is_empty') {
+                        $cf_sql_clauses[] = "leads.id NOT IN (SELECT lead_id FROM followups WHERE status = 'pending')";
+                    } elseif ($op === 'is_not_empty') {
+                        $cf_sql_clauses[] = "leads.id IN (SELECT lead_id FROM followups WHERE status = 'pending')";
+                    } elseif ($op === 'date_today' || $val === 'today') {
+                        $cf_sql_clauses[] = "leads.id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = CURRENT_DATE())";
+                    } elseif ($op === 'date_yesterday' || $val === 'yesterday') {
+                        $cf_sql_clauses[] = "leads.id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = SUBDATE(CURRENT_DATE(), 1))";
+                    } elseif ($op === 'date_tomorrow' || $val === 'tomorrow') {
+                        $cf_sql_clauses[] = "leads.id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY))";
+                    } elseif ($op === 'date_before' && !empty($val)) {
+                        $cf_sql_clauses[] = "leads.id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) < ?)";
+                        $query_params[] = $val;
+                    } elseif ($op === 'date_after' && !empty($val)) {
+                        $cf_sql_clauses[] = "leads.id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) > ?)";
+                        $query_params[] = $val;
+                    } elseif (!empty($val)) {
+                        $cf_sql_clauses[] = "leads.id IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) = ?)";
+                        $query_params[] = $val;
+                    }
+                    continue;
+                }
+
+                switch ($op) {
+                    case 'contains':
+                        if ($type === 'phone') {
+                            $cleanPhone = preg_replace('/[^0-9]/', '', $val);
+                            if (!empty($cleanPhone)) {
+                                $cf_sql_clauses[] = "({$colSql} LIKE ? OR REPLACE(REPLACE(REPLACE({$colSql}, ' ', ''), '-', ''), '+91', '') LIKE ?)";
+                                $query_params[] = '%' . $val . '%';
+                                $query_params[] = '%' . $cleanPhone . '%';
+                            } else {
+                                $cf_sql_clauses[] = "{$colSql} LIKE ?";
+                                $query_params[] = '%' . $val . '%';
+                            }
+                        } else {
+                            $cf_sql_clauses[] = "{$colSql} LIKE ?";
+                            $query_params[] = '%' . $val . '%';
+                        }
+                        break;
+                    case 'not_contains':
+                        $cf_sql_clauses[] = "({$colSql} NOT LIKE ? OR {$colSql} IS NULL)";
+                        $query_params[] = '%' . $val . '%';
+                        break;
+                    case 'equals':
+                        if ($field === 'status' && strtolower($val) === 'won') {
+                            $cf_sql_clauses[] = "LOWER({$colSql}) IN ('won', 'closed_won', 'install_pending', 'payment_pending')";
+                        } elseif ($field === 'status' && strtolower($val) === 'lost') {
+                            $cf_sql_clauses[] = "LOWER({$colSql}) IN ('lost', 'closed_lost')";
+                        } elseif ($field === 'assigned_to') {
+                            if (strtolower($val) === 'unassigned') {
+                                $cf_sql_clauses[] = "({$colSql} IS NULL OR TRIM({$colSql}) = '' OR LOWER(TRIM({$colSql})) = 'unassigned')";
+                            } else {
+                                $cf_sql_clauses[] = "(LOWER(TRIM({$colSql})) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE({$colSql}, ', ', ','))) OR {$colSql} LIKE ?)";
+                                $query_params[] = $val;
+                                $query_params[] = $val;
+                                $query_params[] = '%' . $val . '%';
+                            }
+                        } else {
+                            $cf_sql_clauses[] = "LOWER(TRIM({$colSql})) = LOWER(TRIM(?))";
+                            $query_params[] = $val;
+                        }
+                        break;
+                    case 'not_equals':
+                        if ($field === 'assigned_to' && strtolower($val) === 'unassigned') {
+                            $cf_sql_clauses[] = "({$colSql} IS NOT NULL AND TRIM({$colSql}) != '' AND LOWER(TRIM({$colSql})) != 'unassigned')";
+                        } else {
+                            $cf_sql_clauses[] = "(LOWER(TRIM({$colSql})) != LOWER(TRIM(?)) OR {$colSql} IS NULL)";
+                            $query_params[] = $val;
+                        }
+                        break;
+                    case 'starts_with':
+                        $cf_sql_clauses[] = "{$colSql} LIKE ?";
+                        $query_params[] = $val . '%';
+                        break;
+                    case 'ends_with':
+                        $cf_sql_clauses[] = "{$colSql} LIKE ?";
+                        $query_params[] = '%' . $val;
+                        break;
+                    case 'is_empty':
+                        $cf_sql_clauses[] = "({$colSql} IS NULL OR TRIM({$colSql}) = '' OR LOWER(TRIM({$colSql})) = 'unassigned')";
+                        break;
+                    case 'is_not_empty':
+                        $cf_sql_clauses[] = "({$colSql} IS NOT NULL AND TRIM({$colSql}) != '' AND LOWER(TRIM({$colSql})) != 'unassigned')";
+                        break;
+                    case 'date_exact':
+                        if (!empty($val)) {
+                            $cf_sql_clauses[] = "DATE({$colSql}) = ?";
+                            $query_params[] = $val;
+                        }
+                        break;
+                    case 'date_before':
+                        if (!empty($val)) {
+                            $cf_sql_clauses[] = "DATE({$colSql}) < ?";
+                            $query_params[] = $val;
+                        }
+                        break;
+                    case 'date_after':
+                        if (!empty($val)) {
+                            $cf_sql_clauses[] = "DATE({$colSql}) > ?";
+                            $query_params[] = $val;
+                        }
+                        break;
+                    case 'date_between':
+                        $parts = explode(',', $val);
+                        if (count($parts) === 2 && !empty(trim($parts[0])) && !empty(trim($parts[1]))) {
+                            $cf_sql_clauses[] = "DATE({$colSql}) BETWEEN ? AND ?";
+                            $query_params[] = trim($parts[0]);
+                            $query_params[] = trim($parts[1]);
+                        } elseif (!empty($val)) {
+                            $cf_sql_clauses[] = "DATE({$colSql}) = ?";
+                            $query_params[] = $val;
+                        }
+                        break;
+                    case 'date_today':
+                        $cf_sql_clauses[] = "DATE({$colSql}) = CURRENT_DATE()";
+                        break;
+                    case 'date_yesterday':
+                        $cf_sql_clauses[] = "DATE({$colSql}) = SUBDATE(CURRENT_DATE(), 1)";
+                        break;
+                    case 'date_this_week':
+                        $cf_sql_clauses[] = "YEARWEEK({$colSql}, 1) = YEARWEEK(CURRENT_DATE(), 1)";
+                        break;
+                    case 'date_this_month':
+                        $cf_sql_clauses[] = "YEAR({$colSql}) = YEAR(CURRENT_DATE()) AND MONTH({$colSql}) = MONTH(CURRENT_DATE())";
+                        break;
+                }
+            }
+
+            if (!empty($cf_sql_clauses)) {
+                $where_conditions[] = "(" . implode(" {$cf_match_mode} ", $cf_sql_clauses) . ")";
+            }
+        }
+
         // Apply Metric Card Filter if clicked (only when explicit date filter is not chosen)
-        if (!empty($active_filter) && !empty($active_day) && empty($filter_date)) {
+        if (!empty($active_filter) && !empty($active_day) && empty($filter_date) && empty($filter_date_from) && empty($filter_date_to)) {
         // Common exclusion: skip Dropped leads and Not Required group from all card filters
         $card_exclude = "LOWER(TRIM(leads.status)) != 'dropped' AND LOWER(TRIM(leads.group_stage)) != 'not required'";
 
         if ($active_filter === 'expired') {
                 $expiry_sub = "(action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')";
                 if ($active_day === 'all' || $active_day === 'total') {
-                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_sub} OR status = 'missed' OR DATE(scheduled_at) < CURRENT_DATE())) OR id IN (SELECT lead_id FROM renewals) OR LOWER(status) IN ('expired', 'trial_expired'))";
+                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_sub} OR status = 'missed' OR DATE(scheduled_at) < CURRENT_DATE())) OR LOWER(status) IN ('expired', 'trial_expired'))";
                 } elseif ($active_day === 'today') {
-                    // Button 1: Yesterday
-                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
+                    // Button 1: Yesterday - strictly followups scheduled_at
+                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?))";
                     $query_params[] = $yesterday_str;
                 } elseif ($active_day === 'tomorrow') {
-                    // Button 2: 2 Days Ago
-                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
+                    // Button 2: 2 Days Ago - strictly followups scheduled_at
+                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?))";
                     $query_params[] = $day_before_str;
                 } elseif ($active_day === 'next_day') {
-                    // Button 3: 3 Days Ago
-                    $where_conditions[] = "({$card_exclude}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
+                    // Button 3: 3 Days Ago - strictly followups scheduled_at
+                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?))";
                     $query_params[] = $three_days_ago_str;
                 }
             } elseif ($active_filter === 'demo_scheduled') {
@@ -378,6 +623,7 @@ if ($db_connected && $pdo) {
 
 $operators = [];
 $available_groups = [];
+$available_sources = ['Website', 'Google Ads', 'Cold Calls', 'Referrals', 'Exhibitions', 'HO', 'Office', 'Self', 'Door to Door', 'GSTN Data', 'Imported', 'Direct', 'Reference', 'Online', 'Walk-in'];
 if ($db_connected && $pdo) {
     try {
         $stmtOp = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
@@ -387,6 +633,12 @@ if ($db_connected && $pdo) {
         $db_groups = $stmtGrp->fetchAll(PDO::FETCH_COLUMN);
         $standard_groups = ['Fresh', 'Followup', 'Future Prospect', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required'];
         $available_groups = array_values(array_unique(array_merge($standard_groups, $db_groups)));
+
+        $stmtSrc = $pdo->query("SELECT DISTINCT source FROM leads WHERE source IS NOT NULL AND TRIM(source) != '' ORDER BY source ASC");
+        $db_sources = $stmtSrc->fetchAll(PDO::FETCH_COLUMN);
+        if (!empty($db_sources)) {
+            $available_sources = array_values(array_unique(array_merge($available_sources, $db_sources)));
+        }
     } catch (PDOException $e) {}
 }
 if (empty($available_groups)) {
@@ -597,9 +849,9 @@ if (empty($leads)) {
 
     <!-- Table Action Controls Bar -->
     <div class="card p-4 mb-6 flex flex-wrap align-center justify-between gap-4" style="border: 1px solid var(--border-color);">
-        <!-- Left: Search and filters toggler -->
+        <!-- Left: Search, Scope Switcher, and Filters -->
         <div class="flex align-center gap-3 flex-wrap">
-            <div class="search-input-wrapper flex align-center gap-2" style="background-color: var(--bg-app); border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: var(--border-radius-sm); width: 300px; position: relative;">
+            <div class="search-input-wrapper flex align-center gap-2" style="background-color: var(--bg-app); border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: var(--border-radius-sm); width: 280px; position: relative;">
                 <i data-lucide="search" class="text-muted" style="width: 16px; height: 16px; flex-shrink: 0;"></i>
                 <input type="text" id="leads-search-input" placeholder="Search customer, company, phone..." class="w-full text-xs" style="border: none; background: transparent; outline: none;" value="<?php echo htmlspecialchars($search_term ?? ''); ?>">
                 <?php if (!empty($search_term)): ?>
@@ -608,6 +860,7 @@ if (empty($leads)) {
                     </button>
                 <?php endif; ?>
             </div>
+
 
             <!-- Quick Preset Filter Dropdown (Custom Funnel Icon Button) -->
             <div style="position: relative;" id="quick-preset-dropdown-container">
@@ -661,12 +914,12 @@ if (empty($leads)) {
                             <span>Attended</span>
                         </a>
                         <div style="border-top: 1px solid var(--border-color); margin: 0.35rem 0;"></div>
-                        <a href="javascript:void(0)" onclick="openCustomFilterDrawer()" class="quick-preset-item font-bold" style="color: #004d40;">
+                        <!-- <a href="javascript:void(0)" onclick="openAdvancedCustomFilterModal()" class="quick-preset-item font-bold" style="color: #004d40;">
                             <span style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                                <span>Custom Filter</span>
+                                <span>Custom Filter Builder</span>
                                 <i data-lucide="sliders-horizontal" style="width: 13px; height: 13px;"></i>
                             </span>
-                        </a>
+                        </a> -->
                     </div>
                 </div>
             </div>
@@ -691,9 +944,25 @@ if (empty($leads)) {
                 }
             </style>
 
-            <button class="btn btn-secondary text-xs" style="padding: 0.55rem 1rem;" onclick="document.getElementById('advanced-filter-drawer').classList.toggle('hidden');">
+            <!-- Dedicated Advanced Custom Filter Button -->
+            <!-- <button type="button" class="btn text-xs font-bold" id="custom-filter-modal-btn" onclick="openAdvancedCustomFilterModal()" style="border: 1.5px solid var(--primary); color: var(--primary); background: rgba(0, 77, 64, 0.06); border-radius: 8px; padding: 0.55rem 0.95rem; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.2s ease;">
+                <i data-lucide="sliders-horizontal" style="width: 14px; height: 14px;"></i>
+                <span>Custom Filter</span>
+                <?php if (!empty($parsed_cf_rules)): ?>
+                    <span style="background: var(--primary); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 800;"><?php echo count($parsed_cf_rules); ?></span>
+                <?php endif; ?>
+            </button> -->
+
+            <?php 
+            $quick_filters_active = (!empty($filter_date_from) || !empty($filter_date_to) || !empty($filter_date) || !empty($_GET['source']) || !empty($_GET['priority']) || !empty($_GET['status']) || !empty($_GET['assigned_to']) || !empty($_GET['group_stage']));
+            ?>
+            <!-- Preset Basic Quick Drawer Button -->
+            <button class="btn <?php echo $quick_filters_active ? 'btn-primary' : 'btn-secondary'; ?> text-xs" style="padding: 0.55rem 1rem; display: inline-flex; align-items: center; gap: 6px;" onclick="document.getElementById('advanced-filter-drawer').classList.toggle('hidden');">
                 <i data-lucide="filter" style="width: 14px; height: 14px;"></i>
-                <span>Advanced Filters</span>
+                <span>Quick Filters</span>
+                <?php if ($quick_filters_active): ?>
+                    <span style="background: #e53935; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 800;">Active</span>
+                <?php endif; ?>
             </button>
         </div>
 
@@ -793,22 +1062,75 @@ if (empty($leads)) {
     </div>
 
     <!-- Advanced Filter Drawer (Collapsible) -->
-    <div id="advanced-filter-drawer" class="card p-6 mb-6 hidden" style="border: 1px solid var(--border-color); animation: fadeIn 0.2s ease-in-out;">
-        <div class="flex justify-between align-center mb-4">
-            <h4 class="font-semibold text-sm m-0" style="text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Lead Filters Configuration</h4>
+    <div id="advanced-filter-drawer" class="card p-6 mb-6 <?php echo $quick_filters_active ? '' : 'hidden'; ?>" style="border: 1px solid var(--border-color); animation: fadeIn 0.2s ease-in-out;">
+        <div class="flex justify-between align-center mb-4 flex-wrap gap-2">
+            <div class="flex align-center gap-2">
+                <i data-lucide="sliders" style="width: 16px; height: 16px; color: var(--primary);"></i>
+                <h4 class="font-semibold text-sm m-0" style="text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Lead Filters Configuration</h4>
+            </div>
             <button class="text-xs text-primary font-semibold pointer" onclick="resetFilters()">Reset All Filters</button>
         </div>
-        <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.25rem;">
-            <!-- Schedule / Follow-up Reminder Date Filter -->
-            <div class="form-group m-0" style="position: relative;">
-                <div class="flex justify-between align-center mb-1">
-                    <label class="form-label text-xs font-semibold m-0" title="Schedule Follow-up reminder Date & Time">Scheduled / Follow-up Date</label>
-                    <?php if (!empty($_GET['lead_date']) || !empty($_GET['date'])): ?>
-                        <span class="text-xs text-danger font-semibold pointer" style="cursor: pointer; font-size: 11px;" onclick="clearDateFilter()" title="Clear date filter">✕ Clear</span>
+
+        <!-- Section 1: DATE TO DATE (Date Range Filter) -->
+        <div style="background: rgba(0, 77, 64, 0.04); border: 1.5px solid rgba(0, 77, 64, 0.15); border-radius: 8px; padding: 0.9rem 1rem; margin-bottom: 1.25rem;">
+            <div class="flex justify-between align-center mb-3 flex-wrap gap-2">
+                <div class="flex align-center gap-2">
+                    <i data-lucide="calendar" style="width: 15px; height: 15px; color: var(--primary);"></i>
+                    <span class="text-xs font-bold" style="color: var(--primary); text-transform: uppercase; letter-spacing: 0.04em;">Date to Date Filter</span>
+                    <?php if (!empty($filter_date_from) || !empty($filter_date_to)): ?>
+                        <span class="badge text-xs" style="background: var(--primary); color: #fff; font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700;">
+                            <?php echo htmlspecialchars($filter_date_from ?: 'Any'); ?> &rarr; <?php echo htmlspecialchars($filter_date_to ?: 'Any'); ?>
+                            (<?php echo ($filter_date_type === 'scheduled_at') ? 'Scheduled' : 'Created'; ?>)
+                        </span>
                     <?php endif; ?>
                 </div>
-                <input type="date" id="filter-date" class="form-control text-xs no-quick" data-no-quick="true" style="height: 35px;" value="<?php echo htmlspecialchars($_GET['lead_date'] ?? $_GET['date'] ?? ''); ?>" onchange="applyAdvancedFilters(true)" oninput="if(this.value.length === 10 || this.value === '') applyAdvancedFilters(true);">
+                <!-- Quick Date Range Presets -->
+                <div class="flex align-center gap-1 flex-wrap">
+                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.6rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('today')">Today</button>
+                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.6rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('yesterday')">Yesterday</button>
+                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.6rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('last_7')">Last 7 Days</button>
+                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.6rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('this_month')">This Month</button>
+                    <?php if (!empty($filter_date_from) || !empty($filter_date_to) || !empty($filter_date)): ?>
+                        <button type="button" class="btn text-xs text-danger font-semibold" style="padding: 0.25rem 0.6rem; font-size: 11px; background: rgba(229,57,53,0.1); border: 1px solid #e53935; border-radius: 4px;" onclick="setDateRangePreset('clear')">✕ Clear Dates</button>
+                    <?php endif; ?>
+                </div>
             </div>
+            <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: flex-end;">
+                <!-- Date By / Date Type -->
+                <div class="form-group m-0">
+                    <label class="form-label text-xs font-semibold mb-1" style="color: var(--text-main);">Filter Date By</label>
+                    <select id="filter-date-type" class="form-control text-xs" style="height: 35px; background: #fff;" onchange="applyAdvancedFilters(true)">
+                        <option value="created_at" <?php echo ($filter_date_type === 'created_at') ? 'selected' : ''; ?>>📅 Lead Creation Date</option>
+                        <option value="scheduled_at" <?php echo ($filter_date_type === 'scheduled_at') ? 'selected' : ''; ?>>⏰ Scheduled / Follow-up Date</option>
+                    </select>
+                </div>
+                <!-- Date From -->
+                <div class="form-group m-0">
+                    <div class="flex justify-between align-center mb-1">
+                        <label class="form-label text-xs font-semibold m-0" style="color: var(--text-main);">Date From (Start)</label>
+                        <?php if (!empty($filter_date_from)): ?>
+                            <span class="text-xs text-danger font-semibold pointer" style="cursor: pointer; font-size: 11px;" onclick="clearDateRangePart('from')">✕ Clear</span>
+                        <?php endif; ?>
+                    </div>
+                    <input type="date" id="filter-date-from" class="form-control text-xs no-quick" data-no-quick="true" style="height: 35px; background: #fff;" value="<?php echo htmlspecialchars($filter_date_from); ?>" onchange="applyAdvancedFilters(true)">
+                </div>
+                <!-- Date To -->
+                <div class="form-group m-0">
+                    <div class="flex justify-between align-center mb-1">
+                        <label class="form-label text-xs font-semibold m-0" style="color: var(--text-main);">Date To (End)</label>
+                        <?php if (!empty($filter_date_to)): ?>
+                            <span class="text-xs text-danger font-semibold pointer" style="cursor: pointer; font-size: 11px;" onclick="clearDateRangePart('to')">✕ Clear</span>
+                        <?php endif; ?>
+                    </div>
+                    <input type="date" id="filter-date-to" class="form-control text-xs no-quick" data-no-quick="true" style="height: 35px; background: #fff;" value="<?php echo htmlspecialchars($filter_date_to); ?>" onchange="applyAdvancedFilters(true)">
+                </div>
+                <!-- Hidden legacy input for compatibility -->
+                <input type="hidden" id="filter-date" value="<?php echo htmlspecialchars($filter_date); ?>">
+            </div>
+        </div>
+
+        <!-- Section 2: Other Filters (Source, Priority, Status, Employee, Group) -->
+        <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.25rem;">
             <!-- Source Filter -->
             <div class="form-group m-0">
                 <label class="form-label text-xs">Lead Source</label>
@@ -875,6 +1197,59 @@ if (empty($leads)) {
                 </select>
             </div>
         </div>
+    </div>
+
+    <!-- Active Custom Filter Pills Strip -->
+    <div id="active-cf-pills-container">
+    <?php if (!empty($parsed_cf_rules)): ?>
+        <div class="active-cf-pills-bar mb-4 p-3 flex align-center justify-between flex-wrap gap-2" style="background: rgba(0, 77, 64, 0.05); border: 1.5px solid rgba(0, 77, 64, 0.25); border-radius: 10px; animation: fadeIn 0.2s ease-in-out;">
+            <div class="flex align-center gap-2 flex-wrap">
+                <span class="text-xs font-bold" style="color: #004d40; display: inline-flex; align-items: center; gap: 5px;">
+                    <i data-lucide="sliders-horizontal" style="width: 14px; height: 14px;"></i>
+                    Active Custom Filter (Match <?php echo htmlspecialchars($cf_match_mode); ?>):
+                </span>
+                <?php foreach ($parsed_cf_rules as $rIdx => $rItem): 
+                    $fKey = $rItem['col'] ?? $rItem['field'] ?? '';
+                    $fName = $CF_FIELD_MAP[$fKey]['label'] ?? $fKey;
+                    $opKey = $rItem['op'] ?? 'contains';
+                    $valTxt = $rItem['val'] ?? '';
+                    
+                    $opNice = [
+                        'contains' => 'contains',
+                        'not_contains' => 'not contains',
+                        'equals' => '=',
+                        'not_equals' => '≠',
+                        'starts_with' => 'starts with',
+                        'ends_with' => 'ends with',
+                        'is_empty' => 'is empty',
+                        'is_not_empty' => 'is not empty',
+                        'date_today' => 'is Today',
+                        'date_yesterday' => 'is Yesterday',
+                        'date_this_week' => 'is This Week',
+                        'date_this_month' => 'is This Month',
+                        'date_exact' => 'on',
+                        'date_before' => 'before',
+                        'date_after' => 'after',
+                        'date_between' => 'between'
+                    ][$opKey] ?? $opKey;
+                ?>
+                    <span class="badge flex align-center gap-1 text-xs" style="background: var(--bg-card); color: #004d40; border: 1.5px solid #004d40; border-radius: 6px; padding: 4px 8px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+                        <span><strong><?php echo htmlspecialchars($fName); ?></strong> <span class="text-muted font-normal"><?php echo htmlspecialchars($opNice); ?></span> <?php if (!in_array($opKey, ['is_empty', 'is_not_empty', 'date_today', 'date_yesterday', 'date_this_week', 'date_this_month'])): ?><em>"<?php echo htmlspecialchars($valTxt); ?>"</em><?php endif; ?></span>
+                        <a href="javascript:void(0)" onclick="removeCustomFilterRule(<?php echo $rIdx; ?>)" style="color: #e53935; text-decoration: none; font-weight: bold; margin-left: 5px; padding: 0 3px;" title="Remove this condition">✕</a>
+                    </span>
+                <?php endforeach; ?>
+            </div>
+            <div class="flex align-center gap-2">
+                <button type="button" class="btn btn-secondary text-xs" style="padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 600;" onclick="openAdvancedCustomFilterModal()">
+                    <i data-lucide="edit-2" style="width: 12px; height: 12px;"></i>
+                    <span>Edit Rules</span>
+                </button>
+                <button type="button" class="btn text-xs text-danger" style="background: transparent; border: 1px solid rgba(229,57,53,0.3); padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 600;" onclick="clearAllCustomFilterRules()">
+                    <span>✕ Clear All</span>
+                </button>
+            </div>
+        </div>
+    <?php endif; ?>
     </div>
 
     <!-- Spreadsheet-like Leads Table Container -->
@@ -1732,7 +2107,7 @@ if (empty($leads)) {
             });
 
             // 4. Sync Advanced Filter Drawer inputs if present
-            ['filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-assigned', 'filter-group'].forEach(id => {
+            ['filter-date-from', 'filter-date-to', 'filter-date-type', 'filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-assigned', 'filter-group'].forEach(id => {
                 const cur = document.getElementById(id);
                 const nw = doc.getElementById(id);
                 if (cur && nw && cur !== document.activeElement) {
@@ -1745,6 +2120,18 @@ if (empty($leads)) {
             const curPresetContainer = document.querySelector('#quick-preset-dropdown-container');
             if (newPresetContainer && curPresetContainer) {
                 curPresetContainer.innerHTML = newPresetContainer.innerHTML;
+            }
+
+            // 5a. Sync Active Custom Filter Pills & Dedicated Filter Button
+            const newPills = doc.querySelector('#active-cf-pills-container');
+            const curPills = document.querySelector('#active-cf-pills-container');
+            if (newPills && curPills) {
+                curPills.innerHTML = newPills.innerHTML;
+            }
+            const newCfBtn = doc.querySelector('#custom-filter-modal-btn');
+            const curCfBtn = document.querySelector('#custom-filter-modal-btn');
+            if (newCfBtn && curCfBtn) {
+                curCfBtn.innerHTML = newCfBtn.innerHTML;
             }
 
             // 6. Re-initialize Lucide Icons & Column preferences
@@ -1782,16 +2169,74 @@ if (empty($leads)) {
     window.fetchLeadsPartialWithoutReload = fetchLeadsPartialWithoutReload;
 
     function clearDateFilter() {
-        const dtInput = document.getElementById('filter-date');
-        if (dtInput) {
-            dtInput.value = '';
-            applyAdvancedFilters(true);
-        }
+        const df = document.getElementById('filter-date-from');
+        const dt = document.getElementById('filter-date-to');
+        const dSingle = document.getElementById('filter-date');
+        if (df) df.value = '';
+        if (dt) dt.value = '';
+        if (dSingle) dSingle.value = '';
+        applyAdvancedFilters(true);
     }
     window.clearDateFilter = clearDateFilter;
 
+    function clearDateRangePart(part) {
+        if (part === 'from') {
+            const el = document.getElementById('filter-date-from');
+            if (el) el.value = '';
+        } else if (part === 'to') {
+            const el = document.getElementById('filter-date-to');
+            if (el) el.value = '';
+        }
+        applyAdvancedFilters(true);
+    }
+    window.clearDateRangePart = clearDateRangePart;
+
+    function setDateRangePreset(preset) {
+        const fromInput = document.getElementById('filter-date-from');
+        const toInput = document.getElementById('filter-date-to');
+        if (!fromInput || !toInput) return;
+
+        const now = new Date();
+        const formatDate = (d) => {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const todayStr = formatDate(now);
+
+        if (preset === 'today') {
+            fromInput.value = todayStr;
+            toInput.value = todayStr;
+        } else if (preset === 'yesterday') {
+            const yest = new Date(now);
+            yest.setDate(now.getDate() - 1);
+            const yStr = formatDate(yest);
+            fromInput.value = yStr;
+            toInput.value = yStr;
+        } else if (preset === 'last_7') {
+            const d7 = new Date(now);
+            d7.setDate(now.getDate() - 6);
+            fromInput.value = formatDate(d7);
+            toInput.value = todayStr;
+        } else if (preset === 'this_month') {
+            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+            fromInput.value = formatDate(firstDay);
+            toInput.value = todayStr;
+        } else if (preset === 'clear') {
+            fromInput.value = '';
+            toInput.value = '';
+        }
+        applyAdvancedFilters(true);
+    }
+    window.setDateRangePreset = setDateRangePreset;
+
     function applyAdvancedFilters(triggerServer = false) {
         const searchVal = (document.getElementById('leads-search-input')?.value || '').toLowerCase().trim();
+        const dateFromVal = (document.getElementById('filter-date-from')?.value || '').trim();
+        const dateToVal = (document.getElementById('filter-date-to')?.value || '').trim();
+        const dateTypeVal = (document.getElementById('filter-date-type')?.value || 'created_at').trim();
         const dateVal = (document.getElementById('filter-date')?.value || '').trim();
         const sourceVal = (document.getElementById('filter-source')?.value || '').toLowerCase().trim();
         const priorityVal = (document.getElementById('filter-priority')?.value || '').toLowerCase().trim();
@@ -1801,16 +2246,38 @@ if (empty($leads)) {
 
         if (triggerServer) {
             const url = new URL(window.location.href);
-            if (dateVal) {
-                url.searchParams.set('lead_date', dateVal);
+            if (dateFromVal) {
+                url.searchParams.set('date_from', dateFromVal);
+            } else {
+                url.searchParams.delete('date_from');
+            }
+            if (dateToVal) {
+                url.searchParams.set('date_to', dateToVal);
+            } else {
+                url.searchParams.delete('date_to');
+            }
+            if (dateFromVal || dateToVal) {
+                url.searchParams.set('date_type', dateTypeVal);
+                url.searchParams.delete('lead_date');
+                url.searchParams.delete('date');
                 url.searchParams.delete('filter');
                 url.searchParams.delete('card_filter');
                 url.searchParams.delete('filter_card');
                 url.searchParams.delete('day');
             } else {
-                url.searchParams.delete('lead_date');
-                url.searchParams.delete('date');
+                url.searchParams.delete('date_type');
+                if (dateVal) {
+                    url.searchParams.set('lead_date', dateVal);
+                    url.searchParams.delete('filter');
+                    url.searchParams.delete('card_filter');
+                    url.searchParams.delete('filter_card');
+                    url.searchParams.delete('day');
+                } else {
+                    url.searchParams.delete('lead_date');
+                    url.searchParams.delete('date');
+                }
             }
+
             if (sourceVal || priorityVal || statusVal || assignedVal || groupVal) {
                 url.searchParams.delete('card_filter');
                 url.searchParams.delete('filter_card');
@@ -1841,7 +2308,21 @@ if (empty($leads)) {
             const rGroup = (row.getAttribute('data-group') || '').toLowerCase();
 
             const matchSearch = !searchVal || text.includes(searchVal);
-            const matchDate = !dateVal || (rFupDate && rFupDate === dateVal);
+
+            let matchDate = true;
+            if (dateFromVal || dateToVal) {
+                const targetRowDate = (dateTypeVal === 'scheduled_at') ? rFupDate : rCreateDate;
+                if (dateFromVal && dateToVal) {
+                    matchDate = Boolean(targetRowDate && targetRowDate >= dateFromVal && targetRowDate <= dateToVal);
+                } else if (dateFromVal) {
+                    matchDate = Boolean(targetRowDate && targetRowDate >= dateFromVal);
+                } else if (dateToVal) {
+                    matchDate = Boolean(targetRowDate && targetRowDate <= dateToVal);
+                }
+            } else if (dateVal) {
+                matchDate = Boolean(rFupDate && rFupDate === dateVal);
+            }
+
             const matchSource = !sourceVal || rSource.includes(sourceVal) || text.includes(sourceVal);
             const matchPriority = !priorityVal || rPriority === priorityVal;
             let matchAssigned = true;
@@ -1877,10 +2358,12 @@ if (empty($leads)) {
     }
 
     function resetFilters() {
-        ['filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-assigned', 'filter-group', 'leads-search-input'].forEach(id => {
+        ['filter-date-from', 'filter-date-to', 'filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-assigned', 'filter-group', 'leads-search-input'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
         });
+        const dtType = document.getElementById('filter-date-type');
+        if (dtType) dtType.value = 'created_at';
         fetchLeadsPartialWithoutReload('index.php?page=leads', true);
     }
 
@@ -1978,8 +2461,12 @@ if (empty($leads)) {
     function openCustomFilterDrawer() {
         const menu = document.getElementById('quick-preset-menu');
         if (menu) menu.classList.add('hidden');
-        const drawer = document.getElementById('advanced-filter-drawer');
-        if (drawer) drawer.classList.remove('hidden');
+        if (typeof openAdvancedCustomFilterModal === 'function') {
+            openAdvancedCustomFilterModal();
+        } else {
+            const drawer = document.getElementById('advanced-filter-drawer');
+            if (drawer) drawer.classList.remove('hidden');
+        }
     }
     window.openCustomFilterDrawer = openCustomFilterDrawer;
 
@@ -2780,7 +3267,228 @@ function openCallQrModal(name, phone, telEncoded) {
 
     </div><!-- /#export-modal-box -->
 </div><!-- /#export-modal-overlay -->
-utton>
+
+<!-- ===== ADVANCED MULTI-COLUMN CUSTOM FILTER BUILDER MODAL ===== -->
+<style>
+#advanced-cf-modal-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 10000;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(6px);
+    align-items: center; justify-content: center;
+    padding: 16px;
+}
+#advanced-cf-modal-overlay.open { display: flex; }
+
+#advanced-cf-modal-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.38), 0 0 0 1px rgba(255,255,255,0.06);
+    width: 960px; max-width: 98vw;
+    max-height: 92vh;
+    display: flex; flex-direction: column;
+    animation: cfModalIn 0.25s cubic-bezier(.22,1,.36,1);
+    overflow: hidden;
+}
+@keyframes cfModalIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+}
+
+.cf-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.25rem 1.75rem;
+    background: linear-gradient(135deg, #004d40 0%, #00695c 60%, #00796b 100%);
+    color: #ffffff;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 4px 14px rgba(0,77,64,0.22);
+}
+.cf-modal-header-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: rgba(255,255,255,0.16);
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(255,255,255,0.25);
+    flex-shrink: 0;
+}
+.cf-modal-close-btn {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #fff; border-radius: 8px;
+    width: 34px; height: 34px; cursor: pointer;
+    font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s ease;
+}
+.cf-modal-close-btn:hover { background: rgba(255,255,255,0.28); transform: scale(1.08); }
+
+.cf-modal-body {
+    padding: 1.5rem 1.75rem;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 1.25rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+.cf-modal-body::-webkit-scrollbar { width: 6px; }
+.cf-modal-body::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 8px; }
+
+.cf-top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1.5px solid var(--border-color);
+}
+.cf-match-selector {
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--bg-app);
+    padding: 6px 14px; border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+.cf-match-selector label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.8rem; font-weight: 700; cursor: pointer;
+    color: var(--text-main);
+    margin: 0;
+}
+
+.cf-preset-toolbar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+
+.cf-rules-list {
+    display: flex; flex-direction: column; gap: 10px;
+}
+.cf-rule-row {
+    display: grid;
+    grid-template-columns: 32px 200px 160px 1fr 38px;
+    gap: 10px;
+    align-items: center;
+    background: var(--bg-app);
+    border: 1.5px solid var(--border-color);
+    padding: 10px 14px;
+    border-radius: 12px;
+    transition: all 0.15s ease;
+}
+.cf-rule-row:hover {
+    border-color: rgba(0,77,64,0.35);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.cf-row-badge {
+    font-size: 0.72rem; font-weight: 800; color: var(--primary);
+    text-align: center;
+}
+.cf-rule-row select, .cf-rule-row input[type="text"], .cf-rule-row input[type="date"] {
+    width: 100%;
+    padding: 0.48rem 0.75rem;
+    border: 1.5px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-main);
+    font-size: 0.82rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.cf-rule-row select:focus, .cf-rule-row input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(0,77,64,0.12);
+}
+.cf-btn-del {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    border: 1px solid rgba(229,57,53,0.3);
+    background: rgba(229,57,53,0.06);
+    color: #e53935;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.15s;
+}
+.cf-btn-del:hover {
+    background: #e53935; color: #fff;
+}
+
+.cf-modal-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.1rem 1.75rem;
+    background: var(--border-card);
+    border-top: 1px solid var(--border-color);
+    border-radius: 0 0 20px 20px;
+    flex-wrap: wrap; gap: 10px;
+}
+</style>
+
+<div id="advanced-cf-modal-overlay">
+    <div id="advanced-cf-modal-box">
+        <!-- Header -->
+        <div class="cf-modal-header">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div class="cf-modal-header-icon">
+                    <i data-lucide="sliders-horizontal" style="width:20px;height:20px;"></i>
+                </div>
+                <div>
+                    <h3 style="margin:0;font-size:1.15rem;font-weight:700;letter-spacing:-0.01em;">Advanced Custom Filter Builder</h3>
+                    <p style="margin:2px 0 0;font-size:0.75rem;opacity:0.85;">Filter leads data across ANY column with custom conditions and operators</p>
+                </div>
+            </div>
+            <button type="button" class="cf-modal-close-btn" onclick="closeAdvancedCustomFilterModal()" title="Close">&times;</button>
+        </div>
+
+        <!-- Body -->
+        <div class="cf-modal-body">
+            <!-- Top Bar: Match mode & Saved Presets -->
+            <div class="cf-top-bar">
+                <div class="cf-match-selector">
+                    <span style="font-size:0.75rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Match Mode:</span>
+                    <label>
+                        <input type="radio" name="cf_match_mode" value="AND" checked>
+                        <span>Match ALL (AND)</span>
+                    </label>
+                    <label>
+                        <input type="radio" name="cf_match_mode" value="OR">
+                        <span>Match ANY (OR)</span>
+                    </label>
+                </div>
+
+                <!-- Presets dropdown & save -->
+                <div class="cf-preset-toolbar">
+                    <select id="cf-saved-presets-select" onchange="loadSelectedCustomFilterPreset()" style="padding:0.42rem 0.75rem;border-radius:8px;border:1px solid var(--border-color);font-size:0.78rem;background:var(--bg-app);color:var(--text-main);max-width:210px;">
+                        <option value="">-- Load Saved Preset --</option>
+                    </select>
+                    <button type="button" class="btn btn-secondary text-xs" onclick="deleteSelectedCustomFilterPreset()" title="Delete selected preset" style="padding:0.42rem 0.65rem;border-radius:8px;">
+                        <i data-lucide="trash-2" style="width:13px;height:13px;color:#e53935;"></i>
+                    </button>
+                    <div style="display:flex;gap:4px;align-items:center;">
+                        <input type="text" id="cf-preset-name-input" placeholder="Preset Name..." style="padding:0.42rem 0.65rem;border-radius:8px;border:1px solid var(--border-color);font-size:0.78rem;width:130px;background:var(--bg-app);color:var(--text-main);">
+                        <button type="button" class="btn btn-secondary text-xs font-bold" onclick="saveCurrentFilterAsPreset()" style="padding:0.42rem 0.75rem;border-radius:8px;">
+                            Save Preset
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dynamic Rules List Container -->
+            <div id="cf-rules-container" class="cf-rules-list">
+                <!-- Rows injected via JS -->
+            </div>
+
+            <!-- Add Row Button -->
+            <div>
+                <button type="button" class="btn text-xs font-bold" onclick="addCustomFilterRow()" style="border:1.5px dashed var(--primary);color:var(--primary);background:rgba(0,77,64,0.04);border-radius:10px;padding:0.6rem 1.2rem;display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+                    <i data-lucide="plus" style="width:14px;height:14px;"></i>
+                    <span>Add Another Condition</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="cf-modal-footer">
+            <button type="button" class="btn text-xs text-danger" onclick="resetCustomFilterModal()" style="background:transparent;border:1px solid rgba(229,57,53,0.3);padding:0.5rem 1rem;border-radius:8px;cursor:pointer;">
+                <span>Reset All Conditions</span>
+            </button>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <button type="button" class="btn btn-secondary text-xs" onclick="closeAdvancedCustomFilterModal()" style="padding:0.55rem 1.2rem;border-radius:8px;">Cancel</button>
+                <button type="button" class="btn btn-primary text-xs font-bold" onclick="applyAdvancedCustomFilterFromModal()" style="padding:0.55rem 1.5rem;border-radius:8px;background:var(--primary);color:#fff;">
+                    Apply Filter
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -2906,4 +3614,577 @@ function doExport() {
 const exportSpinStyle = document.createElement('style');
 exportSpinStyle.textContent = '@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }';
 document.head.appendChild(exportSpinStyle);
+
+// ===== ADVANCED MULTI-COLUMN CUSTOM FILTER BUILDER JAVASCRIPT =====
+const CF_APP_DATA = {
+    operators: <?php echo json_encode($operators); ?>,
+    groups: <?php echo json_encode($available_groups); ?>,
+    sources: <?php echo json_encode($available_sources); ?>,
+    stages: <?php echo json_encode(array_values($PIPELINE_STAGES ?? [])); ?>
+};
+
+const CF_COLUMNS_DEF = [
+    { group: 'Basic Info', options: [
+        { key: 'name', label: 'Lead / Customer Name', type: 'text' },
+        { key: 'company', label: 'Company / Firm Name', type: 'text' },
+        { key: 'contact_person', label: 'Contact Person', type: 'text' },
+        { key: 'gst', label: 'GST Number', type: 'text' }
+    ]},
+    { group: 'Contact Details', options: [
+        { key: 'phone', label: 'Mobile / Phone Number', type: 'phone' },
+        { key: 'email', label: 'Email Address', type: 'text' },
+        { key: 'city', label: 'City', type: 'text' },
+        { key: 'state', label: 'State', type: 'text' },
+        { key: 'address', label: 'Full Address', type: 'text' }
+    ]},
+    { group: 'Pipeline & Sales', options: [
+        { key: 'status', label: 'Lead Status / Stage', type: 'status' },
+        { key: 'priority', label: 'Priority Level', type: 'priority' },
+        { key: 'source', label: 'Lead Source', type: 'source' },
+        { key: 'group_stage', label: 'Group / Stage', type: 'group' },
+        { key: 'enq_for', label: 'Product Enquiry / Enq For', type: 'text' }
+    ]},
+    { group: 'Assignments', options: [
+        { key: 'assigned_to', label: 'Assigned Executive', type: 'assigned' },
+        { key: 'assigned_by', label: 'Assigned By', type: 'assigned' }
+    ]},
+    { group: 'Dates & Activity', options: [
+        { key: 'created_at', label: 'Created Date', type: 'date' },
+        { key: 'updated_at', label: 'Updated / Attended Date', type: 'date' },
+        { key: 'followup_date', label: 'Scheduled Follow-up Date', type: 'fup' }
+    ]},
+    { group: 'Other Details', options: [
+        { key: 'tags', label: 'Tags', type: 'text' },
+        { key: 'remarks', label: 'Remarks / Notes', type: 'text' }
+    ]}
+];
+
+const CF_OPERATORS_MAP = {
+    text: [
+        { key: 'contains', label: 'contains' },
+        { key: 'not_contains', label: 'does not contain' },
+        { key: 'equals', label: 'equals exactly' },
+        { key: 'not_equals', label: 'not equals' },
+        { key: 'starts_with', label: 'starts with' },
+        { key: 'ends_with', label: 'ends with' },
+        { key: 'is_empty', label: 'is empty / blank' },
+        { key: 'is_not_empty', label: 'is not empty' }
+    ],
+    phone: [
+        { key: 'contains', label: 'contains number' },
+        { key: 'equals', label: 'exact match' },
+        { key: 'starts_with', label: 'starts with' },
+        { key: 'is_empty', label: 'no phone number' },
+        { key: 'is_not_empty', label: 'has phone number' }
+    ],
+    select: [
+        { key: 'equals', label: 'is (equals)' },
+        { key: 'not_equals', label: 'is not' },
+        { key: 'is_empty', label: 'is empty / unassigned' },
+        { key: 'is_not_empty', label: 'is set / assigned' }
+    ],
+    date: [
+        { key: 'date_today', label: 'is Today' },
+        { key: 'date_yesterday', label: 'is Yesterday' },
+        { key: 'date_this_week', label: 'is This Week' },
+        { key: 'date_this_month', label: 'is This Month' },
+        { key: 'date_exact', label: 'on specific date' },
+        { key: 'date_before', label: 'before date' },
+        { key: 'date_after', label: 'after date' },
+        { key: 'date_between', label: 'between dates' },
+        { key: 'is_empty', label: 'no date set' },
+        { key: 'is_not_empty', label: 'has date' }
+    ],
+    fup: [
+        { key: 'date_today', label: 'is Today' },
+        { key: 'date_yesterday', label: 'is Yesterday' },
+        { key: 'date_tomorrow', label: 'is Tomorrow' },
+        { key: 'date_exact', label: 'on specific date' },
+        { key: 'date_before', label: 'overdue (before date)' },
+        { key: 'date_after', label: 'upcoming (after date)' },
+        { key: 'is_empty', label: 'no pending followup' },
+        { key: 'is_not_empty', label: 'has pending followup' }
+    ]
+};
+
+function getColType(colKey) {
+    for (const grp of CF_COLUMNS_DEF) {
+        for (const opt of grp.options) {
+            if (opt.key === colKey) return opt.type;
+        }
+    }
+    return 'text';
+}
+
+function getOpGroup(colType) {
+    if (colType === 'date') return 'date';
+    if (colType === 'fup') return 'fup';
+    if (['status', 'priority', 'source', 'group', 'assigned'].includes(colType)) return 'select';
+    if (colType === 'phone') return 'phone';
+    return 'text';
+}
+
+function openAdvancedCustomFilterModal() {
+    const modal = document.getElementById('advanced-cf-modal-overlay');
+    if (!modal) return;
+
+    // Load active rules from URL if any
+    const url = new URL(window.location.href);
+    let rules = [];
+    try {
+        rules = JSON.parse(url.searchParams.get('cf_rules') || '[]');
+    } catch(e) { rules = []; }
+
+    const matchMode = (url.searchParams.get('cf_match') || 'AND').toUpperCase();
+    const matchRadios = document.querySelectorAll('input[name="cf_match_mode"]');
+    matchRadios.forEach(r => r.checked = (r.value === matchMode));
+
+    const container = document.getElementById('cf-rules-container');
+    container.innerHTML = '';
+
+    if (Array.isArray(rules) && rules.length > 0) {
+        rules.forEach(r => addCustomFilterRow(r.col || r.field, r.op, r.val));
+    } else {
+        addCustomFilterRow('name', 'contains', '');
+    }
+
+    renderPresetDropdown();
+    modal.classList.add('open');
+    if (window.lucide) lucide.createIcons();
+}
+window.openAdvancedCustomFilterModal = openAdvancedCustomFilterModal;
+
+function closeAdvancedCustomFilterModal() {
+    const modal = document.getElementById('advanced-cf-modal-overlay');
+    if (modal) modal.classList.remove('open');
+}
+window.closeAdvancedCustomFilterModal = closeAdvancedCustomFilterModal;
+
+function addCustomFilterRow(initialCol = 'name', initialOp = 'contains', initialVal = '') {
+    const container = document.getElementById('cf-rules-container');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'cf-rule-row';
+
+    // 1. Row index badge
+    const badge = document.createElement('div');
+    badge.className = 'cf-row-badge';
+    row.appendChild(badge);
+
+    // 2. Column selector
+    const colSelect = document.createElement('select');
+    colSelect.className = 'cf-col-select';
+    CF_COLUMNS_DEF.forEach(grp => {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = grp.group;
+        grp.options.forEach(opt => {
+            const o = document.createElement('option');
+            o.value = opt.key;
+            o.textContent = opt.label;
+            if (opt.key === initialCol) o.selected = true;
+            optgroup.appendChild(o);
+        });
+        colSelect.appendChild(optgroup);
+    });
+    row.appendChild(colSelect);
+
+    // 3. Operator selector
+    const opSelect = document.createElement('select');
+    opSelect.className = 'cf-op-select';
+    row.appendChild(opSelect);
+
+    // 4. Value container
+    const valContainer = document.createElement('div');
+    valContainer.className = 'cf-val-container';
+    row.appendChild(valContainer);
+
+    // 5. Delete button
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'cf-btn-del';
+    delBtn.title = 'Remove this condition';
+    delBtn.innerHTML = '&times;';
+    delBtn.onclick = function() {
+        row.remove();
+        updateFilterRowNumbers();
+    };
+    row.appendChild(delBtn);
+
+    function populateOperatorsAndVal(colKey, selectedOp, valData) {
+        const colType = getColType(colKey);
+        const opGroup = getOpGroup(colType);
+        const ops = CF_OPERATORS_MAP[opGroup] || CF_OPERATORS_MAP.text;
+
+        opSelect.innerHTML = '';
+        ops.forEach(op => {
+            const opt = document.createElement('option');
+            opt.value = op.key;
+            opt.textContent = op.label;
+            if (op.key === selectedOp) opt.selected = true;
+            opSelect.appendChild(opt);
+        });
+
+        // If current selectedOp is not in ops, pick first
+        if (!ops.some(o => o.key === opSelect.value)) {
+            opSelect.value = ops[0]?.key || 'contains';
+        }
+
+        renderValueInput(valContainer, colKey, opSelect.value, valData);
+    }
+
+    colSelect.onchange = function() {
+        populateOperatorsAndVal(this.value, null, '');
+    };
+
+    opSelect.onchange = function() {
+        const curVal = getRowValue(valContainer);
+        renderValueInput(valContainer, colSelect.value, this.value, curVal);
+    };
+
+    populateOperatorsAndVal(initialCol, initialOp, initialVal);
+    container.appendChild(row);
+    updateFilterRowNumbers();
+}
+window.addCustomFilterRow = addCustomFilterRow;
+
+function renderValueInput(container, colKey, opKey, initialVal = '') {
+    container.innerHTML = '';
+    const noValOps = ['is_empty', 'is_not_empty', 'date_today', 'date_yesterday', 'date_tomorrow', 'date_this_week', 'date_this_month'];
+    if (noValOps.includes(opKey)) {
+        container.innerHTML = '<span class="text-xs text-muted" style="font-style:italic;padding:6px 8px;display:block;">(No value needed)</span>';
+        return;
+    }
+
+    const colType = getColType(colKey);
+
+    if (opKey === 'date_between') {
+        const parts = (initialVal || '').split(',');
+        container.innerHTML = `
+            <div style="display:flex;align-items:center;gap:6px;">
+                <input type="date" class="cf-val-from" value="${escapeHtml(parts[0] || '')}" style="flex:1;">
+                <span style="font-size:12px;color:var(--text-muted);font-weight:bold;">to</span>
+                <input type="date" class="cf-val-to" value="${escapeHtml(parts[1] || '')}" style="flex:1;">
+            </div>
+        `;
+        return;
+    }
+
+    if (['date_exact', 'date_before', 'date_after'].includes(opKey)) {
+        const inp = document.createElement('input');
+        inp.type = 'date';
+        inp.className = 'cf-val-input';
+        inp.value = initialVal || '';
+        container.appendChild(inp);
+        return;
+    }
+
+    if (colType === 'priority') {
+        const sel = document.createElement('select');
+        sel.className = 'cf-val-input';
+        const opts = [
+            { v: 'hot', l: '🔴 Hot' },
+            { v: 'warm', l: '🟠 Warm' },
+            { v: 'cold', l: '🔵 Cold' }
+        ];
+        opts.forEach(p => {
+            const o = document.createElement('option');
+            o.value = p.v;
+            o.textContent = p.l;
+            if (p.v === initialVal.toLowerCase()) o.selected = true;
+            sel.appendChild(o);
+        });
+        container.appendChild(sel);
+        return;
+    }
+
+    if (colType === 'status') {
+        const sel = document.createElement('select');
+        sel.className = 'cf-val-input';
+        const stdStatuses = [
+            { v: 'new', l: 'New' },
+            { v: 'open', l: 'Open' },
+            { v: 'in_progress', l: 'In Progress' },
+            { v: 'pending', l: 'Pending' },
+            { v: 'closed', l: 'Closed' },
+            { v: 'won', l: 'Won / Customer' },
+            { v: 'lost', l: 'Lost' },
+            { v: 'dropped', l: 'Dropped' }
+        ];
+        stdStatuses.forEach(s => {
+            const o = document.createElement('option');
+            o.value = s.v;
+            o.textContent = s.l;
+            if (s.v === initialVal.toLowerCase()) o.selected = true;
+            sel.appendChild(o);
+        });
+        container.appendChild(sel);
+        return;
+    }
+
+    if (colType === 'assigned') {
+        const sel = document.createElement('select');
+        sel.className = 'cf-val-input';
+        const defOpt = document.createElement('option');
+        defOpt.value = 'unassigned';
+        defOpt.textContent = 'Unassigned';
+        if (initialVal.toLowerCase() === 'unassigned') defOpt.selected = true;
+        sel.appendChild(defOpt);
+
+        (CF_APP_DATA.operators || []).forEach(op => {
+            const o = document.createElement('option');
+            o.value = op;
+            o.textContent = op;
+            if (op.toLowerCase() === initialVal.toLowerCase()) o.selected = true;
+            sel.appendChild(o);
+        });
+        container.appendChild(sel);
+        return;
+    }
+
+    if (colType === 'group') {
+        const sel = document.createElement('select');
+        sel.className = 'cf-val-input';
+        (CF_APP_DATA.groups || []).forEach(grp => {
+            const o = document.createElement('option');
+            o.value = grp;
+            o.textContent = grp;
+            if (grp.toLowerCase() === initialVal.toLowerCase()) o.selected = true;
+            sel.appendChild(o);
+        });
+        container.appendChild(sel);
+        return;
+    }
+
+    if (colType === 'source') {
+        const sel = document.createElement('select');
+        sel.className = 'cf-val-input';
+        (CF_APP_DATA.sources || []).forEach(src => {
+            const o = document.createElement('option');
+            o.value = src;
+            o.textContent = src;
+            if (src.toLowerCase() === initialVal.toLowerCase()) o.selected = true;
+            sel.appendChild(o);
+        });
+        container.appendChild(sel);
+        return;
+    }
+
+    // Default text input
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'cf-val-input';
+    inp.placeholder = 'Enter search value...';
+    inp.value = initialVal || '';
+    container.appendChild(inp);
+}
+
+function getRowValue(valContainer) {
+    const valInput = valContainer.querySelector('.cf-val-input');
+    const valFrom = valContainer.querySelector('.cf-val-from');
+    const valTo = valContainer.querySelector('.cf-val-to');
+    if (valFrom && valTo) {
+        return (valFrom.value || '') + ',' + (valTo.value || '');
+    }
+    return valInput ? valInput.value : '';
+}
+
+function updateFilterRowNumbers() {
+    const rows = document.querySelectorAll('#cf-rules-container .cf-rule-row');
+    rows.forEach((row, i) => {
+        const badge = row.querySelector('.cf-row-badge');
+        if (badge) badge.textContent = '#' + (i + 1);
+    });
+}
+
+function applyAdvancedCustomFilterFromModal() {
+    const rows = document.querySelectorAll('#cf-rules-container .cf-rule-row');
+    const rules = [];
+    const noValOps = ['is_empty', 'is_not_empty', 'date_today', 'date_yesterday', 'date_tomorrow', 'date_this_week', 'date_this_month'];
+
+    rows.forEach(row => {
+        const col = row.querySelector('.cf-col-select').value;
+        const op = row.querySelector('.cf-op-select').value;
+        const valContainer = row.querySelector('.cf-val-container');
+        const val = getRowValue(valContainer).trim();
+
+        if (col && op) {
+            if (noValOps.includes(op) || val !== '') {
+                rules.push({ col, op, val });
+            }
+        }
+    });
+
+    const matchMode = document.querySelector('input[name="cf_match_mode"]:checked')?.value || 'AND';
+    const url = new URL(window.location.href);
+
+    if (rules.length > 0) {
+        url.searchParams.set('cf_rules', JSON.stringify(rules));
+        url.searchParams.set('cf_match', matchMode);
+        url.searchParams.delete('card_filter');
+        url.searchParams.delete('filter_card');
+        url.searchParams.delete('day');
+        url.searchParams.delete('quick_preset');
+    } else {
+        url.searchParams.delete('cf_rules');
+        url.searchParams.delete('cf_match');
+    }
+    url.searchParams.set('p', '1');
+
+    closeAdvancedCustomFilterModal();
+    fetchLeadsPartialWithoutReload(url.toString(), true);
+}
+window.applyAdvancedCustomFilterFromModal = applyAdvancedCustomFilterFromModal;
+
+function resetCustomFilterModal() {
+    const container = document.getElementById('cf-rules-container');
+    if (container) {
+        container.innerHTML = '';
+        addCustomFilterRow('name', 'contains', '');
+    }
+    const rAll = document.querySelector('input[name="cf_match_mode"][value="AND"]');
+    if (rAll) rAll.checked = true;
+}
+window.resetCustomFilterModal = resetCustomFilterModal;
+
+function removeCustomFilterRule(ruleIndex) {
+    const url = new URL(window.location.href);
+    let rules = [];
+    try {
+        rules = JSON.parse(url.searchParams.get('cf_rules') || '[]');
+    } catch(e) { rules = []; }
+
+    if (Array.isArray(rules) && rules.length > ruleIndex) {
+        rules.splice(ruleIndex, 1);
+        if (rules.length > 0) {
+            url.searchParams.set('cf_rules', JSON.stringify(rules));
+        } else {
+            url.searchParams.delete('cf_rules');
+            url.searchParams.delete('cf_match');
+        }
+        url.searchParams.set('p', '1');
+        fetchLeadsPartialWithoutReload(url.toString(), true);
+    }
+}
+window.removeCustomFilterRule = removeCustomFilterRule;
+
+function clearAllCustomFilterRules() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('cf_rules');
+    url.searchParams.delete('cf_match');
+    url.searchParams.set('p', '1');
+    fetchLeadsPartialWithoutReload(url.toString(), true);
+}
+window.clearAllCustomFilterRules = clearAllCustomFilterRules;
+
+// Preset Management via localStorage
+function renderPresetDropdown() {
+    const select = document.getElementById('cf-saved-presets-select');
+    if (!select) return;
+    let presets = {};
+    try {
+        presets = JSON.parse(localStorage.getItem('marg_lead_custom_filter_presets') || '{}');
+    } catch(e) { presets = {}; }
+
+    select.innerHTML = '<option value="">-- Load Saved Preset --</option>';
+    Object.keys(presets).forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+    });
+}
+
+function saveCurrentFilterAsPreset() {
+    const nameInput = document.getElementById('cf-preset-name-input');
+    const name = (nameInput ? nameInput.value : '').trim();
+    if (!name) {
+        alert('Please enter a name for this custom filter preset.');
+        if (nameInput) nameInput.focus();
+        return;
+    }
+
+    const rows = document.querySelectorAll('#cf-rules-container .cf-rule-row');
+    const rules = [];
+    const noValOps = ['is_empty', 'is_not_empty', 'date_today', 'date_yesterday', 'date_tomorrow', 'date_this_week', 'date_this_month'];
+
+    rows.forEach(row => {
+        const col = row.querySelector('.cf-col-select').value;
+        const op = row.querySelector('.cf-op-select').value;
+        const valContainer = row.querySelector('.cf-val-container');
+        const val = getRowValue(valContainer).trim();
+        if (col && op) {
+            if (noValOps.includes(op) || val !== '') {
+                rules.push({ col, op, val });
+            }
+        }
+    });
+
+    if (rules.length === 0) {
+        alert('Please add at least one condition to save as preset.');
+        return;
+    }
+
+    const matchMode = document.querySelector('input[name="cf_match_mode"]:checked')?.value || 'AND';
+    let presets = {};
+    try {
+        presets = JSON.parse(localStorage.getItem('marg_lead_custom_filter_presets') || '{}');
+    } catch(e) { presets = {}; }
+
+    presets[name] = { match: matchMode, rules: rules };
+    localStorage.setItem('marg_lead_custom_filter_presets', JSON.stringify(presets));
+    if (nameInput) nameInput.value = '';
+    renderPresetDropdown();
+    const select = document.getElementById('cf-saved-presets-select');
+    if (select) select.value = name;
+    alert('Preset "' + name + '" saved successfully!');
+}
+window.saveCurrentFilterAsPreset = saveCurrentFilterAsPreset;
+
+function loadSelectedCustomFilterPreset() {
+    const select = document.getElementById('cf-saved-presets-select');
+    const name = select ? select.value : '';
+    if (!name) return;
+
+    let presets = {};
+    try {
+        presets = JSON.parse(localStorage.getItem('marg_lead_custom_filter_presets') || '{}');
+    } catch(e) { presets = {}; }
+
+    const preset = presets[name];
+    if (!preset || !Array.isArray(preset.rules)) return;
+
+    const matchRadios = document.querySelectorAll('input[name="cf_match_mode"]');
+    matchRadios.forEach(r => r.checked = (r.value === (preset.match || 'AND')));
+
+    const container = document.getElementById('cf-rules-container');
+    container.innerHTML = '';
+    preset.rules.forEach(r => addCustomFilterRow(r.col, r.op, r.val));
+}
+window.loadSelectedCustomFilterPreset = loadSelectedCustomFilterPreset;
+
+function deleteSelectedCustomFilterPreset() {
+    const select = document.getElementById('cf-saved-presets-select');
+    const name = select ? select.value : '';
+    if (!name) {
+        alert('Please select a preset from the dropdown to delete.');
+        return;
+    }
+    if (!confirm('Are you sure you want to delete preset "' + name + '"?')) return;
+
+    let presets = {};
+    try {
+        presets = JSON.parse(localStorage.getItem('marg_lead_custom_filter_presets') || '{}');
+    } catch(e) { presets = {}; }
+
+    delete presets[name];
+    localStorage.setItem('marg_lead_custom_filter_presets', JSON.stringify(presets));
+    renderPresetDropdown();
+}
+window.deleteSelectedCustomFilterPreset = deleteSelectedCustomFilterPreset;
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 </script>

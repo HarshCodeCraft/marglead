@@ -209,6 +209,76 @@ if (isset($_POST['action']) && $_POST['action'] === 'add_city_area') {
     exit;
 }
 
+// 2B. AJAX Endpoint: Send WhatsApp Welcome Message to Client
+if (isset($_POST['action']) && $_POST['action'] === 'send_client_welcome_wa') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+
+    $party_name     = trim($_POST['party_name'] ?? '');
+    $customer_id    = trim($_POST['customer_id'] ?? '');
+    $contact_person = trim($_POST['contact_person'] ?? '');
+    $software_type  = trim($_POST['software_type'] ?? 'Marg ERP');
+    $software_trade = trim($_POST['software_trade'] ?? '');
+    $mobile         = trim($_POST['mobile'] ?? '');
+
+    $cleanMobile = preg_replace('/[^0-9]/', '', $mobile);
+    if (strlen($cleanMobile) === 10) {
+        $cleanMobile = '91' . $cleanMobile;
+    }
+
+    if (strlen($cleanMobile) < 10) {
+        echo json_encode(['success' => false, 'message' => 'Invalid or missing mobile number for WhatsApp dispatch.']);
+        exit;
+    }
+
+    try {
+        require_once __DIR__ . '/../api/whatsapp-api.php';
+        $whatsappObj = new WhatsAppAPI($pdo);
+
+        $greetingName = !empty($contact_person) ? $contact_person : $party_name;
+        $displaySw    = !empty($software_trade) ? "{$software_type} ({$software_trade})" : $software_type;
+
+        $tplData = get_system_notification_template($pdo, 'client_welcome', [
+            'contact_person' => $greetingName,
+            'party_name'     => $party_name,
+            'customer_id'    => $customer_id,
+            'software_type'  => $displaySw,
+            'helpline'       => '7523830026 / 9170009697 / 9044345020'
+        ]);
+
+        if ($tplData['found'] && !$tplData['is_active']) {
+            echo json_encode(['success' => false, 'message' => 'The Client Welcome WhatsApp template is currently toggled OFF in Auto Notification Messages settings.']);
+            exit;
+        }
+
+        $welcomeText = !empty($tplData['whatsapp_body']) ? $tplData['whatsapp_body'] : (
+            "Namaste {$greetingName},\n\n" .
+            "Welcome to Marg Soft Solution!\n\n" .
+            "We are pleased to onboard {$party_name}. Your client account details:\n\n" .
+            "• Customer ID: {$customer_id}\n" .
+            "• Software: {$displaySw}\n" .
+            "• Account Status: Active\n\n" .
+            "Our team is dedicated to providing you with continuous technical support, training, and regular updates.\n\n" .
+            "Support Helplines:\n" .
+            "• 7523830026 / 9170009697 / 9044345020\n" .
+            "• Website: https://friendlyaisolution.com\n\n" .
+            "Thank you for choosing us as your software partner!"
+        );
+
+        $res = $whatsappObj->sendText($cleanMobile, $welcomeText);
+        $wamid = $res['messages'][0]['id'] ?? '';
+        echo json_encode([
+            'success' => true,
+            'message' => "WhatsApp Welcome message sent successfully to +{$cleanMobile}!",
+            'wamid'   => $wamid
+        ]);
+        exit;
+    } catch (Throwable $e) {
+        echo json_encode(['success' => false, 'message' => 'WhatsApp API Error: ' . $e->getMessage()]);
+        exit;
+    }
+}
+
 // Download Sample CSV Template
 if (isset($_GET['action']) && $_GET['action'] === 'download_client_template') {
     while (ob_get_level()) { ob_end_clean(); }
@@ -878,9 +948,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                         }
                     }
                     
+                    $waStatusNote = '';
+                    $sendWelcomeWa = isset($_POST['send_welcome_wa']) ? ($_POST['send_welcome_wa'] == '1') : true;
+                    $rawMobile = trim($_POST['mobile'] ?? '');
+                    $cleanMobile = preg_replace('/[^0-9]/', '', $rawMobile);
+                    if (strlen($cleanMobile) === 10) {
+                        $cleanMobile = '91' . $cleanMobile;
+                    }
+
+                    if ($sendWelcomeWa && strlen($cleanMobile) >= 10 && $pdo) {
+                        try {
+                            require_once __DIR__ . '/../api/whatsapp-api.php';
+                            $whatsappObj = new WhatsAppAPI($pdo);
+
+                            $contactPerson = trim($_POST['contact_person'] ?? '');
+                            $greetingName = !empty($contactPerson) ? $contactPerson : $party_name;
+                            $swTrade = trim($_POST['software_trade'] ?? '');
+                            $softwareType = trim($_POST['software_type'] ?? 'Marg ERP');
+                            $displaySw = !empty($swTrade) ? "{$softwareType} ({$swTrade})" : $softwareType;
+
+                            $tplData = get_system_notification_template($pdo, 'client_welcome', [
+                                'contact_person' => $greetingName,
+                                'party_name'     => $party_name,
+                                'customer_id'    => $customer_id,
+                                'software_type'  => $displaySw,
+                                'helpline'       => '7523830026 / 9170009697 / 9044345020'
+                            ]);
+
+                            if (!$tplData['found'] || $tplData['is_active']) {
+                                $welcomeText = !empty($tplData['whatsapp_body']) ? $tplData['whatsapp_body'] : (
+                                    "Namaste {$greetingName},\n\n" .
+                                    "Welcome to Marg Soft Solution!\n\n" .
+                                    "We are pleased to onboard {$party_name}. Your client account details:\n\n" .
+                                    "• Customer ID: {$customer_id}\n" .
+                                    "• Software: {$displaySw}\n" .
+                                    "• Account Status: Active\n\n" .
+                                    "Our team is dedicated to providing you with continuous technical support, training, and regular updates.\n\n" .
+                                    "Support Helplines:\n" .
+                                    "• 7523830026 / 9170009697 / 9044345020\n" .
+                                    "• Website: https://friendlyaisolution.com\n\n" .
+                                    "Thank you for choosing us as your software partner!"
+                                );
+
+                                $whatsappObj->sendText($cleanMobile, $welcomeText);
+                                $waStatusNote = "<br><span style='color: #059669; font-weight: 600;'><i class='bi bi-whatsapp'></i> WhatsApp Welcome message dispatched to +{$cleanMobile}.</span>";
+                            }
+                        } catch (Throwable $eWa) {
+                            $waStatusNote = "<br><span style='color: #d97706;'>(WhatsApp Welcome message note: " . htmlspecialchars($eWa->getMessage()) . ")</span>";
+                        }
+                    }
+
                     $import_result = [
                         'success' => true,
-                        'message' => "New enterprise client <strong>" . htmlspecialchars($party_name) . "</strong> created successfully (Customer ID: " . htmlspecialchars($customer_id) . ")!"
+                        'message' => "New enterprise client <strong>" . htmlspecialchars($party_name) . "</strong> created successfully (Customer ID: " . htmlspecialchars($customer_id) . ")!" . $waStatusNote
                     ];
                 }
             }
@@ -1079,6 +1199,15 @@ $software_trades_list = [
     'Wholesale Trader'
 ];
 
+// Master Sub-Partners List
+$sub_partners_list = [];
+if ($pdo) {
+    try {
+        $stmt_sp = $pdo->query("SELECT id, partner_code, partner_name, mobile, city FROM sub_partners WHERE status = 'Active' ORDER BY partner_name ASC");
+        $sub_partners_list = $stmt_sp->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {}
+}
+
 // --------------------------------------------------------------------------
 // 4. Data Queries for Tab 1: Client Directory (client_directory table)
 // --------------------------------------------------------------------------
@@ -1107,9 +1236,16 @@ if ($db_connected && $pdo) {
         $dir_params = [];
 
         if (!empty($search_query)) {
-            $dir_where[] = "(party_name LIKE ? OR customer_id LIKE ? OR mobile LIKE ? OR email LIKE ? OR address LIKE ? OR area LIKE ? OR city LIKE ? OR state LIKE ? OR contact_person LIKE ? OR category LIKE ?)";
+            $dir_where[] = "(party_name LIKE ? OR customer_id LIKE ? OR mobile LIKE ? OR email LIKE ? OR address LIKE ? OR area LIKE ? OR city LIKE ? OR state LIKE ? OR contact_person LIKE ? OR category LIKE ? OR subpartner_code LIKE ? OR subpartner_name LIKE ?)";
             $st = '%' . $search_query . '%';
-            for ($i = 0; $i < 10; $i++) $dir_params[] = $st;
+            for ($i = 0; $i < 12; $i++) $dir_params[] = $st;
+        }
+
+        $subpartner_filter = trim($_GET['subpartner'] ?? '');
+        if (!empty($subpartner_filter)) {
+            $dir_where[] = "(subpartner_code = ? OR subpartner_name LIKE ?)";
+            $dir_params[] = $subpartner_filter;
+            $dir_params[] = '%' . $subpartner_filter . '%';
         }
 
         if (!empty($status_filter)) {
@@ -1690,6 +1826,18 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td class="col-dir-actions" style="text-align: right; padding-right: 1.25rem;">
                                         <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-left: auto; width: 100%;">
                                             <?php if ($can_edit_client): ?>
+                                                <?php if (!empty($r['mobile'])): ?>
+                                                    <button type="button" class="btn-icon" style="color: #10b981;" title="Send WhatsApp Welcome Message" onclick='sendQuickWelcomeWhatsApp(<?php echo htmlspecialchars(json_encode([
+                                                        "party_name" => $r['party_name'] ?? '',
+                                                        "customer_id" => $r['customer_id'] ?? '',
+                                                        "contact_person" => $r['contact_person'] ?? '',
+                                                        "software_type" => $r['software_type'] ?? '',
+                                                        "software_trade" => $r['software_trade'] ?? '',
+                                                        "mobile" => $r['mobile'] ?? ''
+                                                    ]), ENT_QUOTES); ?>)'>
+                                                        <i data-lucide="message-square" style="width: 15px; height: 15px;"></i>
+                                                    </button>
+                                                <?php endif; ?>
                                                 <button type="button" class="btn-icon text-secondary" title="Edit Client Details" onclick='openEditClientRecordModal(<?php echo $rJson; ?>)'>
                                                     <i data-lucide="edit-3" style="width: 15px; height: 15px;"></i>
                                                 </button>
@@ -2676,15 +2824,44 @@ function highlightProductPill(which) {
                             </div>
                         </div>
 
-                        <!-- Row 6: Sub Partner Code & Sub Partner Name -->
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                            <div class="form-group m-0">
-                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Sub Partner Code</label>
-                                <input type="text" id="edit_subpartner_code" name="subpartner_code" placeholder="e.g. SP-001" class="form-control text-xs font-mono" style="height: 40px; border-radius: 8px;">
+                        <!-- Row 6: Sub Partner Selector & Auto-fill Details -->
+                        <div style="background: rgba(99, 102, 241, 0.04); border: 1px dashed rgba(99, 102, 241, 0.3); border-radius: 10px; padding: 10px 12px; margin-top: 4px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                <label style="font-size: 0.8rem; font-weight: 700; color: #4f46e5; display: flex; align-items: center; gap: 5px; margin: 0;">
+                                    <i data-lucide="handshake" style="width: 14px; height: 14px;"></i>
+                                    Sub-Partner / Channel Dealer
+                                </label>
+                                <a href="index.php?page=sub_partners" target="_blank" style="font-size: 0.72rem; color: #4f46e5; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                                    <i data-lucide="external-link" style="width: 11px; height: 11px;"></i> Manage Partners
+                                </a>
                             </div>
-                            <div class="form-group m-0">
-                                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Sub Partner Name</label>
-                                <input type="text" id="edit_subpartner_name" name="subpartner_name" placeholder="e.g. Ravi Distributors" class="form-control text-xs" style="height: 40px; border-radius: 8px;">
+                            
+                            <div style="margin-bottom: 8px;">
+                                <select id="edit_subpartner_select" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onchange="onSubPartnerSelectChange(this)">
+                                    <option value="">-- Choose Sub Partner (Auto-fills Code & Name) --</option>
+                                    <option value="__direct__">🏢 Direct Company (No Sub-Partner)</option>
+                                    <?php foreach ($sub_partners_list as $sp): ?>
+                                        <option value="<?php echo htmlspecialchars($sp['partner_code']); ?>" 
+                                                data-code="<?php echo htmlspecialchars($sp['partner_code']); ?>" 
+                                                data-name="<?php echo htmlspecialchars($sp['partner_name']); ?>"
+                                                data-city="<?php echo htmlspecialchars($sp['city'] ?? ''); ?>"
+                                                data-mobile="<?php echo htmlspecialchars($sp['mobile'] ?? ''); ?>">
+                                            <?php echo htmlspecialchars($sp['partner_name']); ?> (<?php echo htmlspecialchars($sp['partner_code']); ?><?php echo !empty($sp['city']) ? ' - ' . htmlspecialchars($sp['city']) : ''; ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                    <option value="__custom__">✏️ Custom / Other Sub Partner</option>
+                                </select>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group m-0">
+                                    <label style="font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 3px; display: block;">Sub Partner Code</label>
+                                    <input type="text" id="edit_subpartner_code" name="subpartner_code" placeholder="e.g. SSAA45323" class="form-control text-xs font-mono" style="height: 36px; border-radius: 6px;">
+                                </div>
+                                <div class="form-group m-0">
+                                    <label style="font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 3px; display: block;">Sub Partner Name</label>
+                                    <input type="text" id="edit_subpartner_name" name="subpartner_name" placeholder="e.g. Marg ERP Communication" class="form-control text-xs" style="height: 36px; border-radius: 6px;">
+                                </div>
                             </div>
                         </div>
 
@@ -2700,6 +2877,12 @@ function highlightProductPill(which) {
                             <div class="form-group m-0">
                                 <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Registered Mobile</label>
                                 <input type="text" id="edit_mobile" name="mobile" placeholder="e.g. 9876543210" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
+                                <div id="welcome_wa_checkbox_wrap" style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+                                    <label style="font-size: 0.73rem; color: #059669; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                                        <input type="checkbox" name="send_welcome_wa" id="edit_send_welcome_wa" value="1" checked style="accent-color: #059669; width: 14px; height: 14px; cursor: pointer;">
+                                        <span>Send WhatsApp Welcome Message</span>
+                                    </label>
+                                </div>
                             </div>
                             <div class="form-group m-0">
                                 <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Alternative Mobile / No.</label>
@@ -3924,6 +4107,32 @@ function populateClientModalData(client) {
     var spNameEl = document.getElementById('edit_subpartner_name');
     if (spNameEl) spNameEl.value = client.subpartner_name || '';
 
+    // Sync subpartner select dropdown
+    var spSelect = document.getElementById('edit_subpartner_select');
+    if (spSelect) {
+        let matched = false;
+        let cCode = String(client.subpartner_code || '').trim().toLowerCase();
+        let cName = String(client.subpartner_name || '').trim().toLowerCase();
+        if (!cCode && !cName) {
+            spSelect.value = '';
+            matched = true;
+        } else {
+            for (let i = 0; i < spSelect.options.length; i++) {
+                let opt = spSelect.options[i];
+                let optCode = (opt.getAttribute('data-code') || '').toLowerCase();
+                let optName = (opt.getAttribute('data-name') || '').toLowerCase();
+                if ((cCode && optCode === cCode) || (cName && optName === cName)) {
+                    spSelect.selectedIndex = i;
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (!matched && (cCode || cName)) {
+            spSelect.value = '__custom__';
+        }
+    }
+
     var versionEl = document.getElementById('edit_version');
     if (versionEl) versionEl.value = client.version || '';
     var compUsingEl = document.getElementById('edit_company_using');
@@ -3988,6 +4197,10 @@ function openAddClientModal() {
     onSwTypeChange('', '');
 
     document.getElementById('edit_mobile').value = '';
+    var waWrap = document.getElementById('welcome_wa_checkbox_wrap');
+    if (waWrap) waWrap.style.display = 'flex';
+    var waCheck = document.getElementById('edit_send_welcome_wa');
+    if (waCheck) waCheck.checked = true;
     var altMob = document.getElementById('edit_alt_mobile');
     if (altMob) altMob.value = '';
     document.getElementById('edit_email').value = '';
@@ -4022,6 +4235,8 @@ function openAddClientModal() {
     if (spCodeEl) spCodeEl.value = '';
     var spNameEl = document.getElementById('edit_subpartner_name');
     if (spNameEl) spNameEl.value = '';
+    var spSelect = document.getElementById('edit_subpartner_select');
+    if (spSelect) spSelect.value = '';
 
     var versionEl = document.getElementById('edit_version');
     if (versionEl) versionEl.value = '';
@@ -4043,6 +4258,30 @@ function openAddClientModal() {
     window.openModal('edit-client-record-modal');
 }
 window.openAddClientModal = openAddClientModal;
+
+function onSubPartnerSelectChange(selectEl) {
+    if (!selectEl) return;
+    const val = selectEl.value;
+    const spCodeEl = document.getElementById('edit_subpartner_code');
+    const spNameEl = document.getElementById('edit_subpartner_name');
+    if (!spCodeEl || !spNameEl) return;
+
+    if (val === '__direct__') {
+        spCodeEl.value = '';
+        spNameEl.value = '';
+    } else if (val === '__custom__') {
+        spCodeEl.focus();
+    } else if (val) {
+        const selectedOpt = selectEl.options[selectEl.selectedIndex];
+        if (selectedOpt) {
+            const code = selectedOpt.getAttribute('data-code') || '';
+            const name = selectedOpt.getAttribute('data-name') || '';
+            spCodeEl.value = code;
+            spNameEl.value = name;
+        }
+    }
+}
+window.onSubPartnerSelectChange = onSubPartnerSelectChange;
 
 // --------------------------------------------------------------------------
 // Window 2B: Open Edit Client Record Modal (Edit Icon  )
@@ -4073,6 +4312,11 @@ function openEditClientRecordModal(client) {
     document.getElementById('edit_client_db_id').value = client.id || '';
     document.getElementById('edit_customer_id').value = client.customer_id || '';
     
+    var waWrap = document.getElementById('welcome_wa_checkbox_wrap');
+    if (waWrap) waWrap.style.display = 'none';
+    var waCheck = document.getElementById('edit_send_welcome_wa');
+    if (waCheck) waCheck.checked = false;
+
     // Populate all fields
     populateClientModalData(client);
 
@@ -4383,4 +4627,41 @@ function closeCallQrModal() {
     }
 }
 window.closeCallQrModal = closeCallQrModal;
+
+function sendQuickWelcomeWhatsApp(client) {
+    if (!client || !client.mobile) {
+        alert('This client record does not have a registered mobile number.');
+        return;
+    }
+    const clientName = client.party_name || 'Client';
+    if (!confirm('Send official WhatsApp Welcome message to ' + clientName + ' (' + client.mobile + ')?')) {
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('action', 'send_client_welcome_wa');
+    formData.append('party_name', client.party_name || '');
+    formData.append('customer_id', client.customer_id || '');
+    formData.append('contact_person', client.contact_person || '');
+    formData.append('software_type', client.software_type || '');
+    formData.append('software_trade', client.software_trade || '');
+    formData.append('mobile', client.mobile || '');
+
+    fetch('index.php?page=clients', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data && data.success) {
+            alert(data.message || 'WhatsApp Welcome message sent successfully!');
+        } else {
+            alert('Failed to send WhatsApp message: ' + (data && data.message ? data.message : 'Unknown error'));
+        }
+    })
+    .catch(function(err) {
+        alert('Network or server error while dispatching WhatsApp message: ' + err.message);
+    });
+}
+window.sendQuickWelcomeWhatsApp = sendQuickWelcomeWhatsApp;
 </script>

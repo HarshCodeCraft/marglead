@@ -368,6 +368,77 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
     transform: translateY(-1px);
 }
 
+/* WhatsApp Formatting Toolbar & Shortcuts */
+.wa-formatting-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8fafc;
+    border: 1.5px solid #cbd5e1;
+    border-bottom: 1px dashed #cbd5e1;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    user-select: none;
+}
+.wa-formatting-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 2px;
+}
+.wa-fmt-btn {
+    border: none;
+    background: transparent;
+    color: #334155;
+    min-width: 26px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0 5px;
+    font-family: inherit;
+}
+.wa-fmt-btn:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+.wa-fmt-btn:active {
+    background: #cbd5e1;
+    transform: scale(0.96);
+}
+.wa-shortcut-hint {
+    font-size: 0.69rem;
+    color: #64748b;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.wa-shortcut-hint kbd {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-bottom: 2px solid #94a3b8;
+    color: #1e293b;
+    font-size: 0.65rem;
+    font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 4px;
+    line-height: 1.2;
+}
+.wa-body-textarea {
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+    margin-top: 0 !important;
+}
+
 /* =============================================================
    ENHANCED INTERACTIVE TEMPLATE BUILDER & WHATSAPP SIMULATOR
    ============================================================= */
@@ -1616,11 +1687,35 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
 
                     <!-- Message Textarea -->
                     <div id="indMessageWrapper">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; flex-wrap: wrap; gap: 4px;">
                             <label class="form-label font-bold text-xs" style="margin: 0; color: #334155;">Message Text *</label>
-                            <span style="font-size: 0.69rem; color: #64748b;">WhatsApp formatting supported (*bold*, _italic_)</span>
+                            <span class="wa-shortcut-hint">
+                                <kbd>Ctrl+B</kbd> <b>Bold</b> &nbsp;|&nbsp; <kbd>Ctrl+I</kbd> <i>Italic</i>
+                            </span>
                         </div>
-                        <textarea id="indMessageText" name="message" class="input-styled text-xs" rows="6" required placeholder="Select a template above, generate with AI, or type custom message..." oninput="updateIndividualPreview()" style="resize: vertical; line-height: 1.5;"></textarea>
+
+                        <!-- WhatsApp Formatting Toolbar -->
+                        <div class="wa-formatting-toolbar">
+                            <div class="wa-formatting-group">
+                                <button type="button" class="wa-fmt-btn" title="Bold (Ctrl+B) - Select text and press Ctrl+B or click here" onclick="applyFormattingToTextarea('indMessageText', '*', '*')">
+                                    <span style="font-weight: 900; font-size: 0.82rem;">B</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Italic (Ctrl+I) - Select text and press Ctrl+I or click here" onclick="applyFormattingToTextarea('indMessageText', '_', '_')">
+                                    <span style="font-style: italic; font-weight: 700; font-size: 0.82rem; font-family: Georgia, serif;">I</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Strikethrough (~text~)" onclick="applyFormattingToTextarea('indMessageText', '~', '~')">
+                                    <span style="text-decoration: line-through; font-weight: 700; font-size: 0.8rem;">S</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Monospace (```code```)" onclick="applyFormattingToTextarea('indMessageText', '```', '```')">
+                                    <span style="font-family: monospace; font-size: 0.78rem; font-weight: bold;">&lt;/&gt;</span>
+                                </button>
+                            </div>
+                            <span class="wa-shortcut-hint" style="color: #64748b;">
+                                Formatting: <span style="color:#0f766e; font-weight:600;">*bold*</span>, <span style="color:#0369a1; font-weight:600;">_italic_</span>, <span style="color:#475569;">~strike~</span>
+                            </span>
+                        </div>
+
+                        <textarea id="indMessageText" name="message" class="input-styled text-xs wa-body-textarea" rows="6" required placeholder="Select a template above, generate with AI, or type custom message... (Select text & press Ctrl+B for Bold, Ctrl+I for Italic)" oninput="updateIndividualPreview()" style="resize: vertical; line-height: 1.5;"></textarea>
                         
                         <!-- 1-Click Variable Pills (inserts at cursor) -->
                         <div style="font-size: 0.72rem; color: #64748b; margin-top: 6px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
@@ -1941,8 +2036,35 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
 
                     <!-- Custom Text Message Box -->
                     <div id="customMsgWrapper" style="display: none;">
-                        <label class="form-label font-bold text-xs">Custom Broadcast Message</label>
-                        <textarea name="custom_message" id="bulkCustomMsgTextarea" class="input-styled text-xs" rows="4" placeholder="Enter custom message text... Variables supported: {name}, {company}, {amount}, {due_date}" oninput="updateBulkPreview()"></textarea>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; flex-wrap: wrap; gap: 4px;">
+                            <label class="form-label font-bold text-xs" style="margin: 0;">Custom Broadcast Message</label>
+                            <span class="wa-shortcut-hint">
+                                <kbd>Ctrl+B</kbd> <b>Bold</b> &nbsp;|&nbsp; <kbd>Ctrl+I</kbd> <i>Italic</i>
+                            </span>
+                        </div>
+
+                        <!-- WhatsApp Formatting Toolbar -->
+                        <div class="wa-formatting-toolbar">
+                            <div class="wa-formatting-group">
+                                <button type="button" class="wa-fmt-btn" title="Bold (Ctrl+B) - Select text and press Ctrl+B or click here" onclick="applyFormattingToTextarea('bulkCustomMsgTextarea', '*', '*')">
+                                    <span style="font-weight: 900; font-size: 0.82rem;">B</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Italic (Ctrl+I) - Select text and press Ctrl+I or click here" onclick="applyFormattingToTextarea('bulkCustomMsgTextarea', '_', '_')">
+                                    <span style="font-style: italic; font-weight: 700; font-size: 0.82rem; font-family: Georgia, serif;">I</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Strikethrough (~text~)" onclick="applyFormattingToTextarea('bulkCustomMsgTextarea', '~', '~')">
+                                    <span style="text-decoration: line-through; font-weight: 700; font-size: 0.8rem;">S</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Monospace (```code```)" onclick="applyFormattingToTextarea('bulkCustomMsgTextarea', '```', '```')">
+                                    <span style="font-family: monospace; font-size: 0.78rem; font-weight: bold;">&lt;/&gt;</span>
+                                </button>
+                            </div>
+                            <span class="wa-shortcut-hint" style="color: #64748b;">
+                                Formatting: <span style="color:#0f766e; font-weight:600;">*bold*</span>, <span style="color:#0369a1; font-weight:600;">_italic_</span>
+                            </span>
+                        </div>
+
+                        <textarea name="custom_message" id="bulkCustomMsgTextarea" class="input-styled text-xs wa-body-textarea" rows="4" placeholder="Enter custom message text... Variables supported: {name}, {company}, {amount}, {due_date} (Select text & press Ctrl+B for Bold, Ctrl+I for Italic)" oninput="updateBulkPreview()"></textarea>
                     </div>
 
                     <!-- Media / Document Attachment for Bulk Campaign (Optional) -->
@@ -2257,7 +2379,23 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
                         </div>
                     </div>
 
-                    <div>
+                    <div id="builderImageHeaderBox" style="display: none; background: rgba(37,99,235,0.06); border: 1.5px solid #93c5fd; border-radius: 10px; padding: 10px; margin-bottom: 10px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                            <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.78rem; color: #1d4ed8;">
+                                <i data-lucide="image" style="width: 14px; height: 14px;"></i>
+                                <span>Official Meta Header Media (Image)</span>
+                            </div>
+                            <span class="badge" style="background: #dbeafe; color: #1e40af; font-size: 0.65rem; font-weight: 700;">APPROVED MEDIA</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <img id="builderHeaderImgThumb" src="" alt="Header Image" style="width: 80px; height: 55px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
+                            <div style="font-size: 0.72rem; color: #475569; line-height: 1.4;">
+                                This approved Meta template includes this official header photo which is automatically displayed at the top of your message.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="builderHeaderTextWrap">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                             <label class="form-label font-bold text-xs" style="margin-bottom: 0; color: #334155;">Header Title Text (Optional)</label>
                             <span style="font-size: 0.68rem; color: #94a3b8;">Bold title header at top of message</span>
@@ -2266,11 +2404,35 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
                     </div>
 
                     <div>
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 4px;">
                             <label class="form-label font-bold text-xs" style="margin-bottom: 0; color: #334155;">Body Text *</label>
-                            <span style="font-size: 0.7rem; color: #64748b;">WhatsApp formatting supported (*bold*, _italic_)</span>
+                            <span class="wa-shortcut-hint">
+                                <kbd>Ctrl+B</kbd> <b>Bold</b> &nbsp;|&nbsp; <kbd>Ctrl+I</kbd> <i>Italic</i>
+                            </span>
                         </div>
-                        <textarea name="body_text" id="builderBodyText" class="input-styled text-xs" rows="6" required placeholder="Type template text... Click variables below to insert dynamic values." oninput="updateLivePhoneMockup()" style="resize: vertical; line-height: 1.5;"></textarea>
+
+                        <!-- WhatsApp Formatting Toolbar -->
+                        <div class="wa-formatting-toolbar">
+                            <div class="wa-formatting-group">
+                                <button type="button" class="wa-fmt-btn" title="Bold (Ctrl+B) - Select text and press Ctrl+B or click here" onclick="applyFormattingToTextarea('builderBodyText', '*', '*')">
+                                    <span style="font-weight: 900; font-size: 0.82rem;">B</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Italic (Ctrl+I) - Select text and press Ctrl+I or click here" onclick="applyFormattingToTextarea('builderBodyText', '_', '_')">
+                                    <span style="font-style: italic; font-weight: 700; font-size: 0.82rem; font-family: Georgia, serif;">I</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Strikethrough (~text~)" onclick="applyFormattingToTextarea('builderBodyText', '~', '~')">
+                                    <span style="text-decoration: line-through; font-weight: 700; font-size: 0.8rem;">S</span>
+                                </button>
+                                <button type="button" class="wa-fmt-btn" title="Monospace (```code```)" onclick="applyFormattingToTextarea('builderBodyText', '```', '```')">
+                                    <span style="font-family: monospace; font-size: 0.78rem; font-weight: bold;">&lt;/&gt;</span>
+                                </button>
+                            </div>
+                            <span class="wa-shortcut-hint" style="color: #64748b;">
+                                Formatting: <span style="color:#0f766e; font-weight:600;">*bold*</span>, <span style="color:#0369a1; font-weight:600;">_italic_</span>, <span style="color:#475569;">~strike~</span>
+                            </span>
+                        </div>
+
+                        <textarea name="body_text" id="builderBodyText" class="input-styled text-xs wa-body-textarea" rows="6" required placeholder="Type template text... Select text & press Ctrl+B for Bold (*text*) or Ctrl+I for Italic (_text_)..." oninput="updateLivePhoneMockup()" style="resize: vertical; line-height: 1.5;"></textarea>
                         
                         <!-- 1-Click Variable Pills (inserts at cursor) -->
                         <div style="font-size: 0.72rem; color: #64748b; margin-top: 6px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
@@ -2359,6 +2521,9 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
 
                         <!-- Message Bubble -->
                         <div class="wa-msg-bubble">
+                            <div class="wa-msg-image-header" id="mockupImageHeader" style="display: none; border-radius: 8px 8px 0 0; overflow: hidden; margin: -6px -8px 8px -8px;">
+                                <img id="mockupHeaderImg" src="" alt="Header Banner" style="width: 100%; max-height: 180px; object-fit: cover; display: block;">
+                            </div>
                             <div class="wa-msg-header" id="mockupHeader">Marg ERP Software AMC Notice</div>
                             <div class="wa-msg-body-content" id="mockupBody">Dear Rajesh Medical Store,<br><br>Your Marg ERP Software AMC renewal of <b>₹3,500</b> is due on <b>25 Aug 2026</b>.<br><br>To ensure uninterrupted billing &amp; GST filings, kindly renew your AMC.<br><br>Helpline: <b>9532620736</b></div>
                             <div class="wa-msg-footer" id="mockupFooter">Marg Soft Solution Support Desk</div>
@@ -2489,6 +2654,125 @@ const senderProfile = {
     ifsc: <?php echo json_encode($senderIfsc); ?>
 };
 
+/**
+ * Smart WhatsApp Text Formatting Helper
+ * Wraps or toggles formatting (*bold*, _italic_, ~strikethrough~, ```code```)
+ * Preserves outer spaces so WhatsApp formatting syntax remains strictly valid.
+ */
+function applyFormattingToTextarea(target, prefix, suffix) {
+    const textarea = (typeof target === 'string') ? document.getElementById(target) : target;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const fullText = textarea.value;
+    const pLen = prefix.length;
+    const sLen = suffix.length;
+
+    if (typeof start === 'number' && typeof end === 'number' && start !== end) {
+        const rawSelected = fullText.substring(start, end);
+
+        // Separate leading and trailing whitespace to keep WhatsApp tags tightly bound to words
+        const matchLeading = rawSelected.match(/^\s*/)[0];
+        const matchTrailing = rawSelected.match(/\s*$/)[0];
+        const coreSelected = rawSelected.slice(matchLeading.length, rawSelected.length - matchTrailing.length);
+
+        if (!coreSelected) {
+            // Only whitespace was selected
+            return;
+        }
+
+        const coreStart = start + matchLeading.length;
+        const coreEnd = end - matchTrailing.length;
+
+        // Check if core selection itself is already wrapped in prefix and suffix
+        const isCoreWrapped = coreSelected.length >= (pLen + sLen) &&
+                              coreSelected.startsWith(prefix) &&
+                              coreSelected.endsWith(suffix);
+
+        // Check if characters immediately surrounding the core selection are prefix and suffix
+        const isSurroundingWrapped = coreStart >= pLen &&
+                                     fullText.substring(coreStart - pLen, coreStart) === prefix &&
+                                     fullText.substring(coreEnd, coreEnd + sLen) === suffix;
+
+        if (isCoreWrapped) {
+            // Unwrap inside core
+            const unwrapped = coreSelected.slice(pLen, -sLen);
+            const replacement = matchLeading + unwrapped + matchTrailing;
+            textarea.value = fullText.substring(0, start) + replacement + fullText.substring(end);
+            textarea.selectionStart = start + matchLeading.length;
+            textarea.selectionEnd = start + matchLeading.length + unwrapped.length;
+        } else if (isSurroundingWrapped) {
+            // Unwrap surrounding characters
+            const replacement = coreSelected;
+            textarea.value = fullText.substring(0, coreStart - pLen) + replacement + fullText.substring(coreEnd + sLen);
+            textarea.selectionStart = coreStart - pLen;
+            textarea.selectionEnd = coreStart - pLen + replacement.length;
+        } else {
+            // Wrap core with prefix & suffix
+            const wrapped = prefix + coreSelected + suffix;
+            const replacement = matchLeading + wrapped + matchTrailing;
+            textarea.value = fullText.substring(0, start) + replacement + fullText.substring(end);
+            textarea.selectionStart = start + matchLeading.length;
+            textarea.selectionEnd = start + matchLeading.length + wrapped.length;
+        }
+    } else {
+        // No selection: check if cursor is between prefix & suffix or insert placeholder
+        const curPos = (typeof start === 'number') ? start : textarea.value.length;
+        if (curPos >= pLen && fullText.substring(curPos - pLen, curPos) === prefix && fullText.substring(curPos, curPos + sLen) === suffix) {
+            // Unwrap if cursor is right in the middle e.g. *|*
+            textarea.value = fullText.substring(0, curPos - pLen) + fullText.substring(curPos + sLen);
+            textarea.selectionStart = textarea.selectionEnd = curPos - pLen;
+        } else {
+            // Insert prefix and suffix, place cursor in between
+            const inserted = prefix + suffix;
+            textarea.value = fullText.substring(0, curPos) + inserted + fullText.substring(curPos);
+            textarea.selectionStart = textarea.selectionEnd = curPos + pLen;
+        }
+    }
+
+    // Trigger input event to update live simulators and preview
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.focus();
+}
+
+/**
+ * Attach Keyboard Shortcuts (Ctrl+B, Ctrl+I, Ctrl+Shift+X, etc.)
+ */
+function attachWhatsAppShortcuts(target) {
+    const textarea = (typeof target === 'string') ? document.getElementById(target) : target;
+    if (!textarea || textarea.dataset.waShortcutsAttached) return;
+    textarea.dataset.waShortcutsAttached = 'true';
+
+    textarea.addEventListener('keydown', function(e) {
+        const isMod = e.ctrlKey || e.metaKey; // Ctrl on Windows/Linux, Cmd on Mac
+        if (!isMod) return;
+
+        const key = e.key.toLowerCase();
+
+        // Ctrl+B -> Bold (*text*)
+        if (key === 'b') {
+            e.preventDefault();
+            applyFormattingToTextarea(textarea, '*', '*');
+        }
+        // Ctrl+I -> Italic (_text_)
+        else if (key === 'i') {
+            e.preventDefault();
+            applyFormattingToTextarea(textarea, '_', '_');
+        }
+        // Ctrl+Shift+X or Alt+S or Ctrl+Shift+S -> Strikethrough (~text~)
+        else if ((e.shiftKey && (key === 'x' || key === 's')) || (e.altKey && key === 's')) {
+            e.preventDefault();
+            applyFormattingToTextarea(textarea, '~', '~');
+        }
+        // Ctrl+` or Ctrl+Shift+C -> Monospace (```text```)
+        else if (key === '`' || (e.shiftKey && key === 'c')) {
+            e.preventDefault();
+            applyFormattingToTextarea(textarea, '```', '```');
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     fetchCampaigns();
     fetchTemplates();
@@ -2498,6 +2782,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const indMsg = document.getElementById('indMessageText');
     if (indMsg) {
         indMsg.addEventListener('input', updateIndividualPreview);
+        attachWhatsAppShortcuts(indMsg);
+    }
+
+    const bulkMsg = document.getElementById('bulkCustomMsgTextarea');
+    if (bulkMsg) {
+        attachWhatsAppShortcuts(bulkMsg);
+    }
+
+    const builderBody = document.getElementById('builderBodyText');
+    if (builderBody) {
+        attachWhatsAppShortcuts(builderBody);
     }
 
     // GSAP Initial Page Entrance Animation
@@ -3267,6 +3562,7 @@ function updateIndividualPreview() {
             .replace(/\*([^\*]+)\*/g, '<b>$1</b>')
             .replace(/\_([^\_]+)\_/g, '<i>$1</i>')
             .replace(/\~([^\~]+)\~/g, '<del>$1</del>')
+            .replace(/```([^`]+)```/g, '<code style="font-family:monospace; background:rgba(0,0,0,0.06); padding:1px 4px; border-radius:3px;">$1</code>')
             .replace(/\n/g, '<br>');
 
         // Replace standard named vars with styled tags
@@ -3422,6 +3718,7 @@ function updateBulkPreview() {
             .replace(/\*([^\*]+)\*/g, '<b>$1</b>')
             .replace(/\_([^\_]+)\_/g, '<i>$1</i>')
             .replace(/\~([^\~]+)\~/g, '<del>$1</del>')
+            .replace(/```([^`]+)```/g, '<code style="font-family:monospace; background:rgba(0,0,0,0.06); padding:1px 4px; border-radius:3px;">$1</code>')
             .replace(/\n/g, '<br>');
 
         clean = clean.replaceAll('{name}', `<span class="wa-var-tag">${escapeHtml(sampleName)}</span>`);
@@ -5050,6 +5347,9 @@ function selectTemplateGateway(mode) {
     if (window.lucide) lucide.createIcons();
 }
 
+let currentActiveTemplateHeaderImage = '';
+let currentActiveTemplateHeaderType = 'none';
+
 function openCreateTemplateModal() {
     const modal = document.getElementById('interactiveTemplateModal');
     if (modal) {
@@ -5082,8 +5382,16 @@ function openCreateTemplateModal() {
         `;
     }
 
+    currentActiveTemplateHeaderImage = '';
+    currentActiveTemplateHeaderType = 'none';
+    const imgBox = document.getElementById('builderImageHeaderBox');
+    if (imgBox) imgBox.style.display = 'none';
+    const textWrap = document.getElementById('builderHeaderTextWrap');
+    if (textWrap) textWrap.style.display = 'block';
+
     const defaultMode = (activeGatewayMode === 'web_api') ? 'web_api' : (activeGatewayMode === 'meta' ? 'meta' : 'web_api');
     selectTemplateGateway(defaultMode);
+    attachWhatsAppShortcuts('builderBodyText');
     updateLivePhoneMockup();
     if (window.lucide) lucide.createIcons();
 }
@@ -5115,6 +5423,22 @@ function editTemplate(id) {
 
     const catSelect = document.getElementById('builderCategory');
     if (catSelect) catSelect.value = t.category || 'MARKETING';
+
+    // Header Type & Image handling
+    currentActiveTemplateHeaderType = t.header_type || 'none';
+    currentActiveTemplateHeaderImage = t.header_content || '';
+    const imgBox = document.getElementById('builderImageHeaderBox');
+    const thumbImg = document.getElementById('builderHeaderImgThumb');
+    const textWrap = document.getElementById('builderHeaderTextWrap');
+
+    if (t.header_type === 'image' && currentActiveTemplateHeaderImage) {
+        if (imgBox) imgBox.style.display = 'block';
+        if (thumbImg) thumbImg.src = currentActiveTemplateHeaderImage;
+        if (textWrap) textWrap.style.display = 'none';
+    } else {
+        if (imgBox) imgBox.style.display = 'none';
+        if (textWrap) textWrap.style.display = 'block';
+    }
 
     const headerInput = document.getElementById('builderHeaderText');
     if (headerInput) headerInput.value = t.header_text || '';
@@ -5168,6 +5492,7 @@ function editTemplate(id) {
         }
     }
 
+    attachWhatsAppShortcuts('builderBodyText');
     updateLivePhoneMockup();
     if (window.lucide) lucide.createIcons();
 }
@@ -5251,14 +5576,28 @@ function updateLivePhoneMockup() {
         .replace(/\*([^\*]+)\*/g, '<b>$1</b>')
         .replace(/\_([^\_]+)\_/g, '<i>$1</i>')
         .replace(/\~([^\~]+)\~/g, '<del>$1</del>')
+        .replace(/```([^`]+)```/g, '<code style="font-family:monospace; background:rgba(0,0,0,0.06); padding:1px 4px; border-radius:3px;">$1</code>')
         .replace(/\n/g, '<br>');
+
+    const mockImgHeader = document.getElementById('mockupImageHeader');
+    const mockImg = document.getElementById('mockupHeaderImg');
+    if (mockImgHeader && mockImg) {
+        if (currentActiveTemplateHeaderType === 'image' && currentActiveTemplateHeaderImage) {
+            mockImg.src = currentActiveTemplateHeaderImage;
+            mockImgHeader.style.display = 'block';
+        } else {
+            mockImgHeader.style.display = 'none';
+        }
+    }
 
     const mockHead = document.getElementById('mockupHeader');
     const mockBdy  = document.getElementById('mockupBody');
     const mockFtr  = document.getElementById('mockupFooter');
 
     if (mockHead) {
-        if (headerVal) {
+        if (currentActiveTemplateHeaderType === 'image') {
+            mockHead.style.display = 'none';
+        } else if (headerVal) {
             mockHead.innerHTML = escapeHtml(headerVal);
             mockHead.style.display = 'block';
         } else if (!bodyVal.trim()) {

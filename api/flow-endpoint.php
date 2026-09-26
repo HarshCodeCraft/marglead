@@ -243,11 +243,20 @@ elseif ($action === 'submit' || $action === 'complete' || $action === 'create_ti
         // Send Confirmation WhatsApp Message
         if (!empty($mobile)) {
             $whatsapp = new WhatsAppAPI($pdo);
-            $confirmText = "✅ *Support Ticket Created*\n\n" .
-                           "Dear Customer, your ticket *#{$ticketNumber}* has been registered successfully.\n\n" .
-                           "Our technical support engineer will contact you shortly.\n\n" .
-                           "Thank you for choosing *Marg Soft Solution*.";
-            $whatsapp->sendText($mobile, $confirmText);
+            $tplTkt = get_system_notification_template($pdo, 'ticket_created', [
+                'ticket_id'   => $ticketNumber,
+                'client_name' => $customerName
+            ]);
+
+            if (!$tplTkt['found'] || $tplTkt['is_active']) {
+                $confirmText = !empty($tplTkt['whatsapp_body']) ? $tplTkt['whatsapp_body'] : (
+                    "✅ *Support Ticket Created*\n\n" .
+                    "Dear Customer, your ticket *#{$ticketNumber}* has been registered successfully.\n\n" .
+                    "Our technical support engineer will contact you shortly.\n\n" .
+                    "Thank you for choosing *Marg Soft Solution*."
+                );
+                $whatsapp->sendText($mobile, $confirmText);
+            }
         }
 
     } catch (Throwable $e) {

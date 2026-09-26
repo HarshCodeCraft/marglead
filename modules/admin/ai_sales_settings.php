@@ -49,9 +49,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $ai_provider = trim($_POST['ai_provider'] ?? 'gemini');
     $api_key = trim($_POST['api_key'] ?? '');
     $ai_model = trim($_POST['ai_model'] ?? 'gemini-3.1-flash-lite');
-    $pricing_basic = trim($_POST['pricing_basic'] ?? '₹8,999 + 18% GST');
-    $pricing_silver = trim($_POST['pricing_silver'] ?? '₹12,600 + 18% GST');
-    $pricing_gold = trim($_POST['pricing_gold'] ?? '₹25,200 + 18% GST');
+    $pricing_nano = trim($_POST['pricing_nano'] ?? '₹5,550 + 18% GST');
+    $pricing_basic = trim($_POST['pricing_basic'] ?? '₹10,300 + 18% GST');
+    $pricing_silver = trim($_POST['pricing_silver'] ?? '₹13,900 + 18% GST');
+    $pricing_gold = trim($_POST['pricing_gold'] ?? '₹26,000 + 18% GST');
     $system_prompt = trim($_POST['system_prompt'] ?? '');
     $knowledge_base = trim($_POST['knowledge_base'] ?? '');
     $show_sales_chats = isset($_POST['show_sales_chats_in_inbox']) ? 1 : 0;
@@ -65,13 +66,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
 
         $stmtUpd = $pdo->prepare("INSERT INTO ai_bot_settings 
-            (id, bot_enabled, ai_provider, api_key, ai_model, pricing_basic, pricing_silver, pricing_gold, system_prompt, knowledge_base, show_sales_chats_in_inbox, mute_on_human_reply)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, bot_enabled, ai_provider, api_key, ai_model, pricing_nano, pricing_basic, pricing_silver, pricing_gold, system_prompt, knowledge_base, show_sales_chats_in_inbox, mute_on_human_reply)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
             bot_enabled = VALUES(bot_enabled),
             ai_provider = VALUES(ai_provider),
             api_key = VALUES(api_key),
             ai_model = VALUES(ai_model),
+            pricing_nano = VALUES(pricing_nano),
             pricing_basic = VALUES(pricing_basic),
             pricing_silver = VALUES(pricing_silver),
             pricing_gold = VALUES(pricing_gold),
@@ -82,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $stmtUpd->execute([
             $bot_enabled, $ai_provider, $api_key, $ai_model,
-            $pricing_basic, $pricing_silver, $pricing_gold,
+            $pricing_nano, $pricing_basic, $pricing_silver, $pricing_gold,
             $system_prompt, $knowledge_base, $show_sales_chats, $mute_on_reply
         ]);
 
@@ -198,18 +200,22 @@ $activeKeyMasked = !empty($settings['api_key']) ? substr($settings['api_key'], 0
                     <h3 style="margin: 0; font-size: 0.98rem; font-weight: 700;">Marg ERP Editions & Official Pricing</h3>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.75rem;">
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Marg Nano Edition</label>
+                        <input type="text" name="pricing_nano" value="<?php echo htmlspecialchars($settings['pricing_nano'] ?? '₹5,550 + 18% GST'); ?>" class="form-control text-xs font-semibold" style="height: 36px; border-radius: 8px;">
+                    </div>
                     <div>
                         <label style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Basic Edition (Single User)</label>
-                        <input type="text" name="pricing_basic" value="<?php echo htmlspecialchars($settings['pricing_basic'] ?? '₹8,999 + 18% GST'); ?>" class="form-control text-xs font-semibold" style="height: 36px; border-radius: 8px;">
+                        <input type="text" name="pricing_basic" value="<?php echo htmlspecialchars($settings['pricing_basic'] ?? '₹10,300 + 18% GST'); ?>" class="form-control text-xs font-semibold" style="height: 36px; border-radius: 8px;">
                     </div>
                     <div>
                         <label style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Silver Edition (Pharma/Retail)</label>
-                        <input type="text" name="pricing_silver" value="<?php echo htmlspecialchars($settings['pricing_silver'] ?? '₹12,600 + 18% GST'); ?>" class="form-control text-xs font-semibold" style="height: 36px; border-radius: 8px;">
+                        <input type="text" name="pricing_silver" value="<?php echo htmlspecialchars($settings['pricing_silver'] ?? '₹13,900 + 18% GST'); ?>" class="form-control text-xs font-semibold" style="height: 36px; border-radius: 8px;">
                     </div>
                     <div>
-                        <label style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Gold Edition (Multi-User LAN)</label>
-                        <input type="text" name="pricing_gold" value="<?php echo htmlspecialchars($settings['pricing_gold'] ?? '₹25,200 + 18% GST'); ?>" class="form-control text-xs font-semibold" style="height: 36px; border-radius: 8px;">
+                        <label style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Gold Edition (Unlimited Users)</label>
+                        <input type="text" name="pricing_gold" value="<?php echo htmlspecialchars($settings['pricing_gold'] ?? '₹26,000 + 18% GST'); ?>" class="form-control text-xs font-semibold" style="height: 36px; border-radius: 8px;">
                     </div>
                 </div>
             </div>

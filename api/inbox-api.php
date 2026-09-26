@@ -159,14 +159,14 @@ switch ($action) {
             $stmtAll = $pdo->query($sqlAll);
             $allConversations = $stmtAll ? $stmtAll->fetchAll(PDO::FETCH_ASSOC) : [];
 
-            // Fetch chat status map from chat_conversations with full phone normalization
+            // 1. Fetch chat status map from chat_conversations with full phone normalization
             $statusMap = [];
             if ($stmtStatuses = $pdo->query("SELECT phone, status FROM chat_conversations")) {
                 while ($row = $stmtStatuses->fetch(PDO::FETCH_ASSOC)) {
-                    $pRaw = $row['phone'];
+                    $pRaw = $row['phone'] ?? '';
                     $pDigits = preg_replace('/[^0-9]/', '', $pRaw);
                     $p10 = substr($pDigits, -10);
-                    $st = strtolower($row['status']);
+                    $st = strtolower($row['status'] ?? 'open');
                     
                     if (!empty($pRaw)) $statusMap[$pRaw] = $st;
                     if (!empty($pDigits)) $statusMap[$pDigits] = $st;
@@ -174,12 +174,77 @@ switch ($action) {
                 }
             }
 
-            $counts = ['open' => 0, 'pending' => 0, 'closed' => 0, 'all' => count($allConversations)];
+            // 2. Batch preload Leads into lookup map
+            $leadsMap = [];
+            try {
+                $stmtL = $pdo->query("SELECT id, name, company, assigned_to, phone FROM leads");
+                if ($stmtL) {
+                    while ($lRow = $stmtL->fetch(PDO::FETCH_ASSOC)) {
+                        $pDigits = preg_replace('/[^0-9]/', '', $lRow['phone'] ?? '');
+                        $p10 = substr($pDigits, -10);
+                        if (!empty($lRow['phone'])) $leadsMap[$lRow['phone']] = $lRow;
+                        if (!empty($pDigits)) $leadsMap[$pDigits] = $lRow;
+                        if (!empty($p10)) $leadsMap[$p10] = $lRow;
+                    }
+                }
+            } catch (Throwable $eL) {}
+
+            // 3. Batch preload Customers into lookup map
+            $customersMap = [];
+            try {
+                $stmtCu = $pdo->query("SELECT customer_name, firm_name, mobile FROM customers");
+                if ($stmtCu) {
+                    while ($cuRow = $stmtCu->fetch(PDO::FETCH_ASSOC)) {
+                        $pDigits = preg_replace('/[^0-9]/', '', $cuRow['mobile'] ?? '');
+                        $p10 = substr($pDigits, -10);
+                        if (!empty($cuRow['mobile'])) $customersMap[$cuRow['mobile']] = $cuRow;
+                        if (!empty($pDigits)) $customersMap[$pDigits] = $cuRow;
+                        if (!empty($p10)) $customersMap[$p10] = $cuRow;
+                    }
+                }
+            } catch (Throwable $eCu) {}
+
+            // 4. Batch preload Support Tickets (latest per phone)
+            $ticketsMap = [];
+            try {
+                $stmtT = $pdo->query("SELECT id, assigned_to, status, subject, phone, callback_number FROM support_tickets ORDER BY id ASC");
+                if ($stmtT) {
+                    while ($tRow = $stmtT->fetch(PDO::FETCH_ASSOC)) {
+                        $pDigits = preg_replace('/[^0-9]/', '', $tRow['phone'] ?? '');
+                        $p10 = substr($pDigits, -10);
+                        $cbDigits = preg_replace('/[^0-9]/', '', $tRow['callback_number'] ?? '');
+                        $cb10 = substr($cbDigits, -10);
+
+                        if (!empty($tRow['phone'])) $ticketsMap[$tRow['phone']] = $tRow;
+                        if (!empty($pDigits)) $ticketsMap[$pDigits] = $tRow;
+                        if (!empty($p10)) $ticketsMap[$p10] = $tRow;
+                        if (!empty($cbDigits)) $ticketsMap[$cbDigits] = $tRow;
+                        if (!empty($cb10)) $ticketsMap[$cb10] = $tRow;
+                    }
+                }
+            } catch (Throwable $eT) {}
+
+            // 5. Batch preload AI Chat Sessions
+            $aiSessionsMap = [];
+            try {
+                $stmtAI = $pdo->query("SELECT id, current_state, is_muted, lead_id, phone FROM ai_chat_sessions");
+                if ($stmtAI) {
+                    while ($aiRow = $stmtAI->fetch(PDO::FETCH_ASSOC)) {
+                        $pDigits = preg_replace('/[^0-9]/', '', $aiRow['phone'] ?? '');
+                        $p10 = substr($pDigits, -10);
+                        if (!empty($aiRow['phone'])) $aiSessionsMap[$aiRow['phone']] = $aiRow;
+                        if (!empty($pDigits)) $aiSessionsMap[$pDigits] = $aiRow;
+                        if (!empty($p10)) $aiSessionsMap[$p10] = $aiRow;
+                    }
+                }
+            } catch (Throwable $eAI) {}
+
+            $counts = ['open' => 0, 'pending' => 0, 'closed' => 0, 'all' => 0];
             $channelCounts = ['all' => 0, 'support' => 0, 'sales' => 0];
             $conversations = [];
 
             foreach ($allConversations as $c) {
-                $rawPhone = $c['recipient_or_sender'];
+                $rawPhone = $c['recipient_or_sender'] ?? '';
                 $phone = preg_replace('/[^0-9]/', '', $rawPhone);
                 $cleanPhone = substr($phone, -10);
 
@@ -189,44 +254,29 @@ switch ($action) {
                     $chatStatus = 'open';
                 }
 
-                // Match with leads table
-                $stmtLead = $pdo->prepare("SELECT id, name, company, assigned_to FROM leads WHERE phone LIKE ? OR phone LIKE ? LIMIT 1");
-                $stmtLead->execute(["%$cleanPhone%", "%" . $rawPhone . "%"]);
-                $lead = $stmtLead->fetch(PDO::FETCH_ASSOC);
-
+                // Match with leads
+                $lead = $leadsMap[$rawPhone] ?? ($leadsMap[$phone] ?? ($leadsMap[$cleanPhone] ?? null));
                 $name = 'Client (' . $rawPhone . ')';
                 $company = 'Marg Customer';
                 $leadId = null;
 
                 if ($lead) {
-                    $name = $lead['name'];
-                    $company = $lead['company'];
+                    $name = $lead['name'] ?: ('Client (' . $rawPhone . ')');
+                    $company = $lead['company'] ?: 'Marg Customer';
                     $leadId = $lead['id'];
                 } else {
-                    $stmtCust = $pdo->prepare("SELECT customer_name, firm_name FROM customers WHERE mobile LIKE ? LIMIT 1");
-                    $stmtCust->execute(["%$cleanPhone%"]);
-                    $cust = $stmtCust->fetch(PDO::FETCH_ASSOC);
+                    $cust = $customersMap[$rawPhone] ?? ($customersMap[$phone] ?? ($customersMap[$cleanPhone] ?? null));
                     if ($cust) {
-                        $name = $cust['customer_name'];
-                        $company = $cust['firm_name'];
+                        $name = $cust['customer_name'] ?: ('Client (' . $rawPhone . ')');
+                        $company = $cust['firm_name'] ?: 'Marg Customer';
                     }
                 }
 
-                // Check for linked Support Tickets
-                $ticketRow = null;
-                try {
-                    $stmtTicket = $pdo->prepare("SELECT id, assigned_to, status, subject FROM support_tickets WHERE phone LIKE ? OR callback_number LIKE ? ORDER BY id DESC LIMIT 1");
-                    $stmtTicket->execute(["%$cleanPhone%", "%$cleanPhone%"]);
-                    $ticketRow = $stmtTicket->fetch(PDO::FETCH_ASSOC);
-                } catch (Throwable $eT) {}
+                // Check linked Support Tickets
+                $ticketRow = $ticketsMap[$rawPhone] ?? ($ticketsMap[$phone] ?? ($ticketsMap[$cleanPhone] ?? null));
 
-                // Check for linked AI Chat Sessions
-                $aiSessRow = null;
-                try {
-                    $stmtAISess = $pdo->prepare("SELECT id, current_state, is_muted, lead_id FROM ai_chat_sessions WHERE phone LIKE ? LIMIT 1");
-                    $stmtAISess->execute(["%$cleanPhone%"]);
-                    $aiSessRow = $stmtAISess->fetch(PDO::FETCH_ASSOC);
-                } catch (Throwable $eA) {}
+                // Check linked AI Chat Sessions
+                $aiSessRow = $aiSessionsMap[$rawPhone] ?? ($aiSessionsMap[$phone] ?? ($aiSessionsMap[$cleanPhone] ?? null));
 
                 // Determine Channel: 'support', 'sales', 'general'
                 $channel = 'general';
@@ -259,10 +309,16 @@ switch ($action) {
                     if ($channel !== 'sales') continue;
                 }
 
-                // Update Channel Counts for current visible dataset
+                // GLOBAL CHANNEL COUNTS (Always counted across all visible user chats)
                 $channelCounts['all']++;
                 if (isset($channelCounts[$channel])) {
                     $channelCounts[$channel]++;
+                }
+
+                // GLOBAL STATUS COUNTS
+                $counts['all']++;
+                if (isset($counts[$chatStatus])) {
+                    $counts[$chatStatus]++;
                 }
 
                 // Channel Filter (Tab Clicked)
@@ -270,11 +326,7 @@ switch ($action) {
                     continue;
                 }
 
-                if (isset($counts[$chatStatus])) {
-                    $counts[$chatStatus]++;
-                }
-
-                // If search query is active, filter list items
+                // Search Filter
                 if (!empty($search)) {
                     $matchSearch = (stripos($rawPhone, $search) !== false) || 
                                   (stripos($c['message_body'] ?? '', $search) !== false) ||
@@ -285,30 +337,26 @@ switch ($action) {
                     }
                 }
 
-                // If tab status filter is active, filter list items
+                // Status Filter (Tab Clicked: open, pending, closed, all)
                 if ($statusFilter !== 'all' && $chatStatus !== $statusFilter) {
                     continue;
                 }
 
                 // 24h window calculation
-                $stmtLastIn = $pdo->prepare("SELECT created_at, raw_json FROM message_logs WHERE (recipient_or_sender = ? OR recipient_or_sender LIKE ?) AND direction = 'INBOUND' ORDER BY id DESC LIMIT 1");
-                $stmtLastIn->execute([$rawPhone, "%$cleanPhone%"]);
-                $lastInRow = $stmtLastIn->fetch(PDO::FETCH_ASSOC);
-
                 $windowStatus = 'Expired';
                 $windowTimeText = '24h Window Expired';
                 $windowSeconds = 0;
 
-                if ($lastInRow) {
-                    $rawIn = !empty($lastInRow['raw_json']) ? json_decode($lastInRow['raw_json'], true) : null;
-                    $msgEpoch = !empty($rawIn['timestamp']) ? (int)$rawIn['timestamp'] : strtotime($lastInRow['created_at']);
+                if ($c['direction'] === 'INBOUND') {
+                    $rawIn = !empty($c['raw_json']) ? json_decode($c['raw_json'], true) : null;
+                    $msgEpoch = !empty($rawIn['timestamp']) ? (int)$rawIn['timestamp'] : strtotime($c['created_at']);
                     $elapsed = time() - $msgEpoch;
                     $windowSeconds = max(0, 86400 - $elapsed);
                     if ($windowSeconds > 0) {
                         $hours = floor($windowSeconds / 3600);
                         $mins  = floor(($windowSeconds % 3600) / 60);
                         $windowStatus = 'Active';
-                        $windowTimeText = "{$hours}h {$mins}m left (Free 24h Window)";
+                        $windowTimeText = "{$hours}h {$mins}m left";
                     }
                 }
 
@@ -544,6 +592,9 @@ switch ($action) {
                 foreach ($auditLogs as &$aLog) {
                     $aLog['formatted_time'] = date('d M, h:i A', strtotime($aLog['created_at']));
                 }
+            } catch (Throwable $eAudit) {}
+            $profile['audit_logs'] = $auditLogs;
+
             // Fetch AI chat session if exists
             $profile['ai_session'] = null;
             $profile['is_ai_muted'] = 0;
@@ -813,18 +864,31 @@ switch ($action) {
             $upiId     = $acc['upi_id'] ?? '';
             $qrPath    = $acc['qr_code_image'] ?? '';
 
-            $bankText = "🏦 *Marg Soft Solution - Official Bank & Payment Details*\n\n" .
-                        "• *Account Name:* {$accName}\n" .
-                        "• *Bank Name:* {$bankName}\n" .
-                        "• *Account No:* `{$accNumber}`\n" .
-                        "• *IFSC Code:* `{$ifscCode}`\n" .
-                        (!empty($branch) ? "• *Branch:* {$branch}\n" : "") .
-                        "• *Account Type:* {$accType}\n" .
-                        (!empty($upiId) ? "• *UPI ID:* `{$upiId}`\n" : "") .
-                        "\n" .
-                        (!empty($customNote) ? "📝 *Note:* {$customNote}\n\n" : "") .
-                        "📸 *Please scan the QR code above or transfer via UPI / IMPS / NEFT.*\n" .
-                        "Kindly share the payment confirmation screenshot here once done. Thank you! 🙏";
+            $tplBank = get_system_notification_template($pdo, 'bank_payment_details', [
+                'account_name'   => $accName,
+                'bank_name'      => $bankName,
+                'account_number' => $accNumber,
+                'ifsc_code'      => $ifscCode,
+                'branch'         => $branch,
+                'account_type'   => $accType,
+                'upi_id'         => $upiId,
+                'notes'          => (!empty($customNote) ? $customNote : 'Payment for Marg ERP software license / AMC.')
+            ]);
+
+            $bankText = !empty($tplBank['whatsapp_body']) ? $tplBank['whatsapp_body'] : (
+                "🏦 *Marg Soft Solution - Official Bank & Payment Details*\n\n" .
+                "• *Account Name:* {$accName}\n" .
+                "• *Bank Name:* {$bankName}\n" .
+                "• *Account No:* `{$accNumber}`\n" .
+                "• *IFSC Code:* `{$ifscCode}`\n" .
+                (!empty($branch) ? "• *Branch:* {$branch}\n" : "") .
+                "• *Account Type:* {$accType}\n" .
+                (!empty($upiId) ? "• *UPI ID:* `{$upiId}`\n" : "") .
+                "\n" .
+                (!empty($customNote) ? "📝 *Note:* {$customNote}\n\n" : "") .
+                "📸 *Please scan the QR code above or transfer via UPI / IMPS / NEFT.*\n" .
+                "Kindly share the payment confirmation screenshot here once done. Thank you! 🙏"
+            );
 
             $whatsapp = new WhatsAppAPI($pdo);
             $hasQr = false;

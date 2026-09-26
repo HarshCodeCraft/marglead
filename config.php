@@ -975,40 +975,28 @@ if (!function_exists('getLiveMetricCounts')) {
             $lead_exec_where = " AND {$exclude_lead_direct} AND (" . implode(" OR ", $lead_clauses) . ")";
         }
 
-        // Check optional renewals table safely
-        $has_renewals = false;
-        try {
-            $chk = $pdo->query("SHOW TABLES LIKE 'renewals'");
-            if ($chk && $chk->fetch()) $has_renewals = true;
-        } catch (PDOException $e) {}
-
-        $ren_q_tot = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE 1=1" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_yest = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$yesterday_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_2day = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$day_before_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_3day = $has_renewals ? "(SELECT COUNT(*) FROM renewals WHERE DATE(expiry_date) = '{$three_days_ago_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-
-        // 1. Upcoming Expired Lead (Past 3 Days: Yesterday, 2 Days Ago, 3 Days Ago)
+        // 1. Upcoming Expired Lead (Past 3 Days: Yesterday, 2 Days Ago, 3 Days Ago - Strictly Followup Scheduled Date)
         $expiry_where = "(action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')";
         try {
-            $res = $pdo->query("SELECT {$ren_q_tot} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup})");
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup}");
             if ($res) $expired_counts['total'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // Yesterday - kisi bhi pending/missed followup jo kl tak pending reh gayi
-            $res = $pdo->query("SELECT {$ren_q_yest} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$yesterday_str}' {$exec_where_fup})");
+            // Yesterday - followups scheduled for yesterday that are pending/missed
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$yesterday_str}' {$exec_where_fup}");
             if ($res) $expired_counts['today'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // 2 Days Ago
-            $res = $pdo->query("SELECT {$ren_q_2day} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$day_before_str}' {$exec_where_fup})");
+            // 2 Days Ago - followups scheduled for 2 days ago that are pending/missed
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$day_before_str}' {$exec_where_fup}");
             if ($res) $expired_counts['tomorrow'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // 3 Days Ago
-            $res = $pdo->query("SELECT {$ren_q_3day} (SELECT COUNT(*) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$three_days_ago_str}' {$exec_where_fup})");
+            // 3 Days Ago - followups scheduled for 3 days ago that are pending/missed
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$three_days_ago_str}' {$exec_where_fup}");
             if ($res) $expired_counts['next_day'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 

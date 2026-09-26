@@ -95,37 +95,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         } catch (Throwable $e) {}
                     }
 
-                    // WhatsApp Alert to Customer (No emojis)
+                    // WhatsApp Alert to Customer
                     if (!empty($phone)) {
-                        $custMsg = "Namaste *{$customer}*\n\n" .
-                                   "Aapki *Marg ERP Product Training* allocate ho gayi hai.\n\n" .
-                                   "*Training Details:*\n" .
-                                   "• *Ticket ID:* `{$trId}`\n" .
-                                   "• *Software:* *{$product}*\n" .
-                                   "• *Assigned Trainer:* *{$trainer}*\n" .
-                                   (!empty($trainerPhone) ? "• *Trainer Helpline:* +91 {$trainerPhone}\n" : "") .
-                                   "• *Mode:* *{$mode}*\n" .
-                                   "• *Scheduled Date:* " . date('d-m-Y h:i A', strtotime($scheduled_at)) . "\n" .
-                                   "• *Total Plan:* {$total_days} Days ({$total_hours} Hours)\n\n" .
-                                   "Hamare Marg software trainer aapse training session ke liye jaldi connect karenge.\n\n" .
-                                   "Helpdesk: +91 93050 45727\n*Marg Soft Solution*";
-                        sendTrainingWhatsApp($phone, $custMsg, $pdo);
+                        $tplDataTrCust = get_system_notification_template($pdo, 'training_scheduled_customer', [
+                            'client_name'    => $customer,
+                            'ticket_id'      => $trId,
+                            'software_type'  => $product,
+                            'trainer_name'   => $trainer,
+                            'trainer_phone'  => $trainerPhone,
+                            'training_mode'  => $mode,
+                            'scheduled_at'   => date('d-m-Y h:i A', strtotime($scheduled_at)),
+                            'total_days'     => $total_days,
+                            'total_hours'    => $total_hours
+                        ]);
+
+                        if (!$tplDataTrCust['found'] || $tplDataTrCust['is_active']) {
+                            $custMsg = !empty($tplDataTrCust['whatsapp_body']) ? $tplDataTrCust['whatsapp_body'] : (
+                                "Namaste *{$customer}*\n\n" .
+                                "Aapki *Marg ERP Product Training* allocate ho gayi hai.\n\n" .
+                                "*Training Details:*\n" .
+                                "• *Ticket ID:* `{$trId}`\n" .
+                                "• *Software:* *{$product}*\n" .
+                                "• *Assigned Trainer:* *{$trainer}*\n" .
+                                (!empty($trainerPhone) ? "• *Trainer Helpline:* +91 {$trainerPhone}\n" : "") .
+                                "• *Mode:* *{$mode}*\n" .
+                                "• *Scheduled Date:* " . date('d-m-Y h:i A', strtotime($scheduled_at)) . "\n" .
+                                "• *Total Plan:* {$total_days} Days ({$total_hours} Hours)\n\n" .
+                                "Hamare Marg software trainer aapse training session ke liye jaldi connect karenge.\n\n" .
+                                "Helpdesk: +91 93050 45727\n*Marg Soft Solution*"
+                            );
+                            sendTrainingWhatsApp($phone, $custMsg, $pdo);
+                        }
                     }
 
-                    // WhatsApp Alert to Trainer (No emojis)
+                    // WhatsApp Alert to Trainer
                     if (!empty($trainerPhone)) {
-                        $trMsg = "Hi *{$trainer}*,\n\n" .
-                                 "New *Marg ERP Training* allocated to you by *{$user_name}*.\n\n" .
-                                 "• *Ticket ID:* `{$trId}`\n" .
-                                 "• *Customer:* {$customer} (+91 {$phone})\n" .
-                                 "• *Software:* {$product}\n" .
-                                 "• *Mode:* {$mode}\n" .
-                                 "• *Scheduled Date:* " . date('d-m-Y h:i A', strtotime($scheduled_at)) . "\n" .
-                                 (!empty($address) ? "• *Address:* {$address}\n" : "") .
-                                 (!empty($remarks) ? "• *Remarks:* {$remarks}\n" : "") .
-                                 "\nPlease connect with the customer promptly.\n\n" .
-                                 "Portal: " . (defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/') . "index.php?page=training";
-                        sendTrainingWhatsApp($trainerPhone, $trMsg, $pdo);
+                        $crmPortalUrl = (defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/') . "index.php?page=training";
+                        $tplDataTrainer = get_system_notification_template($pdo, 'training_allocated_trainer', [
+                            'trainer_name'  => $trainer,
+                            'created_by'    => $user_name,
+                            'ticket_id'     => $trId,
+                            'client_name'   => $customer,
+                            'client_phone'  => $phone,
+                            'software_type' => $product,
+                            'training_mode' => $mode,
+                            'scheduled_at'  => date('d-m-Y h:i A', strtotime($scheduled_at)),
+                            'address'       => $address,
+                            'notes'         => $remarks,
+                            'crm_link'      => $crmPortalUrl
+                        ]);
+
+                        if (!$tplDataTrainer['found'] || $tplDataTrainer['is_active']) {
+                            $trMsg = !empty($tplDataTrainer['whatsapp_body']) ? $tplDataTrainer['whatsapp_body'] : (
+                                "Hi *{$trainer}*,\n\n" .
+                                "New *Marg ERP Training* allocated to you by *{$user_name}*.\n\n" .
+                                "• *Ticket ID:* `{$trId}`\n" .
+                                "• *Customer:* {$customer} (+91 {$phone})\n" .
+                                "• *Software:* {$product}\n" .
+                                "• *Mode:* {$mode}\n" .
+                                "• *Scheduled Date:* " . date('d-m-Y h:i A', strtotime($scheduled_at)) . "\n" .
+                                (!empty($address) ? "• *Address:* {$address}\n" : "") .
+                                (!empty($remarks) ? "• *Remarks:* {$remarks}\n" : "") .
+                                "\nPlease connect with the customer promptly.\n\n" .
+                                "Portal: " . $crmPortalUrl
+                            );
+                            sendTrainingWhatsApp($trainerPhone, $trMsg, $pdo);
+                        }
                     }
 
                     $flash_msg = "Trainer allocated & training ticket {$trId} created successfully for \"{$customer}\"!";

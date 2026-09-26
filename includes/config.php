@@ -636,7 +636,7 @@ function hasAccess($module, $role) {
                 $stmtT = $db_to_query->prepare("SELECT allowed_modules FROM tenant_companies WHERE id = ? OR (db_name = ? AND db_name != '') OR (company_code = ? AND company_code != '') OR (owner_email = ? AND owner_email != '') LIMIT 1");
                 $stmtT->execute([$active_tenant_id, $active_tenant_db, $_SESSION['tenant_code'] ?? '', $_SESSION['user_email'] ?? '']);
                 $jsonM = $stmtT->fetchColumn();
-                $default_tenant_mods = ["workspace_dashboard", "whatsapp_dashboard", "dashboard", "merchant_waba_settings", "whatsapp_settings", "team_inbox", "broadcast_campaigns", "bot_flows", "whatsapp_flows", "bulk_broadcast"];
+                $default_tenant_mods = ["workspace_dashboard", "whatsapp_dashboard", "dashboard", "merchant_waba_settings", "whatsapp_settings", "team_inbox", "broadcast_campaigns", "bot_flows", "whatsapp_flows", "bulk_broadcast", "notification_templates", "sub_partners"];
                 if ($jsonM !== false && $jsonM !== null && $jsonM !== '' && $jsonM !== 'null') {
                     $decoded_mods = json_decode($jsonM, true);
                     $_SESSION['tenant_allowed_modules'] = is_array($decoded_mods) ? $decoded_mods : $default_tenant_mods;
@@ -702,12 +702,15 @@ function hasAccess($module, $role) {
                 $check_keys = ['whatsapp_settings', 'merchant_waba_settings'];
             } elseif ($normalized_module === 'broadcast_campaigns' || $normalized_module === 'bulk_broadcast') {
                 $check_keys = ['broadcast_campaigns', 'bulk_broadcast'];
+            } elseif ($normalized_module === 'notification_templates') {
+                $check_keys = ['notification_templates', 'broadcast_campaigns', 'merchant_waba_settings', 'whatsapp_settings'];
             } elseif ($normalized_module === 'customer_kyc' || $normalized_module === 'customer_kyc_admin') {
                 $check_keys[] = 'customer_kyc';
                 $check_keys[] = 'clients';
                 $check_keys[] = 'leads';
-            } elseif ($normalized_module === 'clients') {
+            } elseif ($normalized_module === 'clients' || $normalized_module === 'sub_partners') {
                 $check_keys[] = 'clients';
+                $check_keys[] = 'sub_partners';
                 $check_keys[] = 'leads';
             }
             
@@ -745,13 +748,13 @@ function hasAccess($module, $role) {
     }
 
     $permissions = [
-        'Admin' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings', 'bot_flows', 'whatsapp_flows', 'team_inbox', 'broadcast_campaigns', 'merchant_waba_settings', 'whatsapp_settings', 'bulk_broadcast', 'clients', 'crm_clients', 'admin_users', 'admin_permissions', 'privacy_policy', 'terms_conditions', 'refund_policy'],
+        'Admin' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings', 'bot_flows', 'whatsapp_flows', 'team_inbox', 'broadcast_campaigns', 'merchant_waba_settings', 'whatsapp_settings', 'bulk_broadcast', 'clients', 'sub_partners', 'crm_clients', 'admin_users', 'admin_permissions', 'privacy_policy', 'terms_conditions', 'refund_policy', 'notification_templates'],
         'Client' => ['dashboard', 'quotation', 'payments', 'support', 'renewals', 'bot_flows', 'privacy_policy', 'terms_conditions', 'refund_policy'],
-        'Sales Head' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
+        'Sales Head' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'sub_partners', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
         'Technical Head' => ['dashboard', 'support', 'team_inbox', 'bot_flows', 'installation', 'training', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'support_create', 'support_edit', 'support_assign', 'support_close', 'manager'],
-        'Regional Manager' => ['dashboard', 'leads', 'pipeline', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
-        'Team Leader' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'team_inbox', 'broadcast_campaigns', 'renewals', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
-        'Sales Executive' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'privacy_policy', 'terms_conditions', 'refund_policy', 'employee'],
+        'Regional Manager' => ['dashboard', 'leads', 'pipeline', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'sub_partners', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
+        'Team Leader' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'team_inbox', 'broadcast_campaigns', 'clients', 'sub_partners', 'renewals', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
+        'Sales Executive' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'clients', 'sub_partners', 'privacy_policy', 'terms_conditions', 'refund_policy', 'employee'],
         'Telecaller' => ['dashboard', 'leads', 'followups', 'privacy_policy', 'terms_conditions', 'refund_policy', 'employee'],
         'Support Executive' => ['dashboard', 'support', 'team_inbox', 'bot_flows', 'privacy_policy', 'terms_conditions', 'refund_policy', 'support_create', 'support_edit', 'support_close', 'employee'],
         'Installation Engineer' => ['dashboard', 'installation', 'training', 'privacy_policy', 'terms_conditions', 'refund_policy', 'employee'],
@@ -978,40 +981,28 @@ if (!function_exists('getLiveMetricCounts')) {
             $lead_exec_where = " AND {$exclude_lead_direct} AND (" . implode(" OR ", $lead_clauses) . ")";
         }
 
-        // Check optional renewals table safely
-        $has_renewals = false;
-        try {
-            $chk = $pdo->query("SHOW TABLES LIKE 'renewals'");
-            if ($chk && $chk->fetch()) $has_renewals = true;
-        } catch (PDOException $e) {}
-
-        $ren_q_tot = $has_renewals ? "(SELECT COUNT(DISTINCT lead_id) FROM renewals WHERE 1=1" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_yest = $has_renewals ? "(SELECT COUNT(DISTINCT lead_id) FROM renewals WHERE DATE(expiry_date) = '{$yesterday_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_2day = $has_renewals ? "(SELECT COUNT(DISTINCT lead_id) FROM renewals WHERE DATE(expiry_date) = '{$day_before_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-        $ren_q_3day = $has_renewals ? "(SELECT COUNT(DISTINCT lead_id) FROM renewals WHERE DATE(expiry_date) = '{$three_days_ago_str}'" . (($is_admin || empty($user_idents)) ? "" : " AND lead_id IN (SELECT id FROM leads WHERE 1=1 {$lead_exec_where})") . ") +" : "";
-
-        // 1. Upcoming Expired Lead (Past 3 Days: Yesterday, 2 Days Ago, 3 Days Ago)
+        // 1. Upcoming Expired Lead (Past 3 Days: Yesterday, 2 Days Ago, 3 Days Ago - Strictly Followup Scheduled Date)
         $expiry_where = "(action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')";
         try {
-            $res = $pdo->query("SELECT {$ren_q_tot} (SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup})");
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup}");
             if ($res) $expired_counts['total'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // Yesterday - kisi bhi pending/missed followup jo kl tak pending reh gayi
-            $res = $pdo->query("SELECT {$ren_q_yest} (SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$yesterday_str}' {$exec_where_fup})");
+            // Yesterday - followups scheduled for yesterday that are pending/missed
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$yesterday_str}' {$exec_where_fup}");
             if ($res) $expired_counts['today'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // 2 Days Ago
-            $res = $pdo->query("SELECT {$ren_q_2day} (SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$day_before_str}' {$exec_where_fup})");
+            // 2 Days Ago - followups scheduled for 2 days ago that are pending/missed
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$day_before_str}' {$exec_where_fup}");
             if ($res) $expired_counts['tomorrow'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // 3 Days Ago
-            $res = $pdo->query("SELECT {$ren_q_3day} (SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$three_days_ago_str}' {$exec_where_fup})");
+            // 3 Days Ago - followups scheduled for 3 days ago that are pending/missed
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$three_days_ago_str}' {$exec_where_fup}");
             if ($res) $expired_counts['next_day'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 

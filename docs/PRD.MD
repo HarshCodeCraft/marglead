@@ -55,7 +55,7 @@ This initiative introduces a **24/7 Generative AI Sales Assistant** directly int
 ### 5.2 Conversational AI Intelligence
 * Natural multilingual comprehension: Pure Hindi, Romanized Hindi (Hinglish), and English.
 * Context memory: Retains last 6–10 messages per customer session (stored in session cache or DB).
-* Verified pricing guardrails: Only quotes authorized prices (Basic ₹8,999, Silver ₹12,600, Gold ₹25,200 + GST).
+* Verified pricing guardrails: Only quotes authorized prices (Nano ₹5,550, Basic ₹10,300, Silver ₹13,900, Gold ₹26,000 + GST).
 * Soft demo pitch: Proactively offers a 15-minute live demo every 2–3 messages.
 
 ### 5.3 Autonomous Lead & Demo Capture

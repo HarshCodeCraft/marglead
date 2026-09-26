@@ -126,11 +126,12 @@ The application operates on a LAMP/WAMP stack (PHP 8.x + MySQL/MariaDB + Apache)
 
 ---
 
-## 4. Active Golden Reference: Marg ERP Editions & Pricing
+## 4. Active Golden Reference: Marg ERP Editions & Pricing (Verified from margcompusoft.com)
 
-* **Marg Basic Edition:** Single User — ₹8,999 + 18% GST
-* **Marg Silver Edition:** Single User Pharma/Retail/Inventory + Expiry + GST + WhatsApp — ₹12,600 + 18% GST
-* **Marg Gold Edition:** Multi-User Unlimited LAN Nodes — ₹25,200 + 18% GST
+* **Marg ERP Nano:** ₹5,550 + 18% GST (Nano 1.0 to 4.0; Max 2 users @ ₹3,000/extra user, Max 2 companies @ ₹3,000/extra company)
+* **Marg Basic Edition:** Single User — ₹10,300 + 18% GST (Limited Edition; Max 2 users @ ₹3,000/extra user, Max 2 companies @ ₹3,000/extra company)
+* **Marg Silver Edition:** 1 User Full Rights + 1 View Only — ₹13,900 + 18% GST (Pharma/Retail/Inventory + Expiry + GST + WhatsApp, ₹3,000/extra user or company)
+* **Marg Gold Edition:** Multi-User — ₹26,000 + 18% GST (Unlimited Users & Unlimited Extra Companies)
 * **Key Strengths to Pitch:** 60%+ pharmaceutical market share in India, near-expiry alerts, automatic distributor invoice CSV/Excel import, 100% drug license and narcotic compliance.
 
 ---

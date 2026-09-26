@@ -282,6 +282,12 @@ function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $
                 $res = json_decode($raw, true);
                 if ($httpCode >= 200 && $httpCode < 300) {
                     if (!empty($res['success']) || (!empty($res['status']) && in_array(strtolower($res['status']), ['success', 'sent'])) || !empty($res['message_id'])) {
+                        if ($pdo) {
+                            try {
+                                $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json, created_at) VALUES ('OUTBOUND', ?, 'text', ?, ?, 'sent', ?, NOW())");
+                                $stmtLog->execute([$phoneDigits, $fullMsg, $res['message_id'] ?? null, $raw]);
+                            } catch (\Throwable $eLog) {}
+                        }
                         return [
                             'success'    => true,
                             'gateway'    => 'web_api',
@@ -329,6 +335,103 @@ function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $
         require_once __DIR__ . '/whatsapp-api.php';
         $whatsapp = new WhatsAppAPI($pdo);
 
+        // 1. Check if template is an approved Meta template FIRST
+        $stmtMetaT = $pdo->prepare("SELECT * FROM whatsapp_templates WHERE slug = ? AND (meta_status = 'APPROVED' OR gateway_origin = 'meta') LIMIT 1");
+        $stmtMetaT->execute([$templateSlug]);
+        $metaTemplateRow = $stmtMetaT->fetch(PDO::FETCH_ASSOC);
+
+        if ($metaTemplateRow) {
+            if ($templateSlug === 'marg_bill') {
+                $sender = getSenderBankingAndProfileDetails($pdo);
+                $components = [
+                    [
+                        'type' => 'body',
+                        'parameters' => [
+                            ['type' => 'text', 'text' => (string)$sender['firm_name']],
+                            ['type' => 'text', 'text' => 'Valued Customer'],
+                            ['type' => 'text', 'text' => 'INV-' . date('dmy') . '-' . rand(100, 999)],
+                            ['type' => 'text', 'text' => '3,500'],
+                            ['type' => 'text', 'text' => '0.00'],
+                            ['type' => 'text', 'text' => (string)$sender['upi_id']],
+                            ['type' => 'text', 'text' => (string)$sender['bank_name']],
+                            ['type' => 'text', 'text' => (string)$sender['account_number']],
+                            ['type' => 'text', 'text' => (string)$sender['branch']],
+                            ['type' => 'text', 'text' => (string)$sender['ifsc_code']],
+                            ['type' => 'text', 'text' => (string)$sender['firm_name']],
+                            ['type' => 'text', 'text' => (string)$sender['helpline']],
+                            ['type' => 'text', 'text' => 'https://friendlyaisolution.com']
+                        ]
+                    ]
+                ];
+                $tRes = $whatsapp->sendTemplate($phoneDigits, 'marg_bill', 'en', $components);
+                if (!empty($tRes['success']) && $tRes['success']) {
+                    return $tRes;
+                }
+            } else {
+                $components = [];
+                $hType = strtolower($metaTemplateRow['header_type'] ?? 'none');
+
+                if ($hType === 'image') {
+                    $hImg = !empty($mediaUrl) ? $mediaUrl : (!empty($metaTemplateRow['header_content']) ? $metaTemplateRow['header_content'] : 'https://picsum.photos/800/600.jpg');
+                    $components[] = [
+                        'type' => 'header',
+                        'parameters' => [
+                            [
+                                'type' => 'image',
+                                'image' => ['link' => $hImg]
+                            ]
+                        ]
+                    ];
+                } elseif ($hType === 'document' && (!empty($mediaUrl) || !empty($metaTemplateRow['header_content']))) {
+                    $docLink = !empty($mediaUrl) ? $mediaUrl : $metaTemplateRow['header_content'];
+                    $components[] = [
+                        'type' => 'header',
+                        'parameters' => [
+                            [
+                                'type' => 'document',
+                                'document' => ['link' => $docLink, 'filename' => basename($docLink)]
+                            ]
+                        ]
+                    ];
+                }
+
+                // Check for Flow buttons
+                $tBtns = !empty($metaTemplateRow['buttons_json']) ? json_decode($metaTemplateRow['buttons_json'], true) : [];
+                $hasFlowBtn = false;
+                if (is_array($tBtns)) {
+                    foreach ($tBtns as $tb) {
+                        if (is_array($tb) && (strtoupper($tb['id'] ?? '') === 'FLOW' || stripos($tb['title'] ?? '', 'demo') !== false)) {
+                            $hasFlowBtn = true;
+                            break;
+                        }
+                    }
+                }
+
+                if ($hasFlowBtn || $templateSlug === 'boo_demo') {
+                    $components[] = [
+                        'type' => 'button',
+                        'sub_type' => 'flow',
+                        'index' => '0',
+                        'parameters' => [
+                            [
+                                'type' => 'action',
+                                'action' => [
+                                    'flow_token' => 'token_' . time() . '_' . rand(100, 999)
+                                ]
+                            ]
+                        ]
+                    ];
+                }
+
+                $tRes = $whatsapp->sendTemplate($phoneDigits, $templateSlug, 'en', $components);
+                if (!empty($tRes['success']) && $tRes['success']) {
+                    return $tRes;
+                }
+                return $tRes;
+            }
+        }
+
+        // 2. Custom Message with Interactive Reply Buttons (Only if NOT an approved Meta template)
         if (!empty($buttons) && is_array($buttons)) {
             $formattedBtns = [];
             foreach ($buttons as $b) {
@@ -346,34 +449,6 @@ function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $
             }
             if (!empty($formattedBtns)) {
                 return $whatsapp->sendReplyButtons($phoneDigits, $msgText, $formattedBtns);
-            }
-        }
-
-        if ($templateSlug === 'marg_bill') {
-            $sender = getSenderBankingAndProfileDetails($pdo);
-            $components = [
-                [
-                    'type' => 'body',
-                    'parameters' => [
-                        ['type' => 'text', 'text' => (string)$sender['firm_name']],
-                        ['type' => 'text', 'text' => 'Valued Customer'],
-                        ['type' => 'text', 'text' => 'INV-' . date('dmy') . '-' . rand(100, 999)],
-                        ['type' => 'text', 'text' => '3,500'],
-                        ['type' => 'text', 'text' => '0.00'],
-                        ['type' => 'text', 'text' => (string)$sender['upi_id']],
-                        ['type' => 'text', 'text' => (string)$sender['bank_name']],
-                        ['type' => 'text', 'text' => (string)$sender['account_number']],
-                        ['type' => 'text', 'text' => (string)$sender['branch']],
-                        ['type' => 'text', 'text' => (string)$sender['ifsc_code']],
-                        ['type' => 'text', 'text' => (string)$sender['firm_name']],
-                        ['type' => 'text', 'text' => (string)$sender['helpline']],
-                        ['type' => 'text', 'text' => 'https://friendlyaisolution.com']
-                    ]
-                ]
-            ];
-            $tRes = $whatsapp->sendTemplate($phoneDigits, 'marg_bill', 'en', $components);
-            if (!empty($tRes['success']) && $tRes['success']) {
-                return $tRes;
             }
         }
 
@@ -1395,11 +1470,15 @@ try {
                     $footerText = '';
                     $buttonsArr = [];
 
+                    $headerContent = '';
                     if (!empty($mT['components']) && is_array($mT['components'])) {
                         foreach ($mT['components'] as $comp) {
                             if ($comp['type'] === 'HEADER') {
                                 $headerType = strtolower($comp['format'] ?? 'text');
                                 $headerText = $comp['text'] ?? '';
+                                if (!empty($comp['example']['header_handle'][0])) {
+                                    $headerContent = $comp['example']['header_handle'][0];
+                                }
                             }
                             if ($comp['type'] === 'BODY') {
                                 $bodyText = $comp['text'] ?? '';
@@ -1426,11 +1505,11 @@ try {
                     $existing = $stmtChk->fetch(PDO::FETCH_ASSOC);
 
                     if ($existing) {
-                        $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET meta_status = ?, category = ?, header_type = ?, header_text = ?, body_text = ?, footer_text = ?, buttons_json = ? WHERE id = ?");
-                        $stmtUpd->execute([$status, $category, $headerType, $headerText, $bodyText, $footerText, $buttonsJson, $existing['id']]);
+                        $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET meta_status = ?, category = ?, header_type = ?, header_text = ?, header_content = COALESCE(NULLIF(?, ''), header_content), body_text = ?, footer_text = ?, buttons_json = ? WHERE id = ?");
+                        $stmtUpd->execute([$status, $category, $headerType, $headerText, $headerContent, $bodyText, $footerText, $buttonsJson, $existing['id']]);
                     } else {
-                        $stmtIns = $pdo->prepare("INSERT INTO whatsapp_templates (title, slug, category, header_type, header_text, body_text, footer_text, buttons_json, created_by, meta_status, gateway_origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Meta Sync', ?, 'meta')");
-                        $stmtIns->execute([$title, $name, $category, $headerType, $headerText, $bodyText, $footerText, $buttonsJson, $status]);
+                        $stmtIns = $pdo->prepare("INSERT INTO whatsapp_templates (title, slug, category, header_type, header_text, header_content, body_text, footer_text, buttons_json, created_by, meta_status, gateway_origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Meta Sync', ?, 'meta')");
+                        $stmtIns->execute([$title, $name, $category, $headerType, $headerText, $headerContent, $bodyText, $footerText, $buttonsJson, $status]);
                     }
                     $syncedCount++;
                 }

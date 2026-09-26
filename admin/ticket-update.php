@@ -87,20 +87,25 @@ if ($id > 0 && $pdo) {
             // Notify Customer via WhatsApp if requested
             if ($notifyCustomer && !empty($ticket['mobile'])) {
                 $whatsapp = new WhatsAppAPI($pdo);
-                $updateMsg = "ℹ️ *Ticket Status Update*\n\n" .
-                             "*Ticket Number:* {$ticket['ticket_number']}\n" .
-                             "*Current Status:* *{$status}*\n";
+                
+                $tplDataTkt = get_system_notification_template($pdo, 'ticket_status_update', [
+                    'ticket_id'         => $ticket['ticket_number'],
+                    'status'            => $status,
+                    'assigned_engineer' => (!empty($assignedTo) ? $assignedTo : 'Technical Support'),
+                    'notes'             => (!empty($internalNotes) ? $internalNotes : 'Status updated by technician.')
+                ]);
 
-                if (!empty($assignedTo)) {
-                    $updateMsg .= "*Assigned Engineer:* {$assignedTo}\n";
+                if (!$tplDataTkt['found'] || $tplDataTkt['is_active']) {
+                    $updateMsg = !empty($tplDataTkt['whatsapp_body']) ? $tplDataTkt['whatsapp_body'] : (
+                        "ℹ️ *Ticket Status Update*\n\n" .
+                        "*Ticket Number:* {$ticket['ticket_number']}\n" .
+                        "*Current Status:* *{$status}*\n" .
+                        (!empty($assignedTo) ? "*Assigned Engineer:* {$assignedTo}\n" : "") .
+                        (!empty($internalNotes) ? "\n*Update Note:*\n{$internalNotes}\n" : "") .
+                        "\nThank you for choosing Marg Soft Solution."
+                    );
+                    $whatsapp->sendText($ticket['mobile'], $updateMsg);
                 }
-                if (!empty($internalNotes)) {
-                    $updateMsg .= "\n*Update Note:*\n{$internalNotes}\n";
-                }
-
-                $updateMsg .= "\nThank you for choosing Marg Soft Solution.";
-
-                $whatsapp->sendText($ticket['mobile'], $updateMsg);
             }
 
             $_SESSION['flash_msg'] = "Ticket {$ticket['ticket_number']} updated successfully!";

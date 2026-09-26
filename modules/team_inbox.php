@@ -12,7 +12,7 @@ require_once __DIR__ . '/../includes/db.php';
 /* Modern Team Inbox Workspace Layout - Compact & Crisp proportions */
 .inbox-workspace {
     display: grid;
-    grid-template-columns: 290px minmax(0, 1fr) 0px;
+    grid-template-columns: 335px minmax(0, 1fr) 0px;
     gap: 0;
     height: calc(100vh - 105px);
     min-height: 580px;
@@ -26,7 +26,7 @@ require_once __DIR__ . '/../includes/db.php';
 }
 
 .inbox-workspace.show-right-pane {
-    grid-template-columns: 290px minmax(0, 1fr) 280px;
+    grid-template-columns: 335px minmax(0, 1fr) 280px;
 }
 
 /* Left Pane: Conversations Navigation */
@@ -176,9 +176,9 @@ require_once __DIR__ . '/../includes/db.php';
     align-items: center;
     gap: 0.65rem;
     padding: 0.55rem 0.85rem;
-    height: 62px;
-    min-height: 62px;
-    max-height: 62px;
+    height: 72px;
+    min-height: 72px;
+    max-height: 72px;
     border-bottom: 1px solid var(--border-color, #f1f5f9);
     cursor: pointer;
     transition: background 0.15s ease;
@@ -1519,11 +1519,21 @@ function renderConversations(list) {
 
     let html = '';
     list.forEach(c => {
-        const phone = c.recipient_or_sender;
+        const phone = c.recipient_or_sender || '';
         const isActive = (phone === currentActivePhone) ? 'active' : '';
         const nameStr = c.customer_name || 'Client';
-        const initial = nameStr.charAt(0).toUpperCase();
-        const avatarBg = getAvatarGradient(nameStr);
+
+        // Clean phone digits for formatting
+        const digits = String(phone).replace(/[^0-9]/g, '');
+        const last10 = digits.slice(-10);
+        const formattedPhone = (last10.length === 10) 
+            ? '+91 ' + last10.slice(0, 5) + ' ' + last10.slice(5) 
+            : phone;
+
+        // Check if customer has a real contact name vs generic 'Client (phone)'
+        const hasRealName = (nameStr && !nameStr.startsWith('Client (') && nameStr.toLowerCase() !== 'client');
+        const initial = (hasRealName ? nameStr : (c.company_name || 'C')).charAt(0).toUpperCase();
+        const avatarBg = getAvatarGradient(hasRealName ? nameStr : phone);
 
         let statusPill = '';
         if (c.chat_status === 'closed') {
@@ -1538,14 +1548,29 @@ function renderConversations(list) {
 
         let channelBadge = '';
         if (c.channel === 'support') {
-            channelBadge = `<span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; margin-right: 3px;">🎫 ${c.ticket_id ? '#' + c.ticket_id : 'Ticket'}</span>`;
+            channelBadge = `<span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; white-space: nowrap;">🎫 ${c.ticket_id ? '#' + c.ticket_id : 'Ticket'}</span>`;
         } else if (c.channel === 'sales') {
-            channelBadge = `<span style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; margin-right: 3px;">🤖 AI Sales</span>`;
+            channelBadge = `<span style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; white-space: nowrap;">🤖 AI Sales</span>`;
         }
 
         let muteBadge = '';
         if (c.is_ai_muted) {
-            muteBadge = `<span style="background: rgba(100, 116, 139, 0.12); color: #64748b; font-size: 0.6rem; padding: 1px 4px; border-radius: 4px; margin-right: 3px;" title="Human Agent Active">👤 Agent</span>`;
+            muteBadge = `<span style="background: rgba(100, 116, 139, 0.12); color: #64748b; font-size: 0.6rem; padding: 1px 4px; border-radius: 4px; white-space: nowrap;" title="Human Agent Active">👤 Agent</span>`;
+        }
+
+        // Primary Title & Phone display
+        let titleHtml = '';
+        let metaHtml = '';
+
+        if (hasRealName) {
+            titleHtml = `<span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 165px;" title="${escapeHtml(nameStr)}">${escapeHtml(nameStr)}</span>`;
+            metaHtml = `<span style="font-family: monospace, sans-serif; font-size: 0.74rem; font-weight: 700; color: #2563eb; background: rgba(37, 99, 235, 0.08); padding: 1px 5px; border-radius: 4px; letter-spacing: 0.2px;">${escapeHtml(formattedPhone)}</span>`;
+        } else {
+            // When no specific contact name, show the FULL phone number in bold as primary title!
+            titleHtml = `<span style="font-family: monospace, sans-serif; font-weight: 700; font-size: 0.88rem; color: #0f172a; letter-spacing: 0.3px;">${escapeHtml(formattedPhone)}</span>`;
+            if (c.company_name && c.company_name !== 'Marg Customer') {
+                metaHtml = `<span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px;">${escapeHtml(c.company_name)}</span>`;
+            }
         }
 
         html += `
@@ -1554,12 +1579,19 @@ function renderConversations(list) {
                 <div class="conv-avatar" style="background: ${avatarBg}; box-shadow: 0 2px 5px rgba(0,0,0,0.15);">${initial}</div>
             </div>
             <div class="conv-details">
-                <div class="conv-name-row">
-                    <div class="conv-name">${channelBadge}${muteBadge}${escapeHtml(nameStr)}</div>
-                    <div class="conv-time">${c.formatted_time}</div>
+                <div class="conv-name-row" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
+                    <div style="display: flex; align-items: center; min-width: 0; flex: 1;">
+                        ${titleHtml}
+                    </div>
+                    <div class="conv-time" style="font-size: 0.65rem; color: var(--text-muted); flex-shrink: 0; margin-left: 6px;">${c.formatted_time}</div>
                 </div>
-                <div class="conv-preview-row">
-                    <div class="conv-preview" title="${escapeHtml(previewText)}">${escapeHtml(previewText)}</div>
+                <div class="conv-meta-row" style="display: flex; align-items: center; gap: 4px; margin-bottom: 3px; overflow: hidden;">
+                    ${metaHtml}
+                    ${channelBadge}
+                    ${muteBadge}
+                </div>
+                <div class="conv-preview-row" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                    <div class="conv-preview" title="${escapeHtml(previewText)}" style="flex: 1; min-width: 0; font-size: 0.74rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(previewText)}</div>
                     ${statusPill}
                 </div>
             </div>

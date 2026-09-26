@@ -35,7 +35,7 @@ if (!class_exists('TenantAwarePDO')) {
                         'message_logs', 'chat_conversations', 'merchant_waba_settings', 'bot_flows',
                         'renewals', 'invoices', 'lead_documents', 'broadcast_campaigns', 'campaign_audience',
                         'whatsapp_keyword_triggers', 'whatsapp_templates', 'notifications', 'activity_logs',
-                        'city_areas'
+                        'city_areas', 'system_notification_templates'
                     ];
 
                     foreach ($tables as $tbl) {
@@ -872,4 +872,66 @@ try {
     // Log exception for debugging (non-fatal)
     error_log("Database connection failure: " . $e->getMessage());
 }
+
+/**
+ * Global Helper to fetch, parse, and render automated system notification templates
+ */
+if (!function_exists('get_system_notification_template')) {
+    function get_system_notification_template($pdo, string $templateKey, array $vars = []): array {
+        $result = [
+            'found'         => false,
+            'is_active'     => true,
+            'whatsapp_body' => '',
+            'email_subject' => '',
+            'email_body'    => '',
+            'channel'       => 'whatsapp'
+        ];
+
+        if (!$pdo) {
+            return $result;
+        }
+
+        try {
+            $stmt = $pdo->prepare("SELECT * FROM system_notification_templates WHERE template_key = ? LIMIT 1");
+            $stmt->execute([$templateKey]);
+            $tpl = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($tpl) {
+                $result['found']     = true;
+                $result['is_active'] = (intval($tpl['is_active']) === 1);
+                $result['channel']   = $tpl['channel'] ?? 'whatsapp';
+
+                $wa = $tpl['whatsapp_body'] ?? '';
+                $es = $tpl['email_subject'] ?? '';
+                $eb = $tpl['email_body'] ?? '';
+
+                // Standard default fallbacks for common system variables
+                if (!isset($vars['helpline'])) {
+                    $vars['helpline'] = '7523830026 / 9170009697 / 9044345020';
+                }
+                if (!isset($vars['crm_link'])) {
+                    $vars['crm_link'] = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
+                }
+
+                // Replace variables (e.g. {client_name} -> John Doe)
+                foreach ($vars as $k => $v) {
+                    $valStr = (string)$v;
+                    $placeholder = '{' . trim($k, '{}') . '}';
+                    $wa = str_ireplace($placeholder, $valStr, $wa);
+                    $es = str_ireplace($placeholder, $valStr, $es);
+                    $eb = str_ireplace($placeholder, $valStr, $eb);
+                }
+
+                $result['whatsapp_body'] = $wa;
+                $result['email_subject'] = $es;
+                $result['email_body']    = $eb;
+                $result['title']         = $tpl['title'] ?? '';
+                $result['category']      = $tpl['category'] ?? '';
+            }
+        } catch (\Throwable $e) {}
+
+        return $result;
+    }
+}
+
 

@@ -31,7 +31,233 @@ if ($db_connected && $pdo) {
     ensureBotFlowsTable($pdo);
 }
 
-$action = $_GET['action'] ?? $_POST['action'] ?? 'list';
+/**
+ * Convert builder screens structure to standard Meta WhatsApp Flows JSON 6.0 format
+ */
+function convertScreensToMetaFlowJson(array $screens): array {
+    $metaScreens = [];
+    $total = count($screens);
+
+    foreach ($screens as $idx => $sc) {
+        $cleanId = preg_replace('/[^A-Za-z_]/', '', strtoupper(str_replace([' ', '-'], '_', $sc['id'] ?? 'SCREEN_' . $idx)));
+        if (empty($cleanId) || is_numeric($cleanId[0])) {
+            $cleanId = 'SCREEN_' . chr(65 + $idx);
+        }
+
+        $isTerminal = ($idx === $total - 1);
+        $formChildren = [];
+
+        // Title Heading
+        $titleText = !empty($sc['title']) ? $sc['title'] : (!empty($sc['name']) ? $sc['name'] : 'Welcome to Marg Soft');
+        $formChildren[] = [
+            'type' => 'TextHeading',
+            'text' => mb_substr($titleText, 0, 30)
+        ];
+
+        // Body Text
+        if (!empty($sc['body'])) {
+            $formChildren[] = [
+                'type' => 'TextBody',
+                'text' => mb_substr($sc['body'], 0, 4000)
+            ];
+        }
+
+        $payloadFields = [];
+
+        // Components
+        if (!empty($sc['components']) && is_array($sc['components'])) {
+            foreach ($sc['components'] as $cIdx => $c) {
+                $rawName = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '_', $c['label'] ?? 'field_' . $cIdx));
+                $fieldName = trim($rawName, '_');
+                if (empty($fieldName) || is_numeric($fieldName[0])) {
+                    $fieldName = 'f_' . ($cIdx + 1);
+                }
+                $label = !empty($c['label']) ? mb_substr($c['label'], 0, 30) : 'Field ' . ($cIdx + 1);
+                $required = !empty($c['required']);
+                $helper = !empty($c['helper']) ? mb_substr($c['helper'], 0, 80) : '';
+
+                $payloadFields[$fieldName] = "\${form.{$fieldName}}";
+
+                if ($c['type'] === 'Date Picker') {
+                    $formChildren[] = [
+                        'type' => 'DatePicker',
+                        'name' => $fieldName,
+                        'label' => $label,
+                        'required' => $required
+                    ];
+                } elseif ($c['type'] === 'Dropdown') {
+                    $formChildren[] = [
+                        'type' => 'Dropdown',
+                        'name' => $fieldName,
+                        'label' => $label,
+                        'required' => $required,
+                        'data-source' => [
+                            ['id' => 'opt_1', 'title' => 'Bill Format Issue'],
+                            ['id' => 'opt_2', 'title' => 'GST Error'],
+                            ['id' => 'opt_3', 'title' => 'Printer Setup']
+                        ]
+                    ];
+                } elseif ($c['type'] === 'Time Slot') {
+                    $formChildren[] = [
+                        'type' => 'Dropdown',
+                        'name' => $fieldName,
+                        'label' => $label,
+                        'required' => $required,
+                        'data-source' => [
+                            ['id' => 'slot_any', 'title' => 'Any Time (Flexible)'],
+                            ['id' => 'slot_1', 'title' => '10:00 AM - 12:00 PM'],
+                            ['id' => 'slot_2', 'title' => '12:00 PM - 02:00 PM'],
+                            ['id' => 'slot_3', 'title' => '02:00 PM - 04:00 PM'],
+                            ['id' => 'slot_4', 'title' => '04:00 PM - 06:00 PM']
+                        ]
+                    ];
+                } elseif ($c['type'] === 'Phone Number') {
+                    $fieldArr = [
+                        'type' => 'TextInput',
+                        'name' => $fieldName,
+                        'input-type' => 'phone',
+                        'label' => $label,
+                        'required' => $required
+                    ];
+                    if ($helper) $fieldArr['helper-text'] = $helper;
+                    $formChildren[] = $fieldArr;
+                } elseif ($c['type'] === 'Text Area') {
+                    $fieldArr = [
+                        'type' => 'TextArea',
+                        'name' => $fieldName,
+                        'label' => $label,
+                        'required' => $required
+                    ];
+                    if ($helper) $fieldArr['helper-text'] = $helper;
+                    $formChildren[] = $fieldArr;
+                } else {
+                    $fieldArr = [
+                        'type' => 'TextInput',
+                        'name' => $fieldName,
+                        'label' => $label,
+                        'required' => $required
+                    ];
+                    if ($helper) $fieldArr['helper-text'] = $helper;
+                    $formChildren[] = $fieldArr;
+                }
+            }
+        }
+
+        // Footer Button
+        $footerLabel = !empty($sc['footer_label']) ? mb_substr($sc['footer_label'], 0, 30) : 'Submit';
+        if ($isTerminal) {
+            $formChildren[] = [
+                'type' => 'Footer',
+                'label' => $footerLabel,
+                'on-click-action' => [
+                    'name' => 'complete',
+                    'payload' => (object)$payloadFields
+                ]
+            ];
+        } else {
+            $nextCleanId = 'SCREEN_' . chr(65 + $idx + 1);
+            $formChildren[] = [
+                'type' => 'Footer',
+                'label' => $footerLabel,
+                'on-click-action' => [
+                    'name' => 'navigate',
+                    'next' => [
+                        'type' => 'screen',
+                        'name' => $nextCleanId
+                    ],
+                    'payload' => (object)$payloadFields
+                ]
+            ];
+        }
+
+        $screenObj = [
+            'id' => $cleanId,
+            'title' => mb_substr($titleText, 0, 30),
+            'data' => new stdClass(),
+            'layout' => [
+                'type' => 'SingleColumnLayout',
+                'children' => [
+                    [
+                        'type' => 'Form',
+                        'name' => 'flow_form_' . strtolower($cleanId),
+                        'children' => $formChildren
+                    ]
+                ]
+            ]
+        ];
+
+        if ($isTerminal) {
+            $screenObj['terminal'] = true;
+            $screenObj['success'] = true;
+        }
+
+        $metaScreens[] = $screenObj;
+    }
+
+    return [
+        'version' => '6.0',
+        'screens' => $metaScreens
+    ];
+}
+
+/**
+ * Upload Flow JSON asset and publish directly to Meta WhatsApp Manager
+ */
+function syncFlowScreensToMeta($flowId, array $screens, $token): array {
+    if (empty($screens)) {
+        return ['success' => false, 'message' => 'No screens defined'];
+    }
+
+    $flowJson = convertScreensToMetaFlowJson($screens);
+    $tmpFile = tempnam(sys_get_temp_dir(), 'flow_') . '.json';
+    file_put_contents($tmpFile, json_encode($flowJson, JSON_PRETTY_PRINT));
+
+    // Upload Asset
+    $urlAsset = "https://graph.facebook.com/v20.0/{$flowId}/assets";
+    $ch = curl_init($urlAsset);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, [
+        'name' => 'flow.json',
+        'asset_type' => 'FLOW_JSON',
+        'file' => new CURLFile($tmpFile, 'application/json', 'flow.json')
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $resAsset = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    @unlink($tmpFile);
+
+    $assetData = json_decode($resAsset, true) ?? [];
+    if (empty($assetData['success'])) {
+        $err = !empty($assetData['validation_errors'][0]['message']) 
+            ? $assetData['validation_errors'][0]['message'] 
+            : ($assetData['error']['message'] ?? 'Asset upload failed on Meta');
+        return ['success' => false, 'message' => $err, 'details' => $assetData];
+    }
+
+    // Publish Flow
+    $urlPub = "https://graph.facebook.com/v20.0/{$flowId}/publish";
+    $chP = curl_init($urlPub);
+    curl_setopt($chP, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+    curl_setopt($chP, CURLOPT_POST, true);
+    curl_setopt($chP, CURLOPT_RETURNTRANSFER, true);
+    $resPub = curl_exec($chP);
+    curl_close($chP);
+
+    $pubData = json_decode($resPub, true) ?? [];
+    return [
+        'success' => true,
+        'asset' => $assetData,
+        'published' => !empty($pubData['success'])
+    ];
+}
+
+$rawInput = file_get_contents('php://input');
+$jsonInput = !empty($rawInput) ? json_decode($rawInput, true) : null;
+$inputData = is_array($jsonInput) ? array_merge($_POST, $jsonInput) : $_POST;
+
+$action = $_GET['action'] ?? $inputData['action'] ?? 'list';
 
 switch ($action) {
 
@@ -174,32 +400,59 @@ switch ($action) {
             exit;
         }
         
-        $raw = file_get_contents('php://input');
-        $input = json_decode($raw, true) ?: $_POST;
+        $input = $inputData;
         
         $flow_id = trim($input['flow_id'] ?? '');
         $name = trim($input['name'] ?? 'New Flow');
-        $category = trim($input['category'] ?? 'SIGN IN');
-        $status = trim($input['status'] ?? 'PUBLISHED');
+        $category = trim($input['category'] ?? 'LEAD_GENERATION');
+        $status = 'PUBLISHED';
         $screens = $input['screens'] ?? [];
         $screens_json = is_array($screens) ? json_encode($screens) : $screens;
-        
-        if (empty($flow_id)) {
-            // Attempt to create Flow on Meta WhatsApp Manager via Graph API
-            try {
-                require_once __DIR__ . '/whatsapp-api.php';
-                $whatsapp = new WhatsAppAPI($pdo);
-                $metaRes = $whatsapp->createMetaFlow($name, [strtoupper(str_replace(' ', '_', $category))]);
-                if (!empty($metaRes['flow_id'])) {
-                    $flow_id = $metaRes['flow_id'];
-                } else {
-                    $flow_id = date('Ymd') . rand(100000, 999999);
+
+        // Fetch WABA credentials
+        $stmtW = $pdo->query("SELECT waba_id, access_token FROM merchant_waba_settings WHERE access_token != '' AND waba_id != '' ORDER BY (CASE WHEN waba_id != '1363197648586760' THEN 1 ELSE 2 END) LIMIT 1");
+        $waba = $stmtW ? $stmtW->fetch(PDO::FETCH_ASSOC) : null;
+        $wabaId = $waba['waba_id'] ?? '';
+        $token = $waba['access_token'] ?? '';
+
+        // Category mapping for Meta
+        $catMeta = strtoupper(str_replace(' ', '_', $category));
+        if (!in_array($catMeta, ['SIGN_IN', 'LEAD_GENERATION', 'CUSTOMER_SUPPORT', 'SURVEY', 'OTHER'])) {
+            $catMeta = 'LEAD_GENERATION';
+        }
+
+        // If flow_id is empty or not numeric, it does not exist on Meta yet - create it on Meta!
+        if (empty($flow_id) || !is_numeric($flow_id)) {
+            if (!empty($wabaId) && !empty($token)) {
+                $urlCreate = "https://graph.facebook.com/v20.0/{$wabaId}/flows";
+                $ch = curl_init($urlCreate);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token, 'Content-Type: application/json']);
+                curl_setopt($ch, CURLOPT_POST, true);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+                    'name' => $name,
+                    'categories' => [$catMeta]
+                ]));
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                $resCreate = json_decode(curl_exec($ch), true);
+                curl_close($ch);
+
+                if (!empty($resCreate['id'])) {
+                    $flow_id = $resCreate['id'];
                 }
-            } catch (Throwable $eMeta) {
-                $flow_id = date('Ymd') . rand(100000, 999999);
             }
         }
-        
+
+        // Fallback if still empty
+        if (empty($flow_id)) {
+            $flow_id = date('Ymd') . rand(100000, 999999);
+        }
+
+        // Push screens & publish to Meta WhatsApp Manager
+        $metaSyncResult = null;
+        if (is_numeric($flow_id) && !empty($token) && is_array($screens) && !empty($screens)) {
+            $metaSyncResult = syncFlowScreensToMeta($flow_id, $screens, $token);
+        }
+
         try {
             // Check existing
             $stmtChk = $pdo->prepare("SELECT id FROM bot_flows WHERE flow_id = ?");
@@ -207,14 +460,16 @@ switch ($action) {
             $existId = $stmtChk->fetchColumn();
             
             if ($existId) {
-                $stmtUpd = $pdo->prepare("UPDATE bot_flows SET name = ?, category = ?, status = ?, screens_json = ? WHERE id = ?");
-                $stmtUpd->execute([$name, $category, $status, $screens_json, $existId]);
-                echo json_encode(['success' => true, 'message' => 'Flow saved & updated successfully!', 'flow_id' => $flow_id, 'id' => $existId]);
+                $stmtUpd = $pdo->prepare("UPDATE bot_flows SET name = ?, category = ?, status = 'PUBLISHED', screens_json = ? WHERE id = ?");
+                $stmtUpd->execute([$name, $category, $screens_json, $existId]);
+                $msg = 'Flow screens saved and published directly on Meta WhatsApp Manager!';
+                echo json_encode(['success' => true, 'message' => $msg, 'flow_id' => $flow_id, 'id' => $existId, 'meta' => $metaSyncResult]);
             } else {
-                $stmtIns = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status, screens_json) VALUES (?, ?, ?, ?, ?)");
-                $stmtIns->execute([$flow_id, $name, $category, $status, $screens_json]);
+                $stmtIns = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status, screens_json) VALUES (?, ?, ?, 'PUBLISHED', ?)");
+                $stmtIns->execute([$flow_id, $name, $category, $screens_json]);
                 $newId = $pdo->lastInsertId();
-                echo json_encode(['success' => true, 'message' => 'Flow created & registered on Meta successfully!', 'flow_id' => $flow_id, 'id' => $newId]);
+                $msg = 'Flow created & published directly on Meta WhatsApp Manager!';
+                echo json_encode(['success' => true, 'message' => $msg, 'flow_id' => $flow_id, 'id' => $newId, 'meta' => $metaSyncResult]);
             }
         } catch (PDOException $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);

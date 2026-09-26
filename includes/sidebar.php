@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/config.php';
 $role = $_SESSION['user_role'] ?? '';
+$is_admin = ($role === 'Super Admin' || $role === 'Admin');
 $is_tenant_session = (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata')) || !empty($_SESSION['impersonate_tenant_db']) || ($role === 'Tenant Admin') || (($_SESSION['login_source'] ?? '') === 'tenant_companies');
 $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] ?? 'Marg ERP WABA';
 ?>
@@ -71,6 +72,15 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             <a href="index.php?page=clients">
                                 <i data-lucide="building-2" style="width: 18px; height: 18px;"></i>
                                 <span>Clients Directory</span>
+                            </a>
+                        </li>
+                    <?php endif; ?>
+                    <?php if (hasAccess('sub_partners', $role) || $is_admin): ?>
+                        <li class="sidebar-item <?php echo isActivePage('sub_partners') ? 'active' : ''; ?>">
+                            <a href="index.php?page=sub_partners">
+                                <i data-lucide="handshake" style="width: 18px; height: 18px; color: #6366f1;"></i>
+                                <span>Sub Partners</span>
+                                <span class="badge" style="margin-left: auto; background: rgba(99, 102, 241, 0.15); color: #6366f1; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">PARTNERS</span>
                             </a>
                         </li>
                     <?php endif; ?>
@@ -219,6 +229,15 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             </a>
                         </li>
                     <?php endif; ?>
+                    <?php if (hasAccess('notification_templates', $role) || $is_admin): ?>
+                        <li class="sidebar-item <?php echo isActivePage('notification_templates') ? 'active' : ''; ?>">
+                            <a href="index.php?page=notification_templates">
+                                <i data-lucide="bell-ring" style="width: 18px; height: 18px; color: #f59e0b;"></i>
+                                <span>Auto Notification Messages</span>
+                                <span class="badge" style="margin-left: auto; background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">AUTO</span>
+                            </a>
+                        </li>
+                    <?php endif; ?>
                     <?php if (hasAccess('bot_flows', $role) || hasAccess('whatsapp_flows', $role)): ?>
                         <li class="sidebar-item <?php echo (isActivePage('bot_flows') || isActivePage('bot_flow_builder')) ? 'active' : ''; ?>">
                             <a href="index.php?page=bot_flows">
@@ -306,6 +325,14 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                         <a href="index.php?page=clients">
                             <i data-lucide="building-2" style="width: 18px; height: 18px;"></i>
                             <span>Clients Directory</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if (hasAccess('sub_partners', $role) || $is_admin): ?>
+                    <li class="sidebar-item <?php echo isActivePage('sub_partners') ? 'active' : ''; ?>">
+                        <a href="index.php?page=sub_partners">
+                            <i data-lucide="handshake" style="width: 18px; height: 18px; color: #6366f1;"></i>
+                            <span>Sub Partners</span>
                         </a>
                     </li>
                 <?php endif; ?>
@@ -444,6 +471,16 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             <i data-lucide="send" style="width: 18px; height: 18px;"></i>
                             <span>WhatsApp Campaigns</span>
                             <span class="badge" style="margin-left: auto; background: #3b82f6; color: white; font-size: 0.65rem;">NEW</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <?php if (hasAccess('notification_templates', $role) || $is_admin): ?>
+                    <li class="sidebar-item <?php echo isActivePage('notification_templates') ? 'active' : ''; ?>">
+                        <a href="index.php?page=notification_templates">
+                            <i data-lucide="bell-ring" style="width: 18px; height: 18px; color: #f59e0b;"></i>
+                            <span>Auto Notification Messages</span>
+                            <span class="badge" style="margin-left: auto; background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">AUTO</span>
                         </a>
                     </li>
                 <?php endif; ?>

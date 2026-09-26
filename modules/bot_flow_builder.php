@@ -6,7 +6,12 @@
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
 
-$flow_id = trim($_GET['q'] ?? $_GET['id'] ?? FLOW_ID);
+$raw_q = trim($_GET['q'] ?? $_GET['id'] ?? '');
+if ($raw_q === 'undefined' || empty($raw_q)) {
+    $flow_id = 'flow_' . time();
+} else {
+    $flow_id = $raw_q;
+}
 
 // Initial default fallback data
 $flowData = [
@@ -349,6 +354,33 @@ input:checked + .slider:before {
     font-size: 0.88rem;
     margin-top: 0.5rem;
 }
+
+/* Suppress CRM quick date chips inside Phone Simulator */
+.phone-mockup-frame .quick-dt-presets-container,
+.builder-card .quick-dt-presets-container,
+#previewFieldsContainer .quick-dt-presets-container {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+.wa-genuine-date-input {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border-radius: 8px;
+    border: 1.5px solid #d1d5db;
+    font-size: 0.82rem;
+    background: #ffffff;
+    box-sizing: border-box;
+    color: #1f2937;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+.wa-genuine-date-input:focus {
+    border-color: #00a884;
+    outline: none;
+}
 </style>
 
 <div class="flow-builder-wrapper">
@@ -468,7 +500,10 @@ input:checked + .slider:before {
                 <!-- Add Component Field Selector -->
                 <div style="display: flex; gap: 0.5rem; margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.85rem;">
                     <select id="addFieldTypeSelect" class="input-styled text-xs" style="flex: 1;">
+                        <option value="Date Picker">📅 Date Picker (Calendar Selection)</option>
+                        <option value="Time Slot">⏰ Time Slot (Dropdown Choice)</option>
                         <option value="Short Answer">Short Answer (Single Line Text)</option>
+                        <option value="Phone Number">📞 Phone / Mobile Number</option>
                         <option value="Dropdown">Dropdown (Choice List)</option>
                         <option value="Text Area">Text Area (Multi-line Text)</option>
                     </select>
@@ -688,6 +723,35 @@ function renderLivePhonePreview(screen) {
                         <option>Printer Setup</option>
                     </select>
                 `;
+            } else if (comp.type === 'Time Slot') {
+                f.innerHTML = `
+                    <label class="preview-field-label">${labelText} ${reqStar}</label>
+                    <select class="preview-field-input">
+                        <option value="">Select preferred time...</option>
+                        <option>Any Time (Flexible)</option>
+                        <option>10:00 AM - 12:00 PM</option>
+                        <option>12:00 PM - 02:00 PM</option>
+                        <option>02:00 PM - 04:00 PM</option>
+                        <option>04:00 PM - 06:00 PM</option>
+                    </select>
+                `;
+            } else if (comp.type === 'Date Picker') {
+                const todayStr = new Date().toISOString().split('T')[0];
+                f.innerHTML = `
+                    <label class="preview-field-label">${labelText} ${reqStar}</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="date" class="wa-genuine-date-input no-quick" data-no-quick="true" value="${todayStr}" style="padding-right: 32px;">
+                        <i data-lucide="calendar" style="position: absolute; right: 10px; width: 15px; height: 15px; color: #00a884; pointer-events: none;"></i>
+                    </div>
+                `;
+            } else if (comp.type === 'Phone Number') {
+                f.innerHTML = `
+                    <label class="preview-field-label">${labelText} ${reqStar}</label>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <span style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 0.72rem; font-weight: 700; color: #475569;">+91</span>
+                        <input type="tel" class="preview-field-input" style="flex: 1;" placeholder="${escapeHtml(comp.helper || '9876543210')}">
+                    </div>
+                `;
             } else if (comp.type === 'Text Area') {
                 f.innerHTML = `
                     <label class="preview-field-label">${labelText} ${reqStar}</label>
@@ -701,6 +765,8 @@ function renderLivePhonePreview(screen) {
             }
             fieldsContainer.appendChild(f);
         });
+        fieldsContainer.querySelectorAll('.quick-dt-presets-container').forEach(el => el.remove());
+        if (window.lucide) lucide.createIcons();
     } else {
         fieldsContainer.innerHTML = '<div style="font-size: 0.75rem; color: #888; text-align: center; padding: 0.5rem;">No form fields added yet.</div>';
     }
@@ -770,11 +836,30 @@ function addNewComponentField() {
         currentFlow.screens[activeScreenIndex].components = [];
     }
 
+    let defaultLabel = 'Short Answer';
+    let defaultHelper = '';
+    if (type === 'Date Picker') {
+        defaultLabel = 'Preferred Demo Date';
+        defaultHelper = 'Select suitable date';
+    } else if (type === 'Time Slot') {
+        defaultLabel = 'Preferred Time Slot';
+        defaultHelper = 'Choose suitable time';
+    } else if (type === 'Phone Number') {
+        defaultLabel = 'Contact Mobile';
+        defaultHelper = '9876543210';
+    } else if (type === 'Dropdown') {
+        defaultLabel = 'Select Service';
+        defaultHelper = '';
+    } else if (type === 'Text Area') {
+        defaultLabel = 'Requirements / Note';
+        defaultHelper = 'Type any specific requirements...';
+    }
+
     currentFlow.screens[activeScreenIndex].components.push({
         id: 'c_' + Date.now(),
         type: type,
-        label: type === 'Dropdown' ? 'Bill Format Issue' : (type === 'Text Area' ? 'Problem Description' : 'Short Answer'),
-        helper: '',
+        label: defaultLabel,
+        helper: defaultHelper,
         required: false
     });
 
@@ -807,6 +892,13 @@ function saveFlowData(isPreview) {
         screens: currentFlow.screens
     };
 
+    const saveBtns = document.querySelectorAll('button[onclick^="saveFlowData"]');
+    saveBtns.forEach(b => {
+        b.disabled = true;
+        b.dataset.origHtml = b.innerHTML;
+        b.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:12px;height:12px;border-width:2px;"></span> Publishing to Meta...';
+    });
+
     fetch('api/bot_flows.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -814,16 +906,34 @@ function saveFlowData(isPreview) {
     })
     .then(res => res.json())
     .then(data => {
+        saveBtns.forEach(b => {
+            b.disabled = false;
+            if (b.dataset.origHtml) b.innerHTML = b.dataset.origHtml;
+        });
+        if (window.lucide) lucide.createIcons();
+
         if (data.success) {
-            alert('Meta Flow configuration saved successfully!');
+            if (data.flow_id) {
+                currentFlow.flow_id = data.flow_id;
+                const newUrl = 'index.php?page=bot_flow_builder&q=' + encodeURIComponent(data.flow_id);
+                window.history.replaceState({ path: newUrl }, '', newUrl);
+            }
+            alert('Success! ' + (data.message || 'Flow configuration published directly on Meta WhatsApp Manager!') + '\n\nMeta Flow ID: ' + (data.flow_id || currentFlow.flow_id));
             if (isPreview) {
                 window.location.href = 'index.php?page=bot_flows';
             }
         } else {
-            alert('Save failed: ' + (data.message || 'Error'));
+            alert('Save failed: ' + (data.message || 'Error occurred while saving to Meta'));
         }
     })
-    .catch(err => alert('Save error: ' + err));
+    .catch(err => {
+        saveBtns.forEach(b => {
+            b.disabled = false;
+            if (b.dataset.origHtml) b.innerHTML = b.dataset.origHtml;
+        });
+        if (window.lucide) lucide.createIcons();
+        alert('Save error: ' + err);
+    });
 }
 
 function escapeHtml(str) {

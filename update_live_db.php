@@ -200,9 +200,10 @@ if ($db_connected && $pdo) {
             ai_model VARCHAR(50) DEFAULT 'gemini-1.5-flash',
             system_prompt LONGTEXT NULL,
             knowledge_base LONGTEXT NULL,
-            pricing_basic VARCHAR(50) DEFAULT '₹8,999 + 18% GST',
-            pricing_silver VARCHAR(50) DEFAULT '₹12,600 + 18% GST',
-            pricing_gold VARCHAR(50) DEFAULT '₹25,200 + 18% GST',
+            pricing_nano VARCHAR(50) DEFAULT '₹5,550 + 18% GST',
+            pricing_basic VARCHAR(50) DEFAULT '₹10,300 + 18% GST',
+            pricing_silver VARCHAR(50) DEFAULT '₹13,900 + 18% GST',
+            pricing_gold VARCHAR(50) DEFAULT '₹26,000 + 18% GST',
             show_sales_chats_in_inbox TINYINT(1) DEFAULT 1,
             mute_on_human_reply TINYINT(1) DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -212,9 +213,9 @@ if ($db_connected && $pdo) {
         // Insert default AI Bot Settings row if not exists
         $checkSettings = $pdo->query("SELECT id FROM ai_bot_settings WHERE id = 1")->fetchColumn();
         if (!$checkSettings) {
-            $defaultSysPrompt = "You are the official WhatsApp AI Sales Assistant for Marg Soft Solution (Marg ERP). You speak in polite, professional Hinglish. You answer customer questions about Marg ERP, explain features, and guide them to schedule a free demo. Strict rules: Never offer unauthorized discounts; Marg Basic is ₹8,999, Silver is ₹12,600, Gold is ₹25,200 (+18% GST). Never badmouth competitors. If customer asks for technical support or reports a bug/error, politely advise them to click Support so engineers can connect. Always keep replies short and WhatsApp friendly (under 80 words).";
+            $defaultSysPrompt = "You are the official WhatsApp AI Sales Assistant for Marg Soft Solution (Marg ERP). You speak in polite, professional Hinglish. You answer customer questions about Marg ERP, explain features, and guide them to schedule a free demo. Strict rules: Never offer unauthorized discounts; Marg Nano is ₹5,550, Basic is ₹10,300, Silver is ₹13,900, Gold is ₹26,000 (+18% GST). Never badmouth competitors. If customer asks for technical support or reports a bug/error, politely resolve it or advise them to click Support so engineers can connect. Always keep replies short and WhatsApp friendly (under 80 words).";
             $defaultKb = "Marg ERP 9+ is India's #1 Pharma & Retail ERP. 60%+ pharmaceutical businesses in India use Marg. Key features: 7-second billing, Batch & Expiry management, Near-expiry alerts, 100% GST compliant invoicing, WhatsApp bill delivery, Barcode scanning, Auto purchase import from distributor CSV, Multi-rate pricing, Fast audit reports.";
-            $insSetting = $pdo->prepare("INSERT INTO ai_bot_settings (id, bot_enabled, ai_provider, ai_model, system_prompt, knowledge_base, pricing_basic, pricing_silver, pricing_gold, show_sales_chats_in_inbox, mute_on_human_reply) VALUES (1, 1, 'gemini', 'gemini-1.5-flash', ?, ?, '₹8,999 + 18% GST', '₹12,600 + 18% GST', '₹25,200 + 18% GST', 1, 1)");
+            $insSetting = $pdo->prepare("INSERT INTO ai_bot_settings (id, bot_enabled, ai_provider, ai_model, system_prompt, knowledge_base, pricing_nano, pricing_basic, pricing_silver, pricing_gold, show_sales_chats_in_inbox, mute_on_human_reply) VALUES (1, 1, 'gemini', 'gemini-1.5-flash', ?, ?, '₹5,550 + 18% GST', '₹10,300 + 18% GST', '₹13,900 + 18% GST', '₹26,000 + 18% GST', 1, 1)");
             $insSetting->execute([$defaultSysPrompt, $defaultKb]);
             $results[] = ["status" => "success", "msg" => "Initialized default 'ai_bot_settings' configuration."];
         } else {

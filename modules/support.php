@@ -392,14 +392,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         }
 
                         $nowStr = date('d M Y, h:i A');
-                        $takeMsg = "*Support Ticket Accepted*\n\n" .
-                                   "*Ticket ID:* #{$ticketId}\n" .
-                                   "*Client:* {$clientInfo}\n" .
-                                   "*Status:* In Progress\n" .
-                                   "*Assigned Engineer:* {$currentUserName}\n" .
-                                   "*Time:* {$nowStr}\n\n" .
-                                   "*{$currentUserName}* has accepted this ticket and initiated technical support.";
-                        $whatsappObj->sendText($empDropPhone, $takeMsg);
+                        $tplDataTk = get_system_notification_template($pdo, 'ticket_accepted_agent', [
+                            'ticket_id'         => $ticketId,
+                            'client_info'       => $clientInfo,
+                            'assigned_engineer' => $currentUserName,
+                            'updated_at'        => $nowStr
+                        ]);
+
+                        if (!$tplDataTk['found'] || $tplDataTk['is_active']) {
+                            $takeMsg = !empty($tplDataTk['whatsapp_body']) ? $tplDataTk['whatsapp_body'] : (
+                                "*Support Ticket Accepted*\n\n" .
+                                "*Ticket ID:* #{$ticketId}\n" .
+                                "*Client:* {$clientInfo}\n" .
+                                "*Status:* In Progress\n" .
+                                "*Assigned Engineer:* {$currentUserName}\n" .
+                                "*Time:* {$nowStr}\n\n" .
+                                "*{$currentUserName}* has accepted this ticket and initiated technical support."
+                            );
+                            $whatsappObj->sendText($empDropPhone, $takeMsg);
+                        }
                     } catch (Throwable $eWa) {
                         write_log('error', "Failed sending team agent take update: " . $eWa->getMessage());
                     }
@@ -891,16 +902,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                             if ($status === 'resolved' || $status === 'closed') {
                                 if ($orig['status'] !== $status) {
-                                    $resNote = !empty($resolution) ? $resolution : "Issue resolved successfully.";
-                                    $empClosureMsg = "✅ *Support Ticket Resolved*\n\n" .
-                                                     "*Ticket ID:* #{$ticketId}\n" .
-                                                     "*Client:* {$clientInfo}\n" .
-                                                     "*Status:* Resolved & Closed\n" .
-                                                     "*Resolved By:* {$techAgentName}\n" .
-                                                     "*Solution:* {$resNote}\n" .
-                                                     "*Closed At:* {$nowStr}\n\n" .
-                                                     "The service request has been successfully closed.";
-                                    $whatsappObj->sendText($empDropPhone, $empClosureMsg);
+                                    $tplDataCl = get_system_notification_template($pdo, 'ticket_resolved_agent', [
+                                        'ticket_id'         => $ticketId,
+                                        'client_info'       => $clientInfo,
+                                        'assigned_engineer' => $techAgentName,
+                                        'solution'          => $resNote,
+                                        'closed_at'         => $nowStr
+                                    ]);
+
+                                    if (!$tplDataCl['found'] || $tplDataCl['is_active']) {
+                                        $empClosureMsg = !empty($tplDataCl['whatsapp_body']) ? $tplDataCl['whatsapp_body'] : (
+                                            "✅ *Support Ticket Resolved*\n\n" .
+                                            "*Ticket ID:* #{$ticketId}\n" .
+                                            "*Client:* {$clientInfo}\n" .
+                                            "*Status:* Resolved & Closed\n" .
+                                            "*Resolved By:* {$techAgentName}\n" .
+                                            "*Solution:* {$resNote}\n" .
+                                            "*Closed At:* {$nowStr}\n\n" .
+                                            "The service request has been successfully closed."
+                                        );
+                                        $whatsappObj->sendText($empDropPhone, $empClosureMsg);
+                                    }
                                 }
                             } else {
                                 // Status changed (e.g. Call Back, In Progress, Follow-up) OR new remarks/resolution updated
@@ -910,14 +932,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 if ($statusChanged || $remarksChanged) {
                                     $statusLabel = ucwords(str_replace('_', ' ', $status));
                                     $resNote = !empty($resolution) ? $resolution : (!empty($problem) ? $problem : "Status updated by technician.");
-                                    $empUpdateMsg = "📌 *Support Ticket Update*\n\n" .
-                                                    "*Ticket ID:* #{$ticketId}\n" .
-                                                    "*Client:* {$clientInfo}\n" .
-                                                    "*Current Status:* {$statusLabel}\n" .
-                                                    "*Handled By:* {$techAgentName}\n" .
-                                                    "*Remarks:* {$resNote}\n" .
-                                                    "*Time:* {$nowStr}";
-                                    $whatsappObj->sendText($empDropPhone, $empUpdateMsg);
+                                    
+                                    $tplDataUp = get_system_notification_template($pdo, 'ticket_update_agent', [
+                                        'ticket_id'         => $ticketId,
+                                        'client_info'       => $clientInfo,
+                                        'status'            => $statusLabel,
+                                        'assigned_engineer' => $techAgentName,
+                                        'solution'          => $resNote,
+                                        'updated_at'        => $nowStr
+                                    ]);
+
+                                    if (!$tplDataUp['found'] || $tplDataUp['is_active']) {
+                                        $empUpdateMsg = !empty($tplDataUp['whatsapp_body']) ? $tplDataUp['whatsapp_body'] : (
+                                            "📌 *Support Ticket Update*\n\n" .
+                                            "*Ticket ID:* #{$ticketId}\n" .
+                                            "*Client:* {$clientInfo}\n" .
+                                            "*Current Status:* {$statusLabel}\n" .
+                                            "*Handled By:* {$techAgentName}\n" .
+                                            "*Remarks:* {$resNote}\n" .
+                                            "*Time:* {$nowStr}"
+                                        );
+                                        $whatsappObj->sendText($empDropPhone, $empUpdateMsg);
+                                    }
                                 }
                             }
                         } catch (Throwable $eWaEmp) {
@@ -951,20 +987,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                                 $finalSolution = !empty($resolution) ? $resolution : (!empty($orig['resolution']) ? $orig['resolution'] : "Problem successfully resolved by support engineer.");
 
-                                $resMsg = "*Support Ticket Resolved*\n\n" .
-                                          "Dear *{$clientNameVal}*,\n" .
-                                          "Your technical support ticket *#{$ticketId}* has been successfully resolved.\n\n" .
-                                          " *Ticket Summary:*\n" .
-                                          "• *Ticket ID:* #{$ticketId}\n" .
-                                          "• *Engineer:* {$techAgentName} (Technical Support)\n" .
-                                          "• *Resolution / Solution:* {$finalSolution}\n" .
-                                          "• *Closed At:* {$nowStr}\n\n" .
-                                          "──────────────────────────\n" .
-                                          "*महत्वपूर्ण सुझाव (Priority Support Tip):*\n" .
-                                          "भविष्य में अपनी समस्या के सबसे तेज़ और प्राथमिकता समाधान के लिए, कृपया इसी WhatsApp नंबर पर *\"Hi\"* या *\"Support\"* लिखकर अपनी टिकट दर्ज करें। हमारी टेक्निकल टीम तुरंत आपसे कनेक्ट होकर समस्या हल करेगी।\n\n" .
-                                          "Thank you for choosing *Marg Soft Solution*!";
+                                $tplData = get_system_notification_template($pdo, 'ticket_resolved', [
+                                    'client_name'       => $clientNameVal,
+                                    'ticket_id'         => $ticketId,
+                                    'assigned_engineer' => $techAgentName,
+                                    'solution'          => $finalSolution,
+                                    'closed_at'         => $nowStr
+                                ]);
 
-                                $whatsappObj->sendText($custPhone, $resMsg);
+                                if (!$tplData['found'] || $tplData['is_active']) {
+                                    $resMsg = !empty($tplData['whatsapp_body']) ? $tplData['whatsapp_body'] : (
+                                        "*Support Ticket Resolved*\n\n" .
+                                        "Dear *{$clientNameVal}*,\n" .
+                                        "Your technical support ticket *#{$ticketId}* has been successfully resolved.\n\n" .
+                                        " *Ticket Summary:*\n" .
+                                        "• *Ticket ID:* #{$ticketId}\n" .
+                                        "• *Engineer:* {$techAgentName} (Technical Support)\n" .
+                                        "• *Resolution / Solution:* {$finalSolution}\n" .
+                                        "• *Closed At:* {$nowStr}\n\n" .
+                                        "──────────────────────────\n" .
+                                        "*महत्वपूर्ण सुझाव (Priority Support Tip):*\n" .
+                                        "भविष्य में अपनी समस्या के सबसे तेज़ और प्राथमिकता समाधान के लिए, कृपया इसी WhatsApp नंबर पर *\"Hi\"* या *\"Support\"* लिखकर अपनी टिकट दर्ज करें। हमारी टेक्निकल टीम तुरंत आपसे कनेक्ट होकर समस्या हल करेगी।\n\n" .
+                                        "Thank you for choosing *Marg Soft Solution*!"
+                                    );
+
+                                    $whatsappObj->sendText($custPhone, $resMsg);
+                                }
                             }
                         } catch (Throwable $eWa) {
                             write_log('error', "Failed sending customer resolution WhatsApp message: " . $eWa->getMessage());

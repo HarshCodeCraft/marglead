@@ -704,8 +704,14 @@ if ($db_connected && $pdo) {
                             $qrData = "tel:" . (!empty($cleanMobile) ? ((strlen($cleanMobile) == 10) ? "+91" . $cleanMobile : "+" . $cleanMobile) : "0000000000");
                             $qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=" . urlencode($qrData);
                             
-                            // WhatsApp Reminder Pre-filled Message
-                            $waMsg = "Dear " . $partyName . ", your Marg ERP License (" . $customerID . ") renewal due date is " . (!empty($dueOn) ? date('d M, Y', strtotime($dueOn)) : 'N/A') . ". Kindly renew your subscription/AMC to ensure uninterrupted services. - Marg Soft Solution (7523830026)";
+                            // WhatsApp Reminder Pre-filled Message from centralized templates
+                            $tplRen = get_system_notification_template($pdo, 'amc_renewal_reminder', [
+                                'party_name'  => $partyName,
+                                'customer_id' => $customerID,
+                                'due_date'    => (!empty($dueOn) ? date('d M, Y', strtotime($dueOn)) : 'N/A'),
+                                'helpline'    => '7523830026'
+                            ]);
+                            $waMsg = !empty($tplRen['whatsapp_body']) ? $tplRen['whatsapp_body'] : ("Dear " . $partyName . ", your Marg ERP License (" . $customerID . ") renewal due date is " . (!empty($dueOn) ? date('d M, Y', strtotime($dueOn)) : 'N/A') . ". Kindly renew your subscription/AMC to ensure uninterrupted services. - Marg Soft Solution (7523830026)");
                             $waUrl = "https://wa.me/" . ((strlen($cleanMobile) == 10) ? "91" . $cleanMobile : $cleanMobile) . "?text=" . urlencode($waMsg);
                             ?>
                             <tr>
