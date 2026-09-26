@@ -207,7 +207,9 @@ $secureInvoiceHash = substr(hash('sha256', $safeBillNo . '_' . $phoneDigits . '_
 $secureFolder = $safeBillNo . '_' . $secureInvoiceHash;
 
 // Upload Directory Setup with Cryptographically Secure Subfolder
-$baseUrl = (!empty($_SERVER['HTTPS']) ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST']);
+$host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : (defined('BASE_URL') ? parse_url(BASE_URL, PHP_URL_HOST) : 'friendlyaisolution.com');
+$protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'https://';
+$baseUrl = $protocol . $host;
 $baseUploadsDir = __DIR__ . '/../uploads/invoices/';
 $billFolder = $baseUploadsDir . $secureFolder . '/';
 
@@ -238,6 +240,7 @@ if (!$pdfDownloadUrl) {
 $bankDetails = null;
 $tenantId = (int)($merchant['user_id'] ?? 0);
 $tenantCompany = null;
+$prefix = '';
 
 if ($tenantId > 0) {
     try {
@@ -295,42 +298,132 @@ $bankAccNo = !empty($bankDetails['account_number']) ? $bankDetails['account_numb
 $bankBranch = !empty($bankDetails['branch']) ? $bankDetails['branch'] : '-';
 $bankIfsc = !empty($bankDetails['ifsc_code']) ? $bankDetails['ifsc_code'] : '-';
 
-// Build Complete Dynamic Bill Confirmation Message Text
-$fullBillMessage = "From: *" . $firmDisplay . "*\n";
-$fullBillMessage .= "Subject: *Sale Bill Confirmation*\n\n";
-$fullBillMessage .= "Dear *" . $parsedData['customer_name'] . "*,\n\n";
-$fullBillMessage .= "Your recent order with the invoice number *" . $parsedData['bill_no'] . "* of the amount *₹" . $parsedData['bill_amount'] . "* has been successfully generated.\n\n";
-$fullBillMessage .= "Please check for your payments.\n";
-$fullBillMessage .= "Your Ledger balance is *₹" . $parsedData['balance'] . "*.\n\n";
+// -------------------------------------------------------------------------
+// Build Dynamic Bill Confirmation Message from Tenant's Saved Template
+// -------------------------------------------------------------------------
+$fullBillMessage = '';
+$billTemplateBody = '';
+$tTplTbl = (!empty($prefix) && strpos($prefix, 't_') === 0) ? "{$prefix}whatsapp_templates" : "whatsapp_templates";
 
-// Only include Bank Details block if the client has actually configured their bank account
-if ($bankDetails && !empty($bankDetails['account_number'])) {
-    $fullBillMessage .= "*Bank Details:*\n";
-    if (!empty($bankDetails['upi_id'])) {
-        $fullBillMessage .= "UPI ID: *" . $bankDetails['upi_id'] . "*\n";
+// 1. Try to load tenant's custom or latest marg_bill template
+try {
+    $stmtTpl = $pdo->query("SELECT * FROM `{$tTplTbl}` WHERE (slug LIKE 'marg_bill%' OR title LIKE '%bill%') AND body_text != '' ORDER BY (CASE WHEN slug LIKE 'marg_bill%' THEN 1 ELSE 2 END), id DESC LIMIT 1");
+    $activeTpl = $stmtTpl ? $stmtTpl->fetch(PDO::FETCH_ASSOC) : null;
+    if ($activeTpl && !empty($activeTpl['body_text'])) {
+        $billTemplateBody = $activeTpl['body_text'];
     }
-    if (!empty($bankDetails['bank_name'])) {
-        $fullBillMessage .= "Bank Name: *" . $bankDetails['bank_name'] . "*\n";
+} catch (\PDOException $ex) {}
+
+// Fallback to master whatsapp_templates table if tenant table didn't have it
+if (empty($billTemplateBody) && $tTplTbl !== 'whatsapp_templates') {
+    try {
+        $stmtTplMaster = $pdo->query("SELECT * FROM whatsapp_templates WHERE (slug LIKE 'marg_bill%' OR title LIKE '%bill%') AND body_text != '' ORDER BY (CASE WHEN slug LIKE 'marg_bill%' THEN 1 ELSE 2 END), id DESC LIMIT 1");
+        $masterTpl = $stmtTplMaster ? $stmtTplMaster->fetch(PDO::FETCH_ASSOC) : null;
+        if ($masterTpl && !empty($masterTpl['body_text'])) {
+            $billTemplateBody = $masterTpl['body_text'];
+        }
+    } catch (\PDOException $ex) {}
+}
+
+if (!empty($billTemplateBody)) {
+    $hasBank = ($bankDetails && !empty($bankDetails['account_number']));
+    $bUpi = $hasBank && !empty($bankDetails['upi_id']) ? $bankDetails['upi_id'] : '';
+    $bName = $hasBank && !empty($bankDetails['bank_name']) ? $bankDetails['bank_name'] : '';
+    $bAcc = $hasBank && !empty($bankDetails['account_number']) ? $bankDetails['account_number'] : '';
+    $bBranch = $hasBank && !empty($bankDetails['branch']) ? $bankDetails['branch'] : '';
+    $bIfsc = $hasBank && !empty($bankDetails['ifsc_code']) ? $bankDetails['ifsc_code'] : '';
+
+    $rendered = $billTemplateBody;
+
+    // If client hasn't added bank details in panel, cleanly remove empty Bank Details block
+    if (!$hasBank) {
+        $rendered = preg_replace('/(\n\s*\*?Bank Details:\*?[\s\S]*?IFSC Code:\s*\*?\{\{10\}\}\*?\n?)/i', "\n", $rendered);
     }
-    $fullBillMessage .= "Account No.: *" . $bankDetails['account_number'] . "*\n";
-    if (!empty($bankDetails['branch'])) {
-        $fullBillMessage .= "Branch: *" . $bankDetails['branch'] . "*\n";
+
+    // Standard Marg variable replacement
+    $varReplacements = [
+        '{{1}}'  => $firmDisplay,
+        '{{2}}'  => $parsedData['customer_name'] ?: 'Valued Customer',
+        '{{3}}'  => $parsedData['bill_no'] ?: '',
+        '{{4}}'  => $parsedData['bill_amount'] ?: '0.00',
+        '{{5}}'  => $parsedData['balance'] ?: '0.00',
+        '{{6}}'  => $bUpi,
+        '{{7}}'  => $bName,
+        '{{8}}'  => $bAcc,
+        '{{9}}'  => $bBranch,
+        '{{10}}' => $bIfsc,
+        '{{11}}' => $firmDisplay,
+        '{{12}}' => $merchant_helpline ?: '',
+        '{{13}}' => $pdfDownloadUrl ?: ''
+    ];
+
+    foreach ($varReplacements as $k => $v) {
+        $rendered = str_replace($k, (string)$v, $rendered);
     }
-    if (!empty($bankDetails['ifsc_code'])) {
-        $fullBillMessage .= "IFSC Code: *" . $bankDetails['ifsc_code'] . "*\n";
+
+    // Also support user-friendly named tags if user used them
+    $namedReplacements = [
+        '{firm_name}'      => $firmDisplay,
+        '{company_name}'   => $firmDisplay,
+        '{customer_name}'  => $parsedData['customer_name'] ?: 'Valued Customer',
+        '{name}'           => $parsedData['customer_name'] ?: 'Valued Customer',
+        '{bill_no}'        => $parsedData['bill_no'] ?: '',
+        '{invoice_no}'     => $parsedData['bill_no'] ?: '',
+        '{bill_amount}'    => $parsedData['bill_amount'] ?: '0.00',
+        '{amount}'         => $parsedData['bill_amount'] ?: '0.00',
+        '{balance}'        => $parsedData['balance'] ?: '0.00',
+        '{ledger_balance}' => $parsedData['balance'] ?: '0.00',
+        '{helpline}'       => $merchant_helpline ?: '',
+        '{phone}'          => $merchant_helpline ?: '',
+        '{preview_link}'   => $pdfDownloadUrl ?: '',
+        '{pdf_url}'        => $pdfDownloadUrl ?: '',
+        '{invoice_url}'    => $pdfDownloadUrl ?: ''
+    ];
+
+    foreach ($namedReplacements as $k => $v) {
+        $rendered = str_replace($k, (string)$v, $rendered);
+    }
+
+    $fullBillMessage = preg_replace("/\n{3,}/", "\n\n", trim($rendered));
+}
+
+// Fallback Default Bill Message (if no template found in DB)
+if (empty($fullBillMessage)) {
+    $fullBillMessage = "From: *" . $firmDisplay . "*\n";
+    $fullBillMessage .= "Subject: *Sale Bill Confirmation*\n\n";
+    $fullBillMessage .= "Dear *" . $parsedData['customer_name'] . "*,\n\n";
+    $fullBillMessage .= "Your recent order with the invoice number *" . $parsedData['bill_no'] . "* of the amount *₹" . $parsedData['bill_amount'] . "* has been successfully generated.\n\n";
+    $fullBillMessage .= "Please check for your payments.\n";
+    $fullBillMessage .= "Your Ledger balance is *₹" . $parsedData['balance'] . "*.\n\n";
+
+    if ($bankDetails && !empty($bankDetails['account_number'])) {
+        $fullBillMessage .= "*Bank Details:*\n";
+        if (!empty($bankDetails['upi_id'])) {
+            $fullBillMessage .= "UPI ID: *" . $bankDetails['upi_id'] . "*\n";
+        }
+        if (!empty($bankDetails['bank_name'])) {
+            $fullBillMessage .= "Bank Name: *" . $bankDetails['bank_name'] . "*\n";
+        }
+        $fullBillMessage .= "Account No.: *" . $bankDetails['account_number'] . "*\n";
+        if (!empty($bankDetails['branch'])) {
+            $fullBillMessage .= "Branch: *" . $bankDetails['branch'] . "*\n";
+        }
+        if (!empty($bankDetails['ifsc_code'])) {
+            $fullBillMessage .= "IFSC Code: *" . $bankDetails['ifsc_code'] . "*\n";
+        }
+        $fullBillMessage .= "\n";
+    }
+
+    $fullBillMessage .= "Regards,\n";
+    $fullBillMessage .= "*" . $firmDisplay . "*\n";
+    if (!empty($merchant_helpline)) {
+        $fullBillMessage .= "Helpline: *" . $merchant_helpline . "*\n";
     }
     $fullBillMessage .= "\n";
+    $fullBillMessage .= "The bill PDF is attached above.\n";
+    $fullBillMessage .= "Preview link: " . $pdfDownloadUrl . "\n\n";
+    $fullBillMessage .= "Thank you for doing business with us!";
 }
-
-$fullBillMessage .= "Regards,\n";
-$fullBillMessage .= "*" . $firmDisplay . "*\n";
-if (!empty($merchant_helpline)) {
-    $fullBillMessage .= "Helpline: *" . $merchant_helpline . "*\n";
-}
-$fullBillMessage .= "\n";
-$fullBillMessage .= "The bill PDF is attached above.\n";
-$fullBillMessage .= "Preview link: " . $pdfDownloadUrl . "\n\n";
-$fullBillMessage .= "Thank you for doing business with us!";
 
 $gateway_type = $merchant['gateway_type'] ?? 'meta';
 // Only route through Self-Hosted WhatsApp Web if merchant explicitly chose web_api, or if meta credentials are missing
