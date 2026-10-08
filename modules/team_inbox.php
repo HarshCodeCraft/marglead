@@ -1743,7 +1743,19 @@ function renderMessages(messages, scrollBottom = false) {
                 }
             }
 
-            const readReceipt = isOutbound ? `<span class="read-ticks" title="Delivered & Read" style="color: #0284c7; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check-check" style="width: 13px; height: 13px;"></i></span>` : '';
+            let readReceipt = '';
+            if (isOutbound) {
+                const st = (m.status || 'sent').toLowerCase();
+                if (st === 'read') {
+                    readReceipt = `<span class="read-ticks" title="Read" style="color: #0284c7; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check-check" style="width: 13px; height: 13px;"></i></span>`;
+                } else if (st === 'delivered') {
+                    readReceipt = `<span class="read-ticks" title="Delivered" style="color: #94a3b8; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check-check" style="width: 13px; height: 13px;"></i></span>`;
+                } else if (st === 'failed') {
+                    readReceipt = `<span class="read-ticks" title="Delivery Failed" style="color: #ef4444; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="alert-circle" style="width: 13px; height: 13px;"></i></span>`;
+                } else {
+                    readReceipt = `<span class="read-ticks" title="Sent to Meta" style="color: #94a3b8; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check" style="width: 13px; height: 13px;"></i></span>`;
+                }
+            }
 
             html += `
             <div class="msg-bubble-wrap ${wrapClass}">

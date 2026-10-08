@@ -70,9 +70,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $message_type = "danger";
                     logActivity('LOGIN_LOCKED', 'Authentication', "Locked out 15m for email: $email, IP: $user_ip");
                 } else {
-                    // 1. Check tenant_companies (SaaS CRM / WABA Clients) FIRST by Owner Email or Company Code (Excluding master system company)
-                    $stmtT = $effective_pdo->prepare("SELECT * FROM tenant_companies WHERE (LOWER(owner_email) = ? OR LOWER(company_code) = ?) AND status = 'Active' AND LOWER(company_code) != 'master' AND db_name != 'u978772385_friendlyaidata' ORDER BY id DESC LIMIT 1");
-                    $stmtT->execute([$email, $email]);
+                    $rawDigits = !empty($email) ? preg_replace('/\D/', '', $email) : '';
+                    $cleanPhone10 = strlen($rawDigits) >= 10 ? substr($rawDigits, -10) : '';
+                    if (!empty($cleanPhone10)) {
+                        $stmtT = $effective_pdo->prepare("SELECT * FROM tenant_companies WHERE (LOWER(owner_email) = ? OR LOWER(company_code) = ? OR phone LIKE ?) AND status = 'Active' AND LOWER(company_code) != 'master' AND id != 1 ORDER BY id DESC LIMIT 1");
+                        $stmtT->execute([$email, $email, '%' . $cleanPhone10]);
+                    } else {
+                        $stmtT = $effective_pdo->prepare("SELECT * FROM tenant_companies WHERE (LOWER(owner_email) = ? OR LOWER(company_code) = ?) AND status = 'Active' AND LOWER(company_code) != 'master' AND id != 1 ORDER BY id DESC LIMIT 1");
+                        $stmtT->execute([$email, $email]);
+                    }
                     $tenantComp = $stmtT->fetch();
                     
                     if ($tenantComp) {
@@ -241,6 +247,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $_SESSION['user_photo'] = $user['profile_photo'] ?? null;
                             $_SESSION['user_permissions'] = !empty($user['permissions']) ? json_decode($user['permissions'], true) : null;
                             $_SESSION['tenant_db'] = $tenant_db_target;
+
+                            // If this user is a Tenant Admin or attached to a tenant company, resolve full tenant context
+                            if ($user['role'] === 'Tenant Admin' || !empty($user['company_id'])) {
+                                try {
+                                    $stmtTC = $effective_pdo->prepare("SELECT * FROM tenant_companies WHERE (id = ? OR LOWER(owner_email) = LOWER(?) OR (company_code = ? AND company_code != 'master')) AND id != 1 AND status = 'Active' ORDER BY (id = ?) DESC LIMIT 1");
+                                    $stmtTC->execute([$user['company_id'] ?? 0, $user['email'], $user['email'], $user['company_id'] ?? 0]);
+                                    $tcRow = $stmtTC->fetch(PDO::FETCH_ASSOC);
+                                    if ($tcRow) {
+                                        $_SESSION['tenant_id'] = (int)$tcRow['id'];
+                                        $_SESSION['tenant_code'] = $tcRow['company_code'];
+                                        $_SESSION['tenant_name'] = $tcRow['company_name'];
+                                        $_SESSION['company_name'] = $tcRow['company_name'];
+                                        $_SESSION['tenant_db'] = $tcRow['db_name'];
+                                        $_SESSION['is_tenant'] = true;
+                                        $user_allowed = !empty($tcRow['allowed_modules']) ? json_decode($tcRow['allowed_modules'], true) : [];
+                                        $_SESSION['tenant_allowed_modules'] = is_array($user_allowed) ? $user_allowed : [];
+
+                                        // Auto-sync company_id in users table if missing
+                                        if (($user['company_id'] ?? 0) != $tcRow['id']) {
+                                            $effective_pdo->prepare("UPDATE users SET company_id = ? WHERE id = ?")->execute([$tcRow['id'], $user['id']]);
+                                        }
+                                        // Auto-sync password in tenant_companies if different
+                                        if (!empty($user['password']) && ($tcRow['password'] ?? '') !== $user['password']) {
+                                            $effective_pdo->prepare("UPDATE tenant_companies SET password = ? WHERE id = ?")->execute([$user['password'], $tcRow['id']]);
+                                        }
+                                    }
+                                } catch (\PDOException $exTC) {}
+                            }
                             
                             // Security: Session Hijacking Guard & Activity Timestamp
                             $_SESSION['user_ip'] = $user_ip;

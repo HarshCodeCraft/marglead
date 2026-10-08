@@ -78,7 +78,8 @@ if (!function_exists('provisionNewCrmClient')) {
                     'leads', 'timeline', 'followups', 'demos', 
                     'quotations', 'payments', 'bank_accounts', 'installations', 
                     'trainings', 'tickets', 'client_directory', 'message_logs', 
-                    'chat_conversations', 'merchant_waba_settings', 'bot_flows'
+                    'chat_conversations', 'merchant_waba_settings', 'bot_flows',
+                    'sub_partners', 'sub_partner_custom_fields'
                 ];
                 foreach ($tablesToClone as $tbl) {
                     try {

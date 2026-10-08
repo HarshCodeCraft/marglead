@@ -246,7 +246,7 @@ try {
 
                         <!-- Quick Actions -->
                         <div class="flex align-center gap-1">
-                            <button type="button" class="btn-icon" onclick='openEditReviewModal(<?php echo json_encode($rev); ?>)' title="Edit Review">
+                            <button type="button" class="btn-icon" onclick="openEditReviewModal(<?php echo htmlspecialchars(json_encode($rev), ENT_QUOTES, 'UTF-8'); ?>)" title="Edit Review">
                                 <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                             </button>
                             <form action="index.php?page=admin_reviews" method="POST" style="display: inline;" onsubmit="return confirm('Delete review by <?php echo htmlspecialchars(addslashes($rev['name'])); ?>?');">
@@ -307,7 +307,7 @@ try {
                             </td>
                             <td class="p-3 text-right">
                                 <div class="flex align-center justify-end gap-2">
-                                    <button type="button" class="btn-icon" onclick='openEditReviewModal(<?php echo json_encode($rev); ?>)' title="Edit Review">
+                                    <button type="button" class="btn-icon" onclick="openEditReviewModal(<?php echo htmlspecialchars(json_encode($rev), ENT_QUOTES, 'UTF-8'); ?>)" title="Edit Review">
                                         <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                     </button>
                                     <form action="index.php?page=admin_reviews" method="POST" style="display: inline;" onsubmit="return confirm('Delete review by <?php echo htmlspecialchars(addslashes($rev['name'])); ?>?');">

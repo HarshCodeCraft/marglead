@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/cors.php';
+require_once __DIR__ . '/helpers.php';
 
 $auth = requireApiAuth();
 
@@ -40,32 +41,9 @@ try {
                 'phone'         => $cd['mobile'] ?? '',
                 'email'         => $cd['email'] ?? '',
                 'product'       => $cd['software_type'] ?? 'Marg ERP',
-                'renewal_date'  => $cd['due_on'] ?? null,
+                'renewal_date'  => !empty($cd['due_on']) ? format_wa_date_ddmmyyyy($cd['due_on']) : null,
                 'address'       => trim(($cd['address'] ?? '') . ' ' . ($cd['city'] ?? '') . ' ' . ($cd['state'] ?? ''))
             ])
-        ]);
-    }
-
-    // 2. Search leads table
-    $stmtLD = $pdo->prepare("SELECT * FROM leads WHERE id = ? OR phone LIKE ? OR email LIKE ? OR name LIKE ? LIMIT 1");
-    $stmtLD->execute([$query, $qLike, $qLike, $qLike]);
-    $ld = $stmtLD->fetch(PDO::FETCH_ASSOC);
-
-    if ($ld) {
-        sendJsonResponse([
-            'success' => true,
-            'found' => true,
-            'source' => 'leads',
-            'data' => [
-                'license_no'    => $ld['id'],
-                'customer_name' => !empty($ld['contact_person']) ? $ld['contact_person'] : $ld['name'],
-                'firm_name'     => $ld['company'] ?? '',
-                'phone'         => $ld['phone'] ?? '',
-                'email'         => $ld['email'] ?? '',
-                'product'       => 'Marg ERP',
-                'renewal_date'  => null,
-                'address'       => trim(($ld['address'] ?? '') . ' ' . ($ld['city'] ?? '') . ' ' . ($ld['state'] ?? ''))
-            ]
         ]);
     }
 
@@ -86,7 +64,7 @@ try {
                 'phone'         => $tc['phone'] ?? '',
                 'email'         => $tc['owner_email'] ?? '',
                 'product'       => ($tc['plan'] ?? 'Enterprise') . ' Edition',
-                'renewal_date'  => $tc['expiry_date'] ?? null,
+                'renewal_date'  => !empty($tc['expiry_date']) ? format_wa_date_ddmmyyyy($tc['expiry_date']) : null,
                 'address'       => 'Master Tenant Account'
             ]
         ]);

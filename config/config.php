@@ -89,7 +89,7 @@ if (!defined('META_APP_ID')) {
     define('META_APP_ID', getenv('META_APP_ID') ?: '2484306222079451');
 }
 if (!defined('META_EMBEDDED_CONFIG_ID')) {
-    define('META_EMBEDDED_CONFIG_ID', getenv('META_EMBEDDED_CONFIG_ID') ?: '1618888196426623');
+    define('META_EMBEDDED_CONFIG_ID', getenv('META_EMBEDDED_CONFIG_ID') ?: '2568906716913672');
 }
 if (!defined('PHONE_NUMBER_ID')) {
     define('PHONE_NUMBER_ID', getenv('PHONE_NUMBER_ID') ?: '1370757916110578');

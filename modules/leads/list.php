@@ -28,16 +28,32 @@ if (!empty($user_email)) $user_identifiers[] = trim($user_email);
 
 if ($db_connected && $pdo && (!empty($user_id) || !empty($user_email) || !empty($user_name))) {
     try {
-        $uStmt = $pdo->prepare("SELECT id, name, email, role FROM users WHERE (id = ? AND ? != '') OR (email = ? AND ? != '') OR (name = ? AND ? != '')");
-        $uStmt->execute([$user_id, $user_id, $user_email, $user_email, $user_name, $user_name]);
-        $uData = $uStmt->fetch(PDO::FETCH_ASSOC);
-        if ($uData) {
-            if (!empty($uData['role'])) {
-                $user_role = $uData['role'];
-                $_SESSION['user_role'] = $uData['role'];
+        $uClauses = [];
+        $uParams = [];
+        if (!empty($user_id)) {
+            $uClauses[] = "id = ?";
+            $uParams[] = $user_id;
+        }
+        if (!empty($user_email)) {
+            $uClauses[] = "email = ?";
+            $uParams[] = $user_email;
+        }
+        if (!empty($user_name)) {
+            $uClauses[] = "name = ?";
+            $uParams[] = $user_name;
+        }
+        if (!empty($uClauses)) {
+            $uStmt = $pdo->prepare("SELECT id, name, email, role FROM users WHERE (" . implode(' OR ', $uClauses) . ") LIMIT 1");
+            $uStmt->execute($uParams);
+            $uData = $uStmt->fetch(PDO::FETCH_ASSOC);
+            if ($uData) {
+                if (!empty($uData['role'])) {
+                    $user_role = $uData['role'];
+                    $_SESSION['user_role'] = $uData['role'];
+                }
+                if (!empty($uData['name'])) $user_identifiers[] = trim($uData['name']);
+                if (!empty($uData['email'])) $user_identifiers[] = trim($uData['email']);
             }
-            if (!empty($uData['name'])) $user_identifiers[] = trim($uData['name']);
-            if (!empty($uData['email'])) $user_identifiers[] = trim($uData['email']);
         }
     } catch (PDOException $e) {}
 }
@@ -496,20 +512,22 @@ if ($db_connected && $pdo) {
         $card_exclude = "LOWER(TRIM(leads.status)) != 'dropped' AND LOWER(TRIM(leads.group_stage)) != 'not required'";
 
         if ($active_filter === 'expired') {
-                $expiry_sub = "(action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')";
+                // Strictly exclude any lead that has an active/pending followup scheduled for today or any future date
+                $no_future_lead = "id NOT IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) >= CURRENT_DATE())";
                 if ($active_day === 'all' || $active_day === 'total') {
-                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_sub} OR status = 'missed' OR DATE(scheduled_at) < CURRENT_DATE())) OR LOWER(status) IN ('expired', 'trial_expired'))";
+                    // Total: All past expired followups (< CURRENT_DATE()) with NO today/future scheduled followup
+                    $where_conditions[] = "({$card_exclude}) AND ({$no_future_lead}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) < CURRENT_DATE())";
                 } elseif ($active_day === 'today') {
-                    // Button 1: Yesterday - strictly followups scheduled_at
-                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?))";
+                    // Button 1: Yesterday - strictly followups scheduled for yesterday
+                    $where_conditions[] = "({$card_exclude}) AND ({$no_future_lead}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
                     $query_params[] = $yesterday_str;
                 } elseif ($active_day === 'tomorrow') {
-                    // Button 2: 2 Days Ago - strictly followups scheduled_at
-                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?))";
+                    // Button 2: 2 Days Ago - strictly followups scheduled for 2 days ago
+                    $where_conditions[] = "({$card_exclude}) AND ({$no_future_lead}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
                     $query_params[] = $day_before_str;
                 } elseif ($active_day === 'next_day') {
-                    // Button 3: 3 Days Ago - strictly followups scheduled_at
-                    $where_conditions[] = "({$card_exclude}) AND (id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?))";
+                    // Button 3: 3 Days Ago - strictly followups scheduled for 3 days ago
+                    $where_conditions[] = "({$card_exclude}) AND ({$no_future_lead}) AND id IN (SELECT lead_id FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = ?)";
                     $query_params[] = $three_days_ago_str;
                 }
             } elseif ($active_filter === 'demo_scheduled') {
@@ -577,7 +595,7 @@ if ($db_connected && $pdo) {
         $fup_datetimes = [];
         if (!empty($lead_ids)) {
             $in_placeholders = implode(',', array_fill(0, count($lead_ids), '?'));
-            $fStmt = $pdo->prepare("SELECT lead_id, scheduled_at FROM followups WHERE lead_id IN ($in_placeholders) AND status = 'pending' ORDER BY scheduled_at ASC");
+            $fStmt = $pdo->prepare("SELECT lead_id, scheduled_at FROM followups WHERE lead_id IN ($in_placeholders) AND status IN ('pending', 'missed') ORDER BY CASE WHEN status = 'pending' THEN 1 ELSE 2 END, scheduled_at ASC");
             $fStmt->execute($lead_ids);
             while ($fRow = $fStmt->fetch(PDO::FETCH_ASSOC)) {
                 if (!isset($fup_dates[$fRow['lead_id']])) {
@@ -608,6 +626,7 @@ if ($db_connected && $pdo) {
                 'scheduled_date' => $fup_dates[$l['id']] ?? '',
                 'scheduled_datetime' => $fup_datetimes[$l['id']] ?? '',
                 'created_at' => $l['created_at'] ?? '',
+                'created_datetime' => !empty($l['created_at']) ? date('d-m-Y h:i A', strtotime($l['created_at'])) : 'NA',
                 'address' => $l['address'] ?? '',
                 'tags' => $l['tags'] ?? '',
                 'group_stage' => !empty($l['group_stage']) ? $l['group_stage'] : (!empty($l['company']) && in_array($l['company'], ['Fresh', 'Followup', 'Future Prospect', 'Demo Scheduled', 'Demo Done', 'Installation Done', 'Not Required']) ? $l['company'] : ''),
@@ -1334,6 +1353,7 @@ if (empty($leads)) {
                         <th class="col-address">Address</th>
                         <th class="col-remarks">Remarks</th>
                         <th class="col-scheduled-fup">Scheduled Follow-up</th>
+                        <th class="col-created-at">Created At</th>
                         <th class="col-activity">Last Activity</th>
                         <th style="text-align: right;">Actions</th>
                     </tr>
@@ -1438,6 +1458,16 @@ if (empty($leads)) {
                                     </span>
                                 <?php else: ?>
                                     <span class="text-muted text-xs">No Follow-up</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="col-created-at text-xs text-muted" style="vertical-align: middle; white-space: nowrap;">
+                                <?php if (!empty($lead['created_datetime']) && $lead['created_datetime'] !== 'NA'): ?>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <i data-lucide="calendar" style="width: 12px; height: 12px; color: var(--text-muted);"></i>
+                                        <?php echo htmlspecialchars($lead['created_datetime']); ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span>NA</span>
                                 <?php endif; ?>
                             </td>
                             <td class="col-activity text-xs text-muted" style="vertical-align: middle;">
@@ -1845,6 +1875,10 @@ if (empty($leads)) {
                 <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_scheduled_fup')">
                     <span class="text-xs font-semibold">Scheduled Follow-up</span>
                     <input type="checkbox" id="cb_col_scheduled_fup" class="col-toggle-cb" data-target="col-scheduled-fup" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
+                </div>
+                <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_created_at')">
+                    <span class="text-xs font-semibold">Created At</span>
+                    <input type="checkbox" id="cb_col_created_at" class="col-toggle-cb" data-target="col-created-at" checked onclick="event.stopPropagation(); toggleColumnByCheckbox(this);" style="accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer;">
                 </div>
                 <div class="col-item-card" onclick="toggleColumnCheckbox('cb_col_activity')">
                     <span class="text-xs font-semibold">Last Activity</span>

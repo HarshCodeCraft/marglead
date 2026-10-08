@@ -13,7 +13,6 @@ $lead_created = false;
 $new_lead_id = '';
 $new_lead_name = '';
 $new_lead_phone = '';
-
 $assigned_operators = [
     'AJAY RATHOUR', 'HARSH SAINI', 'MARG SOFT SOLUTION', 'MOIN KHAN', 
     'NAITIK CHAURASIA', 'POORNIMA BAJPAI', 'SAHIL KUMAR', 'VANDANA YADAV'
@@ -105,13 +104,16 @@ if (isset($_GET['action']) && $_GET['action'] === 'save_followup' && $_SERVER['R
             }
             
             // Update Lead profile with modal inputs & assigned_by
-            $existingAssignedTo = $pdo->query("SELECT assigned_to, assigned_by FROM leads WHERE id = " . $pdo->quote($lead_id))->fetch(PDO::FETCH_ASSOC);
-            $newAssignedBy = $existingAssignedTo['assigned_by'] ?? '';
-            if (empty($newAssignedBy) || ($existingAssignedTo && $existingAssignedTo['assigned_to'] !== $assigned_to)) {
+            $existingLead = $pdo->query("SELECT assigned_to, assigned_by, group_stage, company, gst FROM leads WHERE id = " . $pdo->quote($lead_id))->fetch(PDO::FETCH_ASSOC);
+            $newAssignedBy = $existingLead['assigned_by'] ?? '';
+            if (empty($newAssignedBy) || ($existingLead && $existingLead['assigned_to'] !== $assigned_to)) {
                 $newAssignedBy = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
             }
-            $stmt = $pdo->prepare("UPDATE leads SET address = ?, tags = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, assigned_to = ?, assigned_by = ?, group_stage = COALESCE(NULLIF(?, ''), group_stage), company = COALESCE(NULLIF(?, ''), company), gst = COALESCE(NULLIF(?, ''), gst) WHERE id = ?");
-            $stmt->execute([$address, $tags, $source, $enq_for, $contact_person, $remark, $assigned_to, $newAssignedBy, $group, $group, $gst ?: null, $lead_id]);
+            $finalGroup = (!empty($group)) ? $group : ($existingLead['group_stage'] ?? null);
+            $finalCompany = (!empty($group)) ? $group : ($existingLead['company'] ?? null);
+            $finalGst = (!empty($gst)) ? $gst : ($existingLead['gst'] ?? null);
+            $stmt = $pdo->prepare("UPDATE leads SET address = ?, tags = ?, source = ?, enq_for = ?, contact_person = ?, remarks = ?, assigned_to = ?, assigned_by = ?, group_stage = ?, company = ?, gst = ? WHERE id = ?");
+            $stmt->execute([$address, $tags, $source, $enq_for, $contact_person, $remark, $assigned_to, $newAssignedBy, $finalGroup, $finalCompany, $finalGst, $lead_id]);
 
             header("Location: index.php?page=leads");
             exit;

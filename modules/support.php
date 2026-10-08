@@ -26,7 +26,27 @@ function syncWhatsAppFlowTickets($pdo) {
             $rawFlowTickets = $stmtSync->fetchAll(PDO::FETCH_ASSOC);
             foreach ($rawFlowTickets as $rt) {
                 $tId = $rt['ticket_number'] ?? ('TK-' . $rt['id']);
-                $cName = (!empty($rt['customer_name']) && $rt['customer_name'] !== 'Valued Customer') ? $rt['customer_name'] : ('Client (' . ($rt['mobile'] ?? 'WhatsApp') . ')');
+                $cName = (!empty($rt['customer_name']) && $rt['customer_name'] !== 'Valued Customer') ? $rt['customer_name'] : '';
+                $phone = $rt['mobile'] ?? '';
+
+                // Strictly lookup from client_directory if customer_name is generic
+                if (empty($cName) || strpos(strtolower($cName), 'client (') !== false) {
+                    if (!empty($phone)) {
+                        $cleanMob = preg_replace('/[^\d]/', '', $phone);
+                        if (strlen($cleanMob) >= 10) {
+                            $cleanMob = substr($cleanMob, -10);
+                            $cdStmt = $pdo->prepare("SELECT party_name FROM client_directory WHERE mobile LIKE ? OR mobile LIKE ? LIMIT 1");
+                            $cdStmt->execute(['%' . $cleanMob, '%' . $cleanMob . '%']);
+                            if ($cdName = $cdStmt->fetchColumn()) {
+                                $cName = $cdName;
+                            }
+                        }
+                    }
+                }
+                if (empty($cName)) {
+                    $cName = 'Client (' . (!empty($phone) ? $phone : 'WhatsApp') . ')';
+                }
+
                 $subj = (!empty($rt['category']) ? $rt['category'] : 'Support') . ($rt['firm_name'] !== 'N/A' && !empty($rt['firm_name']) ? ' - ' . $rt['firm_name'] : '');
                 $prio = !empty($rt['priority']) ? strtolower($rt['priority']) : 'medium';
                 $stat = !empty($rt['status']) ? strtolower($rt['status']) : 'open';
@@ -446,16 +466,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $ticketId = generate_ticket_number($pdo);
             $customer_name = 'WhatsApp Client (' . $license_no . ')';
+            // Strictly fetch customer details ONLY from client_directory (Client Directory Database - Old Clients)
             $custStmt = $pdo->prepare("SELECT party_name FROM client_directory WHERE party_name LIKE ? OR mobile LIKE ? LIMIT 1");
             $custStmt->execute(['%' . $license_no . '%', '%' . $callback_number . '%']);
             if ($foundName = $custStmt->fetchColumn()) {
                 $customer_name = $foundName;
-            } else {
-                $leadStmt = $pdo->prepare("SELECT name FROM leads WHERE name LIKE ? OR phone LIKE ? LIMIT 1");
-                $leadStmt->execute(['%' . $license_no . '%', '%' . $callback_number . '%']);
-                if ($leadName = $leadStmt->fetchColumn()) {
-                    $customer_name = $leadName;
-                }
             }
 
             $assigned_to = 'Harsh Vardhan';
@@ -1030,20 +1045,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// 2. Fetch Client Directory, CRM Leads, and Operators for Support Tickets
+// 2. Fetch Client Directory and Operators for Support Tickets (Strictly client_directory only, no leads)
 $db_client_directory = [];
-$db_leads = [];
 $db_operators = [];
 
 if ($db_connected && $pdo) {
     try {
-        // Fetch Client Directory Records (Old Client Database)
+        // Fetch Client Directory Records (Old Client Database strictly from client_directory table)
         $stmt = $pdo->query("SELECT * FROM client_directory ORDER BY party_name ASC");
         $db_client_directory = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        // Fetch CRM Leads/Clients
-        $stmt = $pdo->query("SELECT id, name, company, phone, email, address, gst, products, date(created_at) as created_date FROM leads ORDER BY company ASC");
-        $db_leads = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Fetch Active Technicians / Operators
         $stmt = $pdo->query("SELECT name, role FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
@@ -1053,10 +1063,10 @@ if ($db_connected && $pdo) {
     }
 }
 
-// Build consolidated master clients array for frontend live search
+// Build consolidated master clients array strictly from client_directory for frontend live search
 $master_clients_list = [];
 
-// 1. Add records from client_directory table
+// Add records from client_directory table ONLY
 foreach ($db_client_directory as $cd) {
     $cust_id = !empty($cd['customer_id']) ? $cd['customer_id'] : ('CUST-' . $cd['id']);
     $p_name = !empty($cd['party_name']) ? $cd['party_name'] : 'Unknown Client';
@@ -1077,36 +1087,6 @@ foreach ($db_client_directory as $cd) {
         'total_amount' => $cd['total_amount'] ?? 0,
         'display_label' => $p_name . ($mob ? " ( {$mob} )" : "")
     ]);
-}
-
-// 2. Add records from leads table
-foreach ($db_leads as $l) {
-    $cust_id = $l['id'];
-    $p_name = !empty($l['company']) ? $l['company'] : $l['name'];
-    $mob = !empty($l['phone']) ? $l['phone'] : '';
-    
-    // Auto renewal date logic: +1 year after lead creation
-    $ren_date = '';
-    if (!empty($l['created_date'])) {
-        $tDate = strtotime($l['created_date']);
-        if ($tDate) $ren_date = date('Y-m-d', strtotime('+1 year', $tDate));
-    }
-
-    $master_clients_list[] = [
-        'source' => 'leads',
-        'id' => $cust_id,
-        'customer_id' => $cust_id,
-        'party_name' => $p_name,
-        'mobile' => $mob,
-        'email' => $l['email'] ?? '',
-        'address' => $l['address'] ?? '',
-        'software_type' => !empty($l['products']) ? $l['products'] : 'Marg ERP Pro',
-        'due_on' => $ren_date,
-        'party_status' => 'Active',
-        'software_trade' => 'General',
-        'total_amount' => 0,
-        'display_label' => $p_name . ($mob ? " ( {$mob} )" : "")
-    ];
 }
 
 // 3. Resolve User Role & Search/Filter Parameters for Support Tickets

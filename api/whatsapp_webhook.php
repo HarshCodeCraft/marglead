@@ -122,18 +122,12 @@ try {
     // Generate unique Ticket ID
     $ticketId = generate_ticket_number($pdo);
     
-    // Look up customer name in database by phone or license number
+    // Look up customer name in database strictly from client_directory (Client Directory Database - Old Clients)
     $custStmt = $pdo->prepare("SELECT party_name FROM client_directory WHERE party_name LIKE ? OR mobile LIKE ? LIMIT 1");
     $custStmt->execute(['%' . $license_no . '%', '%' . $callback_number . '%']);
     $foundName = $custStmt->fetchColumn();
     if ($foundName) {
         $customer_name = $foundName;
-    } else {
-        $leadStmt = $pdo->prepare("SELECT name FROM leads WHERE name LIKE ? OR phone LIKE ? LIMIT 1");
-        $leadStmt->execute(['%' . $license_no . '%', '%' . $callback_number . '%']);
-        if ($leadName = $leadStmt->fetchColumn()) {
-            $customer_name = $leadName;
-        }
     }
 
     // Auto-assign to an active technician/support staff

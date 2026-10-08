@@ -90,7 +90,12 @@ if (!$is_connected && $is_super_admin && $user_id === 1) {
 }
 
 $app_id = defined('META_APP_ID') ? META_APP_ID : (getenv('META_APP_ID') ?: '2484306222079451');
-$config_id = defined('META_EMBEDDED_CONFIG_ID') ? META_EMBEDDED_CONFIG_ID : (getenv('META_EMBEDDED_CONFIG_ID') ?: '1618888196426623');
+$config_id = defined('META_EMBEDDED_CONFIG_ID') ? META_EMBEDDED_CONFIG_ID : (getenv('META_EMBEDDED_CONFIG_ID') ?: '2568906716913672');
+$meta_hosted_onboard_url = "https://business.facebook.com/messaging/whatsapp/onboard/?app_id={$app_id}&config_id={$config_id}&state={$user_id}&extras=" . urlencode(json_encode([
+    'version' => 'v4',
+    'sessionInfoVersion' => '3',
+    'featureType' => 'whatsapp_business_app_onboarding'
+])) . "&redirect_uri=" . urlencode("https://friendlyaisolution.com/api/meta_embedded_signup.php");
 ?>
 
 <!-- Facebook SDK for Meta Embedded Signup -->
@@ -205,11 +210,21 @@ $config_id = defined('META_EMBEDDED_CONFIG_ID') ? META_EMBEDDED_CONFIG_ID : (get
                 </ul>
             </div>
 
-            <div class="mt-4">
+            <div class="mt-4 flex flex-col gap-2">
                 <button type="button" onclick="launchMetaEmbeddedSignup()" class="btn btn-primary w-full flex items-center justify-center gap-2" style="background: #1877F2; border: none; padding: 0.75rem 1.25rem; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 12px rgba(24, 119, 242, 0.3);">
                     <i data-lucide="facebook" style="width: 18px; height: 18px;"></i>
-                    <span>Connect WhatsApp with Meta</span>
+                    <span>Connect WhatsApp with Meta (1-Click Popup)</span>
                 </button>
+                <div class="flex items-center gap-2 mt-1">
+                    <a href="<?php echo htmlspecialchars($meta_hosted_onboard_url); ?>" target="_blank" class="btn btn-secondary text-xs flex-1 flex items-center justify-center gap-1" style="padding: 0.55rem; font-weight: 600; text-decoration: none;">
+                        <i data-lucide="external-link" style="width: 14px; height: 14px;"></i>
+                        <span>Open Direct Meta Page</span>
+                    </a>
+                    <button type="button" onclick="copyMetaOnboardingLink()" class="btn btn-secondary text-xs flex items-center gap-1" style="padding: 0.55rem 0.85rem; font-weight: 600;" title="Copy client onboarding link to share">
+                        <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
+                        <span id="copyLinkBtnText">Copy Link</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -299,6 +314,10 @@ $config_id = defined('META_EMBEDDED_CONFIG_ID') ? META_EMBEDDED_CONFIG_ID : (get
 
 <script>
 // 1. Meta Embedded Signup Facebook SDK Callback Listener
+let metaSignupWabaId = '<?php echo htmlspecialchars($waba_id); ?>';
+let metaSignupPhoneId = '<?php echo htmlspecialchars($phone_number_id); ?>';
+let isSyncingCredentials = false;
+
 window.addEventListener('message', (event) => {
     if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") {
         return;
@@ -307,41 +326,54 @@ window.addEventListener('message', (event) => {
         const data = JSON.parse(event.data);
         if (data.type === 'WA_EMBEDDED_SIGNUP') {
             if (data.event === 'FINISH') {
-                const waba_id = data.data.waba_id;
-                const phone_number_id = data.data.phone_number_id;
-                
-                showToast("Meta Embedded Signup completed! Finalizing connection...", "info");
-                
-                // Post to backend API
-                fetch('api/meta_embedded_signup.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'embedded_signup',
-                        waba_id: waba_id,
-                        phone_number_id: phone_number_id,
-                        firm_name: "<?php echo htmlspecialchars($firm_name); ?>",
-                        marg_license_no: "<?php echo htmlspecialchars($marg_license_no); ?>"
-                    })
-                })
-                .then(res => res.json())
-                .then(result => {
-                    if (result.success) {
-                        alert(" WhatsApp Cloud API connected successfully via Meta Embedded Signup!");
-                        window.location.reload();
-                    } else {
-                        alert("Error connecting WhatsApp: " + result.message);
-                    }
-                })
-                .catch(err => {
-                    alert("Network error processing Meta Embedded Signup.");
-                });
+                if (data.data) {
+                    metaSignupWabaId = data.data.waba_id || metaSignupWabaId;
+                    metaSignupPhoneId = data.data.phone_number_id || metaSignupPhoneId;
+                }
+                showToast("Meta Embedded Signup completed! Connecting account...", "info");
+                if (metaSignupWabaId && metaSignupPhoneId && !isSyncingCredentials) {
+                    syncEmbeddedCredentials('', metaSignupWabaId, metaSignupPhoneId);
+                }
             }
         }
     } catch (e) {
         // Not a JSON event
     }
 });
+
+function syncEmbeddedCredentials(code, waba_id, phone_number_id) {
+    if (isSyncingCredentials) return;
+    isSyncingCredentials = true;
+
+    showToast("Finalizing Meta WhatsApp credentials...", "info");
+
+    fetch('api/meta_embedded_signup.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'embedded_signup',
+            code: code || '',
+            waba_id: waba_id || metaSignupWabaId || '',
+            phone_number_id: phone_number_id || metaSignupPhoneId || '',
+            firm_name: "<?php echo htmlspecialchars($firm_name); ?>",
+            marg_license_no: "<?php echo htmlspecialchars($marg_license_no); ?>"
+        })
+    })
+    .then(res => res.json())
+    .then(result => {
+        isSyncingCredentials = false;
+        if (result.success) {
+            alert("🎉 WhatsApp Business Cloud API successfully connected via Meta Embedded Signup!");
+            window.location.href = 'index.php?page=whatsapp_settings&status=connected';
+        } else {
+            alert("Embedded Signup Error: " + (result.message || 'Verification failed.'));
+        }
+    })
+    .catch(err => {
+        isSyncingCredentials = false;
+        alert("Network error processing Meta Embedded Signup: " + err.message);
+    });
+}
 
 // Launch FB Login Popup for Embedded Signup
 function launchMetaEmbeddedSignup() {
@@ -358,36 +390,25 @@ function launchMetaEmbeddedSignup() {
     FB.login(function(response) {
         if (response.authResponse) {
             const code = response.authResponse.code;
-            showToast("Meta Authorization code received. Exchanging access token...", "info");
-            
-            fetch('api/meta_embedded_signup.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'embedded_signup',
-                    code: code,
-                    waba_id: '<?php echo htmlspecialchars($waba_id); ?>',
-                    phone_number_id: '<?php echo htmlspecialchars($phone_number_id); ?>',
-                    firm_name: "<?php echo htmlspecialchars($firm_name); ?>",
-                    marg_license_no: "<?php echo htmlspecialchars($marg_license_no); ?>"
-                })
-            })
-            .then(res => res.json())
-            .then(result => {
-                if (result.success) {
-                    alert(" WhatsApp Business Cloud API successfully connected!");
-                    window.location.reload();
-                } else {
-                    alert("Embedded Signup Error: " + result.message);
-                }
-            })
-            .catch(err => {
-                alert("Network error processing Meta Embedded Signup.");
-            });
+            syncEmbeddedCredentials(code, metaSignupWabaId, metaSignupPhoneId);
         } else {
             console.log("FB Login cancelled or no auth response.", response);
         }
     }, fbLoginOptions);
+}
+
+function copyMetaOnboardingLink() {
+    const url = "<?php echo addslashes($meta_hosted_onboard_url); ?>";
+    navigator.clipboard.writeText(url).then(() => {
+        const btnText = document.getElementById('copyLinkBtnText');
+        if (btnText) {
+            btnText.textContent = 'Copied!';
+            setTimeout(() => { btnText.textContent = 'Copy Link'; }, 2500);
+        }
+        showToast("Official Meta Onboarding Link copied to clipboard! Share this with your client on WhatsApp.", "success");
+    }).catch(err => {
+        prompt("Copy this client onboarding link:", url);
+    });
 }
 
 // Save Manual Credentials

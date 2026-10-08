@@ -15,16 +15,32 @@ try {
     // Refresh role directly from users table to prevent stale session role
     if ($db_connected && $pdo && (!empty($user_id) || !empty($user_email) || !empty($user_name))) {
         try {
-            $uStmt = $pdo->prepare("SELECT id, name, email, role FROM users WHERE (id = ? AND ? != '') OR (email = ? AND ? != '') OR (name = ? AND ? != '')");
-            $uStmt->execute([$user_id, $user_id, $user_email, $user_email, $user_name, $user_name]);
-            $uData = $uStmt->fetch(PDO::FETCH_ASSOC);
-            if ($uData) {
-                if (!empty($uData['role'])) {
-                    $role = $uData['role'];
-                    $_SESSION['user_role'] = $uData['role'];
+            $uClauses = [];
+            $uParams = [];
+            if (!empty($user_id)) {
+                $uClauses[] = "id = ?";
+                $uParams[] = $user_id;
+            }
+            if (!empty($user_email)) {
+                $uClauses[] = "email = ?";
+                $uParams[] = $user_email;
+            }
+            if (!empty($user_name)) {
+                $uClauses[] = "name = ?";
+                $uParams[] = $user_name;
+            }
+            if (!empty($uClauses)) {
+                $uStmt = $pdo->prepare("SELECT id, name, email, role FROM users WHERE (" . implode(' OR ', $uClauses) . ") LIMIT 1");
+                $uStmt->execute($uParams);
+                $uData = $uStmt->fetch(PDO::FETCH_ASSOC);
+                if ($uData) {
+                    if (!empty($uData['role'])) {
+                        $role = $uData['role'];
+                        $_SESSION['user_role'] = $uData['role'];
+                    }
+                    if (!empty($uData['name'])) $user_name = $uData['name'];
+                    if (!empty($uData['email'])) $user_email = $uData['email'];
                 }
-                if (!empty($uData['name'])) $user_name = $uData['name'];
-                if (!empty($uData['email'])) $user_email = $uData['email'];
             }
         } catch (PDOException $e) {}
     }

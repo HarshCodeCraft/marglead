@@ -22,7 +22,10 @@ try {
     $hasWebSetup = !empty($wabaCfg['web_api_session_status']) && $wabaCfg['web_api_session_status'] === 'connected';
     $isGatewayConnected = ($activeGateway === 'web_api') ? $hasWebSetup : $hasMetaSetup;
     $activeSenderPhone = !empty($wabaCfg['business_phone']) ? $wabaCfg['business_phone'] : '';
-} catch (\Throwable $e) {}
+    $current_send_bill_pdf = isset($wabaCfg['send_bill_pdf']) ? (int)$wabaCfg['send_bill_pdf'] : 1;
+} catch (\Throwable $e) {
+    $current_send_bill_pdf = 1;
+}
 
 // Active Sender Profile & Banking (Strictly isolated to active tenant / user database)
 $senderFirm = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] ?? (!empty($wabaCfg['business_name']) ? $wabaCfg['business_name'] : 'Marg ERP Merchant');
@@ -1728,7 +1731,7 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
                         </div>
                     </div>
 
-                    <!-- Media / Document Attachment (Optional) with Image Position Selector -->
+                    <!-- Media / Document Attachment (Optional) with Template Default Media Banner -->
                     <div style="background: rgba(14, 165, 233, 0.04); border: 1.5px dashed #0284c7; border-radius: 10px; padding: 14px;">
                         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
                             <label class="form-label font-bold text-xs" style="color: #0369a1; margin: 0; display: flex; align-items: center; gap: 6px;">
@@ -1737,11 +1740,53 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
                             <span style="font-size: 0.69rem; color: #64748b;">Image (JPG, PNG, WebP) or Document (PDF, Invoice, Catalog)</span>
                         </div>
 
-                        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                            <input type="file" id="indMediaFileInput" name="media_file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" class="input-styled text-xs" style="background: white; padding: 6px 10px; flex: 1; min-width: 220px;" onchange="handleMediaFileChange(event)">
-                            <button type="button" id="btnRemoveIndMedia" class="btn btn-secondary text-xs font-bold" style="display: none; padding: 6px 12px; color: #ef4444; border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.05);" onclick="clearIndMedia()">
-                                <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i> Remove
-                            </button>
+                        <!-- Template Default Media Banner (Visible when selected template has default media) -->
+                        <div id="indDefaultMediaBanner" style="display: none; background: rgba(5,150,105,0.08); border: 1px solid rgba(5,150,105,0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <img id="indDefaultMediaThumb" src="" alt="Default Media" style="width: 48px; height: 36px; object-fit: cover; border-radius: 6px; display: none; border: 1px solid #cbd5e1;">
+                                    <div id="indDefaultMediaDoc" style="display: none; width: 36px; height: 36px; background: #e0f2fe; color: #0284c7; border-radius: 6px; align-items: center; justify-content: center;">
+                                        <i data-lucide="file-text" style="width: 18px; height: 18px;"></i>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.76rem; font-weight: 700; color: #065f46; display: flex; align-items: center; gap: 5px;">
+                                            <i data-lucide="check-circle" style="width: 13px; height: 13px;"></i>
+                                            <span>Template Default Media Configured</span>
+                                        </div>
+                                        <div style="font-size: 0.69rem; color: #047857;">
+                                            <span id="indDefaultMediaTitle">Default Attachment</span> • If you don't choose another media, this default media will be sent.
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <a id="indDefaultMediaLink" href="#" target="_blank" style="font-size: 0.72rem; color: #059669; font-weight: 700; text-decoration: underline;">View File</a>
+                                </div>
+                            </div>
+
+                            <!-- Choice Pills -->
+                            <div style="display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;">
+                                <button type="button" id="indPillUseDefault" class="btn btn-secondary text-xs" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #10b981; background: rgba(16, 185, 129, 0.12); color: #065f46;" onclick="setIndMediaChoice('default')">
+                                    <i data-lucide="check" style="width: 11px; height: 11px;"></i> Use Default Media
+                                </button>
+                                <button type="button" id="indPillChooseCustom" class="btn btn-secondary text-xs" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; color: #64748b;" onclick="setIndMediaChoice('custom')">
+                                    <i data-lucide="upload" style="width: 11px; height: 11px;"></i> Choose Different Media
+                                </button>
+                                <button type="button" id="indPillNoMedia" class="btn btn-secondary text-xs" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; color: #64748b;" onclick="setIndMediaChoice('none')">
+                                    <i data-lucide="x" style="width: 11px; height: 11px;"></i> No Media (Text Only)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Custom Media Upload & URL Row -->
+                        <div id="indCustomMediaWrapper">
+                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                <input type="file" id="indMediaFileInput" name="media_file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" class="input-styled text-xs" style="background: white; padding: 6px 10px; flex: 1; min-width: 200px;" onchange="handleMediaFileChange(event)">
+                                <span style="font-size: 0.7rem; color: #64748b; font-weight: 600;">OR URL:</span>
+                                <input type="text" id="indMediaUrlInput" name="media_url" placeholder="https://... (Image or PDF link)" class="input-styled text-xs" style="background: white; flex: 1.2; min-width: 180px;" oninput="handleIndMediaUrlChange(this.value)">
+                                <button type="button" id="btnRemoveIndMedia" class="btn btn-secondary text-xs font-bold" style="display: none; padding: 6px 12px; color: #ef4444; border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.05);" onclick="clearIndMedia()">
+                                    <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i> Clear
+                                </button>
+                            </div>
                         </div>
 
                         <!-- Image Position Option: Top vs Bottom -->
@@ -2364,6 +2409,28 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
                         </div>
                     </div>
 
+                    <!-- Marg ERP Bill PDF Attachment Option (User/Client Specific Control) -->
+                    <div style="background: rgba(16, 185, 129, 0.07); border: 1.5px solid rgba(16, 185, 129, 0.28); border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(16, 185, 129, 0.18); color: #059669; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <i data-lucide="file-text" style="width: 18px; height: 18px;"></i>
+                            </div>
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-weight: 700; font-size: 0.82rem; color: #065f46;">Attach Bill PDF in WhatsApp</span>
+                                    <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 1px 6px; border-radius: 4px;">Per-Account Setting</span>
+                                </div>
+                                <div style="font-size: 0.7rem; color: #475569; margin-top: 2px; line-height: 1.35;">
+                                    <strong>ON:</strong> Bill PDF document is attached in WhatsApp. &bull; <strong>OFF:</strong> PDF is archived on server, but only this text is delivered (no PDF attached).
+                                </div>
+                            </div>
+                        </div>
+                        <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; background: #ffffff; padding: 6px 12px; border-radius: 8px; border: 1px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                            <input type="checkbox" id="modalSendBillPdfCheckbox" name="send_bill_pdf" value="1" <?php echo ($current_send_bill_pdf == 1) ? 'checked' : ''; ?> onchange="onModalBillPdfToggleChange(this.checked)" style="width: 17px; height: 17px; accent-color: #10b981; cursor: pointer;">
+                            <span id="modalSendBillPdfLabel" style="font-weight: 700; font-size: 0.78rem; color: #1e293b;"><?php echo ($current_send_bill_pdf == 1) ? 'Send PDF (ON)' : 'Text Only (OFF)'; ?></span>
+                        </label>
+                    </div>
+
                     <div style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 0.85rem;">
                         <div>
                             <label class="form-label font-bold text-xs" style="margin-bottom: 0.35rem; color: #334155;">Template Title / Name *</label>
@@ -2379,28 +2446,60 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
                         </div>
                     </div>
 
-                    <div id="builderImageHeaderBox" style="display: none; background: rgba(37,99,235,0.06); border: 1.5px solid #93c5fd; border-radius: 10px; padding: 10px; margin-bottom: 10px;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                            <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.78rem; color: #1d4ed8;">
-                                <i data-lucide="image" style="width: 14px; height: 14px;"></i>
-                                <span>Official Meta Header Media (Image)</span>
-                            </div>
-                            <span class="badge" style="background: #dbeafe; color: #1e40af; font-size: 0.65rem; font-weight: 700;">APPROVED MEDIA</span>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-top: 0.5rem; margin-bottom: 0.65rem;">
+                        <div>
+                            <label class="form-label font-bold text-xs" style="margin-bottom: 0.35rem; color: #334155;">Header Type</label>
+                            <select name="header_type" id="builderHeaderType" class="input-styled text-xs font-bold" onchange="onBuilderHeaderTypeChange(this.value)">
+                                <option value="none">None (No Header)</option>
+                                <option value="text">Text (Header Title)</option>
+                                <option value="image">Image (Header Photo / Banner)</option>
+                                <option value="document">Document (PDF / Catalog / Invoice)</option>
+                                <option value="video">Video</option>
+                            </select>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <img id="builderHeaderImgThumb" src="" alt="Header Image" style="width: 80px; height: 55px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
-                            <div style="font-size: 0.72rem; color: #475569; line-height: 1.4;">
-                                This approved Meta template includes this official header photo which is automatically displayed at the top of your message.
-                            </div>
+                        <div id="builderHeaderTextWrap" style="display: none;">
+                            <label class="form-label font-bold text-xs" style="margin-bottom: 0.35rem; color: #334155;">Header Title Text</label>
+                            <input type="text" name="header_text" id="builderHeaderText" class="input-styled text-xs" placeholder="e.g. Marg ERP Official Notice" oninput="updateLivePhoneMockup()">
                         </div>
                     </div>
 
-                    <div id="builderHeaderTextWrap">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
-                            <label class="form-label font-bold text-xs" style="margin-bottom: 0; color: #334155;">Header Title Text (Optional)</label>
-                            <span style="font-size: 0.68rem; color: #94a3b8;">Bold title header at top of message</span>
+                    <!-- Header Media Configuration (for Image, Document, Video) -->
+                    <div id="builderMediaHeaderBox" style="display: none; background: rgba(37,99,235,0.05); border: 1.5px dashed #93c5fd; border-radius: 12px; padding: 12px; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                            <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.78rem; color: #1d4ed8;">
+                                <i data-lucide="image" id="builderMediaHeaderIcon" style="width: 14px; height: 14px;"></i>
+                                <span id="builderMediaHeaderTitle">Template Default Header Media</span>
+                            </div>
+                            <span class="badge" style="background: #dbeafe; color: #1e40af; font-size: 0.65rem; font-weight: 700;">DEFAULT MEDIA</span>
                         </div>
-                        <input type="text" name="header_text" id="builderHeaderText" class="input-styled text-xs" placeholder="e.g. Marg ERP Official Notice" oninput="updateLivePhoneMockup()">
+                        <p style="font-size: 0.72rem; color: #475569; margin: 0 0 8px 0; line-height: 1.35;">
+                            Set default media (Image/PDF) for this template. If someone sends without choosing a custom media, this default media will be dispatched automatically.
+                        </p>
+
+                        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <label style="margin: 0; cursor: pointer; display: flex; align-items: center; gap: 6px; background: white; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 8px; font-size: 0.75rem; font-weight: 600; color: #1e293b;">
+                                <i data-lucide="upload" style="width: 14px; height: 14px; color: #2563eb;"></i>
+                                <span id="builderHeaderFileLabel">Upload Default File...</span>
+                                <input type="file" id="builderHeaderMediaFile" name="header_media_file" accept="image/*,.pdf,.doc,.docx" style="display: none;" onchange="handleBuilderHeaderFileChange(event)">
+                            </label>
+                            <span style="font-size: 0.7rem; color: #64748b; font-weight: 600;">OR URL:</span>
+                            <input type="text" name="header_content" id="builderHeaderContent" class="input-styled text-xs" style="flex: 1; min-width: 180px; background: white;" placeholder="https://example.com/banner.png or paste link" oninput="handleBuilderHeaderUrlChange(this.value)">
+                            <button type="button" id="btnBuilderRemoveMedia" class="btn btn-secondary text-xs" style="display: none; padding: 6px 10px; color: #ef4444;" onclick="clearBuilderHeaderMedia()" title="Remove Media">
+                                <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i>
+                            </button>
+                        </div>
+
+                        <!-- Live Preview row inside builder -->
+                        <div id="builderHeaderPreviewRow" style="display: none; align-items: center; gap: 10px; margin-top: 10px; background: white; padding: 8px 10px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <img id="builderHeaderImgThumb" src="" alt="Header Media" style="width: 70px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; display: none;">
+                            <div id="builderHeaderDocThumb" style="display: none; width: 44px; height: 44px; background: #e0f2fe; color: #0284c7; border-radius: 6px; align-items: center; justify-content: center;">
+                                <i data-lucide="file-text" style="width: 22px; height: 22px;"></i>
+                            </div>
+                            <div style="flex: 1; min-width: 0;">
+                                <div id="builderHeaderMediaName" style="font-size: 0.75rem; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</div>
+                                <div id="builderHeaderMediaMeta" style="font-size: 0.68rem; color: #64748b;">Template Default Media (Active)</div>
+                            </div>
+                        </div>
                     </div>
 
                     <div>
@@ -2523,6 +2622,14 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
                         <div class="wa-msg-bubble">
                             <div class="wa-msg-image-header" id="mockupImageHeader" style="display: none; border-radius: 8px 8px 0 0; overflow: hidden; margin: -6px -8px 8px -8px;">
                                 <img id="mockupHeaderImg" src="" alt="Header Banner" style="width: 100%; max-height: 180px; object-fit: cover; display: block;">
+                            </div>
+                            <div class="wa-msg-doc-header" id="mockupDocHeader" style="display: none; background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 6px; padding: 6px 10px; margin: -4px -4px 8px -4px; align-items: center; gap: 8px;">
+                                <div style="background: #0284c7; color: white; border-radius: 4px; padding: 4px 6px; font-weight: 800; font-size: 0.65rem;">PDF</div>
+                                <div style="flex: 1; min-width: 0;">
+                                    <div id="mockupDocName" style="font-weight: 700; font-size: 0.75rem; color: #0369a1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Document.pdf</div>
+                                    <div style="font-size: 0.65rem; color: #64748b;">Header Document Attachment</div>
+                                </div>
+                                <i data-lucide="file-text" style="width: 16px; height: 16px; color: #0284c7;"></i>
                             </div>
                             <div class="wa-msg-header" id="mockupHeader">Marg ERP Software AMC Notice</div>
                             <div class="wa-msg-body-content" id="mockupBody">Dear Rajesh Medical Store,<br><br>Your Marg ERP Software AMC renewal of <b>₹3,500</b> is due on <b>25 Aug 2026</b>.<br><br>To ensure uninterrupted billing &amp; GST filings, kindly renew your AMC.<br><br>Helpline: <b>9532620736</b></div>
@@ -2842,11 +2949,16 @@ let currentIndMedia = {
     name: null,
     sizeText: null
 };
+let indTemplateDefaultMedia = null;
+let indMediaChoice = 'default'; // 'default' | 'custom' | 'none'
 
 function handleMediaFileChange(e) {
     const file = e.target.files?.[0];
     const posWrapper = document.getElementById('indMediaPositionWrapper');
     const removeBtn = document.getElementById('btnRemoveIndMedia');
+    const urlInput = document.getElementById('indMediaUrlInput');
+
+    if (urlInput) urlInput.value = '';
 
     if (!file) {
         clearIndMedia();
@@ -2883,17 +2995,119 @@ function handleMediaFileChange(e) {
         if (posWrapper) posWrapper.style.display = 'none';
         updateIndividualPreview();
     }
+    setIndMediaChoice('custom');
 }
+
+function handleIndMediaUrlChange(url) {
+    url = (url || '').trim();
+    const posWrapper = document.getElementById('indMediaPositionWrapper');
+    const removeBtn = document.getElementById('btnRemoveIndMedia');
+    const fileInput = document.getElementById('indMediaFileInput');
+
+    if (fileInput) fileInput.value = '';
+
+    if (!url) {
+        clearIndMedia();
+        return;
+    }
+
+    if (removeBtn) removeBtn.style.display = 'inline-flex';
+    const isImage = /\.(jpg|jpeg|png|webp|gif)($|\?)/i.test(url);
+    const fName = url.split('/').pop().split('?')[0] || 'Remote Media';
+
+    if (isImage) {
+        currentIndMedia.type = 'image';
+        currentIndMedia.name = fName;
+        currentIndMedia.sizeText = 'Web Image Link';
+        currentIndMedia.url = url;
+        if (posWrapper) posWrapper.style.display = 'block';
+    } else {
+        currentIndMedia.type = 'document';
+        currentIndMedia.name = fName;
+        currentIndMedia.sizeText = 'Web Document Link';
+        currentIndMedia.url = url;
+        if (posWrapper) posWrapper.style.display = 'none';
+    }
+    setIndMediaChoice('custom');
+    updateIndividualPreview();
+}
+
+function setIndMediaChoice(choice) {
+    indMediaChoice = choice;
+    const pDef = document.getElementById('indPillUseDefault');
+    const pCst = document.getElementById('indPillChooseCustom');
+    const pNon = document.getElementById('indPillNoMedia');
+    const customWrap = document.getElementById('indCustomMediaWrapper');
+
+    [pDef, pCst, pNon].forEach(p => {
+        if (p) {
+            p.style.background = 'transparent';
+            p.style.color = '#64748b';
+            p.style.border = '1px solid #cbd5e1';
+        }
+    });
+
+    if (choice === 'default') {
+        if (pDef) {
+            pDef.style.background = 'rgba(16, 185, 129, 0.12)';
+            pDef.style.color = '#065f46';
+            pDef.style.border = '1.5px solid #10b981';
+        }
+        if (customWrap) customWrap.style.display = 'none';
+        if (indTemplateDefaultMedia) {
+            currentIndMedia = {
+                type: indTemplateDefaultMedia.type,
+                url: indTemplateDefaultMedia.url,
+                name: indTemplateDefaultMedia.name,
+                sizeText: 'Template Default Media'
+            };
+        }
+    } else if (choice === 'custom') {
+        if (pCst) {
+            pCst.style.background = 'rgba(37, 99, 235, 0.12)';
+            pCst.style.color = '#1d4ed8';
+            pCst.style.border = '1.5px solid #2563eb';
+        }
+        if (customWrap) customWrap.style.display = 'block';
+        const urlVal = document.getElementById('indMediaUrlInput')?.value.trim();
+        const fileInp = document.getElementById('indMediaFileInput')?.files?.[0];
+        if (!urlVal && !fileInp) {
+            currentIndMedia = { type: null, url: null, name: null, sizeText: null };
+        }
+    } else if (choice === 'none') {
+        if (pNon) {
+            pNon.style.background = 'rgba(239, 68, 68, 0.1)';
+            pNon.style.color = '#b91c1c';
+            pNon.style.border = '1.5px solid #ef4444';
+        }
+        if (customWrap) customWrap.style.display = 'none';
+        currentIndMedia = { type: null, url: null, name: null, sizeText: null };
+    }
+    updateIndividualPreview();
+    if (window.lucide) lucide.createIcons();
+}
+window.setIndMediaChoice = setIndMediaChoice;
 
 function clearIndMedia() {
     const input = document.getElementById('indMediaFileInput');
     if (input) input.value = '';
+    const urlInput = document.getElementById('indMediaUrlInput');
+    if (urlInput) urlInput.value = '';
     const posWrapper = document.getElementById('indMediaPositionWrapper');
     if (posWrapper) posWrapper.style.display = 'none';
     const removeBtn = document.getElementById('btnRemoveIndMedia');
     if (removeBtn) removeBtn.style.display = 'none';
 
-    currentIndMedia = { type: null, url: null, name: null, sizeText: null };
+    if (indTemplateDefaultMedia && indMediaChoice === 'default') {
+        currentIndMedia = {
+            type: indTemplateDefaultMedia.type,
+            url: indTemplateDefaultMedia.url,
+            name: indTemplateDefaultMedia.name,
+            sizeText: 'Template Default Media'
+        };
+    } else {
+        currentIndMedia = { type: null, url: null, name: null, sizeText: null };
+    }
     updateIndividualPreview();
 }
 
@@ -2982,6 +3196,29 @@ function renderTemplates(list) {
             statusBadge = `<span class="badge text-xs" style="background:rgba(100,116,139,0.15); color:#64748b; font-weight:700; display:inline-flex; align-items:center; gap:4px;"><i data-lucide="file-text" style="width:12px;height:12px;"></i> Local Draft</span>`;
         }
 
+        const hType = (t.header_type || '').toLowerCase();
+        const hasMedia = (hType === 'image' || hType === 'document' || hType === 'video') && !!t.header_content;
+        let mediaBadge = '';
+        if (hasMedia) {
+            if (hType === 'image') {
+                mediaBadge = `
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 5px 8px; background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.2); border-radius: 6px;">
+                    <img src="${escapeHtml(t.header_content)}" alt="Header" style="width: 32px; height: 24px; object-fit: cover; border-radius: 4px; border: 1px solid #cbd5e1;">
+                    <span style="font-size: 0.69rem; font-weight: 700; color: #1d4ed8; display: inline-flex; align-items: center; gap: 4px;">
+                        <i data-lucide="image" style="width:12px; height:12px;"></i> Default Image Banner
+                    </span>
+                    <a href="${escapeHtml(t.header_content)}" target="_blank" style="margin-left: auto; font-size: 0.67rem; color: #2563eb; font-weight: 600; text-decoration: underline;">View</a>
+                </div>`;
+            } else if (hType === 'document') {
+                mediaBadge = `
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 5px 8px; background: rgba(5,150,105,0.06); border: 1px solid rgba(5,150,105,0.2); border-radius: 6px;">
+                    <i data-lucide="file-text" style="width:14px; height:14px; color: #059669;"></i>
+                    <span style="font-size: 0.69rem; font-weight: 700; color: #065f46;">Default Document (PDF)</span>
+                    <a href="${escapeHtml(t.header_content)}" target="_blank" style="margin-left: auto; font-size: 0.67rem; color: #059669; font-weight: 600; text-decoration: underline;">View</a>
+                </div>`;
+            }
+        }
+
         html += `
         <div class="template-card">
             <div>
@@ -2990,6 +3227,7 @@ function renderTemplates(list) {
                     ${statusBadge}
                 </div>
                 <h4 style="margin: 2px 0 6px 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">${escapeHtml(t.title)}</h4>
+                ${mediaBadge}
                 ${t.header_text ? `<div style="font-size: 0.72rem; font-weight: 700; color: #64748b; margin-bottom: 4px;">${escapeHtml(t.header_text)}</div>` : ''}
                 <div class="template-body-preview">${escapeHtml(t.body_text)}</div>
                 ${t.footer_text ? `<div style="font-size: 0.68rem; color: #94a3b8; margin-top: 4px;">— ${escapeHtml(t.footer_text)}</div>` : ''}
@@ -3351,6 +3589,9 @@ function applyTemplateToIndividual(slug) {
 
     if (slug === 'ai_compose') {
         switchIndividualMessageMode('ai');
+        indTemplateDefaultMedia = null;
+        const defBanner = document.getElementById('indDefaultMediaBanner');
+        if (defBanner) defBanner.style.display = 'none';
         return;
     }
 
@@ -3358,6 +3599,9 @@ function applyTemplateToIndividual(slug) {
         switchIndividualMessageMode('custom');
         txtArea.value = '';
         txtArea.readOnly = false;
+        indTemplateDefaultMedia = null;
+        const defBanner = document.getElementById('indDefaultMediaBanner');
+        if (defBanner) defBanner.style.display = 'none';
         updateIndividualPreview();
         return;
     }
@@ -3377,6 +3621,50 @@ function applyTemplateToIndividual(slug) {
         txtArea.readOnly = true;
         txtArea.style.background = 'rgba(37,99,235,0.03)';
         txtArea.style.color = '#374151';
+
+        // Check if template has default media
+        const defBanner = document.getElementById('indDefaultMediaBanner');
+        const defThumb  = document.getElementById('indDefaultMediaThumb');
+        const defDoc    = document.getElementById('indDefaultMediaDoc');
+        const defLink   = document.getElementById('indDefaultMediaLink');
+        const defTitle  = document.getElementById('indDefaultMediaTitle');
+
+        const hContent = (t.header_content || '').trim();
+        const hType = (t.header_type || '').toLowerCase();
+        const hasDefaultMedia = (hType === 'image' || hType === 'document' || hType === 'video') && (hContent.length > 0);
+
+        if (hasDefaultMedia) {
+            indTemplateDefaultMedia = {
+                type: hType,
+                url: hContent,
+                name: hContent.split('/').pop().split('?')[0] || 'Default Media'
+            };
+            if (defBanner) defBanner.style.display = 'block';
+            if (defLink) defLink.href = hContent;
+            if (defTitle) defTitle.textContent = (hType === 'image' ? 'Image: ' : 'Document: ') + indTemplateDefaultMedia.name;
+            if (hType === 'image') {
+                if (defThumb) { defThumb.src = hContent; defThumb.style.display = 'block'; }
+                if (defDoc) defDoc.style.display = 'none';
+            } else {
+                if (defThumb) defThumb.style.display = 'none';
+                if (defDoc) defDoc.style.display = 'flex';
+            }
+
+            // If user hasn't explicitly chosen/uploaded custom media, default to template default media
+            const hasCustomFile = !!document.getElementById('indMediaFileInput')?.files?.length;
+            const hasCustomUrl = !!document.getElementById('indMediaUrlInput')?.value.trim();
+            if (!hasCustomFile && !hasCustomUrl) {
+                setIndMediaChoice('default');
+            }
+        } else {
+            indTemplateDefaultMedia = null;
+            if (defBanner) defBanner.style.display = 'none';
+            const hasCustomFile = !!document.getElementById('indMediaFileInput')?.files?.length;
+            const hasCustomUrl = !!document.getElementById('indMediaUrlInput')?.value.trim();
+            if (!hasCustomFile && !hasCustomUrl) {
+                setIndMediaChoice('custom');
+            }
+        }
 
         const { named, positional } = extractTemplateVars(t.body_text);
         const skipVars = ['name', 'phone'];
@@ -3844,6 +4132,17 @@ function handleIndividualSubmit(e) {
         formData.append('contacts_json', JSON.stringify(sheetParsedRows));
         formData.append('delay_seconds', delaySec);
 
+        formData.append('media_action', indMediaChoice);
+        if (indMediaChoice === 'none') {
+            formData.set('media_url', '');
+            formData.delete('media_file');
+        } else if (indMediaChoice === 'custom') {
+            const urlInp = document.getElementById('indMediaUrlInput')?.value.trim();
+            if (urlInp) formData.set('media_url', urlInp);
+        } else if (indMediaChoice === 'default' && indTemplateDefaultMedia) {
+            formData.set('template_default_media_url', indTemplateDefaultMedia.url);
+        }
+
         const dailyLimitSel = document.getElementById('indDailyLimitSelect')?.value;
         let dailyLimit = parseInt(dailyLimitSel) || 0;
         if (dailyLimitSel === 'custom') {
@@ -3904,6 +4203,17 @@ function handleIndividualSubmit(e) {
     const formData = new FormData(form);
     formData.append('action', 'send_individual');
     formData.append('client_countdown', '1');
+
+    formData.append('media_action', indMediaChoice);
+    if (indMediaChoice === 'none') {
+        formData.set('media_url', '');
+        formData.delete('media_file');
+    } else if (indMediaChoice === 'custom') {
+        const urlInp = document.getElementById('indMediaUrlInput')?.value.trim();
+        if (urlInp) formData.set('media_url', urlInp);
+    } else if (indMediaChoice === 'default' && indTemplateDefaultMedia) {
+        formData.set('template_default_media_url', indTemplateDefaultMedia.url);
+    }
 
     const executeDispatch = () => {
         btn.disabled = true;
@@ -5350,6 +5660,149 @@ function selectTemplateGateway(mode) {
 let currentActiveTemplateHeaderImage = '';
 let currentActiveTemplateHeaderType = 'none';
 
+function onBuilderHeaderTypeChange(val) {
+    currentActiveTemplateHeaderType = val || 'none';
+    const textWrap = document.getElementById('builderHeaderTextWrap');
+    const mediaBox = document.getElementById('builderMediaHeaderBox');
+    const mediaTitle = document.getElementById('builderMediaHeaderTitle');
+    const fileLabel = document.getElementById('builderHeaderFileLabel');
+    const fileInput = document.getElementById('builderHeaderMediaFile');
+
+    if (val === 'text') {
+        if (textWrap) textWrap.style.display = 'block';
+        if (mediaBox) mediaBox.style.display = 'none';
+    } else if (val === 'image') {
+        if (textWrap) textWrap.style.display = 'none';
+        if (mediaBox) mediaBox.style.display = 'block';
+        if (mediaTitle) mediaTitle.textContent = 'Template Default Header Image';
+        if (fileLabel) fileLabel.textContent = 'Upload Default Image...';
+        if (fileInput) fileInput.accept = 'image/*';
+    } else if (val === 'document') {
+        if (textWrap) textWrap.style.display = 'none';
+        if (mediaBox) mediaBox.style.display = 'block';
+        if (mediaTitle) mediaTitle.textContent = 'Template Default Header Document (PDF)';
+        if (fileLabel) fileLabel.textContent = 'Upload Default PDF / Document...';
+        if (fileInput) fileInput.accept = '.pdf,.doc,.docx,.xls,.xlsx';
+    } else if (val === 'video') {
+        if (textWrap) textWrap.style.display = 'none';
+        if (mediaBox) mediaBox.style.display = 'block';
+        if (mediaTitle) mediaTitle.textContent = 'Template Default Header Video';
+        if (fileLabel) fileLabel.textContent = 'Upload Default Video (MP4)...';
+        if (fileInput) fileInput.accept = 'video/*';
+    } else {
+        // none
+        if (textWrap) textWrap.style.display = 'none';
+        if (mediaBox) mediaBox.style.display = 'none';
+    }
+    updateLivePhoneMockup();
+    if (window.lucide) lucide.createIcons();
+}
+window.onBuilderHeaderTypeChange = onBuilderHeaderTypeChange;
+
+function handleBuilderHeaderFileChange(event) {
+    const file = event.target.files ? event.target.files[0] : null;
+    if (!file) {
+        clearBuilderHeaderMedia();
+        return;
+    }
+
+    const prevRow = document.getElementById('builderHeaderPreviewRow');
+    const thumbImg = document.getElementById('builderHeaderImgThumb');
+    const docThumb = document.getElementById('builderHeaderDocThumb');
+    const nameEl   = document.getElementById('builderHeaderMediaName');
+    const metaEl   = document.getElementById('builderHeaderMediaMeta');
+    const removeBtn = document.getElementById('btnBuilderRemoveMedia');
+    const urlInput  = document.getElementById('builderHeaderContent');
+
+    if (urlInput) urlInput.value = '';
+    if (removeBtn) removeBtn.style.display = 'inline-flex';
+    if (nameEl) nameEl.textContent = file.name;
+    const sizeKb = Math.round(file.size / 1024);
+    if (metaEl) metaEl.textContent = (sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' MB' : sizeKb + ' KB') + ' • Uploaded file';
+
+    const isImg = file.type && file.type.startsWith('image/');
+    if (isImg) {
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            currentActiveTemplateHeaderImage = evt.target.result;
+            if (thumbImg) {
+                thumbImg.src = evt.target.result;
+                thumbImg.style.display = 'block';
+            }
+            if (docThumb) docThumb.style.display = 'none';
+            updateLivePhoneMockup();
+        };
+        reader.readAsDataURL(file);
+    } else {
+        currentActiveTemplateHeaderImage = file.name;
+        if (thumbImg) thumbImg.style.display = 'none';
+        if (docThumb) docThumb.style.display = 'flex';
+        updateLivePhoneMockup();
+    }
+
+    if (prevRow) prevRow.style.display = 'flex';
+}
+window.handleBuilderHeaderFileChange = handleBuilderHeaderFileChange;
+
+function handleBuilderHeaderUrlChange(url) {
+    url = (url || '').trim();
+    const prevRow = document.getElementById('builderHeaderPreviewRow');
+    const thumbImg = document.getElementById('builderHeaderImgThumb');
+    const docThumb = document.getElementById('builderHeaderDocThumb');
+    const nameEl   = document.getElementById('builderHeaderMediaName');
+    const metaEl   = document.getElementById('builderHeaderMediaMeta');
+    const removeBtn = document.getElementById('btnBuilderRemoveMedia');
+    const fileInput = document.getElementById('builderHeaderMediaFile');
+
+    if (fileInput) fileInput.value = '';
+
+    if (!url) {
+        clearBuilderHeaderMedia();
+        return;
+    }
+
+    currentActiveTemplateHeaderImage = url;
+    if (removeBtn) removeBtn.style.display = 'inline-flex';
+    const fName = url.split('/').pop().split('?')[0] || 'Default Header Media';
+    if (nameEl) nameEl.textContent = fName;
+    if (metaEl) metaEl.textContent = 'Remote URL Link • Default template media';
+
+    const isImg = /\.(jpg|jpeg|png|webp|gif)($|\?)/i.test(url) || currentActiveTemplateHeaderType === 'image';
+    if (isImg) {
+        if (thumbImg) {
+            thumbImg.src = url;
+            thumbImg.style.display = 'block';
+        }
+        if (docThumb) docThumb.style.display = 'none';
+    } else {
+        if (thumbImg) thumbImg.style.display = 'none';
+        if (docThumb) docThumb.style.display = 'flex';
+    }
+
+    if (prevRow) prevRow.style.display = 'flex';
+    updateLivePhoneMockup();
+}
+window.handleBuilderHeaderUrlChange = handleBuilderHeaderUrlChange;
+
+function clearBuilderHeaderMedia() {
+    currentActiveTemplateHeaderImage = '';
+    const fileInput = document.getElementById('builderHeaderMediaFile');
+    if (fileInput) fileInput.value = '';
+    const urlInput = document.getElementById('builderHeaderContent');
+    if (urlInput) urlInput.value = '';
+    const removeBtn = document.getElementById('btnBuilderRemoveMedia');
+    if (removeBtn) removeBtn.style.display = 'none';
+    const prevRow = document.getElementById('builderHeaderPreviewRow');
+    if (prevRow) prevRow.style.display = 'none';
+    const thumbImg = document.getElementById('builderHeaderImgThumb');
+    if (thumbImg) thumbImg.style.display = 'none';
+    const docThumb = document.getElementById('builderHeaderDocThumb');
+    if (docThumb) docThumb.style.display = 'none';
+
+    updateLivePhoneMockup();
+}
+window.clearBuilderHeaderMedia = clearBuilderHeaderMedia;
+
 function openCreateTemplateModal() {
     const modal = document.getElementById('interactiveTemplateModal');
     if (modal) {
@@ -5382,18 +5835,31 @@ function openCreateTemplateModal() {
         `;
     }
 
-    currentActiveTemplateHeaderImage = '';
-    currentActiveTemplateHeaderType = 'none';
-    const imgBox = document.getElementById('builderImageHeaderBox');
-    if (imgBox) imgBox.style.display = 'none';
-    const textWrap = document.getElementById('builderHeaderTextWrap');
-    if (textWrap) textWrap.style.display = 'block';
+    const typeSelect = document.getElementById('builderHeaderType');
+    if (typeSelect) typeSelect.value = 'none';
+    onBuilderHeaderTypeChange('none');
+    clearBuilderHeaderMedia();
 
     const defaultMode = (activeGatewayMode === 'web_api') ? 'web_api' : (activeGatewayMode === 'meta' ? 'meta' : 'web_api');
     selectTemplateGateway(defaultMode);
     attachWhatsAppShortcuts('builderBodyText');
     updateLivePhoneMockup();
     if (window.lucide) lucide.createIcons();
+}
+
+function onModalBillPdfToggleChange(isChecked) {
+    const label = document.getElementById('modalSendBillPdfLabel');
+    if (label) {
+        label.innerText = isChecked ? 'Send PDF (ON)' : 'Text Only (OFF)';
+    }
+    fetch('api/campaign-api.php?action=toggle_bill_pdf&send_bill_pdf=' + (isChecked ? 1 : 0))
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && typeof showToast === 'function') {
+                showToast(data.message, 'success');
+            }
+        })
+        .catch(err => {});
 }
 
 function editTemplate(id) {
@@ -5424,20 +5890,38 @@ function editTemplate(id) {
     const catSelect = document.getElementById('builderCategory');
     if (catSelect) catSelect.value = t.category || 'MARKETING';
 
-    // Header Type & Image handling
-    currentActiveTemplateHeaderType = t.header_type || 'none';
-    currentActiveTemplateHeaderImage = t.header_content || '';
-    const imgBox = document.getElementById('builderImageHeaderBox');
-    const thumbImg = document.getElementById('builderHeaderImgThumb');
-    const textWrap = document.getElementById('builderHeaderTextWrap');
+    // Header Type & Media handling
+    const hType = t.header_type || 'none';
+    const typeSelect = document.getElementById('builderHeaderType');
+    if (typeSelect) typeSelect.value = hType;
+    onBuilderHeaderTypeChange(hType);
 
-    if (t.header_type === 'image' && currentActiveTemplateHeaderImage) {
-        if (imgBox) imgBox.style.display = 'block';
-        if (thumbImg) thumbImg.src = currentActiveTemplateHeaderImage;
-        if (textWrap) textWrap.style.display = 'none';
+    currentActiveTemplateHeaderImage = t.header_content || '';
+    const contentInput = document.getElementById('builderHeaderContent');
+    if (contentInput) contentInput.value = currentActiveTemplateHeaderImage;
+
+    if (currentActiveTemplateHeaderImage && (hType === 'image' || hType === 'document' || hType === 'video')) {
+        const prevRow = document.getElementById('builderHeaderPreviewRow');
+        const thumbImg = document.getElementById('builderHeaderImgThumb');
+        const docThumb = document.getElementById('builderHeaderDocThumb');
+        const nameEl   = document.getElementById('builderHeaderMediaName');
+        const metaEl   = document.getElementById('builderHeaderMediaMeta');
+        const removeBtn = document.getElementById('btnBuilderRemoveMedia');
+
+        if (removeBtn) removeBtn.style.display = 'inline-flex';
+        if (nameEl) nameEl.textContent = currentActiveTemplateHeaderImage.split('/').pop().split('?')[0] || 'Default Media';
+        if (metaEl) metaEl.textContent = 'Configured Default Media';
+
+        if (hType === 'image') {
+            if (thumbImg) { thumbImg.src = currentActiveTemplateHeaderImage; thumbImg.style.display = 'block'; }
+            if (docThumb) docThumb.style.display = 'none';
+        } else {
+            if (thumbImg) thumbImg.style.display = 'none';
+            if (docThumb) docThumb.style.display = 'flex';
+        }
+        if (prevRow) prevRow.style.display = 'flex';
     } else {
-        if (imgBox) imgBox.style.display = 'none';
-        if (textWrap) textWrap.style.display = 'block';
+        clearBuilderHeaderMedia();
     }
 
     const headerInput = document.getElementById('builderHeaderText');
@@ -5572,7 +6056,7 @@ function updateLivePhoneMockup() {
         .replace(/{company}/g, '<span class="wa-var-tag">Marg Pharma</span>')
         .replace(/{phone}/g, '<span class="wa-var-tag">9532620736</span>')
         .replace(/{amount}/g, '<span class="wa-var-tag">₹3,500</span>')
-        .replace(/{due_date}/g, '<span class="wa-var-tag">25 Aug 2026</span>')
+        .replace(/{due_date}/g, '<span class="wa-var-tag">25/08/2026</span>')
         .replace(/\*([^\*]+)\*/g, '<b>$1</b>')
         .replace(/\_([^\_]+)\_/g, '<i>$1</i>')
         .replace(/\~([^\~]+)\~/g, '<del>$1</del>')
@@ -5581,13 +6065,27 @@ function updateLivePhoneMockup() {
 
     const mockImgHeader = document.getElementById('mockupImageHeader');
     const mockImg = document.getElementById('mockupHeaderImg');
-    if (mockImgHeader && mockImg) {
-        if (currentActiveTemplateHeaderType === 'image' && currentActiveTemplateHeaderImage) {
+    const mockDocHeader = document.getElementById('mockupDocHeader');
+    const mockDocName   = document.getElementById('mockupDocName');
+
+    if (currentActiveTemplateHeaderType === 'image' && currentActiveTemplateHeaderImage) {
+        if (mockImg && mockImgHeader) {
             mockImg.src = currentActiveTemplateHeaderImage;
             mockImgHeader.style.display = 'block';
-        } else {
-            mockImgHeader.style.display = 'none';
         }
+        if (mockDocHeader) mockDocHeader.style.display = 'none';
+    } else if (currentActiveTemplateHeaderType === 'document') {
+        if (mockImgHeader) mockImgHeader.style.display = 'none';
+        if (mockDocHeader) {
+            mockDocHeader.style.display = 'flex';
+            if (mockDocName) {
+                const docFname = currentActiveTemplateHeaderImage ? currentActiveTemplateHeaderImage.split('/').pop().split('?')[0] : 'Document.pdf';
+                mockDocName.textContent = docFname;
+            }
+        }
+    } else {
+        if (mockImgHeader) mockImgHeader.style.display = 'none';
+        if (mockDocHeader) mockDocHeader.style.display = 'none';
     }
 
     const mockHead = document.getElementById('mockupHeader');
@@ -5595,12 +6093,12 @@ function updateLivePhoneMockup() {
     const mockFtr  = document.getElementById('mockupFooter');
 
     if (mockHead) {
-        if (currentActiveTemplateHeaderType === 'image') {
+        if (currentActiveTemplateHeaderType === 'image' || currentActiveTemplateHeaderType === 'document') {
             mockHead.style.display = 'none';
-        } else if (headerVal) {
+        } else if (currentActiveTemplateHeaderType === 'text' && headerVal) {
             mockHead.innerHTML = escapeHtml(headerVal);
             mockHead.style.display = 'block';
-        } else if (!bodyVal.trim()) {
+        } else if (currentActiveTemplateHeaderType === 'text' && !bodyVal.trim()) {
             mockHead.innerHTML = 'Marg ERP Software AMC Notice';
             mockHead.style.display = 'block';
         } else {

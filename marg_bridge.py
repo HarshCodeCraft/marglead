@@ -56,6 +56,16 @@ def find_pdf(target_dir=""):
         r"E:\MARG\emailserver",
         r"E:\MARG"
     ]
+
+    # Auto-detect Windows User Local Temp MARG folders (%LOCALAPPDATA%\Temp\MARG and %TEMP%\MARG)
+    local_app_data = os.environ.get('LOCALAPPDATA', '')
+    if local_app_data:
+        common_marg_dirs.append(os.path.join(local_app_data, 'Temp', 'MARG'))
+    temp_env = os.environ.get('TEMP', '')
+    if temp_env:
+        common_marg_dirs.append(os.path.join(temp_env, 'MARG'))
+        common_marg_dirs.append(temp_env)
+
     for d in common_marg_dirs:
         if os.path.exists(d) and d not in search_dirs:
             search_dirs.append(d)

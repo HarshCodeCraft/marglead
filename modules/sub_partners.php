@@ -10,12 +10,39 @@ require_once __DIR__ . '/../includes/db.php';
 
 $role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_id = $_SESSION['user_id'] ?? 1;
-$is_admin = ($role === 'Administrator' || $role === 'System Admin' || $role === 'Super Admin' || $role === 'Tenant Admin' || $role === 'Regional Manager' || $user_id == 1 || !empty($_SESSION['tenant_db']));
-$is_super_admin = ($role === 'Super Admin' || $role === 'Tenant Admin' || $role === 'Admin' || $user_id == 1);
 
-if (!$is_admin && !hasAccess('sub_partners', $role) && !hasAccess('clients', $role)) {
-    header("Location: index.php?page=access_denied");
-    exit;
+$is_tenant_session = (
+    strcasecmp($role, 'Tenant Admin') === 0 ||
+    !empty($_SESSION['is_tenant']) ||
+    (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== 'u978772385_friendlyaidata' && $_SESSION['tenant_db'] !== 'marg_crm' && empty($_SESSION['impersonate_tenant_db']))
+);
+
+if ($is_tenant_session) {
+    if (!hasAccess('sub_partners', $role)) {
+        header("Location: index.php?page=access_denied");
+        exit;
+    }
+    $is_admin = true;
+    $is_super_admin = false;
+    $is_tenant_admin = true;
+    $can_manage_custom_fields = true;
+    
+    // Ensure TenantAwarePDO proxy is active for tenant isolation
+    if (!empty($_SESSION['tenant_db']) && !($pdo instanceof TenantAwarePDO)) {
+        if (strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master)) {
+            $pdo = TenantAwarePDO::createFromExisting($pdo_master, $_SESSION['tenant_db']);
+        }
+    }
+} else {
+    $is_admin = ($role === 'Administrator' || $role === 'System Admin' || $role === 'Super Admin' || $role === 'Regional Manager' || $user_id == 1);
+    $is_super_admin = ($role === 'Super Admin' || $role === 'Admin' || $user_id == 1);
+    $is_tenant_admin = false;
+    $can_manage_custom_fields = $is_super_admin;
+
+    if (!$is_admin && !hasAccess('sub_partners', $role)) {
+        header("Location: index.php?page=access_denied");
+        exit;
+    }
 }
 
 $message = '';
@@ -302,7 +329,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     // --- Action B: Delete Sub Partner ---
-    if ($act === 'delete_sub_partner' && $is_admin) {
+    if ($act === 'delete_sub_partner' && ($is_admin || $is_tenant_admin)) {
         $pId = intval($_POST['partner_id'] ?? 0);
         if ($pId > 0 && $pdo) {
             try {
@@ -340,8 +367,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
-    // --- Action C: Super Admin Add Dynamic Custom Field / Column ---
-    if ($act === 'add_custom_field' && $is_super_admin) {
+    // --- Action C: Super Admin / Tenant Admin Add Dynamic Custom Field / Column ---
+    if ($act === 'add_custom_field' && $can_manage_custom_fields) {
         $field_label = trim($_POST['field_label'] ?? '');
         $field_type = trim($_POST['field_type'] ?? 'text');
         $placeholder = trim($_POST['placeholder'] ?? '');
@@ -407,7 +434,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     // --- Action D: Delete / Toggle Dynamic Custom Column ---
-    if ($act === 'delete_custom_field' && $is_super_admin) {
+    if ($act === 'delete_custom_field' && $can_manage_custom_fields) {
         $fId = intval($_POST['field_id'] ?? 0);
         if ($fId > 0 && $pdo) {
             try {
@@ -558,7 +585,7 @@ if ($pdo) {
                 <span>Export CSV</span>
             </a>
 
-            <?php if ($is_super_admin): ?>
+            <?php if ($can_manage_custom_fields): ?>
                 <button type="button" onclick="openCustomColumnsModal()" class="btn btn-secondary flex align-center gap-1.5" style="border-radius: 8px; font-size: 0.82rem; font-weight: 600; padding: 8px 14px; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.06);">
                     <i data-lucide="sliders" style="width: 15px; height: 15px;"></i>
                     <span>Manage Custom Columns</span>
@@ -1001,7 +1028,7 @@ if ($pdo) {
                             <i data-lucide="sliders" style="width: 14px; height: 14px;"></i>
                             <span>3. Custom Attributes (Super Admin Defined)</span>
                         </div>
-                        <?php if ($is_super_admin): ?>
+                        <?php if ($can_manage_custom_fields): ?>
                             <a href="javascript:void(0)" onclick="openCustomColumnsModal()" style="font-size: 0.72rem; color: #059669; text-decoration: underline; font-weight: 600;">
                                 + Add Another Field
                             </a>
@@ -1070,9 +1097,9 @@ if ($pdo) {
 </div>
 
 <!-- ========================================================================= -->
-<!-- MODAL 2: SUPER ADMIN CUSTOM COLUMNS & DYNAMIC FIELDS MANAGER -->
+<!-- MODAL 2: CUSTOM COLUMNS & DYNAMIC FIELDS MANAGER -->
 <!-- ========================================================================= -->
-<?php if ($is_super_admin): ?>
+<?php if ($can_manage_custom_fields): ?>
 <div id="custom_columns_modal" class="modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.65); z-index: 10000; backdrop-filter: blur(4px); align-items: center; justify-content: center;">
     <div style="background: var(--bg-card); width: 95%; max-width: 680px; max-height: 90vh; border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 20px 40px rgba(0,0,0,0.25); display: flex; flex-direction: column; overflow: hidden; animation: popIn 0.2s ease-out;">
         

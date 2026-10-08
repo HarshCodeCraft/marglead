@@ -92,7 +92,8 @@ function resolveTemplateVariables($rawMsg, $pdo, $recipientData = []) {
     $billNo = $recipientData['bill_no'] ?? ('INV-' . date('dmy') . '-' . rand(100, 999));
     $amount = !empty($recipientData['amount']) ? preg_replace('/[^\d\.,]/', '', $recipientData['amount']) : '3,500';
     $balance = !empty($recipientData['balance']) ? preg_replace('/[^\d\.,]/', '', $recipientData['balance']) : '0.00';
-    $dueDate = $recipientData['due_date'] ?? date('d M Y', strtotime('+15 days'));
+    $rawDue = $recipientData['due_date'] ?? ($recipientData['due_on'] ?? '');
+    $dueDate = !empty($rawDue) ? format_wa_date_ddmmyyyy($rawDue) : date('d/m/Y', strtotime('+15 days'));
     $previewLink = $recipientData['preview_link'] ?? 'https://friendlyaisolution.com';
 
     $search = [
@@ -170,7 +171,7 @@ function handleBroadcastMediaUpload($fileKey = 'media_file') {
     return '';
 }
 
-function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $templateSlug = 'custom', $mediaUrl = null, $mediaPosition = 'top', $ownerUserId = null) {
+function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $templateSlug = 'custom', $mediaUrl = null, $mediaPosition = 'top', $ownerUserId = null, $customParams = []) {
     $targetUserId = $ownerUserId ? (int)$ownerUserId : (int)($_SESSION['user_id'] ?? 1);
     $cfg = getActiveWabaConfig($pdo, $targetUserId);
     if (empty($cfg)) {
@@ -235,6 +236,17 @@ function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $
             'token'     => $cfg['web_api_token'] ?? '',
             'instance'  => $cfg['web_api_instance_id'] ?? ''
         ];
+
+        if (empty($mediaUrl) && !empty($templateSlug) && $templateSlug !== 'custom') {
+            try {
+                $stmtTMWeb = $pdo->prepare("SELECT header_content, header_type FROM whatsapp_templates WHERE slug = ? LIMIT 1");
+                $stmtTMWeb->execute([$templateSlug]);
+                $tmRowWeb = $stmtTMWeb->fetch(PDO::FETCH_ASSOC);
+                if ($tmRowWeb && !empty($tmRowWeb['header_content'])) {
+                    $mediaUrl = trim($tmRowWeb['header_content']);
+                }
+            } catch (\Throwable $eWeb) {}
+        }
 
         if (!empty($mediaUrl)) {
             $ext = strtolower(pathinfo(parse_url($mediaUrl, PHP_URL_PATH), PATHINFO_EXTENSION));
@@ -372,7 +384,10 @@ function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $
                 $hType = strtolower($metaTemplateRow['header_type'] ?? 'none');
 
                 if ($hType === 'image') {
-                    $hImg = !empty($mediaUrl) ? $mediaUrl : (!empty($metaTemplateRow['header_content']) ? $metaTemplateRow['header_content'] : 'https://picsum.photos/800/600.jpg');
+                    $hImg = !empty($mediaUrl) ? $mediaUrl : (!empty($metaTemplateRow['header_content']) ? trim($metaTemplateRow['header_content']) : '');
+                    if (empty($hImg) || stripos($hImg, 'scontent.whatsapp.net') !== false) {
+                        $hImg = 'https://friendlyaisolution.com/assets/image.png';
+                    }
                     $components[] = [
                         'type' => 'header',
                         'parameters' => [
@@ -393,6 +408,116 @@ function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $
                             ]
                         ]
                     ];
+                }
+
+                // Extract and construct all required body parameters for Meta template
+                $bodyTpl = $metaTemplateRow['body_text'] ?? '';
+                $bodyParams = [];
+
+                preg_match_all('/\{\{([a-zA-Z0-9_]+)\}\}/', $bodyTpl, $tplMatches);
+                $rawVarKeys = !empty($tplMatches[1]) ? $tplMatches[1] : [];
+
+                if (empty($rawVarKeys)) {
+                    preg_match_all('/\{([a-zA-Z0-9_]+)\}/', $bodyTpl, $singleMatches);
+                    $rawVarKeys = !empty($singleMatches[1]) ? $singleMatches[1] : [];
+                }
+
+                if (!empty($rawVarKeys)) {
+                    $sender = getSenderBankingAndProfileDetails($pdo);
+                    $paramSource = array_merge($_POST, (is_array($customParams) ? $customParams : []));
+
+                    $posDefaults = [
+                        '1'  => $sender['firm_name'] ?? 'Marg Soft Solution',
+                        '2'  => $paramSource['name'] ?? ($paramSource['customer_name'] ?? 'Valued Customer'),
+                        '3'  => 'INV-' . date('dmy') . '-' . rand(100, 999),
+                        '4'  => $paramSource['amount'] ?? '3,500',
+                        '5'  => '0.00',
+                        '6'  => $sender['upi_id'] ?? 'deepakawasthi587@okaxis',
+                        '7'  => $sender['bank_name'] ?? 'HDFC Bank Ltd',
+                        '8'  => $sender['account_number'] ?? '50200012345678',
+                        '9'  => $sender['branch'] ?? 'Connaught Place',
+                        '10' => $sender['ifsc_code'] ?? 'HDFC0000123',
+                        '11' => $sender['firm_name'] ?? 'Marg Soft Solution',
+                        '12' => $sender['helpline'] ?? '7523830026',
+                        '13' => 'https://friendlyaisolution.com'
+                    ];
+
+                    foreach ($rawVarKeys as $k) {
+                        $val = '';
+                        $cleanK = strtolower($k);
+
+                        $candidateKeys = [
+                            $k,
+                            $cleanK,
+                            'var_' . $k,
+                            'var_' . $cleanK,
+                            'posvar_' . $k,
+                            'posvar_' . $cleanK
+                        ];
+
+                        foreach ($candidateKeys as $ck) {
+                            if (isset($paramSource[$ck]) && $paramSource[$ck] !== '') {
+                                $val = trim((string)$paramSource[$ck]);
+                                if (in_array($cleanK, ['due_date', 'due_on', 'date', 'expiry_date'])) {
+                                    $val = format_wa_date_ddmmyyyy($val);
+                                }
+                                break;
+                            }
+                        }
+
+                        if ($val === '') {
+                            if (in_array($cleanK, ['party_name', 'client_name', 'name', 'customer_name', 'contact_person'])) {
+                                $val = $paramSource['name'] ?? ($paramSource['customer_name'] ?? 'Valued Customer');
+                            } elseif (in_array($cleanK, ['company', 'company_name', 'firm', 'firm_name'])) {
+                                $val = $paramSource['company'] ?? ($paramSource['company_name'] ?? 'Marg Client');
+                            } elseif (in_array($cleanK, ['amount', 'renewal_amount', 'bill_amount'])) {
+                                $val = $paramSource['amount'] ?? ($paramSource['renewal_amount'] ?? '5,640');
+                            } elseif (in_array($cleanK, ['due_date', 'due_on', 'date', 'expiry_date'])) {
+                                $rawD = $paramSource['due_date'] ?? ($paramSource['due_on'] ?? ($paramSource['expiry_date'] ?? date('d/m/Y', strtotime('+15 days'))));
+                                $val = format_wa_date_ddmmyyyy($rawD);
+                            } elseif (in_array($cleanK, ['software_type', 'software', 'product'])) {
+                                $val = $paramSource['software_type'] ?? 'Marg ERP 9+';
+                            } elseif (in_array($cleanK, ['no_of_users', 'users', 'user_count'])) {
+                                $val = $paramSource['no_of_users'] ?? '1';
+                            } elseif (in_array($cleanK, ['no_of_companies', 'companies', 'company_count'])) {
+                                $val = $paramSource['no_of_companies'] ?? '999';
+                            } elseif (in_array($cleanK, ['customer_id', 'client_id'])) {
+                                $val = $paramSource['customer_id'] ?? ('CL-' . rand(10000, 99999));
+                            } elseif (in_array($cleanK, ['status', 'account_status'])) {
+                                $val = $paramSource['status'] ?? 'Active';
+                            } elseif (in_array($cleanK, ['helpline', 'phone_number', 'support'])) {
+                                $val = $sender['helpline'] ?? '7523830026';
+                            } elseif (isset($posDefaults[$k])) {
+                                $val = $posDefaults[$k];
+                            } else {
+                                $val = '-';
+                            }
+                        }
+
+                        if (in_array($cleanK, ['due_date', 'due_on', 'date', 'expiry_date'])) {
+                            $val = format_wa_date_ddmmyyyy($val);
+                        }
+
+                        if (is_numeric($k)) {
+                            $bodyParams[] = [
+                                'type' => 'text',
+                                'text' => (string)$val
+                            ];
+                        } else {
+                            $bodyParams[] = [
+                                'type' => 'text',
+                                'parameter_name' => $k,
+                                'text' => (string)$val
+                            ];
+                        }
+                    }
+
+                    if (!empty($bodyParams)) {
+                        $components[] = [
+                            'type' => 'body',
+                            'parameters' => $bodyParams
+                        ];
+                    }
                 }
 
                 // Check for Flow buttons
@@ -424,8 +549,8 @@ function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $
                 }
 
                 $tRes = $whatsapp->sendTemplate($phoneDigits, $templateSlug, 'en', $components);
-                if (!empty($tRes['success']) && $tRes['success']) {
-                    return $tRes;
+                if (empty($tRes['success']) && !empty($tRes['response']['error']['code']) && $tRes['response']['error']['code'] == 132001) {
+                    $tRes = $whatsapp->sendTemplate($phoneDigits, $templateSlug, 'en_US', $components);
                 }
                 return $tRes;
             }
@@ -858,7 +983,7 @@ function internalProcessCampaignBatch($pdo, $id, $batchSize = 5, $isCli = false)
         $mediaUrl = !empty($campaign['media_url']) ? $campaign['media_url'] : null;
         $mediaPos = !empty($campaign['media_position']) ? $campaign['media_position'] : 'top';
 
-        $res = dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons, $template, $mediaUrl, $mediaPos, $ownerUserId);
+        $res = dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons, $template, $mediaUrl, $mediaPos, $ownerUserId, $recipientData);
 
         $processedCount++;
 
@@ -868,7 +993,10 @@ function internalProcessCampaignBatch($pdo, $id, $batchSize = 5, $isCli = false)
             $updAud->execute([$item['id']]);
         } else {
             $failInc++;
-            $errText = $res['error']['message'] ?? ($res['message'] ?? 'Dispatch failed');
+            $errText = $res['response']['error']['error_data']['details']
+                ?? ($res['response']['error']['message']
+                ?? ($res['error']['message']
+                ?? ($res['message'] ?? 'Dispatch failed')));
             $updAud = $pdo->prepare("UPDATE campaign_audience SET status = 'failed', error_message = ?, sent_at = NOW() WHERE id = ?");
             $updAud->execute([$errText, $item['id']]);
 
@@ -1123,11 +1251,26 @@ try {
             }
 
             // If Admin, auto-approve; else require Admin approval
-            $initialStatus = in_array($userRole, ['Super Admin', 'Admin', 'Regional Manager']) ? 'approved' : 'pending_approval';
+            // Handle Campaign Media (Custom upload/URL or Template default media fallback)
+            $mediaUrl = handleBroadcastMediaUpload('media_file');
+            if (empty($mediaUrl) && !empty($_POST['media_url'])) {
+                $mediaUrl = trim($_POST['media_url']);
+            }
+            if (empty($mediaUrl) && $templateName !== 'custom') {
+                try {
+                    $stmtTM = $pdo->prepare("SELECT header_content, header_type FROM whatsapp_templates WHERE slug = ? LIMIT 1");
+                    $stmtTM->execute([$templateName]);
+                    $tMediaRow = $stmtTM->fetch(PDO::FETCH_ASSOC);
+                    if ($tMediaRow && !empty($tMediaRow['header_content'])) {
+                        $mediaUrl = trim($tMediaRow['header_content']);
+                    }
+                } catch (\Throwable $eTM) {}
+            }
+            $mediaPosition = trim($_POST['media_position'] ?? 'top');
 
             // Insert campaign record
-            $stmtIns = $pdo->prepare("INSERT INTO broadcast_campaigns (name, template_name, target_type, custom_message, delay_seconds, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmtIns->execute([$name, $templateName, $targetType, $customMessage, $delaySeconds, $initialStatus, $userActor]);
+            $stmtIns = $pdo->prepare("INSERT INTO broadcast_campaigns (name, template_name, target_type, custom_message, media_url, media_position, delay_seconds, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmtIns->execute([$name, $templateName, $targetType, $customMessage, $mediaUrl, $mediaPosition, $delaySeconds, $initialStatus, $userActor]);
             $campaignId = $pdo->lastInsertId();
 
             $selectedPhones = isset($_POST['selected_phones']) ? (array)$_POST['selected_phones'] : [];
@@ -1505,8 +1648,13 @@ try {
                     $existing = $stmtChk->fetch(PDO::FETCH_ASSOC);
 
                     if ($existing) {
-                        $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET meta_status = ?, category = ?, header_type = ?, header_text = ?, header_content = COALESCE(NULLIF(?, ''), header_content), body_text = ?, footer_text = ?, buttons_json = ? WHERE id = ?");
-                        $stmtUpd->execute([$status, $category, $headerType, $headerText, $headerContent, $bodyText, $footerText, $buttonsJson, $existing['id']]);
+                        if (!empty($headerContent)) {
+                            $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET meta_status = ?, category = ?, header_type = ?, header_text = ?, header_content = ?, body_text = ?, footer_text = ?, buttons_json = ? WHERE id = ?");
+                            $stmtUpd->execute([$status, $category, $headerType, $headerText, $headerContent, $bodyText, $footerText, $buttonsJson, $existing['id']]);
+                        } else {
+                            $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET meta_status = ?, category = ?, header_type = ?, header_text = ?, body_text = ?, footer_text = ?, buttons_json = ? WHERE id = ?");
+                            $stmtUpd->execute([$status, $category, $headerType, $headerText, $bodyText, $footerText, $buttonsJson, $existing['id']]);
+                        }
                     } else {
                         $stmtIns = $pdo->prepare("INSERT INTO whatsapp_templates (title, slug, category, header_type, header_text, header_content, body_text, footer_text, buttons_json, created_by, meta_status, gateway_origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Meta Sync', ?, 'meta')");
                         $stmtIns->execute([$title, $name, $category, $headerType, $headerText, $headerContent, $bodyText, $footerText, $buttonsJson, $status]);
@@ -1529,6 +1677,27 @@ try {
             break;
 
         // ---------------------------------------------------------
+        // 7b. Quick Toggle: Marg Bill PDF Attachment (Per-Account)
+        // ---------------------------------------------------------
+        case 'toggle_bill_pdf':
+            $sbPdf = isset($_REQUEST['send_bill_pdf']) ? (int)$_REQUEST['send_bill_pdf'] : 1;
+            $currUserId = (int)($_SESSION['user_id'] ?? 1);
+            try {
+                $pdo->prepare("UPDATE merchant_waba_settings SET send_bill_pdf = ? WHERE user_id = ?")->execute([$sbPdf, $currUserId]);
+                if (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master) && $pdo_master) {
+                    $pdo_master->prepare("UPDATE `{$_SESSION['tenant_db']}merchant_waba_settings` SET send_bill_pdf = ? WHERE user_id = ? OR id > 0")->execute([$sbPdf, $currUserId]);
+                }
+                sendJsonResponse([
+                    'success' => true, 
+                    'send_bill_pdf' => $sbPdf, 
+                    'message' => $sbPdf ? 'Marg Bill PDF attachment is ENABLED.' : 'Marg Bill PDF attachment is DISABLED (Text message only).'
+                ]);
+            } catch (\Exception $e) {
+                sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 500);
+            }
+            break;
+
+        // ---------------------------------------------------------
         // 8. Save New / Edit Template (Meta Graph API vs Web API)
         // ---------------------------------------------------------
         case 'save_template':
@@ -1540,6 +1709,28 @@ try {
             $headerType = trim($_POST['header_type'] ?? $_REQUEST['header_type'] ?? $rawInput['header_type'] ?? 'none');
             $headerText = trim($_POST['header_text'] ?? $_REQUEST['header_text'] ?? $rawInput['header_text'] ?? '');
             $headerContent = trim($_POST['header_content'] ?? $_REQUEST['header_content'] ?? $rawInput['header_content'] ?? '');
+
+            // Synchronize send_bill_pdf setting if submitted with template form
+            if (isset($_POST['send_bill_pdf'])) {
+                $sbPdf = (int)$_POST['send_bill_pdf'];
+                $currUserId = (int)($_SESSION['user_id'] ?? 1);
+                try {
+                    $pdo->prepare("UPDATE merchant_waba_settings SET send_bill_pdf = ? WHERE user_id = ?")->execute([$sbPdf, $currUserId]);
+                    if (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master) && $pdo_master) {
+                        $pdo_master->prepare("UPDATE `{$_SESSION['tenant_db']}merchant_waba_settings` SET send_bill_pdf = ? WHERE user_id = ? OR id > 0")->execute([$sbPdf, $currUserId]);
+                    }
+                } catch (\Exception $e) {}
+            }
+
+            // Handle Header Media File Upload (image/document/video)
+            $uploadedHeader = handleBroadcastMediaUpload('header_media_file');
+            if (empty($uploadedHeader)) {
+                $uploadedHeader = handleBroadcastMediaUpload('media_file');
+            }
+            if (!empty($uploadedHeader)) {
+                $headerContent = $uploadedHeader;
+            }
+
             $bodyText = trim($_POST['body_text'] ?? $_REQUEST['body_text'] ?? $rawInput['body_text'] ?? '');
             $footerText = trim($_POST['footer_text'] ?? $_REQUEST['footer_text'] ?? $rawInput['footer_text'] ?? '');
             $buttonsJson = trim($_POST['buttons_json'] ?? $_REQUEST['buttons_json'] ?? $rawInput['buttons_json'] ?? '[]');
@@ -1555,6 +1746,10 @@ try {
                 $stmtEx = $pdo->prepare("SELECT * FROM whatsapp_templates WHERE id = ? LIMIT 1");
                 $stmtEx->execute([$templateId]);
                 $existing = $stmtEx->fetch(PDO::FETCH_ASSOC);
+                // Retain existing media if user did not provide new file or clear it
+                if (empty($headerContent) && !empty($existing['header_content']) && empty($_POST['clear_header_media']) && in_array($headerType, ['image', 'document', 'video'])) {
+                    $headerContent = $existing['header_content'];
+                }
             }
 
             // Slug formatted according to Meta requirements (lowercase, underscores only)
@@ -1752,6 +1947,43 @@ try {
             break;
 
         // ---------------------------------------------------------
+        // 9B. Update Template Default Media (Header Media & Type)
+        // ---------------------------------------------------------
+        case 'update_template_media':
+            $templateId = intval($_POST['template_id'] ?? 0);
+            $slug = trim($_POST['slug'] ?? '');
+            $headerType = trim($_POST['header_type'] ?? 'image');
+            $mediaUrl = trim($_POST['media_url'] ?? '');
+
+            $uploaded = handleBroadcastMediaUpload('media_file');
+            if (empty($uploaded)) {
+                $uploaded = handleBroadcastMediaUpload('header_media_file');
+            }
+            if (!empty($uploaded)) {
+                $mediaUrl = $uploaded;
+            }
+
+            if ($templateId <= 0 && empty($slug)) {
+                sendJsonResponse(['success' => false, 'message' => 'Template ID or slug is required.'], 400);
+            }
+
+            if ($templateId > 0) {
+                $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET header_type = ?, header_content = ?, updated_at = NOW() WHERE id = ?");
+                $stmtUpd->execute([$headerType, $mediaUrl, $templateId]);
+            } else {
+                $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET header_type = ?, header_content = ?, updated_at = NOW() WHERE slug = ?");
+                $stmtUpd->execute([$headerType, $mediaUrl, $slug]);
+            }
+
+            sendJsonResponse([
+                'success' => true,
+                'message' => 'Template default media updated successfully!',
+                'header_type' => $headerType,
+                'media_url' => $mediaUrl
+            ]);
+            break;
+
+        // ---------------------------------------------------------
         // 10. Send Direct Instant Individual Broadcast Message
         // ---------------------------------------------------------
         case 'send_individual':
@@ -1774,6 +2006,17 @@ try {
             $mediaUrl = handleBroadcastMediaUpload('media_file');
             if (empty($mediaUrl) && !empty($_POST['media_url'])) {
                 $mediaUrl = trim($_POST['media_url']);
+            }
+            // If user did not upload/enter custom media, fallback to template default media
+            if (empty($mediaUrl) && $templateSlug !== 'custom') {
+                try {
+                    $stmtTM = $pdo->prepare("SELECT header_content, header_type FROM whatsapp_templates WHERE slug = ? LIMIT 1");
+                    $stmtTM->execute([$templateSlug]);
+                    $tMediaRow = $stmtTM->fetch(PDO::FETCH_ASSOC);
+                    if ($tMediaRow && !empty($tMediaRow['header_content'])) {
+                        $mediaUrl = trim($tMediaRow['header_content']);
+                    }
+                } catch (\Throwable $eTM) {}
             }
             $mediaPosition = trim($_POST['media_position'] ?? 'top');
             $clientCountdown = !empty($_POST['client_countdown']);
@@ -1812,8 +2055,17 @@ try {
                 }
             }
 
+            // Pass full variable context to dispatcher for Meta templates
+            $templateParams = array_merge($_POST, [
+                'name'     => $name,
+                'company'  => $company,
+                'phone'    => $cleanPhone,
+                'amount'   => $amount,
+                'due_date' => $dueDate
+            ]);
+
             // Dispatch message via active WhatsApp Gateway
-            $res = dispatchUnifiedWhatsAppMessage($pdo, $cleanPhone, $msgText, $buttons, $templateSlug, $mediaUrl, $mediaPosition);
+            $res = dispatchUnifiedWhatsAppMessage($pdo, $cleanPhone, $msgText, $buttons, $templateSlug, $mediaUrl, $mediaPosition, null, $templateParams);
 
             $sentSuccess = (!empty($res['success']) && $res['success']);
             $sentCount = $sentSuccess ? 1 : 0;
@@ -1843,7 +2095,13 @@ try {
                 // Log audience row
                 $stmtAud = $pdo->prepare("INSERT INTO campaign_audience (campaign_id, mobile, customer_name, company_name, status, sent_at, error_message) VALUES (?, ?, ?, ?, ?, NOW(), ?)");
                 $audStatus = $sentSuccess ? 'sent' : 'failed';
-                $errMsg = $sentSuccess ? null : ($res['error']['message'] ?? ($res['message'] ?? 'Send failed'));
+                $errMsg = $sentSuccess ? null : (
+                    $res['response']['error']['error_data']['details']
+                    ?? ($res['response']['error']['message']
+                    ?? ($res['error']['message']
+                    ?? ($res['message']
+                    ?? ($res['response']['message'] ?? 'Send failed'))))
+                );
                 $stmtAud->execute([$campId, $cleanPhone, $name, $company, $audStatus, $errMsg]);
             } catch (\Throwable $eLog) {
                 error_log("Campaign API audit logging warning: " . $eLog->getMessage());
@@ -1853,7 +2111,11 @@ try {
                 $gwLabel = (!empty($res['gateway']) && $res['gateway'] === 'web_api') ? 'WhatsApp Web API' : 'Meta Cloud API';
                 sendJsonResponse(['success' => true, 'message' => "⚡ Instant WhatsApp broadcast dispatched successfully via {$gwLabel} to {$name} (+{$cleanPhone})!", 'data' => $res]);
             } else {
-                $detailedErr = $res['error']['message'] ?? ($res['message'] ?? ($res['response']['message'] ?? 'WhatsApp Gateway Error'));
+                $detailedErr = $res['response']['error']['error_data']['details']
+                    ?? ($res['response']['error']['message']
+                    ?? ($res['error']['message']
+                    ?? ($res['message']
+                    ?? ($res['response']['message'] ?? 'WhatsApp Gateway Error'))));
                 sendJsonResponse(['success' => false, 'message' => "Dispatch failed: " . $detailedErr, 'details' => $res]);
             }
             break;
@@ -1878,6 +2140,16 @@ try {
             $mediaUrl = handleBroadcastMediaUpload('media_file');
             if (empty($mediaUrl) && !empty($_POST['media_url'])) {
                 $mediaUrl = trim($_POST['media_url']);
+            }
+            if (empty($mediaUrl) && $templateSlug !== 'custom') {
+                try {
+                    $stmtTM = $pdo->prepare("SELECT header_content, header_type FROM whatsapp_templates WHERE slug = ? LIMIT 1");
+                    $stmtTM->execute([$templateSlug]);
+                    $tMediaRow = $stmtTM->fetch(PDO::FETCH_ASSOC);
+                    if ($tMediaRow && !empty($tMediaRow['header_content'])) {
+                        $mediaUrl = trim($tMediaRow['header_content']);
+                    }
+                } catch (\Throwable $eTM) {}
             }
             $mediaPosition = trim($_POST['media_position'] ?? 'top');
 

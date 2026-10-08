@@ -22,18 +22,49 @@ $db_master = $pdo_master ?? $pdo;
 
 if ($db_master) {
     try {
-        $stmtT = $db_master->prepare("SELECT * FROM tenant_companies WHERE (db_name = ? OR company_code = ? OR owner_email = ?) AND LOWER(company_code) != 'master' ORDER BY id DESC LIMIT 1");
-        $stmtT->execute([$active_tenant_db, $tenant_code, $user_email]);
-        $tData = $stmtT->fetch(PDO::FETCH_ASSOC);
+        $sess_t_id = (int)($_SESSION['tenant_id'] ?? 0);
+        $tData = null;
+        if ($sess_t_id > 1) {
+            $stmtT = $db_master->prepare("SELECT * FROM tenant_companies WHERE id = ? AND id != 1 AND status = 'Active' LIMIT 1");
+            $stmtT->execute([$sess_t_id]);
+            $tData = $stmtT->fetch(PDO::FETCH_ASSOC);
+        }
+        if (!$tData && !empty($user_email)) {
+            $stmtT = $db_master->prepare("SELECT * FROM tenant_companies WHERE LOWER(owner_email) = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+            $stmtT->execute([$user_email]);
+            $tData = $stmtT->fetch(PDO::FETCH_ASSOC);
+        }
+        if (!$tData && !empty($tenant_code) && strtolower($tenant_code) !== 'master') {
+            $stmtT = $db_master->prepare("SELECT * FROM tenant_companies WHERE LOWER(company_code) = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+            $stmtT->execute([strtolower($tenant_code)]);
+            $tData = $stmtT->fetch(PDO::FETCH_ASSOC);
+        }
+        if (!$tData && !empty($active_tenant_db) && strpos($active_tenant_db, 't_') === 0) {
+            $stmtT = $db_master->prepare("SELECT * FROM tenant_companies WHERE db_name = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+            $stmtT->execute([$active_tenant_db]);
+            $tData = $stmtT->fetch(PDO::FETCH_ASSOC);
+        }
+
         if ($tData) {
             $tenant_name = !empty($tData['company_name']) ? $tData['company_name'] : $tenant_name;
             $tenant_code = !empty($tData['company_code']) ? $tData['company_code'] : $tenant_code;
-            $owner_phone = $tData['owner_phone'] ?? '';
+            $owner_phone = $tData['phone'] ?? ($tData['owner_phone'] ?? '');
             $plan_name = $tData['plan_name'] ?? ($tData['plan'] ?? 'WhatsApp Web API Active');
             $registered_date = !empty($tData['created_at']) ? date('d M Y', strtotime($tData['created_at'])) : '';
             
+            $_SESSION['tenant_id'] = (int)$tData['id'];
             $_SESSION['tenant_name'] = $tenant_name;
             $_SESSION['tenant_code'] = $tenant_code;
+            $_SESSION['tenant_db'] = $tData['db_name'];
+            $_SESSION['is_tenant'] = true;
+            $active_tenant_db = $tData['db_name'];
+
+            // Guarantee $pdo is wrapped with TenantAwarePDO for active tenant
+            if (!empty($active_tenant_db) && strpos($active_tenant_db, 't_') === 0) {
+                if (!($pdo instanceof TenantAwarePDO)) {
+                    $pdo = TenantAwarePDO::createFromExisting($db_master, $active_tenant_db);
+                }
+            }
         }
     } catch (\PDOException $ex) {}
 }
@@ -63,14 +94,34 @@ if (empty($wabaSettings) && !empty($active_tenant_db) && strpos($active_tenant_d
     } catch (\PDOException $ex) {}
 }
 
-// 3. Fallback by user_id or owner_phone from master table
+// 3. Fallback by tenant_id, user_id or owner_phone from master table
 if (empty($wabaSettings) && $db_master) {
     try {
-        $tId = $_SESSION['tenant_id'] ?? $_SESSION['user_id'] ?? 0;
-        $cleanOwner10 = !empty($owner_phone) ? substr(preg_replace('/\D/', '', $owner_phone), -10) : '';
-        $stmtW = $db_master->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? OR (business_phone LIKE ? AND ? != '') ORDER BY id DESC LIMIT 1");
-        $stmtW->execute([$tId, '%' . $cleanOwner10, $cleanOwner10]);
-        $wabaSettings = $stmtW->fetch(PDO::FETCH_ASSOC);
+        $tId = (int)($_SESSION['tenant_id'] ?? ($tData['id'] ?? 0));
+        $uId = (int)($_SESSION['user_id'] ?? 0);
+        $rawOwnerDigits = !empty($owner_phone) ? preg_replace('/\D/', '', $owner_phone) : '';
+        $cleanOwner10 = strlen($rawOwnerDigits) >= 10 ? substr($rawOwnerDigits, -10) : '';
+        
+        $wClauses = [];
+        $wParams = [];
+        if ($tId > 0) {
+            $wClauses[] = "user_id = ?";
+            $wParams[] = $tId;
+        }
+        if ($uId > 0 && $uId !== $tId) {
+            $wClauses[] = "user_id = ?";
+            $wParams[] = $uId;
+        }
+        if (!empty($cleanOwner10)) {
+            $wClauses[] = "business_phone LIKE ?";
+            $wParams[] = '%' . $cleanOwner10;
+        }
+        if (!empty($wClauses)) {
+            $stmtW = $db_master->prepare("SELECT * FROM merchant_waba_settings WHERE (" . implode(' OR ', $wClauses) . ") ORDER BY (user_id = ?) DESC, id DESC LIMIT 1");
+            $wParams[] = $tId;
+            $stmtW->execute($wParams);
+            $wabaSettings = $stmtW->fetch(PDO::FETCH_ASSOC);
+        }
     } catch (\PDOException $ex) {}
 }
 
@@ -138,22 +189,23 @@ $messages_inbound = 0;
 $messages_failed = 0;
 $recent_logs = [];
 
-// Query tenant's own isolated message_logs table
-if ($pdo) {
+// Query tenant's own isolated message_logs table (Never fall back to master tables)
+if (!empty($active_tenant_db) && strpos($active_tenant_db, 't_') === 0 && $db_master) {
+    $targetPdo = ($pdo instanceof TenantAwarePDO) ? $pdo : TenantAwarePDO::createFromExisting($db_master, $active_tenant_db);
     try {
-        $stmtToday = $pdo->query("SELECT COUNT(*) FROM message_logs WHERE DATE(created_at) = CURRENT_DATE() AND direction = 'OUTBOUND'");
+        $stmtToday = $targetPdo->query("SELECT COUNT(*) FROM message_logs WHERE DATE(created_at) = CURRENT_DATE() AND direction = 'OUTBOUND'");
         $messages_today = $stmtToday ? (int)$stmtToday->fetchColumn() : 0;
 
-        $stmtTotal = $pdo->query("SELECT COUNT(*) FROM message_logs WHERE direction = 'OUTBOUND'");
+        $stmtTotal = $targetPdo->query("SELECT COUNT(*) FROM message_logs WHERE direction = 'OUTBOUND'");
         $messages_total = $stmtTotal ? (int)$stmtTotal->fetchColumn() : 0;
 
-        $stmtInbound = $pdo->query("SELECT COUNT(*) FROM message_logs WHERE direction = 'INBOUND'");
+        $stmtInbound = $targetPdo->query("SELECT COUNT(*) FROM message_logs WHERE direction = 'INBOUND'");
         $messages_inbound = $stmtInbound ? (int)$stmtInbound->fetchColumn() : 0;
 
-        $stmtFail = $pdo->query("SELECT COUNT(*) FROM message_logs WHERE status IN ('failed', 'error', 'undelivered')");
+        $stmtFail = $targetPdo->query("SELECT COUNT(*) FROM message_logs WHERE status IN ('failed', 'error', 'undelivered')");
         $messages_failed = $stmtFail ? (int)$stmtFail->fetchColumn() : 0;
 
-        $stmtLogs = $pdo->query("SELECT * FROM message_logs ORDER BY id DESC LIMIT 15");
+        $stmtLogs = $targetPdo->query("SELECT * FROM message_logs ORDER BY id DESC LIMIT 15");
         if ($stmtLogs) {
             $recent_logs = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
         }

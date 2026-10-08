@@ -626,24 +626,61 @@ function hasAccess($module, $role) {
 
     if ($is_tenant_session) {
         $active_tenant_db = $_SESSION['impersonate_tenant_db'] ?? ($_SESSION['tenant_db'] ?? '');
-        $active_tenant_id = $_SESSION['impersonate_tenant_id'] ?? ($_SESSION['tenant_id'] ?? ($_SESSION['user_id'] ?? 0));
+        $active_tenant_id = (int)($_SESSION['impersonate_tenant_id'] ?? ($_SESSION['tenant_id'] ?? ($_SESSION['user_id'] ?? 0)));
         
         // Fetch fresh allowed_modules for active tenant so Super Admin updates apply instantly
         global $pdo_master, $pdo;
         $db_to_query = $pdo_master ?? $pdo;
         if (isset($db_to_query)) {
             try {
-                $stmtT = $db_to_query->prepare("SELECT allowed_modules FROM tenant_companies WHERE id = ? OR (db_name = ? AND db_name != '') OR (company_code = ? AND company_code != '') OR (owner_email = ? AND owner_email != '') LIMIT 1");
-                $stmtT->execute([$active_tenant_id, $active_tenant_db, $_SESSION['tenant_code'] ?? '', $_SESSION['user_email'] ?? '']);
-                $jsonM = $stmtT->fetchColumn();
-                $default_tenant_mods = ["workspace_dashboard", "whatsapp_dashboard", "dashboard", "merchant_waba_settings", "whatsapp_settings", "team_inbox", "broadcast_campaigns", "bot_flows", "whatsapp_flows", "bulk_broadcast"];
-                if ($jsonM !== false && $jsonM !== null && $jsonM !== '' && $jsonM !== 'null') {
-                    $decoded_mods = json_decode($jsonM, true);
-                    $_SESSION['tenant_allowed_modules'] = is_array($decoded_mods) ? $decoded_mods : $default_tenant_mods;
-                } else {
-                    $_SESSION['tenant_allowed_modules'] = $default_tenant_mods;
+                $user_email = strtolower(trim($_SESSION['user_email'] ?? ''));
+                $tenant_code = trim($_SESSION['tenant_code'] ?? '');
+                $tCompRow = null;
+
+                // Priority 1: Search by active tenant id (strictly non-master)
+                if ($active_tenant_id > 1) {
+                    $stmtT = $db_to_query->prepare("SELECT id, company_code, company_name, db_name, allowed_modules FROM tenant_companies WHERE id = ? AND id != 1 AND status = 'Active' LIMIT 1");
+                    $stmtT->execute([$active_tenant_id]);
+                    $tCompRow = $stmtT->fetch(PDO::FETCH_ASSOC);
                 }
-                $_SESSION['tenant_allowed_db'] = $active_tenant_db;
+                // Priority 2: Search by owner email (strictly non-master)
+                if (!$tCompRow && !empty($user_email)) {
+                    $stmtT = $db_to_query->prepare("SELECT id, company_code, company_name, db_name, allowed_modules FROM tenant_companies WHERE LOWER(owner_email) = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+                    $stmtT->execute([$user_email]);
+                    $tCompRow = $stmtT->fetch(PDO::FETCH_ASSOC);
+                }
+                // Priority 3: Search by company code (excluding master)
+                if (!$tCompRow && !empty($tenant_code) && strtolower($tenant_code) !== 'master') {
+                    $stmtT = $db_to_query->prepare("SELECT id, company_code, company_name, db_name, allowed_modules FROM tenant_companies WHERE LOWER(company_code) = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+                    $stmtT->execute([strtolower($tenant_code)]);
+                    $tCompRow = $stmtT->fetch(PDO::FETCH_ASSOC);
+                }
+                // Priority 4: Search by isolated tenant db (strictly not master)
+                if (!$tCompRow && !empty($active_tenant_db) && $active_tenant_db !== $master_db_name && $active_tenant_db !== 'marg_crm') {
+                    $stmtT = $db_to_query->prepare("SELECT id, company_code, company_name, db_name, allowed_modules FROM tenant_companies WHERE db_name = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+                    $stmtT->execute([$active_tenant_db]);
+                    $tCompRow = $stmtT->fetch(PDO::FETCH_ASSOC);
+                }
+
+                if ($tCompRow) {
+                    $_SESSION['tenant_id'] = (int)$tCompRow['id'];
+                    $_SESSION['tenant_code'] = $tCompRow['company_code'];
+                    $_SESSION['tenant_name'] = $tCompRow['company_name'];
+                    $_SESSION['company_name'] = $tCompRow['company_name'];
+                    if (!empty($tCompRow['db_name']) && $tCompRow['db_name'] !== $master_db_name) {
+                        $_SESSION['tenant_db'] = $tCompRow['db_name'];
+                    }
+                    $_SESSION['is_tenant'] = true;
+
+                    $jsonM = $tCompRow['allowed_modules'] ?? null;
+                    if ($jsonM !== false && $jsonM !== null && $jsonM !== '' && $jsonM !== 'null') {
+                        $decoded_mods = json_decode($jsonM, true);
+                        $_SESSION['tenant_allowed_modules'] = is_array($decoded_mods) ? $decoded_mods : [];
+                    } else {
+                        $_SESSION['tenant_allowed_modules'] = ["workspace_dashboard", "whatsapp_dashboard", "dashboard", "merchant_waba_settings", "whatsapp_settings"];
+                    }
+                    $_SESSION['tenant_allowed_db'] = $_SESSION['tenant_db'] ?? '';
+                }
             } catch (\PDOException $e) {}
         }
 
@@ -975,28 +1012,28 @@ if (!function_exists('getLiveMetricCounts')) {
             $lead_exec_where = " AND {$exclude_lead_direct} AND (" . implode(" OR ", $lead_clauses) . ")";
         }
 
-        // 1. Upcoming Expired Lead (Past 3 Days: Yesterday, 2 Days Ago, 3 Days Ago - Strictly Followup Scheduled Date)
-        $expiry_where = "(action_type LIKE '%Expiry%' OR action_type LIKE '%Renewal%' OR action_type LIKE '%Trail%' OR action_type LIKE '%Trial%' OR remarks LIKE '%expir%' OR remarks LIKE '%renew%')";
+        // 1. Upcoming Expired Lead (Past Expired Leads strictly before today, excluding any leads with today or future scheduled followups)
+        $no_future_fup = "lead_id NOT IN (SELECT lead_id FROM followups WHERE status = 'pending' AND DATE(scheduled_at) >= '{$today_str}')";
         try {
-            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND ({$expiry_where} OR status = 'missed' OR DATE(scheduled_at) < '{$today_str}') {$exec_where_fup}");
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) < '{$today_str}' AND {$no_future_fup} {$exec_where_fup}");
             if ($res) $expired_counts['total'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // Yesterday - followups scheduled for yesterday that are pending/missed
-            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$yesterday_str}' {$exec_where_fup}");
+            // Yesterday - followups scheduled for yesterday that are pending/missed (and not rescheduled to today/future)
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$yesterday_str}' AND {$no_future_fup} {$exec_where_fup}");
             if ($res) $expired_counts['today'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // 2 Days Ago - followups scheduled for 2 days ago that are pending/missed
-            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$day_before_str}' {$exec_where_fup}");
+            // 2 Days Ago - followups scheduled for 2 days ago that are pending/missed (and not rescheduled to today/future)
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$day_before_str}' AND {$no_future_fup} {$exec_where_fup}");
             if ($res) $expired_counts['tomorrow'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 
         try {
-            // 3 Days Ago - followups scheduled for 3 days ago that are pending/missed
-            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$three_days_ago_str}' {$exec_where_fup}");
+            // 3 Days Ago - followups scheduled for 3 days ago that are pending/missed (and not rescheduled to today/future)
+            $res = $pdo->query("SELECT COUNT(DISTINCT lead_id) FROM followups WHERE status IN ('pending', 'missed') AND DATE(scheduled_at) = '{$three_days_ago_str}' AND {$no_future_fup} {$exec_where_fup}");
             if ($res) $expired_counts['next_day'] = (int)$res->fetchColumn();
         } catch (PDOException $e) {}
 

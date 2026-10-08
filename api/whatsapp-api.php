@@ -358,7 +358,10 @@ class WhatsAppAPI {
             "Content-Type: application/json"
         ]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 4);
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); // Avoid IPv6 DNS delay
+        curl_setopt($ch, CURLOPT_TCP_NODELAY, 1);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // For local XAMPP SSL bypass if needed
 
         $response = curl_exec($ch);

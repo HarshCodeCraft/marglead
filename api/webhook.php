@@ -90,10 +90,35 @@ if ($pdo) {
 // Fast return 200 OK to Meta so it does not retry the webhook
 http_response_code(200);
 echo "EVENT_RECEIVED";
+if (function_exists('fastcgi_finish_request')) {
+    @fastcgi_finish_request();
+}
 
-// Process incoming payload structure safely
+// 2.1 Process Meta Message Status Updates (delivered, read, failed)
+if (!empty($data['entry']) && is_array($data['entry'])) {
+    foreach ($data['entry'] as $entryItem) {
+        $changesList = $entryItem['changes'] ?? [];
+        foreach ($changesList as $changeItem) {
+            $statusesList = $changeItem['value']['statuses'] ?? [];
+            if (!empty($statusesList) && is_array($statusesList) && $pdo) {
+                foreach ($statusesList as $stObj) {
+                    $stWamid = $stObj['id'] ?? '';
+                    $stStatus = strtolower($stObj['status'] ?? '');
+                    if (!empty($stWamid) && !empty($stStatus)) {
+                        try {
+                            $stmtUpdSt = $pdo->prepare("UPDATE message_logs SET status = ? WHERE wamid = ?");
+                            $stmtUpdSt->execute([$stStatus, $stWamid]);
+                        } catch (Throwable $eSt) {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Process incoming messages safely
 if (empty($data['entry'][0]['changes'][0]['value']['messages'])) {
-    // If payload contains statuses (read, delivered, sent), just exit cleanly
+    // If payload contains only statuses or ping events, exit cleanly
     exit;
 }
 
@@ -109,7 +134,19 @@ foreach ($data['entry'][0]['changes'] as $change) {
         $wamid = $msg['id'] ?? '';
         $msgType = $msg['type'] ?? '';
 
-        // Mark incoming message as read (blue tick)
+        // Idempotency Check: Prevent duplicate processing on Meta Webhook retries
+        if (!empty($wamid) && $pdo) {
+            try {
+                $chkDup = $pdo->prepare("SELECT id FROM message_logs WHERE wamid = ? AND direction = 'INBOUND' LIMIT 1");
+                $chkDup->execute([$wamid]);
+                if ($chkDup->fetchColumn()) {
+                    write_log('webhook', "Skipping duplicate inbound message: {$wamid}");
+                    continue;
+                }
+            } catch (Throwable $eDup) {}
+        }
+
+        // Mark incoming message as read (blue tick) on customer's phone immediately
         if (!empty($wamid)) {
             $whatsapp->markAsRead($wamid);
         }
@@ -868,7 +905,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     $problemNote = "";
                 }
 
-                // Auto-lookup Party Name from client directory or leads
+                // Auto-lookup Party Name strictly from client_directory (Client Directory Database - Old Clients)
                 $partyName = "";
                 $licenseNo = "";
                 try {
@@ -878,13 +915,6 @@ foreach ($data['entry'][0]['changes'] as $change) {
                     if (!empty($pRow['party_name'])) {
                         $partyName = $pRow['party_name'];
                         $licenseNo = $pRow['customer_id'] ?? '';
-                    } else {
-                        $stmtLead = $pdo->prepare("SELECT company, name FROM leads WHERE phone LIKE ? LIMIT 1");
-                        $stmtLead->execute(['%' . $clientPhoneClean . '%']);
-                        $lRow = $stmtLead->fetch(PDO::FETCH_ASSOC);
-                        if (!empty($lRow['company'])) {
-                            $partyName = $lRow['company'] . (!empty($lRow['name']) ? " (" . $lRow['name'] . ")" : "");
-                        }
                     }
                 } catch (Throwable $e) {}
 
@@ -978,9 +1008,30 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 try {
                     $cleanFrom = preg_replace('/[^\d]/', '', $from);
                     $c10 = substr($cleanFrom, -10);
-                    $stmtMute = $pdo->prepare("SELECT is_muted FROM ai_chat_sessions WHERE phone = ? OR phone LIKE ? LIMIT 1");
+                    $stmtMute = $pdo->prepare("SELECT is_muted, muted_at FROM ai_chat_sessions WHERE phone = ? OR phone LIKE ? LIMIT 1");
                     $stmtMute->execute([$from, "%$c10%"]);
-                    $isMuted = (bool)$stmtMute->fetchColumn();
+                    $muteRow = $stmtMute->fetch(PDO::FETCH_ASSOC);
+
+                    if ($muteRow && !empty($muteRow['is_muted'])) {
+                        $mutedAt = !empty($muteRow['muted_at']) ? strtotime($muteRow['muted_at']) : 0;
+                        $hoursSinceMuted = ($mutedAt > 0) ? (time() - $mutedAt) / 3600 : 999;
+
+                        // Check when the last manual message was sent by an agent
+                        $stmtLastOut = $pdo->prepare("SELECT created_at FROM message_logs WHERE recipient_or_sender LIKE ? AND direction = 'OUTBOUND' AND message_type != 'system' ORDER BY id DESC LIMIT 1");
+                        $stmtLastOut->execute(["%$c10%"]);
+                        $lastOutTimeStr = $stmtLastOut->fetchColumn();
+                        $lastOutTime = $lastOutTimeStr ? strtotime($lastOutTimeStr) : 0;
+                        $hoursSinceAgentReply = ($lastOutTime > 0) ? (time() - $lastOutTime) / 3600 : 999;
+
+                        // If agent has not messaged in 1 hour (or muted > 1 hour ago), auto-resume AI
+                        if ($hoursSinceAgentReply > 1 || $hoursSinceMuted > 1) {
+                            $unmuteStmt = $pdo->prepare("UPDATE ai_chat_sessions SET is_muted = 0, muted_at = NULL WHERE phone = ? OR phone LIKE ?");
+                            $unmuteStmt->execute([$from, "%$c10%"]);
+                            $isMuted = false;
+                        } else {
+                            $isMuted = true;
+                        }
+                    }
                 } catch (Throwable $eM) {}
             }
 
@@ -1108,24 +1159,15 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 continue;
             }
 
-            // 3. Intelligent Greeting Detection (Avoid repetitive spamming of marketing banner if conversation is active)
-            $explicitMenuWords = ['menu', 'start', 'options', 'main menu'];
+            // 3. Greeting & Menu Detection -> Always present Sales & Support options
+            $explicitMenuWords = ['menu', 'start', 'options', 'main menu', 'help'];
+            $greetings = ['hi', 'hello', 'hey', 'hii', 'hiii', 'namaste', 'hola', 'hlo', 'helo'];
             $isExplicitMenu = in_array($cleanBody, $explicitMenuWords, true);
-
-            $greetings = ['hi', 'hello', 'hey', 'hii', 'namaste', 'hola'];
             $wordCount = str_word_count($cleanBody);
-            $isPureGreeting = ($wordCount <= 2) && in_array($cleanBody, $greetings, true);
+            $isPureGreeting = in_array($cleanBody, $greetings, true) || ($wordCount <= 2 && preg_match('/^(hi+|hello+|hey+|namaste|hlo+|helo+)\b/i', $cleanBody));
 
-            // Check if there was recent interaction in the last 2 hours
-            $hasRecentInteraction = false;
-            try {
-                $stmtRecent = $pdo->prepare("SELECT COUNT(*) FROM message_logs WHERE recipient_or_sender = ? AND created_at > DATE_SUB(NOW(), INTERVAL 2 HOUR)");
-                $stmtRecent->execute([$from]);
-                $hasRecentInteraction = ($stmtRecent->fetchColumn() > 2);
-            } catch (Throwable $eR) {}
-
-            // Send full interactive welcome banner ONLY on explicit menu request or cold first message
-            if ($isExplicitMenu || ($isPureGreeting && !$hasRecentInteraction)) {
+            // Send full interactive welcome banner with [Sales] and [Support] buttons on any greeting or menu request
+            if ($isExplicitMenu || $isPureGreeting) {
                 $tplGreet = get_system_notification_template($pdo, 'bot_greeting_welcome', []);
                 $welcomeText = !empty($tplGreet['whatsapp_body']) ? $tplGreet['whatsapp_body'] : "Welcome To Marg Soft Solution\nIndian business management and accounting software designed for small and medium businesses. It helps companies manage daily operations such as billing, accounting, inventory, GST compliance, sales, purchases, and reporting from a single platform.";
                 $buttons = [
@@ -1134,6 +1176,25 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 ];
                 $headerImage = "https://datapartner.btpr.online/ProductPictures/20851800671_download(4).png";
                 $whatsapp->sendReplyButtons($from, $welcomeText, $buttons, "Welcome to Marg Soft Solution", "Please select an option", $headerImage);
+                continue;
+            }
+
+            // 3.5 Explicit Support or Ticket Intent in Text -> Trigger "Create Ticket" WhatsApp Flow
+            $supportTriggers = ['support', 'ticket', 'create ticket', 'raise ticket', 'complaint', 'helpdesk', 'technical support', 'help desk'];
+            $isDirectSupport = in_array($cleanBody, $supportTriggers, true)
+                || preg_match('/\b(create ticket|support ticket|raise ticket|new ticket|support chahiye|ticket raise)\b/i', $cleanBody);
+
+            if ($isDirectSupport) {
+                $flowId   = FLOW_ID;
+                $ctaText  = "Create Ticket";
+                $bodyText = "Kripya neeche diye gaye *Create Ticket* button par click karke apni details aur samasya fill karein taaki hamare technical support engineer AnyDesk / call par turant connect kar sakein.";
+                $whatsapp->sendFlow($from, $flowId, $ctaText, $bodyText, 'WELCOME_SCREEN', null, "Marg Help soft solution", "Managed by Marg soft solution.");
+                continue;
+            }
+
+            // 3.6 Explicit Sales Intent in Text
+            if ($cleanBody === 'sales') {
+                handleAISalesAssistantInteraction($whatsapp, $pdo, $from, "I want to know about Marg ERP software editions, pricing, and schedule a demo.");
                 continue;
             }
 
@@ -1165,7 +1226,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
                 // Immediately send WhatsApp Flow
                 $flowId   = FLOW_ID;
                 $ctaText  = "Create Ticket";
-                $bodyText = "Provide info and problem here";
+                $bodyText = "Kripya neeche diye gaye *Create Ticket* button par click karke apni details aur samasya submit karein:";
                 $whatsapp->sendFlow($from, $flowId, $ctaText, $bodyText, 'WELCOME_SCREEN', null, "Marg Help soft solution", "Managed by Marg soft solution.");
             }
 
@@ -1311,8 +1372,8 @@ foreach ($data['entry'][0]['changes'] as $change) {
                             // Update secondary_phone if form phone differs from existing primary phone
                             $secPhone = (!empty($leadPhone) && $leadPhone !== $existingLead['phone']) ? $leadPhone : $existingLead['secondary_phone'];
 
-                            // Update existing lead status, group_stage, remarks, and timestamp
-                            $stmtUpdLead = $pdo->prepare("UPDATE leads SET name = ?, contact_person = ?, status = 'demo_scheduled', group_stage = 'Demo Scheduled', remarks = ?, enq_for = ?, secondary_phone = ?, updated_at = NOW() WHERE id = ?");
+                            // Update existing lead status, group_stage, remarks, assigned_to and timestamp
+                            $stmtUpdLead = $pdo->prepare("UPDATE leads SET name = ?, contact_person = ?, status = 'demo_scheduled', group_stage = 'Demo Scheduled', remarks = ?, enq_for = ?, secondary_phone = ?, assigned_to = 'SAHIL SAVITA', assigned_by = 'WhatsApp Flow', updated_at = NOW() WHERE id = ?");
                             $stmtUpdLead->execute([$updateName, $updateName, $updatedRemarks, $requirement, $secPhone, $leadId]);
 
                             // Update or Insert in demos table
@@ -1321,12 +1382,12 @@ foreach ($data['entry'][0]['changes'] as $change) {
                                     $schedAt = date('Y-m-d H:i:s', strtotime($demoDate . ' 11:00:00'));
                                     if ($existingDemo) {
                                         // Update existing scheduled demo (Reschedule)
-                                        $stmtUpdDemo = $pdo->prepare("UPDATE demos SET scheduled_at = ?, status = 'scheduled', feedback = ? WHERE id = ?");
+                                        $stmtUpdDemo = $pdo->prepare("UPDATE demos SET scheduled_at = ?, engineer = 'SAHIL SAVITA', status = 'scheduled', feedback = ? WHERE id = ?");
                                         $stmtUpdDemo->execute([$schedAt, "Time Slot: {$demoTime} | Rescheduled via WhatsApp Flow", $existingDemo['id']]);
                                     } else {
                                         // Create demo record under this existing lead
                                         $demoId = 'DEMO-' . date('ymd') . '-' . rand(100, 999);
-                                        $stmtInsDemo = $pdo->prepare("INSERT INTO demos (id, company_id, lead_id, scheduled_at, mode, engineer, status, feedback) VALUES (?, 1, ?, ?, 'Online', 'Assigned Specialist', 'scheduled', ?)");
+                                        $stmtInsDemo = $pdo->prepare("INSERT INTO demos (id, company_id, lead_id, scheduled_at, mode, engineer, status, feedback) VALUES (?, 1, ?, ?, 'Online', 'SAHIL SAVITA', 'scheduled', ?)");
                                         $stmtInsDemo->execute([$demoId, $leadId, $schedAt, "Time Slot: {$demoTime} | Booked via WhatsApp Flow"]);
                                     }
                                 } catch (Throwable $eD) {}
@@ -1335,17 +1396,17 @@ foreach ($data['entry'][0]['changes'] as $change) {
                             // Timeline entry for existing lead
                             try {
                                 $timelineText = $isReschedule
-                                    ? "Demo Rescheduled to {$demoDate} ({$demoTime}) by customer via WhatsApp Flow"
-                                    : "Demo Scheduled for {$demoDate} ({$demoTime}) via WhatsApp Flow (Group moved to Demo Scheduled)";
+                                    ? "Demo Rescheduled to {$demoDate} ({$demoTime}) by customer via WhatsApp Flow. Assigned to SAHIL SAVITA."
+                                    : "Demo Scheduled for {$demoDate} ({$demoTime}) via WhatsApp Flow (Assigned to SAHIL SAVITA)";
                                 $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, 'WhatsApp Bot', ?)");
                                 $stmtTime->execute([$leadId, $timelineText]);
                             } catch (Throwable $eT) {}
 
-                            // Notification for Admin
+                            // Notification for Admin & Sales
                             try {
                                 $notifTitle = $isReschedule ? "Marg ERP Demo Rescheduled" : "Marg ERP Demo Booked";
-                                $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Admin', ?, ?, 'index.php?page=leads', 'info')");
-                                $stmtNotif->execute([$notifTitle, "Lead {$leadId} ({$updateName}) {$actionLabel} to {$demoDate} {$demoTime}"]);
+                                $stmtNotif = $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Sales', ?, ?, 'index.php?page=leads', 'info')");
+                                $stmtNotif->execute([$notifTitle, "Lead {$leadId} ({$updateName}) {$actionLabel} to {$demoDate} {$demoTime}, assigned to SAHIL SAVITA"]);
                             } catch (Throwable $eN) {}
 
                         } else {
@@ -1360,7 +1421,7 @@ foreach ($data['entry'][0]['changes'] as $change) {
                                 . (!empty($leadPhone) ? " | Form Mobile: {$leadPhone}" : "")
                                 . " | WhatsApp: +{$from}";
 
-                            $stmtLead = $pdo->prepare("INSERT INTO leads (id, name, contact_person, company, phone, secondary_phone, enq_for, remarks, source, status, group_stage, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WhatsApp Flow', 'demo_scheduled', 'Demo Scheduled', 'warm', NOW())");
+                            $stmtLead = $pdo->prepare("INSERT INTO leads (id, name, contact_person, company, phone, secondary_phone, enq_for, remarks, source, status, group_stage, priority, assigned_to, assigned_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WhatsApp Flow', 'demo_scheduled', 'Demo Scheduled', 'warm', 'SAHIL SAVITA', 'WhatsApp Flow', NOW())");
                             $stmtLead->execute([
                                 $leadId,
                                 $leadName,
@@ -1377,14 +1438,14 @@ foreach ($data['entry'][0]['changes'] as $change) {
                                 try {
                                     $demoId = 'DEMO-' . date('ymd') . '-' . rand(100, 999);
                                     $schedAt = date('Y-m-d H:i:s', strtotime($demoDate . ' 11:00:00'));
-                                    $stmtDemo = $pdo->prepare("INSERT INTO demos (id, company_id, lead_id, scheduled_at, mode, engineer, status, feedback) VALUES (?, 1, ?, ?, 'Online', 'Assigned Specialist', 'scheduled', ?)");
+                                    $stmtDemo = $pdo->prepare("INSERT INTO demos (id, company_id, lead_id, scheduled_at, mode, engineer, status, feedback) VALUES (?, 1, ?, ?, 'Online', 'SAHIL SAVITA', 'scheduled', ?)");
                                     $stmtDemo->execute([$demoId, $leadId, $schedAt, "Time Slot: {$demoTime} | Booked via WhatsApp Flow"]);
                                 } catch (Throwable $eD) {}
                             }
 
                             // Timeline entry
                             try {
-                                $actionMsg = !empty($demoDate) ? "New Lead created & Demo booked for {$demoDate} {$demoTime} via WhatsApp Demo Flow" : "New Lead captured via WhatsApp Sales Flow";
+                                $actionMsg = !empty($demoDate) ? "New Lead created & Demo booked for {$demoDate} {$demoTime} via WhatsApp Demo Flow. Assigned to SAHIL SAVITA." : "New Lead captured via WhatsApp Sales Flow";
                                 $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, 'WhatsApp Bot', ?)");
                                 $stmtTime->execute([$leadId, $actionMsg]);
                             } catch (Throwable $eT) {}
@@ -1453,6 +1514,46 @@ foreach ($data['entry'][0]['changes'] as $change) {
 
                         $whatsapp->sendText($from, $confirmMsg);
 
+                        // Send Instant WhatsApp Lead Alert to Sahil Savita on Demo Booking
+                        if (!empty($demoDate)) {
+                            try {
+                                $sahilPhone = '9044345020';
+                                $stmtS = $pdo->prepare("SELECT whatsapp_phone FROM team_agents WHERE name LIKE ? LIMIT 1");
+                                $stmtS->execute(['%SAHIL SAVITA%']);
+                                $dbSahilPhone = $stmtS->fetchColumn();
+                                if (!empty($dbSahilPhone)) {
+                                    $sahilPhone = $dbSahilPhone;
+                                }
+
+                                $cleanClientPhone = preg_replace('/[^\d]/', '', $leadPhone ?: $from);
+                                if (strlen($cleanClientPhone) > 10) {
+                                    $cleanClientPhone = substr($cleanClientPhone, -10);
+                                }
+
+                                $baseUrl = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
+                                $leadCrmLink = "{$baseUrl}index.php?page=leads";
+
+                                $sahilAlertMsg = "*New Demo Lead Assigned!*\n\n" .
+                                                 "Namaste *Sahil ji*,\n" .
+                                                 "WhatsApp Flow ke through ek naya live demo lead aapko assign hua hai:\n\n" .
+                                                 "*Lead Details:*\n" .
+                                                 "• *Lead ID:* {$leadId}\n" .
+                                                 "• *Party Name:* {$updateName}\n" .
+                                                 (!empty($companyName) ? "• *Business / Firm:* {$companyName}\n" : "") .
+                                                 "• *Mobile Number:* +91 {$cleanClientPhone}\n" .
+                                                 (!empty($requirement) ? "• *Software Edition:* {$requirement}\n" : "") .
+                                                 "• *Preferred Date:* {$demoDate}\n" .
+                                                 "• *Preferred Slot:* {$demoTime}\n" .
+                                                 "• *Source:* WhatsApp Flow Form\n" .
+                                                 "• *Status:* Demo Scheduled\n\n" .
+                                                 "*CRM Lead Link:* {$leadCrmLink}\n\n" .
+                                                 "*Marg Soft Solution*";
+
+                                $sahilRecipient = function_exists('format_phone_number') ? format_phone_number($sahilPhone) : ('91' . preg_replace('/[^\d]/', '', $sahilPhone));
+                                $whatsapp->sendText($sahilRecipient, $sahilAlertMsg);
+                            } catch (Throwable $eAlert) {}
+                        }
+
                     } catch (Throwable $eLead) {
                         write_log('error', "Failed saving sales lead from webhook: " . $eLead->getMessage());
                     }
@@ -1499,22 +1600,6 @@ foreach ($data['entry'][0]['changes'] as $change) {
                         $product = $cdRow['software_type'] ?? 'Marg ERP';
                         $renewalDate = $cdRow['due_on'] ?? null;
                         $address = trim(($cdRow['address'] ?? '') . ' ' . ($cdRow['city'] ?? '') . ' ' . ($cdRow['state'] ?? ''));
-                    } else {
-                        $ldStmt = $pdo->prepare("SELECT * FROM leads WHERE id = ? OR phone LIKE ? LIMIT 1");
-                        $ldStmt->execute([$licenseNo, '%' . $licenseNo . '%']);
-                        $ldRow = $ldStmt->fetch(PDO::FETCH_ASSOC);
-                        if ($ldRow) {
-                            if ($customerName === 'Valued Customer' || empty($customerName)) {
-                                $customerName = !empty($ldRow['contact_person']) ? $ldRow['contact_person'] : $ldRow['name'];
-                            }
-                            if ($firmName === 'N/A' || empty($firmName)) {
-                                $firmName = $ldRow['company'] ?? 'N/A';
-                            }
-                            if ($email === 'N/A' || empty($email)) {
-                                $email = $ldRow['email'] ?? 'N/A';
-                            }
-                            $address = trim(($ldRow['address'] ?? '') . ' ' . ($ldRow['city'] ?? '') . ' ' . ($ldRow['state'] ?? ''));
-                        }
                     }
                 } catch (Throwable $eLookup) {}
             }

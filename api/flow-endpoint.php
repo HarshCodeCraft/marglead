@@ -319,7 +319,7 @@ elseif ($action === 'data_exchange' || $action === 'license_lookup' || isset($da
                 'firm_name'      => $custData['firm_name'] ?? $custData['company_using'] ?? '',
                 'mobile_number'  => $custData['mobile'] ?? '',
                 'email_address'  => $custData['email'] ?? '',
-                'amc_expiry_date'=> $custData['amc_expiry'] ?? 'Active',
+                'amc_expiry_date'=> (!empty($custData['amc_expiry']) && $custData['amc_expiry'] !== 'Active') ? format_wa_date_ddmmyyyy($custData['amc_expiry']) : ($custData['amc_expiry'] ?? 'Active'),
                 'license_status' => 'License Found',
                 'is_found'       => true
             ]

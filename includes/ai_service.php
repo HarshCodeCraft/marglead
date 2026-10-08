@@ -237,7 +237,7 @@ CRITICAL RULES (READ CAREFULLY):
           1. Masters > Marg Setups > Control Room > Search "EWAY" or "E-INVOICE".
           2. Verify GST portal credentials and generate JSON.
       - After giving the quick 2-4 step solution, ask: "Aap ise ek baar try karke batayein. Kya ye issue theek hua? Agar abhi bhi koi samasya hai toh main technical engineer se aapka screen connect karwa deta hoon."
-      - If user says "nahi hua", "error aa raha hai", "AnyDesk connect karo", "call me", or wants an engineer, set action to "CREATE_SUPPORT_TICKET".
+      - If user says "nahi hua", "error aa raha hai", "AnyDesk connect karo", "call me", or wants an engineer / support ticket, set action to "CREATE_SUPPORT_TICKET". In your reply_text, politely ask them to click the "Create Ticket" form button below to submit their details. DO NOT say that a ticket is already created.
 
    B. CONSULTATIVE SALES & DEMO:
       - Understand their business trade (Pharma, Retail, Supermarket, FMCG, Garment, Footwear, Distribution).
@@ -315,8 +315,10 @@ PROMPT;
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => json_encode($payload),
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 25,
-        CURLOPT_CONNECTTIMEOUT => 7,
+        CURLOPT_TIMEOUT => 12,
+        CURLOPT_CONNECTTIMEOUT => 4,
+        CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
+        CURLOPT_TCP_NODELAY => 1,
         CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_SSL_VERIFYHOST => false
@@ -329,15 +331,17 @@ PROMPT;
 
     // Fallback retry with alternative flash model if connection failed
     if (!empty($curlErr) || $httpCode !== 200) {
-        $altModel = ($model === 'gemini-3.5-flash-lite') ? 'gemini-3.1-flash-lite' : 'gemini-3.5-flash-lite';
+        $altModel = ($model === 'gemini-2.0-flash') ? 'gemini-1.5-flash' : 'gemini-2.0-flash';
         $fallbackUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$altModel}:generateContent?key=" . urlencode($apiKey);
         $chFb = curl_init($fallbackUrl);
         curl_setopt_array($chFb, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($payload),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_CONNECTTIMEOUT => 7,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
+            CURLOPT_TCP_NODELAY => 1,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => false
@@ -435,7 +439,14 @@ function handleAISalesAssistantInteraction($whatsapp, $pdo, $from, $incomingText
         } else {
             // Check if human agent has muted AI
             if (!empty($session['is_muted'])) {
-                return false;
+                $mutedAt = !empty($session['muted_at']) ? strtotime($session['muted_at']) : 0;
+                if ($mutedAt > 0 && (time() - $mutedAt) > 3600) {
+                    // Auto-unmute after 1 hour of inactivity
+                    $pdo->prepare("UPDATE ai_chat_sessions SET is_muted = 0, muted_at = NULL WHERE id = ?")->execute([$session['id']]);
+                    $session['is_muted'] = 0;
+                } else {
+                    return false;
+                }
             }
 
             // Atomic Lock Check (Prevents duplicate processing when customer sends 2-3 messages in rapid succession)
@@ -504,54 +515,12 @@ function handleAISalesAssistantInteraction($whatsapp, $pdo, $from, $incomingText
         // 7. Dispatch Response & Execute Intent Actions
         $whatsapp->sendText($from, $reply);
 
-        // --- Action A: Create Real Support Ticket ---
+        // --- Action A: User Needs Support Ticket -> Send WhatsApp Flow (User fills details, then ticket is generated) ---
         if ($action === 'CREATE_SUPPORT_TICKET') {
-            $tktData = $aiResult['ticket'] ?? [];
-            $issueSummary = !empty($tktData['problem_summary']) ? trim($tktData['problem_summary']) : mb_strimwidth($aggregatedText, 0, 100, '...');
-            $custName = !empty($customerContext['firm_name']) ? $customerContext['firm_name'] : (!empty($customerContext['customer_name']) ? $customerContext['customer_name'] : 'WhatsApp Client');
-            $licNo    = !empty($customerContext['customer_id']) ? $customerContext['customer_id'] : '';
-
-            $ticketId = 'TK-' . date('Y') . '-' . str_pad(rand(100, 9999), 6, '0', STR_PAD_LEFT);
-            if (function_exists('generate_ticket_number')) {
-                try { $ticketId = generate_ticket_number($pdo); } catch (Throwable $eT) {}
-            }
-
-            try {
-                $stmtTicket = $pdo->prepare("
-                    INSERT INTO support_tickets (
-                        id, customer_name, subject, priority, status, assigned_to,
-                        lead_id, phone, callback_number, problem, source, date_created
-                    ) VALUES (?, ?, ?, 'medium', 'open', 'Unassigned', ?, ?, ?, ?, 'whatsapp_ai_bot', NOW())
-                ");
-                $stmtTicket->execute([
-                    $ticketId, $custName, $issueSummary, $licNo, $c10, $c10, $aggregatedText
-                ]);
-
-                // Also sync into tickets table
-                try {
-                    $pdo->prepare("
-                        INSERT INTO tickets (ticket_number, license_number, firm_name, customer_name, mobile, category, priority, description, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, 'Technical Support', 'Medium', ?, 'Open', NOW())
-                    ")->execute([$ticketId, $licNo, $custName, $custName, $c10, $aggregatedText]);
-                } catch (Throwable $eSync) {}
-
-                // Send Ticket Confirmation Card
-                $confirmTicketMsg = "🎫 *Technical Support Ticket Generated!*\n\n" .
-                                    "• *Ticket ID:* `{$ticketId}`\n" .
-                                    "• *Client:* {$custName}" . (!empty($licNo) ? " (ID: {$licNo})" : "") . "\n" .
-                                    "• *Issue:* {$issueSummary}\n" .
-                                    "• *Status:* Open & Assigned to Support Queue\n\n" .
-                                    "Hamare technical support engineer aapse jaldi hi AnyDesk / call par connect karenge.\n\n" .
-                                    "Emergency Helpline: *7523830026* / *9170009697* 🙏";
-                $whatsapp->sendText($from, $confirmTicketMsg);
-
-                // Admin Notification
-                try {
-                    $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Technical Head', 'New AI Support Ticket', ?, 'index.php?page=support', 'warning')")
-                        ->execute(["New Support Ticket {$ticketId} generated by AI Assistant for {$custName} ({$from})."]);
-                } catch (Throwable $eN) {}
-
-            } catch (Throwable $eTkt) {}
+            $flowId   = defined('FLOW_ID') ? FLOW_ID : '869669339414580';
+            $ctaText  = "Create Ticket";
+            $flowBody = "Kripya neeche diye gaye *Create Ticket* button par click karke apni details aur issue submit karein, taaki hamari technical team AnyDesk par turant connect karein:";
+            $whatsapp->sendFlow($from, $flowId, $ctaText, $flowBody, 'WELCOME_SCREEN', null, "Marg Help soft solution", "Managed by Marg soft solution.");
 
         // --- Action B: Book Demo ---
         } elseif ($action === 'BOOK_DEMO') {
@@ -572,17 +541,76 @@ function handleAISalesAssistantInteraction($whatsapp, $pdo, $from, $incomingText
             if (empty($existingLeadId)) {
                 $existingLeadId = function_exists('generate_lead_number') ? generate_lead_number($pdo) : ('LD-' . rand(10000, 99999));
                 try {
-                    $insLead = $pdo->prepare("INSERT INTO leads (id, name, contact_person, company, city, phone, enq_for, remarks, source, status, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WhatsApp AI Sales', 'demo_scheduled', 'hot', NOW())");
+                    $insLead = $pdo->prepare("INSERT INTO leads (id, name, contact_person, company, city, phone, enq_for, remarks, source, status, group_stage, priority, assigned_to, assigned_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WhatsApp AI Sales', 'demo_scheduled', 'Demo Scheduled', 'hot', 'SAHIL SAVITA', 'AI Sales Bot', NOW())");
                     $insLead->execute([$existingLeadId, $leadName, $leadName, $firmName, $city, $from, $product, "AI Auto-Booked Demo for $prefTime"]);
                 } catch (Throwable $eLd) {}
+            } else {
+                try {
+                    $updLead = $pdo->prepare("UPDATE leads SET assigned_to = 'SAHIL SAVITA', assigned_by = 'AI Sales Bot', status = 'demo_scheduled', group_stage = 'Demo Scheduled', remarks = CONCAT(COALESCE(remarks, ''), '\n[Demo Scheduled via AI Sales Bot for ', ?, ']'), updated_at = NOW() WHERE id = ?");
+                    $updLead->execute([$prefTime, $existingLeadId]);
+                } catch (Throwable $eUpLd) {}
             }
 
             $demoId = 'DM-' . rand(1000, 9999);
             $demoDate = date('Y-m-d 15:00:00', strtotime('+1 day'));
             try {
-                $pdo->prepare("INSERT INTO demos (id, lead_id, scheduled_at, mode, engineer, status) VALUES (?, ?, ?, 'Online (Google Meet)', 'Unassigned', 'scheduled')")
-                    ->execute([$demoId, $existingLeadId, $demoDate]);
+                $pdo->prepare("INSERT INTO demos (id, company_id, lead_id, scheduled_at, mode, engineer, status, feedback) VALUES (?, 1, ?, ?, 'Online (Google Meet)', 'SAHIL SAVITA', 'scheduled', ?)")
+                    ->execute([$demoId, $existingLeadId, $demoDate, "Slot: $prefTime | Booked via WhatsApp AI Assistant"]);
             } catch (Throwable $eDm) {}
+
+            // Timeline entry
+            try {
+                $timelineText = "New Demo booked for {$prefTime} via WhatsApp AI Assistant. Default assigned to SAHIL SAVITA.";
+                $stmtTime = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, 'AI Sales Bot', ?)");
+                $stmtTime->execute([$existingLeadId, $timelineText]);
+            } catch (Throwable $eT) {}
+
+            // CRM Notification
+            try {
+                $pdo->prepare("INSERT INTO notifications (role, title, message, link, type) VALUES ('Sales', 'New AI Demo Lead Assigned', ?, 'index.php?page=leads', 'info')")
+                    ->execute(["Demo Lead {$existingLeadId} ({$leadName} - {$firmName}) booked via AI and assigned to SAHIL SAVITA."]);
+            } catch (Throwable $eN) {}
+
+            // WhatsApp Alert to Sahil Savita (Clean, structured, human template)
+            try {
+                $sahilPhone = '9044345020';
+                $stmtS = $pdo->prepare("SELECT whatsapp_phone FROM team_agents WHERE name LIKE ? LIMIT 1");
+                $stmtS->execute(['%SAHIL SAVITA%']);
+                $dbSahilPhone = $stmtS->fetchColumn();
+                if (!empty($dbSahilPhone)) {
+                    $sahilPhone = $dbSahilPhone;
+                }
+
+                $cleanClientPhone = preg_replace('/[^\d]/', '', $from);
+                if (strlen($cleanClientPhone) > 10) {
+                    $cleanClientPhone = substr($cleanClientPhone, -10);
+                }
+
+                $baseUrl = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
+                $leadCrmLink = "{$baseUrl}index.php?page=leads";
+
+                $sahilAlertMsg = "🎯 *New Demo Lead Assigned!* 🚀\n\n" .
+                                 "Namaste *Sahil ji*,\n" .
+                                 "WhatsApp AI ke through ek naya live demo lead aapko assign hua hai:\n\n" .
+                                 "📋 *Lead Details:*\n" .
+                                 "• *Lead ID:* {$existingLeadId}\n" .
+                                 "• *Party Name:* {$leadName}\n" .
+                                 "• *Business / Firm:* {$firmName}\n" .
+                                 "• *Mobile Number:* +91 {$cleanClientPhone}\n" .
+                                 (!empty($city) ? "• *City / Location:* {$city}\n" : "") .
+                                 "• *Software Edition:* {$product}\n" .
+                                 "• *Preferred Slot:* {$prefTime}\n" .
+                                 "• *Source:* WhatsApp AI Sales Bot\n" .
+                                 "• *Status:* Demo Scheduled\n\n" .
+                                 "📝 *Requirement Note:*\n" .
+                                 "Customer ne Marg ERP software live demo book kiya hai ({$prefTime}).\n\n" .
+                                 "🔗 *CRM Lead Link:* {$leadCrmLink}\n\n" .
+                                 "_Kripya timely party se connect karke software demo conduct karein._ 🙏\n\n" .
+                                 "*Marg Soft Solution*";
+
+                $sahilRecipient = function_exists('format_phone_number') ? format_phone_number($sahilPhone) : ('91' . preg_replace('/[^\d]/', '', $sahilPhone));
+                $whatsapp->sendText($sahilRecipient, $sahilAlertMsg);
+            } catch (Throwable $eAlert) {}
 
             $confirmDemoMsg = "🎉 *Demo Scheduled Successfully!*\n\n" .
                               "• *Demo Ref:* `{$demoId}`\n" .

@@ -60,16 +60,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $checkStmt->execute([$tenant_api_key, $user_id]);
         $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
+        $send_bill_pdf = isset($_POST['send_bill_pdf']) ? (int)$_POST['send_bill_pdf'] : 1;
+
         if ($existing) {
             $updateStmt = $pdo->prepare("UPDATE merchant_waba_settings 
-                SET tenant_api_key = ?, gateway_type = ?, phone_number_id = ?, access_token = ?, web_api_url = ?, web_api_token = ? 
+                SET tenant_api_key = ?, gateway_type = ?, phone_number_id = ?, access_token = ?, web_api_url = ?, web_api_token = ?, send_bill_pdf = ? 
                 WHERE id = ?");
-            $updateStmt->execute([$tenant_api_key, $gateway_type, $phone_number_id, $access_token, $web_api_url, $web_api_token, $existing['id']]);
+            $updateStmt->execute([$tenant_api_key, $gateway_type, $phone_number_id, $access_token, $web_api_url, $web_api_token, $send_bill_pdf, $existing['id']]);
         } else {
             $insertStmt = $pdo->prepare("INSERT INTO merchant_waba_settings 
-                (user_id, tenant_api_key, gateway_type, phone_number_id, access_token, web_api_url, web_api_token, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'Active')");
-            $insertStmt->execute([$user_id, $tenant_api_key, $gateway_type, $phone_number_id, $access_token, $web_api_url, $web_api_token]);
+                (user_id, tenant_api_key, gateway_type, phone_number_id, access_token, web_api_url, web_api_token, send_bill_pdf, status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active')");
+            $insertStmt->execute([$user_id, $tenant_api_key, $gateway_type, $phone_number_id, $access_token, $web_api_url, $web_api_token, $send_bill_pdf]);
         }
 
         $successMsg = "Merchant Gateway settings updated successfully.";

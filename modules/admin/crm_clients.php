@@ -84,7 +84,8 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
                 'leads', 'timeline', 'followups', 'demos', 
                 'quotations', 'payments', 'bank_accounts', 'installations', 
                 'trainings', 'tickets', 'client_directory', 'message_logs', 
-                'chat_conversations', 'merchant_waba_settings', 'bot_flows'
+                'chat_conversations', 'merchant_waba_settings', 'bot_flows',
+                'sub_partners', 'sub_partner_custom_fields'
             ];
             foreach ($tablesToClone as $tbl) {
                 try {
@@ -422,11 +423,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         
         if ($tenantId > 0 && isset($pdo_master)) {
             try {
-                $stmtU = $pdo_master->prepare("UPDATE tenant_companies SET company_name = COALESCE(NULLIF(?, ''), company_name), owner_name = COALESCE(NULLIF(?, ''), owner_name), owner_email = COALESCE(NULLIF(?, ''), owner_email), phone = COALESCE(NULLIF(?, ''), phone), plan = ?, status = ?, expiry_date = ? WHERE id = ?");
-                $stmtU->execute([$cName, $oName, $oEmail, $cPhone, $uPlan, $uStatus, $uExpiry, $tenantId]);
+                $curTenant = $pdo_master->query("SELECT company_name, owner_name, owner_email, phone FROM tenant_companies WHERE id = " . intval($tenantId))->fetch(PDO::FETCH_ASSOC);
+                $finalCName = (!empty($cName)) ? $cName : ($curTenant['company_name'] ?? '');
+                $finalOName = (!empty($oName)) ? $oName : ($curTenant['owner_name'] ?? '');
+                $finalOEmail = (!empty($oEmail)) ? $oEmail : ($curTenant['owner_email'] ?? '');
+                $finalCPhone = (!empty($cPhone)) ? $cPhone : ($curTenant['phone'] ?? '');
+
+                $stmtU = $pdo_master->prepare("UPDATE tenant_companies SET company_name = ?, owner_name = ?, owner_email = ?, phone = ?, plan = ?, status = ?, expiry_date = ? WHERE id = ?");
+                $stmtU->execute([$finalCName, $finalOName, $finalOEmail, $finalCPhone, $uPlan, $uStatus, $uExpiry, $tenantId]);
 
                 if (!empty($oEmail)) {
-                    $pdo_master->prepare("UPDATE users SET name = COALESCE(NULLIF(?, ''), name), status = ? WHERE LOWER(email) = LOWER(?)")->execute([$oName, $uStatus, $oEmail]);
+                    if (!empty($oName)) {
+                        $pdo_master->prepare("UPDATE users SET name = ?, status = ? WHERE LOWER(email) = LOWER(?)")->execute([$oName, $uStatus, $oEmail]);
+                    } else {
+                        $pdo_master->prepare("UPDATE users SET status = ? WHERE LOWER(email) = LOWER(?)")->execute([$uStatus, $oEmail]);
+                    }
                 }
 
                 $flash_msg = "CRM Client settings & profile details updated successfully!";
@@ -521,26 +532,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
 
-        // Auto-sync alias keys for WhatsApp settings and bot flows
-        if (in_array('whatsapp_settings', $modulesArr) && !in_array('merchant_waba_settings', $modulesArr)) {
-            $modulesArr[] = 'merchant_waba_settings';
-        }
-        if (in_array('merchant_waba_settings', $modulesArr) && !in_array('whatsapp_settings', $modulesArr)) {
-            $modulesArr[] = 'whatsapp_settings';
-        }
-        if (in_array('whatsapp_flows', $modulesArr) && !in_array('bot_flows', $modulesArr)) {
-            $modulesArr[] = 'bot_flows';
-        }
-        if (in_array('bot_flows', $modulesArr) && !in_array('whatsapp_flows', $modulesArr)) {
-            $modulesArr[] = 'whatsapp_flows';
-        }
-        if (in_array('broadcast_campaigns', $modulesArr) && !in_array('bulk_broadcast', $modulesArr)) {
-            $modulesArr[] = 'bulk_broadcast';
-        }
-        if (in_array('bulk_broadcast', $modulesArr) && !in_array('broadcast_campaigns', $modulesArr)) {
-            $modulesArr[] = 'broadcast_campaigns';
-        }
-
         $cleanModules = array_values(array_unique($modulesArr));
         $modulesJson = json_encode($cleanModules);
         
@@ -561,6 +552,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             $stmtUpdUser->execute([$modulesJson]);
                         } catch (PDOException $tEx) {}
                     }
+                    // Update master users table for Tenant Admin linked to this client
+                    try {
+                        $stmtUpUserMaster = $pdo_master->prepare("UPDATE users SET permissions = ?, company_id = ? WHERE (LOWER(email) = LOWER(?) OR company_id = ? OR id = ?) AND role = 'Tenant Admin'");
+                        $stmtUpUserMaster->execute([$modulesJson, $tComp['id'], $tComp['owner_email'], $tenantId, $tenantId]);
+                    } catch (PDOException $tEx) {}
+
                     if (!empty($tComp['db_name'])) {
                         if (strpos($tComp['db_name'], 't_') === 0) {
                             try {
@@ -2001,20 +1998,12 @@ function openPermissionsModal(tenantId, companyName, allowedModules) {
         let val = chk.value;
         let isChecked = Array.isArray(allowedModules) && allowedModules.includes(val);
 
-        if (!isChecked && Array.isArray(allowedModules)) {
+        if (!isChecked && Array.isArray(allowedModules) && allowedModules.length > 0) {
             // Check legacy aliases only if not explicitly configured with modern dashboard keys
             if (!hasExplicitDash) {
                 if (val === 'workspace_dashboard' && allowedModules.includes('dashboard')) isChecked = true;
-                if (val === 'whatsapp_dashboard' && (allowedModules.includes('dashboard') || allowedModules.includes('merchant_waba_settings') || allowedModules.includes('whatsapp_settings'))) isChecked = true;
+                if (val === 'whatsapp_dashboard' && allowedModules.includes('dashboard')) isChecked = true;
             }
-            if (val === 'whatsapp_settings' && allowedModules.includes('merchant_waba_settings')) isChecked = true;
-            if (val === 'merchant_waba_settings' && allowedModules.includes('whatsapp_settings')) isChecked = true;
-            if (val === 'whatsapp_flows' && allowedModules.includes('bot_flows')) isChecked = true;
-            if (val === 'bot_flows' && allowedModules.includes('whatsapp_flows')) isChecked = true;
-            if (val === 'broadcast_campaigns' && allowedModules.includes('bulk_broadcast')) isChecked = true;
-            if (val === 'bulk_broadcast' && allowedModules.includes('broadcast_campaigns')) isChecked = true;
-            if (val === 'customer_kyc' && (allowedModules.includes('clients') || allowedModules.includes('leads'))) isChecked = true;
-            if (val === 'clients' && allowedModules.includes('leads')) isChecked = true;
         }
 
         chk.checked = isChecked;

@@ -387,6 +387,12 @@ if (!empty($billTemplateBody)) {
     $fullBillMessage = preg_replace("/\n{3,}/", "\n\n", trim($rendered));
 }
 
+// Per-Merchant configuration: Send Bill PDF Attachment in WhatsApp (Default: true / 1)
+$shouldAttachPdf = true;
+if (isset($merchant['send_bill_pdf']) && ((string)$merchant['send_bill_pdf'] === '0' || (int)$merchant['send_bill_pdf'] === 0)) {
+    $shouldAttachPdf = false;
+}
+
 // Fallback Default Bill Message (if no template found in DB)
 if (empty($fullBillMessage)) {
     $fullBillMessage = "From: *" . $firmDisplay . "*\n";
@@ -420,7 +426,9 @@ if (empty($fullBillMessage)) {
         $fullBillMessage .= "Helpline: *" . $merchant_helpline . "*\n";
     }
     $fullBillMessage .= "\n";
-    $fullBillMessage .= "The bill PDF is attached above.\n";
+    if ($shouldAttachPdf) {
+        $fullBillMessage .= "The bill PDF is attached above.\n";
+    }
     $fullBillMessage .= "Preview link: " . $pdfDownloadUrl . "\n\n";
     $fullBillMessage .= "Thank you for doing business with us!";
 }
@@ -692,13 +700,16 @@ if ($gateway_type === 'meta') {
         'phone'        => $phoneDigits,
         'mobile'       => $phoneDigits,
         'message'      => $fullBillMessage,
-        'document_url' => $pdfDownloadUrl,
-        'file_url'     => $pdfDownloadUrl,
-        'pdf_url'      => $pdfDownloadUrl,
-        'filename'     => "Invoice.pdf",
         'instance'     => $webApiInstance,
         'token'        => $webApiToken
     ];
+
+    if ($shouldAttachPdf) {
+        $payload['document_url'] = $pdfDownloadUrl;
+        $payload['file_url']     = $pdfDownloadUrl;
+        $payload['pdf_url']      = $pdfDownloadUrl;
+        $payload['filename']     = "Invoice.pdf";
+    }
 
     $headers = ['Content-Type: application/json'];
     if (!empty($webApiToken)) {

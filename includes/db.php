@@ -35,14 +35,15 @@ if (!class_exists('TenantAwarePDO')) {
                         'message_logs', 'chat_conversations', 'merchant_waba_settings', 'bot_flows',
                         'renewals', 'invoices', 'lead_documents', 'broadcast_campaigns', 'campaign_audience',
                         'whatsapp_keyword_triggers', 'whatsapp_templates', 'notifications', 'activity_logs',
-                        'city_areas', 'system_notification_templates'
+                        'city_areas', 'system_notification_templates',
+                        'sub_partners', 'sub_partner_custom_fields'
                     ];
 
                     foreach ($tables as $tbl) {
                         if (strpos($sql, $this->prefixStr . $tbl) !== false) {
                             continue;
                         }
-                        $pattern = '/\b(FROM|JOIN|INTO|UPDATE|TABLE|TRUNCATE)\s+(`?' . $tbl . '`?)\b/i';
+                        $pattern = '/\b(FROM|JOIN|INTO|UPDATE|TRUNCATE|DESCRIBE|TABLE(?:\s+IF\s+NOT\s+EXISTS)?)\s+(`?' . $tbl . '`?)\b/i';
                         $sql = preg_replace_callback($pattern, function($matches) use ($tbl) {
                             $targetTbl = $this->prefixStr . trim($matches[2], '`');
                             $baseTbl = trim($matches[2], '`');
@@ -194,8 +195,87 @@ $options = [
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
     PDO::ATTR_TIMEOUT            => 25,
-    PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+05:30', SESSION wait_timeout = 28800, SESSION interactive_timeout = 28800",
+    PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_general_ci, time_zone = '+05:30', SESSION wait_timeout = 28800, SESSION interactive_timeout = 28800",
 ];
+
+if (!function_exists('resolveAndBindTenantSession')) {
+    /**
+     * Resolve and bind tenant session credentials securely.
+     * Guarantees 100% database isolation and prevents master DB bleed for Tenant Admins.
+     */
+    function resolveAndBindTenantSession(?PDO $masterPdo, string $masterDbName): ?string {
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        if (empty($masterPdo)) {
+            return $_SESSION['impersonate_tenant_db'] ?? ($_SESSION['tenant_db'] ?? null);
+        }
+
+        if (!empty($_SESSION['impersonate_tenant_db'])) {
+            return $_SESSION['impersonate_tenant_db'];
+        }
+
+        $user_role = $_SESSION['user_role'] ?? '';
+        $user_email = strtolower(trim($_SESSION['user_email'] ?? ''));
+        $login_source = $_SESSION['login_source'] ?? '';
+        $is_tenant = ($user_role === 'Tenant Admin') 
+            || !empty($_SESSION['is_tenant']) 
+            || ($login_source === 'tenant_companies');
+
+        $current_tenant_db = $_SESSION['tenant_db'] ?? '';
+        $current_tenant_id = (int)($_SESSION['tenant_id'] ?? 0);
+
+        // If not already resolved to an isolated tenant DB, resolve from tenant_companies
+        if ($is_tenant || (!empty($user_email) && (empty($current_tenant_db) || $current_tenant_db === $masterDbName))) {
+            try {
+                $tenantComp = null;
+                // 1. Search by tenant_id > 1
+                if ($current_tenant_id > 1) {
+                    $st = $masterPdo->prepare("SELECT * FROM tenant_companies WHERE id = ? AND id != 1 AND status = 'Active' LIMIT 1");
+                    $st->execute([$current_tenant_id]);
+                    $tenantComp = $st->fetch(PDO::FETCH_ASSOC);
+                }
+                // 2. Search by owner_email
+                if (!$tenantComp && !empty($user_email)) {
+                    $st = $masterPdo->prepare("SELECT * FROM tenant_companies WHERE LOWER(owner_email) = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+                    $st->execute([$user_email]);
+                    $tenantComp = $st->fetch(PDO::FETCH_ASSOC);
+                }
+                // 3. Search by company_code
+                $tenant_code = trim($_SESSION['tenant_code'] ?? '');
+                if (!$tenantComp && !empty($tenant_code) && strtolower($tenant_code) !== 'master') {
+                    $st = $masterPdo->prepare("SELECT * FROM tenant_companies WHERE LOWER(company_code) = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+                    $st->execute([strtolower($tenant_code)]);
+                    $tenantComp = $st->fetch(PDO::FETCH_ASSOC);
+                }
+                // 4. Search by existing tenant_db (if already prefixed and not master)
+                if (!$tenantComp && !empty($current_tenant_db) && $current_tenant_db !== $masterDbName && $current_tenant_db !== 'marg_crm') {
+                    $st = $masterPdo->prepare("SELECT * FROM tenant_companies WHERE db_name = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+                    $st->execute([$current_tenant_db]);
+                    $tenantComp = $st->fetch(PDO::FETCH_ASSOC);
+                }
+
+                if ($tenantComp) {
+                    $_SESSION['tenant_id'] = (int)$tenantComp['id'];
+                    $_SESSION['tenant_code'] = $tenantComp['company_code'];
+                    $_SESSION['tenant_name'] = $tenantComp['company_name'];
+                    $_SESSION['company_name'] = $tenantComp['company_name'];
+                    $_SESSION['tenant_db'] = $tenantComp['db_name'];
+                    $_SESSION['is_tenant'] = true;
+                    $mods = !empty($tenantComp['allowed_modules']) ? json_decode($tenantComp['allowed_modules'], true) : [];
+                    $_SESSION['tenant_allowed_modules'] = is_array($mods) ? $mods : [];
+                    return $tenantComp['db_name'];
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        if (!empty($current_tenant_db) && $current_tenant_db !== $masterDbName) {
+            return $current_tenant_db;
+        }
+
+        return null;
+    }
+}
 
 if (!function_exists('ensure_db_connection')) {
     /**
@@ -245,12 +325,7 @@ if (!function_exists('ensure_db_connection')) {
                 $pdo_master = $freshMaster;
                 $newPdo = $freshMaster;
 
-                $active_tenant = null;
-                if (isset($_SESSION['impersonate_tenant_db']) && !empty($_SESSION['impersonate_tenant_db'])) {
-                    $active_tenant = $_SESSION['impersonate_tenant_db'];
-                } elseif (isset($_SESSION['tenant_db']) && !empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== $db_name) {
-                    $active_tenant = $_SESSION['tenant_db'];
-                }
+                $active_tenant = resolveAndBindTenantSession($freshMaster, $db_name);
 
                 if (!empty($active_tenant) && $active_tenant !== $db_name) {
                     if (strpos($active_tenant, 't_') === 0) {
@@ -305,12 +380,7 @@ try {
     $db_connected = !empty($pdo);
 
     // Multi-tenant Dynamic Database Router
-    $active_tenant_db = null;
-    if (isset($_SESSION['impersonate_tenant_db']) && !empty($_SESSION['impersonate_tenant_db'])) {
-        $active_tenant_db = $_SESSION['impersonate_tenant_db'];
-    } elseif (isset($_SESSION['tenant_db']) && !empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== $db_name) {
-        $active_tenant_db = $_SESSION['tenant_db'];
-    }
+    $active_tenant_db = resolveAndBindTenantSession($pdo_master, $db_name);
 
     if (!empty($active_tenant_db) && $active_tenant_db !== $db_name && !empty($pdo)) {
         // If active_tenant_db starts with 't_', it is a table prefix inside master DB, not a separate MySQL schema
@@ -330,7 +400,7 @@ try {
     // Ensure MySQL session time_zone matches PHP Asia/Kolkata (IST)
     if (!empty($pdo)) {
         try {
-            $pdo->exec("SET time_zone = '+05:30'");
+            $pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci, time_zone = '+05:30'");
         } catch (\Exception $e) {}
     }
 
@@ -442,6 +512,9 @@ try {
             if (!in_array('web_api_session_status', $mwCols)) {
                 $pdo->exec("ALTER TABLE merchant_waba_settings ADD COLUMN web_api_session_status VARCHAR(50) NULL DEFAULT 'disconnected'");
             }
+            if (!in_array('send_bill_pdf', $mwCols)) {
+                $pdo->exec("ALTER TABLE merchant_waba_settings ADD COLUMN send_bill_pdf TINYINT(1) NOT NULL DEFAULT 1");
+            }
         }
     } catch (\Exception $e) {}
 
@@ -456,6 +529,10 @@ try {
             if (!in_array('gateway_origin', $wtCols)) {
                 $pdo->exec("ALTER TABLE whatsapp_templates ADD COLUMN gateway_origin VARCHAR(50) DEFAULT 'meta'");
             }
+            // Ensure header_content is TEXT to support long cloud media URLs
+            try {
+                $pdo->exec("ALTER TABLE whatsapp_templates MODIFY COLUMN header_content TEXT NULL");
+            } catch (\Exception $e) {}
         }
     } catch (\Exception $e) {}
 
@@ -912,6 +989,23 @@ if (!function_exists('get_system_notification_template')) {
                 if (!isset($vars['crm_link'])) {
                     $vars['crm_link'] = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
                 }
+
+                // Standard aliases normalization
+                if (!isset($vars['party_name']) && isset($vars['client_name'])) $vars['party_name'] = $vars['client_name'];
+                if (!isset($vars['client_name']) && isset($vars['party_name'])) $vars['client_name'] = $vars['party_name'];
+                if (!isset($vars['contact_person']) && isset($vars['party_name'])) $vars['contact_person'] = $vars['party_name'];
+                if (!isset($vars['due_date']) && isset($vars['due_on'])) $vars['due_date'] = $vars['due_on'];
+                if (!isset($vars['due_on']) && isset($vars['due_date'])) $vars['due_on'] = $vars['due_date'];
+                if (!isset($vars['renewal_amount']) && isset($vars['total_amount'])) $vars['renewal_amount'] = $vars['total_amount'];
+                if (!isset($vars['total_amount']) && isset($vars['renewal_amount'])) $vars['total_amount'] = $vars['renewal_amount'];
+                if (!isset($vars['amount']) && isset($vars['renewal_amount'])) $vars['amount'] = $vars['renewal_amount'];
+                if (!isset($vars['renewal_amount']) && isset($vars['amount'])) $vars['renewal_amount'] = $vars['amount'];
+                if (!isset($vars['no_of_users'])) $vars['no_of_users'] = '1';
+                if (!isset($vars['no_of_companies'])) $vars['no_of_companies'] = '1';
+                if (!isset($vars['status']) && isset($vars['account_status'])) $vars['status'] = $vars['account_status'];
+                if (!isset($vars['account_status']) && isset($vars['status'])) $vars['account_status'] = $vars['status'];
+                if (!isset($vars['status'])) $vars['status'] = 'Active';
+                if (!isset($vars['account_status'])) $vars['account_status'] = 'Active';
 
                 // Replace variables (e.g. {client_name} -> John Doe)
                 foreach ($vars as $k => $v) {

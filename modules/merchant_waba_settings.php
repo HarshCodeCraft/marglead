@@ -159,6 +159,7 @@ $is_setup_done = ($current_gateway === 'web_api') ? $has_web_setup : $has_meta_s
 
 $meta_phone_display = !empty($wabaSettings['business_phone']) ? $wabaSettings['business_phone'] : (!empty($tenantWaba['display_phone_number']) ? $tenantWaba['display_phone_number'] : 'Verified');
 $web_display_phone = !empty($wabaSettings['business_phone']) ? $wabaSettings['business_phone'] : (!empty($tenantWaba['display_phone_number']) ? $tenantWaba['display_phone_number'] : '');
+$current_send_bill_pdf = isset($wabaSettings['send_bill_pdf']) ? (int)$wabaSettings['send_bill_pdf'] : 1;
 
 // Handle Form Submission - Gateway Settings Save (Meta or Self-Hosted Web API)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_waba') {
@@ -184,13 +185,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $web_api_token = !empty($submitted_web_token) ? $submitted_web_token : ($wabaSettings['web_api_token'] ?? ('self_key_' . bin2hex(random_bytes(6))));
     $web_api_instance_id = !empty($submitted_web_instance) ? $submitted_web_instance : ($wabaSettings['web_api_instance_id'] ?? ('session_user_' . $user_id));
 
+    $send_bill_pdf = isset($_POST['send_bill_pdf']) ? (int)$_POST['send_bill_pdf'] : 1;
+
     try {
         $stmtUp = $pdo->prepare("
             UPDATE merchant_waba_settings 
-            SET gateway_type = ?, phone_number_id = ?, waba_id = ?, access_token = ?, business_phone = ?, web_api_url = ?, web_api_token = ?, web_api_instance_id = ?
+            SET gateway_type = ?, phone_number_id = ?, waba_id = ?, access_token = ?, business_phone = ?, web_api_url = ?, web_api_token = ?, web_api_instance_id = ?, send_bill_pdf = ?
             WHERE user_id = ?
         ");
-        $stmtUp->execute([$gateway_type, $phone_number_id, $waba_id, $access_token, $business_phone, $web_api_url, $web_api_token, $web_api_instance_id, $user_id]);
+        $stmtUp->execute([$gateway_type, $phone_number_id, $waba_id, $access_token, $business_phone, $web_api_url, $web_api_token, $web_api_instance_id, $send_bill_pdf, $user_id]);
+
+        // Sync into active tenant table if table prefix exists
+        if (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master) && $pdo_master) {
+            try {
+                $pdo_master->prepare("UPDATE `{$_SESSION['tenant_db']}merchant_waba_settings` SET send_bill_pdf = ? WHERE user_id = ? OR id = ?")->execute([$send_bill_pdf, $user_id, $wabaSettings['id'] ?? 1]);
+            } catch (\Exception $e) {}
+        }
 
         // Auto-sync into tenant_whatsapp_configs only if Meta credentials exist
         if (!empty($phone_number_id) || !empty($waba_id)) {
@@ -219,6 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $has_meta_setup = !empty($wabaSettings['phone_number_id']) && !empty($wabaSettings['access_token']);
         $has_web_setup = !empty($wabaSettings['web_api_session_status']) && $wabaSettings['web_api_session_status'] === 'connected';
         $is_setup_done = ($wabaSettings['gateway_type'] === 'web_api') ? $has_web_setup : $has_meta_setup;
+        $current_send_bill_pdf = isset($wabaSettings['send_bill_pdf']) ? (int)$wabaSettings['send_bill_pdf'] : 1;
     } catch (PDOException $e) {
         $message = "Error saving credentials: " . $e->getMessage();
         $message_type = "danger";
@@ -1213,6 +1224,34 @@ function escapeHtml(text) {
     <input type="hidden" name="web_api_url" value="<?php echo htmlspecialchars(!empty($wabaSettings['web_api_url']) ? $wabaSettings['web_api_url'] : $default_self_hosted_url); ?>">
     <input type="hidden" name="web_api_token" value="<?php echo htmlspecialchars($wabaSettings['web_api_token'] ?? ('self_key_' . bin2hex(random_bytes(6)))); ?>">
     <input type="hidden" name="web_api_instance_id" value="<?php echo htmlspecialchars(!empty($wabaSettings['web_api_instance_id']) ? $wabaSettings['web_api_instance_id'] : ('session_user_' . $user_id)); ?>">
+
+    <!-- Marg ERP Bill PDF Attachment Option (User/Client Specific Control) -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 18px 22px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 16px; max-width: 75%;">
+                <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <i data-lucide="file-text" style="width: 24px; height: 24px;"></i>
+                </div>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: var(--text-main);">Marg ERP Sale Bill PDF Attachment</h4>
+                        <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #059669; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 6px;">Client Specific</span>
+                    </div>
+                    <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: var(--text-muted); line-height: 1.45;">
+                        <strong>Enabled (Default):</strong> Bill PDF document is sent as an attachment along with your WhatsApp message.<br>
+                        <strong>Disabled:</strong> PDF is fetched &amp; securely saved on your server for records, but WhatsApp only delivers your custom text message (no PDF attached).
+                    </p>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <input type="hidden" name="send_bill_pdf" value="0">
+                <label style="display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; background: var(--bg-app); padding: 9px 16px; border-radius: 10px; border: 1px solid var(--border-color);">
+                    <input type="checkbox" name="send_bill_pdf" value="1" <?php echo ($current_send_bill_pdf == 1) ? 'checked' : ''; ?> style="width: 18px; height: 18px; accent-color: #10b981; cursor: pointer;">
+                    <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);">Send PDF Attachment</span>
+                </label>
+            </div>
+        </div>
+    </div>
 
     <!-- Section A: Meta Cloud API Settings (Visible only when Meta is chosen) -->
     <div id="panel-gateway-meta" style="display: <?php echo ($current_gateway === 'meta') ? 'block' : 'none'; ?>; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">

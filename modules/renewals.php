@@ -706,10 +706,21 @@ if ($db_connected && $pdo) {
                             
                             // WhatsApp Reminder Pre-filled Message from centralized templates
                             $tplRen = get_system_notification_template($pdo, 'amc_renewal_reminder', [
-                                'party_name'  => $partyName,
-                                'customer_id' => $customerID,
-                                'due_date'    => (!empty($dueOn) ? date('d M, Y', strtotime($dueOn)) : 'N/A'),
-                                'helpline'    => '7523830026'
+                                'party_name'      => $partyName,
+                                'client_name'     => $partyName,
+                                'customer_id'     => $customerID,
+                                'contact_person'  => !empty($contactP) ? $contactP : $partyName,
+                                'software_type'   => $swType,
+                                'no_of_users'     => (!empty($rn['no_of_users']) ? $rn['no_of_users'] : '1'),
+                                'no_of_companies' => (!empty($rn['no_of_companies']) ? $rn['no_of_companies'] : '1'),
+                                'due_date'        => (!empty($dueOn) ? date('d M, Y', strtotime($dueOn)) : 'N/A'),
+                                'due_on'          => (!empty($dueOn) ? date('d M, Y', strtotime($dueOn)) : 'N/A'),
+                                'renewal_amount'  => ($fee > 0 ? number_format($fee, 2) : '0.00'),
+                                'total_amount'    => ($fee > 0 ? number_format($fee, 2) : '0.00'),
+                                'amount'          => ($fee > 0 ? number_format($fee, 2) : '0.00'),
+                                'status'          => $status,
+                                'account_status'  => $status,
+                                'helpline'        => '7523830026 / 9170009697'
                             ]);
                             $waMsg = !empty($tplRen['whatsapp_body']) ? $tplRen['whatsapp_body'] : ("Dear " . $partyName . ", your Marg ERP License (" . $customerID . ") renewal due date is " . (!empty($dueOn) ? date('d M, Y', strtotime($dueOn)) : 'N/A') . ". Kindly renew your subscription/AMC to ensure uninterrupted services. - Marg Soft Solution (7523830026)");
                             $waUrl = "https://wa.me/" . ((strlen($cleanMobile) == 10) ? "91" . $cleanMobile : $cleanMobile) . "?text=" . urlencode($waMsg);

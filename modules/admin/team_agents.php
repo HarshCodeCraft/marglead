@@ -291,7 +291,7 @@ $csrfToken = getCsrfToken();
                                 </td>
                                 <td style="padding: 0.85rem 1rem; text-align: right;">
                                     <div class="d-flex justify-end items-center" style="gap: 0.35rem;">
-                                        <button type="button" class="btn btn-sm btn-secondary" onclick='editAgent(<?php echo json_encode($ag); ?>)' title="Edit Member">
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="editAgent(<?php echo htmlspecialchars(json_encode($ag), ENT_QUOTES, 'UTF-8'); ?>)" title="Edit Member">
                                             <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                         </button>
                                         <form method="POST" action="index.php?page=team_agents" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete <?php echo htmlspecialchars($ag['name']); ?>?');">

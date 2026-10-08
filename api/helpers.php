@@ -76,67 +76,38 @@ if (!function_exists('generate_ticket_number')) {
 
         $maxNum = 0;
 
-        // 1. Check support_tickets table
+        // 1. Check support_tickets table (fast indexed lookup of highest ticket)
         try {
-            $stmt1 = $pdo->prepare("SELECT id FROM support_tickets WHERE id LIKE ?");
+            $stmt1 = $pdo->prepare("SELECT id FROM support_tickets WHERE id LIKE ? ORDER BY id DESC LIMIT 1");
             $stmt1->execute([$prefix . '%']);
-            while ($row = $stmt1->fetch(PDO::FETCH_COLUMN)) {
-                if (preg_match('/^TK-\d{4}-(\d+)$/', (string)$row, $m)) {
-                    $val = (int)$m[1];
-                    if ($val > $maxNum) $maxNum = $val;
-                }
+            $lastId = $stmt1->fetchColumn();
+            if ($lastId && preg_match('/^TK-\d{4}-(\d+)$/', (string)$lastId, $m)) {
+                $maxNum = max($maxNum, (int)$m[1]);
             }
-        } catch (Throwable $e) {
-            if (function_exists('write_log')) {
-                write_log('error', "Failed scanning support_tickets for ticket number: " . $e->getMessage());
-            }
-        }
+        } catch (Throwable $e) {}
 
-        // 2. Check tickets table
+        // 2. Check tickets table (fast indexed lookup of highest ticket)
         try {
-            $stmt2 = $pdo->prepare("SELECT ticket_number FROM tickets WHERE ticket_number LIKE ?");
+            $stmt2 = $pdo->prepare("SELECT ticket_number FROM tickets WHERE ticket_number LIKE ? ORDER BY ticket_number DESC LIMIT 1");
             $stmt2->execute([$prefix . '%']);
-            while ($row = $stmt2->fetch(PDO::FETCH_COLUMN)) {
-                if (preg_match('/^TK-\d{4}-(\d+)$/', (string)$row, $m)) {
-                    $val = (int)$m[1];
-                    if ($val > $maxNum) $maxNum = $val;
-                }
+            $lastTkt = $stmt2->fetchColumn();
+            if ($lastTkt && preg_match('/^TK-\d{4}-(\d+)$/', (string)$lastTkt, $m)) {
+                $maxNum = max($maxNum, (int)$m[1]);
             }
-        } catch (Throwable $e) {
-            if (function_exists('write_log')) {
-                write_log('error', "Failed scanning tickets table for ticket number: " . $e->getMessage());
-            }
-        }
+        } catch (Throwable $e) {}
 
         $nextNum = $maxNum + 1;
         $newTicketId = $prefix . str_pad((string)$nextNum, 6, '0', STR_PAD_LEFT);
 
-        // 3. Collision guard check - loop if somehow already exists in either table
-        $safetyCounter = 0;
-        while ($safetyCounter < 50) {
-            $exists1 = 0;
-            $exists2 = 0;
-
-            try {
-                $stmtCheck1 = $pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE id = ?");
-                $stmtCheck1->execute([$newTicketId]);
-                $exists1 = (int)$stmtCheck1->fetchColumn();
-            } catch (Throwable $e) {}
-
-            try {
-                $stmtCheck2 = $pdo->prepare("SELECT COUNT(*) FROM tickets WHERE ticket_number = ?");
-                $stmtCheck2->execute([$newTicketId]);
-                $exists2 = (int)$stmtCheck2->fetchColumn();
-            } catch (Throwable $e) {}
-
-            if ($exists1 === 0 && $exists2 === 0) {
-                break;
+        // Quick existence verification
+        try {
+            $stmtCheck = $pdo->prepare("SELECT 1 FROM support_tickets WHERE id = ? LIMIT 1");
+            $stmtCheck->execute([$newTicketId]);
+            if ($stmtCheck->fetchColumn()) {
+                $nextNum++;
+                $newTicketId = $prefix . str_pad((string)$nextNum, 6, '0', STR_PAD_LEFT);
             }
-
-            $nextNum++;
-            $newTicketId = $prefix . str_pad((string)$nextNum, 6, '0', STR_PAD_LEFT);
-            $safetyCounter++;
-        }
+        } catch (Throwable $e) {}
 
         return $newTicketId;
     }
@@ -284,4 +255,39 @@ function auto_trigger_48h_media_cleanup(): void {
     }
     @file_put_contents($lockFile, (string)$now);
     cleanup_48h_audio_video_media();
+}
+
+if (!function_exists('format_wa_date_ddmmyyyy')) {
+    /**
+     * Format date values to DD/MM/YYYY (Indian standard format) for WhatsApp messages and templates.
+     * Converts YYYY-MM-DD (e.g. 2027-04-07) -> 07/04/2027
+     */
+    function format_wa_date_ddmmyyyy($dateVal): string {
+        if (empty($dateVal) || $dateVal === '-' || $dateVal === '0000-00-00') {
+            return '-';
+        }
+        $s = trim((string)$dateVal);
+        if ($s === '' || $s === '-' || $s === '0000-00-00') {
+            return '-';
+        }
+
+        // Match YYYY-MM-DD or YYYY/MM/DD (e.g., 2027-04-07 or 2027/04/07)
+        if (preg_match('/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/', $s, $m)) {
+            return str_pad($m[3], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[1];
+        }
+        // Match DD-MM-YYYY (e.g., 07-04-2027 or 7-4-2027)
+        if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})/', $s, $m)) {
+            return str_pad($m[1], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[3];
+        }
+        // Match DD/MM/YYYY (e.g., 7/4/2027) -> ensure 2-digit day and month
+        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})/', $s, $m)) {
+            return str_pad($m[1], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[3];
+        }
+
+        $ts = strtotime(str_replace('/', '-', $s));
+        if ($ts !== false && $ts > 0) {
+            return date('d/m/Y', $ts);
+        }
+        return $s;
+    }
 }

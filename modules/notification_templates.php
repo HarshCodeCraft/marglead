@@ -50,6 +50,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit;
         }
 
+        // Auto-extract any {placeholder} tags present in whatsapp_body or email_body
+        if (preg_match_all('/\{[a-zA-Z0-9_]+\}/', $whatsapp_body . ' ' . $email_body . ' ' . $email_subject, $matches)) {
+            $existing = array_filter(array_map('trim', explode(',', $available_variables)));
+            $mergedVars = array_unique(array_merge($existing, $matches[0]));
+            $available_variables = implode(', ', $mergedVars);
+        }
+
         try {
             if ($id > 0) {
                 $stmt = $pdo->prepare("
@@ -215,7 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             '{amount}' => '14,500.00',
             '{payment_mode}' => 'UPI / Online Bank',
             '{payment_date}' => date('d M Y'),
-            '{due_date}' => date('d M Y', strtotime('+15 days')),
+            '{due_date}' => date('d/m/Y', strtotime('+15 days')),
             '{account_name}' => 'MARG SOFT SOLUTION',
             '{bank_name}' => 'HDFC Bank',
             '{account_number}' => '50200067891234',
@@ -491,11 +498,11 @@ $active_cat = $_GET['cat'] ?? 'all';
                         <?php endif; ?>
                     </div>
                     <div class="flex align-center gap-2">
-                        <button type="button" class="btn btn-secondary text-xs flex align-center gap-1.5" onclick='openTestMessageModal(<?php echo json_encode($tpl); ?>)' style="border-radius: 8px; font-weight: 600;">
+                        <button type="button" class="btn btn-secondary text-xs flex align-center gap-1.5" onclick="openTestMessageModalById(<?php echo (int)$tpl['id']; ?>)" style="border-radius: 8px; font-weight: 600;">
                             <i data-lucide="send" style="width: 13px; height: 13px; color: #10b981;"></i>
                             <span>Send Test</span>
                         </button>
-                        <button type="button" class="btn btn-primary text-xs flex align-center gap-1.5" onclick='openTemplateModal(<?php echo json_encode($tpl); ?>)' style="border-radius: 8px; font-weight: 700; background: var(--primary);">
+                        <button type="button" class="btn btn-primary text-xs flex align-center gap-1.5" onclick="openTemplateModalById(<?php echo (int)$tpl['id']; ?>)" style="border-radius: 8px; font-weight: 700; background: var(--primary);">
                             <i data-lucide="edit-3" style="width: 13px; height: 13px;"></i>
                             <span>Edit Message</span>
                         </button>
@@ -966,6 +973,24 @@ $active_cat = $_GET['cat'] ?? 'all';
 </style>
 
 <script>
+window.systemTemplatesList = <?php echo json_encode($allTemplates, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?> || [];
+
+function openTemplateModalById(id) {
+    var tpl = (window.systemTemplatesList || []).find(function(t) { return parseInt(t.id) === parseInt(id); });
+    if (tpl) {
+        openTemplateModal(tpl);
+    }
+}
+window.openTemplateModalById = openTemplateModalById;
+
+function openTestMessageModalById(id) {
+    var tpl = (window.systemTemplatesList || []).find(function(t) { return parseInt(t.id) === parseInt(id); });
+    if (tpl) {
+        openTestMessageModal(tpl);
+    }
+}
+window.openTestMessageModalById = openTestMessageModalById;
+
 // --------------------------------------------------------------------------
 // FILTERING & SEARCH
 // --------------------------------------------------------------------------
@@ -1061,6 +1086,9 @@ function deleteCustomTemplate(id, title) {
 // MODAL EDITOR & PREVIEW LOGIC
 // --------------------------------------------------------------------------
 function openTemplateModal(tpl) {
+    if (tpl && (typeof tpl === 'number' || (typeof tpl === 'string' && !isNaN(tpl)))) {
+        tpl = (window.systemTemplatesList || []).find(function(t) { return parseInt(t.id) === parseInt(tpl); }) || null;
+    }
     var modal = document.getElementById('template-edit-modal');
     var isNew = (tpl === null);
 
@@ -1107,9 +1135,20 @@ function onChannelChange(val) {
 function populateVariableChips(varsStr) {
     var container = document.getElementById('modal_var_chips_container');
     container.innerHTML = '';
-    var defaultChips = ['{client_name}', '{contact_person}', '{customer_id}', '{ticket_id}', '{software_type}', '{helpline}'];
-    var vars = varsStr ? varsStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : defaultChips;
-    vars = Array.from(new Set(vars.concat(defaultChips)));
+    var defaultChips = [
+        '{party_name}', '{client_name}', '{contact_person}', '{customer_id}', 
+        '{mobile}', '{alt_mobile}', '{email}',
+        '{software_type}', '{software_trade}', '{version}', 
+        '{status}', '{party_status}', '{account_status}', 
+        '{no_of_users}', '{no_of_companies}', 
+        '{due_date}', '{due_on}', '{renewal_amount}', '{amount}', '{total_amount}', 
+        '{city}', '{state}', '{area}', '{address}', '{online_zip_code}', 
+        '{company_using}', '{home_user}', '{subpartner_name}', '{wallet_id}', 
+        '{software_hit_date}', '{act_on}', '{days}', 
+        '{ticket_id}', '{helpline}'
+    ];
+    var customVars = varsStr ? varsStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+    var vars = Array.from(new Set(customVars.concat(defaultChips)));
 
     vars.forEach(function(v) {
         var chip = document.createElement('span');
@@ -1161,8 +1200,35 @@ function updateLiveSimulator() {
         .replace(/\{contact_person\}/gi, 'Deepak Ji')
         .replace(/\{party_name\}/gi, 'Deepak Enterprises')
         .replace(/\{customer_id\}/gi, 'CL-13529')
+        .replace(/\{mobile\}/gi, '7523830026')
+        .replace(/\{alt_mobile\}/gi, '9170009697')
+        .replace(/\{email\}/gi, 'deepak@example.com')
         .replace(/\{ticket_id\}/gi, 'TK-8842')
-        .replace(/\{software_type\}/gi, 'Marg ERP Silver (Pharma)')
+        .replace(/\{software_type\}/gi, 'Marg ERP Silver')
+        .replace(/\{software_trade\}/gi, 'Pharma')
+        .replace(/\{version\}/gi, '24.8.1')
+        .replace(/\{status\}/gi, 'Active')
+        .replace(/\{party_status\}/gi, 'Running')
+        .replace(/\{account_status\}/gi, 'Active')
+        .replace(/\{no_of_users\}/gi, '1')
+        .replace(/\{no_of_companies\}/gi, '999')
+        .replace(/\{renewal_amount\}/gi, '5,640')
+        .replace(/\{total_amount\}/gi, '5,640')
+        .replace(/\{amount\}/gi, '5,640')
+        .replace(/\{due_date\}/gi, '08 Oct 2026')
+        .replace(/\{due_on\}/gi, '08 Oct 2026')
+        .replace(/\{city\}/gi, 'Lucknow')
+        .replace(/\{state\}/gi, 'Uttar Pradesh')
+        .replace(/\{area\}/gi, 'Hazratganj')
+        .replace(/\{address\}/gi, 'Shop No. 12, Main Market')
+        .replace(/\{online_zip_code\}/gi, '226001')
+        .replace(/\{company_using\}/gi, 'Deepak Pharma Pvt Ltd')
+        .replace(/\{home_user\}/gi, 'No')
+        .replace(/\{subpartner_name\}/gi, 'Kanpur Marg Hub')
+        .replace(/\{wallet_id\}/gi, 'WAL-88410')
+        .replace(/\{software_hit_date\}/gi, '05 Oct 2026')
+        .replace(/\{act_on\}/gi, '08 Oct 2025')
+        .replace(/\{days\}/gi, '3')
         .replace(/\{assigned_engineer\}/gi, 'Amit Kumar')
         .replace(/\{problem\}/gi, 'Barcode generation error in invoice')
         .replace(/\{solution\}/gi, 'Updated Marg ERP DLL & successfully printed test label')
@@ -1172,10 +1238,8 @@ function updateLiveSimulator() {
         .replace(/\{lead_name\}/gi, 'Ravi Verma')
         .replace(/\{product_name\}/gi, 'Marg ERP Gold')
         .replace(/\{invoice_no\}/gi, 'INV-2026-042')
-        .replace(/\{amount\}/gi, '14,500.00')
         .replace(/\{payment_mode\}/gi, 'UPI Bank')
         .replace(/\{payment_date\}/gi, '23 Sep 2026')
-        .replace(/\{due_date\}/gi, '08 Oct 2026')
         .replace(/\{helpline\}/gi, '7523830026 / 9170009697');
 
     // Convert WhatsApp Markdown to HTML (bold, italic, strike, monospace, linebreaks)
@@ -1229,8 +1293,12 @@ function submitTemplateForm(e) {
 // QUICK TEST MESSAGE MODAL LOGIC
 // --------------------------------------------------------------------------
 function openTestMessageModal(tpl) {
-    document.getElementById('test_modal_tpl_name').value = tpl.title + ' (' + tpl.template_key + ')';
-    document.getElementById('test_modal_message_payload').value = tpl.whatsapp_body;
+    if (tpl && (typeof tpl === 'number' || (typeof tpl === 'string' && !isNaN(tpl)))) {
+        tpl = (window.systemTemplatesList || []).find(function(t) { return parseInt(t.id) === parseInt(tpl); }) || null;
+    }
+    if (!tpl) return;
+    document.getElementById('test_modal_tpl_name').value = (tpl.title || 'Template') + ' (' + (tpl.template_key || '') + ')';
+    document.getElementById('test_modal_message_payload').value = tpl.whatsapp_body || '';
     document.getElementById('test_dispatch_status_alert').style.display = 'none';
     document.getElementById('quick-test-modal').style.display = 'flex';
     if (typeof lucide !== 'undefined') lucide.createIcons();

@@ -18,9 +18,27 @@ if ($db_connected && isset($_SESSION['user_id'])) {
         if ($is_tenant_session) {
             $effectivePdo = $pdo_master ?? $pdo;
             if (isset($effectivePdo) && $effectivePdo) {
-                $stmtTenant = $effectivePdo->prepare("SELECT * FROM tenant_companies WHERE id = ? OR owner_email = ? OR company_code = ?");
-                $stmtTenant->execute([$_SESSION['user_id'], $_SESSION['user_email'] ?? '', $_SESSION['user_email'] ?? '']);
-                $tenantRow = $stmtTenant->fetch();
+                $sess_t_id = (int)($_SESSION['tenant_id'] ?? 0);
+                $sess_u_email = strtolower(trim($_SESSION['user_email'] ?? ''));
+                $sess_t_code = trim($_SESSION['tenant_code'] ?? '');
+
+                $tenantRow = null;
+                if ($sess_t_id > 1) {
+                    $stmtTenant = $effectivePdo->prepare("SELECT * FROM tenant_companies WHERE id = ? AND id != 1 AND status = 'Active' LIMIT 1");
+                    $stmtTenant->execute([$sess_t_id]);
+                    $tenantRow = $stmtTenant->fetch();
+                }
+                if (!$tenantRow && !empty($sess_u_email)) {
+                    $stmtTenant = $effectivePdo->prepare("SELECT * FROM tenant_companies WHERE LOWER(owner_email) = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+                    $stmtTenant->execute([$sess_u_email]);
+                    $tenantRow = $stmtTenant->fetch();
+                }
+                if (!$tenantRow && !empty($sess_t_code) && strtolower($sess_t_code) !== 'master') {
+                    $stmtTenant = $effectivePdo->prepare("SELECT * FROM tenant_companies WHERE LOWER(company_code) = ? AND id != 1 AND status = 'Active' ORDER BY id DESC LIMIT 1");
+                    $stmtTenant->execute([strtolower($sess_t_code)]);
+                    $tenantRow = $stmtTenant->fetch();
+                }
+
                 if ($tenantRow) {
                     $logged_user_name = $tenantRow['company_name'] . ' (' . $tenantRow['owner_name'] . ')';
                     $logged_user_photo = null;
@@ -29,6 +47,18 @@ if ($db_connected && isset($_SESSION['user_id'])) {
                     $_SESSION['user_name'] = $tenantRow['owner_name'];
                     $_SESSION['user_email'] = $tenantRow['owner_email'];
                     $_SESSION['user_role'] = 'Tenant Admin';
+                    $_SESSION['tenant_id'] = (int)$tenantRow['id'];
+                    $_SESSION['tenant_code'] = $tenantRow['company_code'];
+                    $_SESSION['tenant_name'] = $tenantRow['company_name'];
+                    $_SESSION['company_name'] = $tenantRow['company_name'];
+                    if (!empty($tenantRow['db_name'])) {
+                        $_SESSION['tenant_db'] = $tenantRow['db_name'];
+                    }
+                    $_SESSION['is_tenant'] = true;
+                    if (!empty($tenantRow['allowed_modules'])) {
+                        $mods = json_decode($tenantRow['allowed_modules'], true);
+                        if (is_array($mods)) $_SESSION['tenant_allowed_modules'] = $mods;
+                    }
                 }
             }
         } else {

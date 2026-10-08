@@ -9,6 +9,28 @@
 
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
+if (file_exists(__DIR__ . '/../api/helpers.php')) {
+    require_once __DIR__ . '/../api/helpers.php';
+}
+
+if (!function_exists('format_wa_date_ddmmyyyy')) {
+    function format_wa_date_ddmmyyyy($dateVal): string {
+        if (empty($dateVal) || $dateVal === '-' || $dateVal === '0000-00-00') return '-';
+        $s = trim((string)$dateVal);
+        if ($s === '' || $s === '-' || $s === '0000-00-00') return '-';
+        if (preg_match('/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/', $s, $m)) {
+            return str_pad($m[3], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[1];
+        }
+        if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})/', $s, $m)) {
+            return str_pad($m[1], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[3];
+        }
+        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})/', $s, $m)) {
+            return str_pad($m[1], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[3];
+        }
+        $ts = strtotime(str_replace('/', '-', $s));
+        return ($ts !== false && $ts > 0) ? date('d/m/Y', $ts) : $s;
+    }
+}
 
 $user_role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_name = $_SESSION['user_name'] ?? '';
@@ -209,8 +231,8 @@ if (isset($_POST['action']) && $_POST['action'] === 'add_city_area') {
     exit;
 }
 
-// 2B. AJAX Endpoint: Send WhatsApp Welcome Message to Client
-if (isset($_POST['action']) && $_POST['action'] === 'send_client_welcome_wa') {
+// 2B. AJAX Endpoint: Send WhatsApp Message (Welcome / Template / Custom) to Client
+if (isset($_POST['action']) && ($_POST['action'] === 'send_client_welcome_wa' || $_POST['action'] === 'send_client_whatsapp_message')) {
     while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json; charset=utf-8');
 
@@ -220,6 +242,16 @@ if (isset($_POST['action']) && $_POST['action'] === 'send_client_welcome_wa') {
     $software_type  = trim($_POST['software_type'] ?? 'Marg ERP');
     $software_trade = trim($_POST['software_trade'] ?? '');
     $mobile         = trim($_POST['mobile'] ?? '');
+    $message_body   = trim($_POST['message_body'] ?? '');
+    $template_key   = trim($_POST['template_key'] ?? '');
+    $mode           = trim($_POST['mode'] ?? 'template');
+    $due_on         = trim($_POST['due_on'] ?? '');
+    $due_date       = trim($_POST['due_date'] ?? $due_on);
+    $total_amount   = trim($_POST['total_amount'] ?? '');
+    $renewal_amount = trim($_POST['renewal_amount'] ?? $total_amount);
+    $no_of_users    = trim($_POST['no_of_users'] ?? '1');
+    $no_of_companies= trim($_POST['no_of_companies'] ?? '1');
+    $status         = trim($_POST['status'] ?? 'Active');
 
     $cleanMobile = preg_replace('/[^0-9]/', '', $mobile);
     if (strlen($cleanMobile) === 10) {
@@ -232,52 +264,358 @@ if (isset($_POST['action']) && $_POST['action'] === 'send_client_welcome_wa') {
     }
 
     try {
+        require_once __DIR__ . '/../api/helpers.php';
         require_once __DIR__ . '/../api/whatsapp-api.php';
         $whatsappObj = new WhatsAppAPI($pdo);
 
         $greetingName = !empty($contact_person) ? $contact_person : $party_name;
         $displaySw    = !empty($software_trade) ? "{$software_type} ({$software_trade})" : $software_type;
 
-        $tplData = get_system_notification_template($pdo, 'client_welcome', [
-            'contact_person' => $greetingName,
-            'party_name'     => $party_name,
-            'customer_id'    => $customer_id,
-            'software_type'  => $displaySw,
-            'helpline'       => '7523830026 / 9170009697 / 9044345020'
-        ]);
+        $formattedDueDate = format_wa_date_ddmmyyyy(!empty($due_date) ? $due_date : $due_on);
 
-        if ($tplData['found'] && !$tplData['is_active']) {
-            echo json_encode(['success' => false, 'message' => 'The Client Welcome WhatsApp template is currently toggled OFF in Auto Notification Messages settings.']);
-            exit;
+        $vars = $_POST;
+        $vars['contact_person']  = $greetingName;
+        $vars['party_name']      = $party_name;
+        $vars['client_name']     = $party_name;
+        $vars['customer_id']     = $customer_id;
+        $vars['software_type']   = $displaySw;
+        $vars['due_on']          = $formattedDueDate;
+        $vars['due_date']        = $formattedDueDate;
+        $vars['total_amount']    = $renewal_amount;
+        $vars['renewal_amount']  = $renewal_amount;
+        $vars['amount']          = $renewal_amount;
+        if (!empty($vars['software_hit_date'])) {
+            $vars['software_hit_date'] = format_wa_date_ddmmyyyy($vars['software_hit_date']);
+        }
+        if (!empty($vars['hit_date'])) {
+            $vars['hit_date'] = format_wa_date_ddmmyyyy($vars['hit_date']);
+        }
+        if (!empty($vars['act_on'])) {
+            $vars['act_on'] = format_wa_date_ddmmyyyy($vars['act_on']);
+        }
+        $vars['no_of_users']     = $no_of_users ?: '1';
+        $vars['no_of_companies'] = $no_of_companies ?: '1';
+        $vars['status']          = $status ?: 'Running';
+        $vars['account_status']  = $status ?: 'Running';
+        if (empty($vars['helpline'])) {
+            $vars['helpline'] = '9305045727 / 7523830026';
+        }
+        if (empty($vars['crm_link'])) {
+            $vars['crm_link'] = defined('BASE_URL') ? BASE_URL : 'https://friendlyaisolution.com/';
         }
 
-        $welcomeText = !empty($tplData['whatsapp_body']) ? $tplData['whatsapp_body'] : (
-            "Namaste {$greetingName},\n\n" .
-            "Welcome to Marg Soft Solution!\n\n" .
-            "We are pleased to onboard {$party_name}. Your client account details:\n\n" .
-            "• Customer ID: {$customer_id}\n" .
-            "• Software: {$displaySw}\n" .
-            "• Account Status: Active\n\n" .
-            "Our team is dedicated to providing you with continuous technical support, training, and regular updates.\n\n" .
-            "Support Helplines:\n" .
-            "• 7523830026 / 9170009697 / 9044345020\n" .
-            "• Website: https://friendlyaisolution.com\n\n" .
-            "Thank you for choosing us as your software partner!"
-        );
+        // Media Attachment Handling (Uploaded file or URL or Template Default)
+        $chosenMediaUrl = '';
+        if (isset($_FILES['media_file']) && $_FILES['media_file']['error'] === UPLOAD_ERR_OK) {
+            $f = $_FILES['media_file'];
+            $allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx'];
+            $fExt = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+            if (in_array($fExt, $allowedExts)) {
+                $targetDir = __DIR__ . '/../uploads/broadcast_media/';
+                if (!is_dir($targetDir)) {
+                    @mkdir($targetDir, 0777, true);
+                }
+                $safeFname = 'client_wa_' . time() . '_' . rand(1000, 9999) . '.' . $fExt;
+                if (move_uploaded_file($f['tmp_name'], $targetDir . $safeFname)) {
+                    $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+                    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                    $root = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
+                    $chosenMediaUrl = $protocol . '://' . $host . $root . '/uploads/broadcast_media/' . $safeFname;
+                }
+            }
+        }
 
-        $res = $whatsappObj->sendText($cleanMobile, $welcomeText);
-        $wamid = $res['messages'][0]['id'] ?? '';
-        echo json_encode([
-            'success' => true,
-            'message' => "WhatsApp Welcome message sent successfully to +{$cleanMobile}!",
-            'wamid'   => $wamid
-        ]);
-        exit;
+        if (empty($chosenMediaUrl) && !empty($_POST['media_url'])) {
+            $chosenMediaUrl = trim($_POST['media_url']);
+        }
+
+        $mediaAction = trim($_POST['media_action'] ?? '');
+        if ($mediaAction !== 'none' && empty($chosenMediaUrl)) {
+            if (!empty($_POST['template_default_media_url'])) {
+                $chosenMediaUrl = trim($_POST['template_default_media_url']);
+            }
+        }
+
+        // Check if template is an approved Meta template
+        $metaRow = null;
+        if (!empty($template_key) && $mode !== 'manual') {
+            $stmtTpl = $pdo->prepare("SELECT * FROM whatsapp_templates WHERE slug = ? AND UPPER(meta_status) = 'APPROVED' LIMIT 1");
+            $stmtTpl->execute([$template_key]);
+            $metaRow = $stmtTpl->fetch(PDO::FETCH_ASSOC);
+        }
+
+        if ($metaRow) {
+            if ($mediaAction !== 'none' && empty($chosenMediaUrl) && !empty($metaRow['header_content'])) {
+                $chosenMediaUrl = trim($metaRow['header_content']);
+            }
+
+            // Dispatch official Meta Cloud API template
+            $templateLangs = [
+                'new_client'            => 'en_US',
+                'hello_world'           => 'en_US',
+                'amc_overdue'           => 'en',
+                'amc_renewal_remainder' => 'en',
+                'boo_demo'              => 'en',
+                'hello_template'        => 'en',
+                'marg_bill'             => 'en'
+            ];
+            $langCode = $templateLangs[$template_key] ?? 'en_US';
+            $components = [];
+
+            // 1. Header (image or document or video)
+            $hType = strtolower($metaRow['header_type'] ?? 'none');
+            if ($hType === 'image') {
+                $hImg = !empty($chosenMediaUrl) ? $chosenMediaUrl : (!empty($metaRow['header_content']) ? trim($metaRow['header_content']) : '');
+                if (empty($hImg) || stripos($hImg, 'scontent.whatsapp.net') !== false) {
+                    $hImg = 'https://friendlyaisolution.com/assets/image.png';
+                }
+                $components[] = [
+                    'type' => 'header',
+                    'parameters' => [
+                        [
+                            'type' => 'image',
+                            'image' => ['link' => $hImg]
+                        ]
+                    ]
+                ];
+            } elseif ($hType === 'document' && (!empty($chosenMediaUrl) || !empty($metaRow['header_content']))) {
+                $docLink = !empty($chosenMediaUrl) ? $chosenMediaUrl : $metaRow['header_content'];
+                $components[] = [
+                    'type' => 'header',
+                    'parameters' => [
+                        [
+                            'type' => 'document',
+                            'document' => ['link' => $docLink, 'filename' => basename($docLink)]
+                        ]
+                    ]
+                ];
+            } elseif ($hType === 'video' && (!empty($chosenMediaUrl) || !empty($metaRow['header_content']))) {
+                $vidLink = !empty($chosenMediaUrl) ? $chosenMediaUrl : $metaRow['header_content'];
+                $components[] = [
+                    'type' => 'header',
+                    'parameters' => [
+                        [
+                            'type' => 'video',
+                            'video' => ['link' => $vidLink]
+                        ]
+                    ]
+                ];
+            }
+
+            // 2. Body parameters
+            $bodyTpl = $metaRow['body_text'] ?? '';
+            $bodyParams = [];
+
+            preg_match_all('/\{\{([a-zA-Z0-9_]+)\}\}/', $bodyTpl, $tplMatches);
+            $rawVarKeys = !empty($tplMatches[1]) ? $tplMatches[1] : [];
+
+            if (!empty($rawVarKeys)) {
+                foreach ($rawVarKeys as $k) {
+                    $cleanK = strtolower($k);
+                    $val = '';
+                    if (isset($vars[$cleanK]) && $vars[$cleanK] !== '') {
+                        $val = (string)$vars[$cleanK];
+                    } elseif (isset($vars[$k]) && $vars[$k] !== '') {
+                        $val = (string)$vars[$k];
+                    } else {
+                        switch ($cleanK) {
+                            case 'client_name':
+                            case 'party_name':
+                                $val = $party_name;
+                                break;
+                            case 'customer_id':
+                                $val = $customer_id;
+                                break;
+                            case 'software_type':
+                                $val = $displaySw;
+                                break;
+                            case 'status':
+                            case 'account_status':
+                                $val = $status ?: 'Running';
+                                break;
+                            case 'renewal_amount':
+                            case 'total_amount':
+                                $val = $renewal_amount ?: '0';
+                                break;
+                            case 'due_date':
+                            case 'due_on':
+                                $val = $formattedDueDate;
+                                break;
+                            case 'no_of_users':
+                                $val = $no_of_users ?: '1';
+                                break;
+                            case 'no_of_companies':
+                                $val = $no_of_companies ?: '1';
+                                break;
+                            case '1':
+                                $val = 'Marg Soft Solution';
+                                break;
+                            case '2':
+                                $val = $party_name ?: $greetingName;
+                                break;
+                            case '3':
+                                $val = 'INV-' . ($customer_id ?: rand(100, 999));
+                                break;
+                            case '4':
+                                $val = $renewal_amount ?: '3,500';
+                                break;
+                            case '5':
+                                $val = '0.00';
+                                break;
+                            case '6':
+                                $val = '7523830026@okaxis';
+                                break;
+                            case '7':
+                                $val = 'HDFC Bank Ltd';
+                                break;
+                            case '8':
+                                $val = '50200012345678';
+                                break;
+                            case '9':
+                                $val = 'Connaught Place';
+                                break;
+                            case '10':
+                                $val = 'HDFC0000123';
+                                break;
+                            case '11':
+                                $val = 'Marg Soft Solution';
+                                break;
+                            case '12':
+                                $val = '9305045727';
+                                break;
+                            case '13':
+                                $val = 'https://friendlyaisolution.com';
+                                break;
+                            default:
+                                $val = '-';
+                                break;
+                        }
+                    }
+
+                    if (in_array($cleanK, ['due_date', 'due_on', 'expiry_date'])) {
+                        $val = format_wa_date_ddmmyyyy(!empty($val) && $val !== '-' ? $val : $formattedDueDate);
+                    } elseif (in_array($cleanK, ['software_hit_date', 'hit_date', 'act_on'])) {
+                        $val = format_wa_date_ddmmyyyy($val);
+                    }
+
+                    if (is_numeric($k)) {
+                        $bodyParams[] = [
+                            'type' => 'text',
+                            'text' => (string)$val
+                        ];
+                    } else {
+                        $bodyParams[] = [
+                            'type' => 'text',
+                            'parameter_name' => $k,
+                            'text' => (string)$val
+                        ];
+                    }
+                }
+
+                if (!empty($bodyParams)) {
+                    $components[] = [
+                        'type' => 'body',
+                        'parameters' => $bodyParams
+                    ];
+                }
+            }
+
+            $res = $whatsappObj->sendTemplate($cleanMobile, $template_key, $langCode, $components);
+
+            // If template not found in selected language (error 132001), auto-retry with alternate language (en_US <-> en)
+            if (empty($res['success'])) {
+                $altLang = ($langCode === 'en_US') ? 'en' : 'en_US';
+                $retryRes = $whatsappObj->sendTemplate($cleanMobile, $template_key, $altLang, $components);
+                if (!empty($retryRes['success'])) {
+                    $res = $retryRes;
+                }
+            }
+
+            if (!empty($res['success'])) {
+                $wamid = $res['response']['messages'][0]['id'] ?? ($res['messages'][0]['id'] ?? '');
+                if ($pdo) {
+                    try {
+                        $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json, created_at) VALUES ('OUTBOUND', ?, 'template', ?, ?, 'sent', ?, NOW())");
+                        $stmtLog->execute([$cleanMobile, "Template: {$template_key}", $wamid, json_encode($res)]);
+                    } catch (\Throwable $eLog) {}
+                }
+                echo json_encode([
+                    'success' => true,
+                    'message' => "Meta WhatsApp Template '{$metaRow['title']}' delivered successfully to +{$cleanMobile}!",
+                    'wamid'   => $wamid
+                ]);
+                exit;
+            } else {
+                $errMsg = $res['response']['error']['message'] ?? ($res['error']['message'] ?? ($res['message'] ?? 'Failed to dispatch Meta Template.'));
+                echo json_encode([
+                    'success' => false,
+                    'message' => "Meta Cloud API: " . $errMsg,
+                    'details' => $res
+                ]);
+                exit;
+            }
+        }
+
+        // Manual custom text message or non-meta template
+        $msgToSend = !empty($message_body) ? $message_body : 'Namaste';
+        if (!empty($due_date) && preg_match('/^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/', $due_date)) {
+            $rawDateOnly = substr($due_date, 0, 10);
+            $msgToSend = str_replace($rawDateOnly, $formattedDueDate, $msgToSend);
+        }
+        if (!empty($due_on) && preg_match('/^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/', $due_on)) {
+            $rawDateOnly2 = substr($due_on, 0, 10);
+            $msgToSend = str_replace($rawDateOnly2, $formattedDueDate, $msgToSend);
+        }
+        foreach ($vars as $k => $v) {
+            if (is_scalar($v)) {
+                $placeholder1 = '{{' . trim($k, '{}') . '}}';
+                $placeholder2 = '{' . trim($k, '{}') . '}';
+                $msgToSend = str_ireplace([$placeholder1, $placeholder2], (string)$v, $msgToSend);
+            }
+        }
+
+        if (!empty($chosenMediaUrl)) {
+            $ext = strtolower(pathinfo(parse_url($chosenMediaUrl, PHP_URL_PATH), PATHINFO_EXTENSION));
+            if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) {
+                $res = $whatsappObj->sendImage($cleanMobile, $chosenMediaUrl, $msgToSend);
+            } else {
+                $fName = basename(parse_url($chosenMediaUrl, PHP_URL_PATH)) ?: 'Attachment';
+                $res = $whatsappObj->sendDocument($cleanMobile, $chosenMediaUrl, $msgToSend, $fName);
+            }
+        } else {
+            $res = $whatsappObj->sendText($cleanMobile, $msgToSend);
+        }
+
+        if (!empty($res['success']) && $res['success']) {
+            $wamid = $res['messages'][0]['id'] ?? '';
+            if ($pdo) {
+                try {
+                    $mType = !empty($chosenMediaUrl) ? 'media' : 'text';
+                    $stmtLog = $pdo->prepare("INSERT INTO message_logs (direction, recipient_or_sender, message_type, message_body, wamid, status, raw_json, created_at) VALUES ('OUTBOUND', ?, ?, ?, ?, 'sent', ?, NOW())");
+                    $stmtLog->execute([$cleanMobile, $mType, $msgToSend, $wamid, json_encode($res)]);
+                } catch (\Throwable $eLog) {}
+            }
+            echo json_encode([
+                'success' => true,
+                'message' => "WhatsApp message sent successfully to +{$cleanMobile}!",
+                'wamid'   => $wamid
+            ]);
+            exit;
+        } else {
+            $errMsg = $res['error']['message'] ?? ($res['message'] ?? 'Failed to send WhatsApp message.');
+            echo json_encode([
+                'success' => false,
+                'message' => $errMsg,
+                'details' => $res
+            ]);
+            exit;
+        }
     } catch (Throwable $e) {
         echo json_encode(['success' => false, 'message' => 'WhatsApp API Error: ' . $e->getMessage()]);
         exit;
     }
 }
+
 
 // Download Sample CSV Template
 if (isset($_GET['action']) && $_GET['action'] === 'download_client_template') {
@@ -949,7 +1287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
                     }
                     
                     $waStatusNote = '';
-                    $sendWelcomeWa = isset($_POST['send_welcome_wa']) ? ($_POST['send_welcome_wa'] == '1') : true;
+                    $sendWelcomeWa = !empty($_POST['send_welcome_wa']) && ($_POST['send_welcome_wa'] === '1' || $_POST['send_welcome_wa'] === 'on');
                     $rawMobile = trim($_POST['mobile'] ?? '');
                     $cleanMobile = preg_replace('/[^0-9]/', '', $rawMobile);
                     if (strlen($cleanMobile) === 10) {
@@ -1115,6 +1453,17 @@ $page_num = isset($_GET['p']) ? max(1, intval($_GET['p'])) : 1;
 $limit = isset($_GET['limit']) ? $_GET['limit'] : 25;
 if ($limit !== 'all') {
     $limit = max(10, intval($limit));
+}
+
+// Active Meta Approved WhatsApp Templates for Directory Quick Dispatch
+$client_wa_templates = [];
+if ($pdo) {
+    try {
+        $tplStmt = $pdo->query("SELECT id, slug as template_key, slug, title, category, body_text as whatsapp_body, body_text, header_type, header_content, buttons_json, meta_status FROM whatsapp_templates WHERE UPPER(meta_status) = 'APPROVED' AND (gateway_origin = 'meta' OR gateway_origin IS NULL OR gateway_origin = '') ORDER BY (CASE WHEN slug = 'new_client' THEN 1 WHEN slug = 'amc_renewal_remainder' THEN 2 ELSE 3 END), id DESC");
+        $client_wa_templates = $tplStmt ? $tplStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    } catch (\Throwable $e) {
+        $client_wa_templates = [];
+    }
 }
 
 // Master Indian States and Cities
@@ -1744,6 +2093,15 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     }
                                 }
                                 $rJson = htmlspecialchars(json_encode($r), ENT_QUOTES, 'UTF-8');
+                                $rWa = $r;
+                                $rWa['client_name'] = $r['party_name'] ?? '';
+                                $rWa['due_date'] = !empty($r['due_on']) ? format_wa_date_ddmmyyyy($r['due_on']) : '';
+                                $rWa['due_on'] = !empty($r['due_on']) ? format_wa_date_ddmmyyyy($r['due_on']) : '';
+                                $rWa['renewal_amount'] = $r['total_amount'] ?? '';
+                                $rWa['amount'] = $r['total_amount'] ?? '';
+                                $rWa['status'] = !empty($r['party_status']) ? $r['party_status'] : ($r['status'] ?? 'Active');
+                                $rWa['account_status'] = $rWa['status'];
+                                $rWaJson = htmlspecialchars(json_encode($rWa), ENT_QUOTES, 'UTF-8');
                                 
                                 $catVal = trim($r['category'] ?? '');
                                 if (stripos($catVal, 'A') === 0 || strcasecmp($catVal, 'Category A') === 0 || stripos($catVal, 'Premium') !== false) {
@@ -1799,8 +2157,8 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td class="col-dir-software-type"><span class="badge text-xs" style="--badge-bg: var(--accent-light); --badge-color: var(--accent);"><?php echo htmlspecialchars($r['software_type'] ?? '-'); ?></span></td>
                                     <td class="col-dir-no-of-users font-mono text-center"><?php echo htmlspecialchars($r['no_of_users']); ?></td>
                                     <td class="col-dir-contact-person"><span class="font-semibold"><?php echo htmlspecialchars($r['contact_person'] ?? '-'); ?></span></td>
-                                    <td class="col-dir-due-on font-mono text-xs text-muted"><?php echo htmlspecialchars($r['due_on'] ?? '-'); ?></td>
-                                    <td class="col-dir-act-on font-mono text-xs text-muted"><?php echo htmlspecialchars($r['act_on'] ?? '-'); ?></td>
+                                    <td class="col-dir-due-on font-mono text-xs text-muted"><?php echo htmlspecialchars(!empty($r['due_on']) && $r['due_on'] !== '0000-00-00' ? format_wa_date_ddmmyyyy($r['due_on']) : ($r['due_on'] ?? '-')); ?></td>
+                                    <td class="col-dir-act-on font-mono text-xs text-muted"><?php echo htmlspecialchars(!empty($r['act_on']) && $r['act_on'] !== '0000-00-00' ? format_wa_date_ddmmyyyy($r['act_on']) : ($r['act_on'] ?? '-')); ?></td>
                                     <td class="col-dir-days font-mono text-xs"><?php echo htmlspecialchars($r['days']); ?></td>
                                     <td class="col-dir-party-status">
                                         <?php 
@@ -1827,14 +2185,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                                         <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-left: auto; width: 100%;">
                                             <?php if ($can_edit_client): ?>
                                                 <?php if (!empty($r['mobile'])): ?>
-                                                    <button type="button" class="btn-icon" style="color: #10b981;" title="Send WhatsApp Welcome Message" onclick='sendQuickWelcomeWhatsApp(<?php echo htmlspecialchars(json_encode([
-                                                        "party_name" => $r['party_name'] ?? '',
-                                                        "customer_id" => $r['customer_id'] ?? '',
-                                                        "contact_person" => $r['contact_person'] ?? '',
-                                                        "software_type" => $r['software_type'] ?? '',
-                                                        "software_trade" => $r['software_trade'] ?? '',
-                                                        "mobile" => $r['mobile'] ?? ''
-                                                    ]), ENT_QUOTES); ?>)'>
+                                                    <button type="button" class="btn-icon" style="color: #10b981;" title="Send WhatsApp Message" onclick='openClientSendWhatsAppModal(<?php echo $rWaJson; ?>)'>
                                                         <i data-lucide="message-square" style="width: 15px; height: 15px;"></i>
                                                     </button>
                                                 <?php endif; ?>
@@ -2093,6 +2444,33 @@ function getClientsPageUrl($tab, $p, $limit) {
                                     <td><?php echo getStatusBadge($client['status']); ?></td>
                                     <td style="text-align: right; padding-right: 1.25rem;">
                                         <div class="flex align-center justify-end gap-1">
+                                            <?php if (!empty($client['phone'])): 
+                                                $crmWa = [
+                                                    'id' => $client['id'],
+                                                    'party_name' => !empty($client['company']) ? $client['company'] : $client['name'],
+                                                    'client_name' => !empty($client['company']) ? $client['company'] : $client['name'],
+                                                    'contact_person' => !empty($client['contact_person']) ? $client['contact_person'] : $client['name'],
+                                                    'mobile' => $client['phone'],
+                                                    'email' => $client['email'] ?? '',
+                                                    'address' => $client['address'] ?? '',
+                                                    'city' => $client['city'] ?? '',
+                                                    'state' => $client['state'] ?? '',
+                                                    'customer_id' => !empty($client['license_no']) ? $client['license_no'] : ('CR-' . $client['id']),
+                                                    'software_type' => !empty($client['enq_for']) ? $client['enq_for'] : (!empty($client['products']) ? $client['products'] : 'Marg ERP'),
+                                                    'software_trade' => $client['software_trade'] ?? '',
+                                                    'total_amount' => $client['budget'] ?? '',
+                                                    'renewal_amount' => $client['budget'] ?? '',
+                                                    'amount' => $client['budget'] ?? '',
+                                                    'status' => $client['status'] ?? 'Active',
+                                                    'party_status' => $client['status'] ?? 'Active',
+                                                    'account_status' => $client['status'] ?? 'Active'
+                                                ];
+                                                $crmWaJson = htmlspecialchars(json_encode($crmWa), ENT_QUOTES, 'UTF-8');
+                                            ?>
+                                                <button type="button" class="btn-icon" style="color: #10b981;" title="Send WhatsApp Message" onclick='openClientSendWhatsAppModal(<?php echo $crmWaJson; ?>)'>
+                                                    <i data-lucide="message-square" style="width: 15px; height: 15px;"></i>
+                                                </button>
+                                            <?php endif; ?>
                                             <a href="index.php?page=lead_details&id=<?php echo $client['id']; ?>" class="btn-icon" title="View Profile">
                                                 <i data-lucide="eye" style="width: 15px; height: 15px;"></i>
                                             </a>
@@ -2879,7 +3257,7 @@ function highlightProductPill(which) {
                                 <input type="text" id="edit_mobile" name="mobile" placeholder="e.g. 9876543210" class="form-control text-xs font-mono" style="height: 38px; border-radius: 8px;">
                                 <div id="welcome_wa_checkbox_wrap" style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
                                     <label style="font-size: 0.73rem; color: #059669; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
-                                        <input type="checkbox" name="send_welcome_wa" id="edit_send_welcome_wa" value="1" checked style="accent-color: #059669; width: 14px; height: 14px; cursor: pointer;">
+                                        <input type="checkbox" name="send_welcome_wa" id="edit_send_welcome_wa" value="1" style="accent-color: #059669; width: 14px; height: 14px; cursor: pointer;" onchange="syncSendWelcomeWaCheckbox(this.checked)">
                                         <span>Send WhatsApp Welcome Message</span>
                                     </label>
                                 </div>
@@ -3046,9 +3424,18 @@ function highlightProductPill(which) {
 
             <!-- FOOTER (ALWAYS FIXED AT BOTTOM WITH STEP CONTROLS) -->
             <div style="flex-shrink: 0; padding: 0.75rem 1.25rem; background: var(--border-card); border-top: 1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
-                <button type="button" onclick="window.closeModal('edit-client-record-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 8px; padding: 0.45rem 1.15rem; font-size: 0.8rem;">
-                    <i data-lucide="x" style="width:14px; height:14px;"></i> Cancel
-                </button>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <button type="button" onclick="window.closeModal('edit-client-record-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 8px; padding: 0.45rem 1.15rem; font-size: 0.8rem;">
+                        <i data-lucide="x" style="width:14px; height:14px;"></i> Cancel
+                    </button>
+                    <!-- Sync Checkbox in Footer for Add Client mode -->
+                    <div id="footer_welcome_wa_wrap" style="display: none; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px;">
+                        <label style="font-size: 0.73rem; color: #059669; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin: 0; user-select: none;" title="Check to send WhatsApp Welcome message on save">
+                            <input type="checkbox" id="footer_send_welcome_wa" value="1" style="accent-color: #059669; width: 14px; height: 14px; cursor: pointer;" onchange="syncSendWelcomeWaCheckbox(this.checked)">
+                            <span>Send WhatsApp Welcome Message</span>
+                        </label>
+                    </div>
+                </div>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     <button type="button" id="client_modal_prev_btn" onclick="navigateClientModalStep(-1)" class="btn btn-secondary" style="display:none; border-radius: 8px; padding: 0.45rem 1.15rem; font-size: 0.8rem; font-weight: 700;">
                         <i data-lucide="arrow-left" style="width:14px; height:14px;"></i> Back
@@ -4200,7 +4587,11 @@ function openAddClientModal() {
     var waWrap = document.getElementById('welcome_wa_checkbox_wrap');
     if (waWrap) waWrap.style.display = 'flex';
     var waCheck = document.getElementById('edit_send_welcome_wa');
-    if (waCheck) waCheck.checked = true;
+    if (waCheck) waCheck.checked = false;
+    var footerWaWrap = document.getElementById('footer_welcome_wa_wrap');
+    if (footerWaWrap) footerWaWrap.style.display = 'inline-flex';
+    var footerWaCheck = document.getElementById('footer_send_welcome_wa');
+    if (footerWaCheck) footerWaCheck.checked = false;
     var altMob = document.getElementById('edit_alt_mobile');
     if (altMob) altMob.value = '';
     document.getElementById('edit_email').value = '';
@@ -4316,6 +4707,10 @@ function openEditClientRecordModal(client) {
     if (waWrap) waWrap.style.display = 'none';
     var waCheck = document.getElementById('edit_send_welcome_wa');
     if (waCheck) waCheck.checked = false;
+    var footerWaWrap = document.getElementById('footer_welcome_wa_wrap');
+    if (footerWaWrap) footerWaWrap.style.display = 'none';
+    var footerWaCheck = document.getElementById('footer_send_welcome_wa');
+    if (footerWaCheck) footerWaCheck.checked = false;
 
     // Populate all fields
     populateClientModalData(client);
@@ -4566,6 +4961,211 @@ document.addEventListener('DOMContentLoaded', loadDirColumnPreferences);
     </div>
 </div>
 
+<!-- ========================================================================= -->
+<!-- Modal: Send WhatsApp Message (Template Selection or Manual Typing)        -->
+<!-- ========================================================================= -->
+<div id="client-send-whatsapp-modal" class="modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); z-index: 999999; align-items: center; justify-content: center;">
+    <div class="modal-container" style="background: var(--bg-card, #ffffff); border-radius: 18px; width: 100%; max-width: 620px; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.35); border: 1px solid var(--border-color); display: flex; flex-direction: column; max-height: 90vh;">
+        
+        <!-- Header -->
+        <div style="padding: 1.1rem 1.4rem; background: linear-gradient(135deg, #059669 0%, #047857 100%); color: #fff; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(255,255,255,0.2); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <i data-lucide="message-square" style="width: 20px; height: 20px; color: #fff;"></i>
+                </div>
+                <div>
+                    <h3 style="margin: 0; font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; color: #fff; letter-spacing: -0.01em;">
+                        Send WhatsApp Message
+                    </h3>
+                    <div style="font-size: 0.74rem; color: rgba(255,255,255,0.88); margin-top: 2px;">
+                        Client: <strong id="cwa_party_name_badge">-</strong> | ID: <span id="cwa_customer_id_badge" style="font-family: monospace; font-weight: 700;">-</span>
+                    </div>
+                </div>
+            </div>
+            <button type="button" onclick="closeClientSendWhatsAppModal()" style="background: rgba(255,255,255,0.2); border: none; border-radius: 8px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #fff; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.35)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 1.25rem 1.4rem; overflow-y: auto; flex: 1; min-height: 0; background: var(--bg-app);">
+            
+            <!-- Recipient Phone & Info Card -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: rgba(16, 185, 129, 0.12); color: #059669; border-radius: 6px; font-weight: 700; font-size: 0.75rem;">
+                        <i data-lucide="phone" style="width: 12px; height: 12px;"></i> WhatsApp No.
+                    </span>
+                    <span id="cwa_phone_display" style="font-family: monospace; font-size: 0.95rem; font-weight: 800; color: var(--text-main);">
+                        +91 -
+                    </span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">
+                    Contact Person: <strong id="cwa_contact_display" style="color: var(--text-main);">-</strong>
+                </div>
+            </div>
+
+            <!-- Mode Switcher Tabs (Choose Template vs Manual Message) -->
+            <div style="display: flex; background: var(--border-card); padding: 4px; border-radius: 10px; border: 1px solid var(--border-color); margin-bottom: 1rem; gap: 4px;">
+                <button type="button" id="cwa_mode_tpl_btn" onclick="setClientWaMode('template')" style="flex: 1; border: none; padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; background: var(--bg-card); color: var(--text-main); box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
+                    <i data-lucide="layers" style="width: 14px; height: 14px; color: #059669;"></i>
+                    <span>Choose Template</span>
+                </button>
+                <button type="button" id="cwa_mode_manual_btn" onclick="setClientWaMode('manual')" style="flex: 1; border: none; padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; background: transparent; color: var(--text-muted); box-shadow: none;">
+                    <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
+                    <span>Manual Message (Type Custom)</span>
+                </button>
+            </div>
+
+            <!-- Template Selector Pane -->
+            <div id="cwa_template_pane" style="margin-bottom: 0.85rem;">
+                <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); margin-bottom: 5px; display: block;">
+                    Select WhatsApp Message Template:
+                </label>
+                <select id="cwa_tpl_select" onchange="onClientWaTemplateChanged(this.value)" class="form-control text-xs font-semibold" style="height: 40px; border-radius: 8px; width: 100%;">
+                    <!-- Dynamically populated -->
+                </select>
+            </div>
+
+            <!-- Media Attachment Section (Template Default Media vs Custom Upload/URL) -->
+            <div id="cwa_media_section" style="background: var(--bg-card); border: 1.5px dashed var(--border-color); border-radius: 12px; padding: 12px 14px; margin-bottom: 0.85rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                    <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 6px; margin: 0;">
+                        <i data-lucide="paperclip" style="width: 14px; height: 14px; color: #059669;"></i>
+                        <span>Media Attachment (Image / PDF / Document)</span>
+                    </label>
+                    <span id="cwa_media_badge" class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; font-size: 0.68rem; font-weight: 700;">
+                        Optional
+                    </span>
+                </div>
+
+                <!-- Template Default Media Banner (Auto-populated if template has header media) -->
+                <div id="cwa_default_media_notice" style="display: none; background: rgba(5, 150, 105, 0.08); border: 1px solid rgba(5, 150, 105, 0.25); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <img id="cwa_default_media_thumb" src="" alt="Default Media" style="width: 48px; height: 36px; object-fit: cover; border-radius: 6px; display: none; border: 1px solid #cbd5e1;">
+                            <div id="cwa_default_media_doc_icon" style="display: none; width: 36px; height: 36px; background: #e0f2fe; color: #0284c7; border-radius: 6px; align-items: center; justify-content: center;">
+                                <i data-lucide="file-text" style="width: 18px; height: 18px;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.75rem; font-weight: 700; color: #065f46; display: flex; align-items: center; gap: 4px;">
+                                    <i data-lucide="check-circle" style="width: 12px; height: 12px;"></i>
+                                    <span>Template Default Media Active</span>
+                                </div>
+                                <div id="cwa_default_media_desc" style="font-size: 0.68rem; color: #047857;">
+                                    By default, this media will be sent.
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <a id="cwa_default_media_link" href="#" target="_blank" style="font-size: 0.72rem; color: #059669; font-weight: 700; text-decoration: underline;">View</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Media Mode Choice Pills (Visible when template has default media) -->
+                <div id="cwa_media_choice_pills" style="display: none; margin-bottom: 8px; gap: 6px; flex-wrap: wrap;">
+                    <button type="button" id="cwa_pill_use_default" class="btn btn-secondary text-xs" style="padding: 3px 8px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #10b981; background: rgba(16, 185, 129, 0.12); color: #065f46;" onclick="setClientMediaChoice('default')">
+                        <i data-lucide="check" style="width: 11px; height: 11px;"></i> Use Default Media
+                    </button>
+                    <button type="button" id="cwa_pill_choose_custom" class="btn btn-secondary text-xs" style="padding: 3px 8px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; color: var(--text-muted);" onclick="setClientMediaChoice('custom')">
+                        <i data-lucide="upload" style="width: 11px; height: 11px;"></i> Choose Different Media
+                    </button>
+                    <button type="button" id="cwa_pill_no_media" class="btn btn-secondary text-xs" style="padding: 3px 8px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; color: var(--text-muted);" onclick="setClientMediaChoice('none')">
+                        <i data-lucide="x" style="width: 11px; height: 11px;"></i> No Media
+                    </button>
+                </div>
+
+                <!-- Custom Media Input Container (Upload File or Enter URL) -->
+                <div id="cwa_custom_media_inputs" style="display: flex; flex-direction: column; gap: 6px;">
+                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                        <label style="flex: 1; min-width: 170px; margin: 0; cursor: pointer; display: flex; align-items: center; gap: 6px; background: var(--bg-app); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 8px; font-size: 0.73rem; font-weight: 600; color: var(--text-main);">
+                            <i data-lucide="upload-cloud" style="width: 14px; height: 14px; color: #059669;"></i>
+                            <span id="cwa_file_label_text">Choose Image / PDF...</span>
+                            <input type="file" id="cwa_media_file_input" name="media_file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" style="display: none;" onchange="onClientMediaFileSelected(event)">
+                        </label>
+                        <span style="font-size: 0.69rem; color: var(--text-muted); font-weight: 600;">OR URL:</span>
+                        <input type="text" id="cwa_media_url_input" placeholder="Paste link (https://...)" class="form-control text-xs" style="flex: 1.2; min-width: 160px; height: 32px; border-radius: 8px;" oninput="onClientMediaUrlInput(this.value)">
+                        <button type="button" id="cwa_btn_clear_media" class="btn btn-secondary text-xs" style="display: none; padding: 5px 8px; color: #ef4444; border-radius: 8px;" onclick="clearClientChosenMedia()" title="Clear Media">
+                            <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                        </button>
+                    </div>
+
+                    <!-- Custom Chosen Media Preview Card -->
+                    <div id="cwa_custom_media_preview_card" style="display: none; align-items: center; gap: 10px; background: rgba(5,150,105,0.06); border: 1px solid rgba(5,150,105,0.25); border-radius: 8px; padding: 6px 10px; margin-top: 4px;">
+                        <img id="cwa_custom_media_thumb" src="" alt="Chosen Media" style="width: 48px; height: 36px; object-fit: cover; border-radius: 6px; display: none; border: 1px solid #cbd5e1;">
+                        <div id="cwa_custom_media_doc_icon" style="display: none; width: 36px; height: 36px; background: #e0f2fe; color: #0284c7; border-radius: 6px; align-items: center; justify-content: center;">
+                            <i data-lucide="file-text" style="width: 18px; height: 18px;"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div id="cwa_custom_media_name" style="font-size: 0.75rem; font-weight: 700; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</div>
+                            <div id="cwa_custom_media_meta" style="font-size: 0.67rem; color: var(--text-muted);">-</div>
+                        </div>
+                        <span class="badge" style="background: #10b981; color: white; font-size: 0.65rem;">Ready to Send</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Message Textarea Pane -->
+            <div style="margin-bottom: 0.75rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                    <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); display: block; margin: 0;">
+                        Message Text (Preview &amp; Edit before sending):
+                    </label>
+                    <span id="cwa_char_counter" style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">0 chars</span>
+                </div>
+                <textarea id="cwa_message_body" rows="9" placeholder="Type your WhatsApp message here or select a template above..." class="form-control text-xs" style="width: 100%; border-radius: 10px; font-family: inherit; line-height: 1.5; padding: 10px 12px; resize: vertical;" oninput="updateClientWaCharCount()"></textarea>
+            </div>
+
+            <!-- Quick Insert Variable Chips -->
+            <div style="margin-bottom: 0.5rem;">
+                <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">
+                    Insert Client Tags (Click to Insert):
+                </span>
+                <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+                    <button type="button" onclick="insertClientWaTag('party_name')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Party Name</button>
+                    <button type="button" onclick="insertClientWaTag('customer_id')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Customer ID</button>
+                    <button type="button" onclick="insertClientWaTag('contact_person')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Contact Person</button>
+                    <button type="button" onclick="insertClientWaTag('mobile')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Mobile</button>
+                    <button type="button" onclick="insertClientWaTag('status')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Status</button>
+                    <button type="button" onclick="insertClientWaTag('software_type')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Software</button>
+                    <button type="button" onclick="insertClientWaTag('software_trade')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Trade</button>
+                    <button type="button" onclick="insertClientWaTag('version')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Version</button>
+                    <button type="button" onclick="insertClientWaTag('due_date')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Due Date</button>
+                    <button type="button" onclick="insertClientWaTag('renewal_amount')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Renewal Amount</button>
+                    <button type="button" onclick="insertClientWaTag('no_of_users')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ No. of Users</button>
+                    <button type="button" onclick="insertClientWaTag('no_of_companies')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ No. of Companies</button>
+                    <button type="button" onclick="insertClientWaTag('city')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ City</button>
+                    <button type="button" onclick="insertClientWaTag('state')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ State</button>
+                    <button type="button" onclick="insertClientWaTag('address')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Address</button>
+                    <button type="button" onclick="insertClientWaTag('online_zip_code')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Pincode</button>
+                    <button type="button" onclick="insertClientWaTag('wallet_id')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Wallet ID</button>
+                    <button type="button" onclick="insertClientWaTag('software_hit_date')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Hit Date</button>
+                    <button type="button" onclick="insertClientWaTag('company_using')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Company Using</button>
+                    <button type="button" onclick="insertClientWaTag('subpartner_name')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Subpartner</button>
+                    <button type="button" onclick="insertClientWaTag('helpline')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Helpline</button>
+                </div>
+            </div>
+
+            <!-- Status Alert -->
+            <div id="cwa_status_alert" style="display: none; padding: 10px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; margin-top: 10px;"></div>
+
+        </div>
+
+        <!-- Footer -->
+        <div style="padding: 0.85rem 1.4rem; background: var(--border-card); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <button type="button" onclick="closeClientSendWhatsAppModal()" class="btn btn-secondary text-xs" style="border-radius: 8px; padding: 0.55rem 1.15rem; font-weight: 700;">
+                Cancel
+            </button>
+            <button type="button" id="cwa_send_btn" onclick="submitClientSendWhatsApp()" class="btn text-xs font-bold" style="background: #10b981; color: #fff; border: none; border-radius: 8px; padding: 0.55rem 1.35rem; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35); cursor: pointer;">
+                <i data-lucide="send" style="width: 14px; height: 14px;"></i>
+                <span id="cwa_send_btn_text">Send WhatsApp Message</span>
+            </button>
+        </div>
+
+    </div>
+</div>
+
 <script>
 function normalizePhoneForDialing(phone) {
     if (!phone) return '';
@@ -4628,40 +5228,785 @@ function closeCallQrModal() {
 }
 window.closeCallQrModal = closeCallQrModal;
 
-function sendQuickWelcomeWhatsApp(client) {
+// --------------------------------------------------------------------------
+// Client Directory WhatsApp Dispatcher (Template vs Manual Send Controller)
+// --------------------------------------------------------------------------
+window.clientWaDbTemplates = <?php echo json_encode($client_wa_templates ?? []); ?>;
+
+const clientWaPresetTemplates = [
+    {
+        key: 'client_welcome',
+        title: 'New Client Welcome Message (Official Onboarding)',
+        body: "Namaste {contact_person},\n\nWelcome to Marg Soft Solution!\n\nWe are pleased to onboard {party_name}. Your client account details:\n\n• Customer ID: {customer_id}\n• Software: {software_type}\n• Account Status: {status}\n\nOur team is dedicated to providing you with continuous technical support, training, and regular updates.\n\nSupport Helplines:\n• 7523830026 / 9170009697 / 9044345020\n• Website: https://friendlyaisolution.com\n\nThank you for choosing us as your software partner!"
+    },
+    {
+        key: 'amc_renewal_reminder',
+        title: 'AMC & Software Renewal Reminder',
+        body: "🔔 *MARG ERP AMC RENEWAL REMINDER*\n\nDear *{party_name}* JI,\n\nYour *MARG ERP AMC* is due for renewal.\n\n*Software Details:*\n\n• 💻 *Software Type:* *{software_type}*\n• *No. of Users:* *{no_of_users}*\n• *No. of Companies:* *{no_of_companies}*\n• 📅 *Due Date:* *{due_date}*\n• 💰 *Renewal Amount:* *₹{renewal_amount}*\n\n🎁 *SPECIAL BENEFITS:*\n\n1. Renew AMC before the due date & get *1,500 WhatsApp Messages FREE!*\n\n2. *Priority Support & Technical Assistance*\n\n3. *Software Updates & Upgrades*\n\n4. *GST & Taxation Updates*\n\n⏰ *Renew Before Due Date & Avail the FREE Benefit!*\n\n📞 *Renewal/Assistance:*\n*Mr. Kushagra Srivastava* – *[9580769213]*\n\n*Regards,*\n*MARG Soft Solution*\n*Mr. Deepak Awasthi* *[7523830026]*"
+    },
+    {
+        key: 'bank_payment_details',
+        title: 'Official Bank & UPI Payment Details',
+        body: "Dear {contact_person} ({party_name}),\n\nHere are our official company bank & UPI credentials for payment settlement:\n\n• Company: Friendly AI Solution\n• Bank: HDFC Bank\n• A/C No: 50200062451234\n• IFSC Code: HDFC0001234\n• UPI ID: friendlyai@hdfcbank\n\nAfter payment, please share the screenshot/UTR reference number with us for instant verification.\n\nSupport Desk: 7523830026"
+    },
+    {
+        key: 'general_checkin',
+        title: 'Friendly Support Check-in / Service Follow-up',
+        body: "Dear {contact_person} ({party_name}),\n\nGreetings from Friendly AI Solution / Marg Soft Solution!\n\nWe are checking in to ensure everything is running smoothly with your {software_type}. Please let us know if you need any assistance, operator training, or updates.\n\nSupport Helplines: 7523830026 / 9170009697"
+    }
+];
+
+let currentWaClient = null;
+let currentWaMode = 'template';
+let currentWaTemplateKey = 'client_welcome';
+let clientChosenMediaFile = null;
+let clientChosenMediaUrl = '';
+let clientTemplateDefaultMediaUrl = '';
+let clientMediaChoice = 'default'; // 'default' | 'custom' | 'none'
+
+function syncSendWelcomeWaCheckbox(checked) {
+    const cb1 = document.getElementById('edit_send_welcome_wa');
+    const cb2 = document.getElementById('footer_send_welcome_wa');
+    if (cb1) cb1.checked = checked;
+    if (cb2) cb2.checked = checked;
+}
+window.syncSendWelcomeWaCheckbox = syncSendWelcomeWaCheckbox;
+
+function getAllMergedWaTemplates() {
+    const merged = [];
+    const addedKeys = new Set();
+
+    // 1. Add Meta-Approved DB templates
+    if (Array.isArray(window.clientWaDbTemplates) && window.clientWaDbTemplates.length > 0) {
+        window.clientWaDbTemplates.forEach(t => {
+            const key = t.template_key || t.slug;
+            const body = t.whatsapp_body || t.body_text || '';
+            if (key && !addedKeys.has(key)) {
+                merged.push({
+                    key: key,
+                    title: (t.title || key) + ' (Meta Approved)',
+                    body: body,
+                    header_type: t.header_type || 'none',
+                    header_content: t.header_content || '',
+                    meta_status: t.meta_status || 'APPROVED'
+                });
+                addedKeys.add(key);
+            }
+        });
+    }
+
+    // 2. Fallback only if no Meta templates exist
+    if (merged.length === 0) {
+        clientWaPresetTemplates.forEach(p => {
+            if (!addedKeys.has(p.key)) {
+                merged.push(p);
+                addedKeys.add(p.key);
+            }
+        });
+    }
+
+    return merged;
+}
+
+function formatWaDateDDMMYYYY(dateVal) {
+    if (!dateVal || dateVal === '-' || dateVal === '0000-00-00') return '-';
+    const s = String(dateVal).trim();
+    if (!s || s === '-' || s === '0000-00-00') return '-';
+
+    // Match YYYY-MM-DD or YYYY/MM/DD (e.g. 2027-04-07)
+    const matchYMD = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+    if (matchYMD) {
+        const y = matchYMD[1];
+        const m = matchYMD[2].padStart(2, '0');
+        const d = matchYMD[3].padStart(2, '0');
+        return `${d}/${m}/${y}`;
+    }
+
+    // Match DD-MM-YYYY (e.g. 07-04-2027)
+    const matchDMY = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+    if (matchDMY) {
+        const d = matchDMY[1].padStart(2, '0');
+        const m = matchDMY[2].padStart(2, '0');
+        const y = matchDMY[3];
+        return `${d}/${m}/${y}`;
+    }
+
+    // Match DD/MM/YYYY (e.g. 7/4/2027) -> normalize to 07/04/2027
+    const matchSlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (matchSlash) {
+        const d = matchSlash[1].padStart(2, '0');
+        const m = matchSlash[2].padStart(2, '0');
+        const y = matchSlash[3];
+        return `${d}/${m}/${y}`;
+    }
+
+    const parsed = Date.parse(s);
+    if (!isNaN(parsed)) {
+        const dt = new Date(parsed);
+        const d = String(dt.getDate()).padStart(2, '0');
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const y = dt.getFullYear();
+        return `${d}/${m}/${y}`;
+    }
+
+    return s;
+}
+window.formatWaDateDDMMYYYY = formatWaDateDDMMYYYY;
+
+function renderClientWaTemplateText(rawText, client) {
+    if (!rawText || !client) return rawText || '';
+    let rendered = rawText;
+
+    const partyName = client.party_name || client.client_name || '';
+    const customerId = client.customer_id || '';
+    const contactPerson = client.contact_person || partyName || 'Valued Client';
+    const softwareType = client.software_type || 'Marg ERP';
+    const softwareTrade = client.software_trade || '';
+    const displaySw = softwareTrade ? (softwareType + ' (' + softwareTrade + ')') : softwareType;
+    const rawDue = client.due_date || client.due_on || '-';
+    const dueOn = formatWaDateDDMMYYYY(rawDue);
+    const rawAmt = (client.renewal_amount !== undefined && client.renewal_amount !== '') ? client.renewal_amount : (client.total_amount || 0);
+    const totalAmount = rawAmt ? Number(rawAmt).toLocaleString('en-IN') : '0.00';
+    const noOfUsers = String(client.no_of_users || '1');
+    const noOfCompanies = String(client.no_of_companies || '1');
+    const status = client.status || client.party_status || client.account_status || 'Running';
+    const helpline = '9305045727 / 7523830026';
+    const crmLink = 'https://friendlyaisolution.com/';
+
+    const repMap = {
+        'client_name': partyName,
+        'party_name': partyName,
+        'customer_id': customerId,
+        'contact_person': contactPerson,
+        'software_type': displaySw,
+        'software_trade': softwareTrade,
+        'status': status,
+        'party_status': status,
+        'account_status': status,
+        'due_on': dueOn,
+        'due_date': dueOn,
+        'total_amount': totalAmount,
+        'renewal_amount': totalAmount,
+        'amount': totalAmount,
+        'no_of_users': noOfUsers,
+        'no_of_companies': noOfCompanies,
+        'city': client.city || '',
+        'state': client.state || '',
+        'address': client.address || '',
+        'online_zip_code': client.online_zip_code || client.pincode || '',
+        'pincode': client.online_zip_code || client.pincode || '',
+        'wallet_id': client.wallet_id || '',
+        'software_hit_date': formatWaDateDDMMYYYY(client.software_hit_date || ''),
+        'hit_date': formatWaDateDDMMYYYY(client.software_hit_date || ''),
+        'act_on': formatWaDateDDMMYYYY(client.act_on || ''),
+        'company_using': client.company_using || '',
+        'subpartner_name': client.subpartner_name || '',
+        'subpartner': client.subpartner_name || '',
+        'helpline': helpline,
+        'crm_link': crmLink,
+        // Positional defaults for marg_bill
+        '1': 'Marg Soft Solution',
+        '2': partyName || contactPerson,
+        '3': 'INV-' + (customerId || 'BILL'),
+        '4': totalAmount || '3,500',
+        '5': '0.00',
+        '6': '7523830026@okaxis',
+        '7': 'HDFC Bank Ltd',
+        '8': '50200012345678',
+        '9': 'Connaught Place',
+        '10': 'HDFC0000123',
+        '11': 'Marg Soft Solution',
+        '12': '9305045727',
+        '13': crmLink
+    };
+
+    // Any other direct client property
+    for (let k in client) {
+        if (client.hasOwnProperty(k) && client[k] !== null && client[k] !== undefined && typeof client[k] !== 'object') {
+            if (!(k in repMap)) {
+                repMap[k] = String(client[k]);
+            }
+        }
+    }
+
+    // Replace {{k}} and {k}
+    for (let k in repMap) {
+        const val = repMap[k];
+        const doubleRegex = new RegExp('\\{\\{' + k + '\\}\\}', 'gi');
+        rendered = rendered.replace(doubleRegex, val);
+        const singleRegex = new RegExp('\\{' + k + '\\}', 'gi');
+        rendered = rendered.replace(singleRegex, val);
+    }
+
+    return rendered;
+}
+
+function updateClientWaCharCount() {
+    const textEl = document.getElementById('cwa_message_body');
+    const counterEl = document.getElementById('cwa_char_counter');
+    if (textEl && counterEl) {
+        counterEl.textContent = textEl.value.length + ' chars';
+    }
+}
+window.updateClientWaCharCount = updateClientWaCharCount;
+
+function setClientWaMode(mode) {
+    currentWaMode = mode;
+    const tplBtn = document.getElementById('cwa_mode_tpl_btn');
+    const manualBtn = document.getElementById('cwa_mode_manual_btn');
+    const tplPane = document.getElementById('cwa_template_pane');
+    const textEl = document.getElementById('cwa_message_body');
+    const defaultNotice = document.getElementById('cwa_default_media_notice');
+    const pillsWrap = document.getElementById('cwa_media_choice_pills');
+    const customInputs = document.getElementById('cwa_custom_media_inputs');
+
+    if (mode === 'template') {
+        if (tplBtn) {
+            tplBtn.style.background = 'var(--bg-card)';
+            tplBtn.style.color = 'var(--text-main)';
+            tplBtn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.06)';
+        }
+        if (manualBtn) {
+            manualBtn.style.background = 'transparent';
+            manualBtn.style.color = 'var(--text-muted)';
+            manualBtn.style.boxShadow = 'none';
+        }
+        if (tplPane) tplPane.style.display = 'block';
+
+        const tplSelect = document.getElementById('cwa_tpl_select');
+        const activeKey = tplSelect ? tplSelect.value : currentWaTemplateKey;
+        onClientWaTemplateChanged(activeKey);
+    } else {
+        if (tplBtn) {
+            tplBtn.style.background = 'transparent';
+            tplBtn.style.color = 'var(--text-muted)';
+            tplBtn.style.boxShadow = 'none';
+        }
+        if (manualBtn) {
+            manualBtn.style.background = 'var(--bg-card)';
+            manualBtn.style.color = 'var(--text-main)';
+            manualBtn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.06)';
+        }
+        if (tplPane) tplPane.style.display = 'none';
+        if (defaultNotice) defaultNotice.style.display = 'none';
+        if (pillsWrap) pillsWrap.style.display = 'none';
+        if (customInputs) customInputs.style.display = 'flex';
+        clientTemplateDefaultMediaUrl = '';
+
+        if (!clientChosenMediaFile && !clientChosenMediaUrl) {
+            setClientMediaChoice('none');
+        } else {
+            setClientMediaChoice('custom');
+        }
+
+        if (textEl && !textEl.value) {
+            textEl.placeholder = 'Type your custom WhatsApp message here... (Click tags below to insert client details)';
+        }
+    }
+}
+window.setClientWaMode = setClientWaMode;
+
+function setClientMediaChoice(choice) {
+    clientMediaChoice = choice;
+    const pDef = document.getElementById('cwa_pill_use_default');
+    const pCst = document.getElementById('cwa_pill_choose_custom');
+    const pNon = document.getElementById('cwa_pill_no_media');
+    const customInputs = document.getElementById('cwa_custom_media_inputs');
+    const badge = document.getElementById('cwa_media_badge');
+
+    [pDef, pCst, pNon].forEach(p => {
+        if (p) {
+            p.style.border = '1px solid var(--border-color)';
+            p.style.background = 'transparent';
+            p.style.color = 'var(--text-muted)';
+        }
+    });
+
+    if (choice === 'default') {
+        if (pDef) {
+            pDef.style.border = '1.5px solid #10b981';
+            pDef.style.background = 'rgba(16, 185, 129, 0.12)';
+            pDef.style.color = '#065f46';
+        }
+        if (customInputs) customInputs.style.display = 'none';
+        if (badge) {
+            badge.textContent = 'Using Template Default Media';
+            badge.style.background = 'rgba(16, 185, 129, 0.15)';
+            badge.style.color = '#065f46';
+        }
+    } else if (choice === 'custom') {
+        if (pCst) {
+            pCst.style.border = '1.5px solid #2563eb';
+            pCst.style.background = 'rgba(37, 99, 235, 0.12)';
+            pCst.style.color = '#1d4ed8';
+        }
+        if (customInputs) customInputs.style.display = 'flex';
+        if (badge) {
+            badge.textContent = (clientChosenMediaFile || clientChosenMediaUrl) ? 'Custom Media Attached' : 'Attach Custom Media';
+            badge.style.background = 'rgba(37, 99, 235, 0.12)';
+            badge.style.color = '#1d4ed8';
+        }
+    } else if (choice === 'none') {
+        if (pNon) {
+            pNon.style.border = '1.5px solid #ef4444';
+            pNon.style.background = 'rgba(239, 68, 68, 0.1)';
+            pNon.style.color = '#b91c1c';
+        }
+        if (customInputs) customInputs.style.display = 'none';
+        if (badge) {
+            badge.textContent = 'No Media (Text Only)';
+            badge.style.background = 'rgba(100, 116, 139, 0.12)';
+            badge.style.color = '#64748b';
+        }
+    }
+}
+window.setClientMediaChoice = setClientMediaChoice;
+
+function onClientMediaFileSelected(e) {
+    const file = e.target.files ? e.target.files[0] : null;
+    if (!file) {
+        clearClientChosenMedia();
+        return;
+    }
+    clientChosenMediaFile = file;
+    clientChosenMediaUrl = '';
+
+    const urlInput = document.getElementById('cwa_media_url_input');
+    if (urlInput) urlInput.value = '';
+
+    const labelText = document.getElementById('cwa_file_label_text');
+    if (labelText) labelText.textContent = file.name;
+
+    const clearBtn = document.getElementById('cwa_btn_clear_media');
+    if (clearBtn) clearBtn.style.display = 'inline-flex';
+
+    const prevCard = document.getElementById('cwa_custom_media_preview_card');
+    const thumbImg = document.getElementById('cwa_custom_media_thumb');
+    const docIcon  = document.getElementById('cwa_custom_media_doc_icon');
+    const nameEl   = document.getElementById('cwa_custom_media_name');
+    const metaEl   = document.getElementById('cwa_custom_media_meta');
+
+    if (nameEl) nameEl.textContent = file.name;
+    const sizeKb = Math.round(file.size / 1024);
+    if (metaEl) metaEl.textContent = (sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' MB' : sizeKb + ' KB') + ' • Uploaded from device';
+
+    const isImg = file.type && file.type.startsWith('image/');
+    if (isImg) {
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            if (thumbImg) {
+                thumbImg.src = evt.target.result;
+                thumbImg.style.display = 'block';
+            }
+            if (docIcon) docIcon.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    } else {
+        if (thumbImg) thumbImg.style.display = 'none';
+        if (docIcon) docIcon.style.display = 'flex';
+    }
+
+    if (prevCard) prevCard.style.display = 'flex';
+    setClientMediaChoice('custom');
+}
+window.onClientMediaFileSelected = onClientMediaFileSelected;
+
+function onClientMediaUrlInput(url) {
+    url = (url || '').trim();
+    if (!url) {
+        if (!clientChosenMediaFile) {
+            clearClientChosenMedia();
+        }
+        return;
+    }
+    clientChosenMediaUrl = url;
+    clientChosenMediaFile = null;
+
+    const fileInput = document.getElementById('cwa_media_file_input');
+    if (fileInput) fileInput.value = '';
+    const labelText = document.getElementById('cwa_file_label_text');
+    if (labelText) labelText.textContent = 'Choose Image / PDF...';
+
+    const clearBtn = document.getElementById('cwa_btn_clear_media');
+    if (clearBtn) clearBtn.style.display = 'inline-flex';
+
+    const prevCard = document.getElementById('cwa_custom_media_preview_card');
+    const thumbImg = document.getElementById('cwa_custom_media_thumb');
+    const docIcon  = document.getElementById('cwa_custom_media_doc_icon');
+    const nameEl   = document.getElementById('cwa_custom_media_name');
+    const metaEl   = document.getElementById('cwa_custom_media_meta');
+
+    const fName = url.split('/').pop().split('?')[0] || 'Remote Media';
+    if (nameEl) nameEl.textContent = fName;
+    if (metaEl) metaEl.textContent = 'Web URL Link • Ready to send';
+
+    const isImg = /\.(jpg|jpeg|png|webp|gif)($|\?)/i.test(url);
+    if (isImg) {
+        if (thumbImg) {
+            thumbImg.src = url;
+            thumbImg.style.display = 'block';
+        }
+        if (docIcon) docIcon.style.display = 'none';
+    } else {
+        if (thumbImg) thumbImg.style.display = 'none';
+        if (docIcon) docIcon.style.display = 'flex';
+    }
+
+    if (prevCard) prevCard.style.display = 'flex';
+    setClientMediaChoice('custom');
+}
+window.onClientMediaUrlInput = onClientMediaUrlInput;
+
+function clearClientChosenMedia() {
+    clientChosenMediaFile = null;
+    clientChosenMediaUrl = '';
+
+    const fileInput = document.getElementById('cwa_media_file_input');
+    if (fileInput) fileInput.value = '';
+    const urlInput = document.getElementById('cwa_media_url_input');
+    if (urlInput) urlInput.value = '';
+    const labelText = document.getElementById('cwa_file_label_text');
+    if (labelText) labelText.textContent = 'Choose Image / PDF...';
+    const clearBtn = document.getElementById('cwa_btn_clear_media');
+    if (clearBtn) clearBtn.style.display = 'none';
+    const prevCard = document.getElementById('cwa_custom_media_preview_card');
+    if (prevCard) prevCard.style.display = 'none';
+
+    if (clientTemplateDefaultMediaUrl && currentWaMode === 'template') {
+        setClientMediaChoice('default');
+    } else {
+        setClientMediaChoice('none');
+    }
+}
+window.clearClientChosenMedia = clearClientChosenMedia;
+
+function onClientWaTemplateChanged(tplKey) {
+    currentWaTemplateKey = tplKey;
+    const allTemplates = getAllMergedWaTemplates();
+    const found = allTemplates.find(t => t.key === tplKey) || allTemplates[0];
+    if (found && currentWaClient) {
+        const rendered = renderClientWaTemplateText(found.body, currentWaClient);
+        const textEl = document.getElementById('cwa_message_body');
+        if (textEl) {
+            textEl.value = rendered;
+            updateClientWaCharCount();
+        }
+
+        const defaultNotice = document.getElementById('cwa_default_media_notice');
+        const pillsWrap = document.getElementById('cwa_media_choice_pills');
+        const defaultThumb = document.getElementById('cwa_default_media_thumb');
+        const defaultDoc = document.getElementById('cwa_default_media_doc_icon');
+        const defaultLink = document.getElementById('cwa_default_media_link');
+        const defaultDesc = document.getElementById('cwa_default_media_desc');
+
+        const hContent = (found.header_content || '').trim();
+        const hType = (found.header_type || '').toLowerCase();
+        const hasMedia = (hType === 'image' || hType === 'document' || hType === 'video') && (hContent.length > 0);
+
+        if (hasMedia) {
+            clientTemplateDefaultMediaUrl = hContent;
+            if (defaultNotice) defaultNotice.style.display = 'block';
+            if (pillsWrap) pillsWrap.style.display = 'flex';
+            if (defaultLink) defaultLink.href = hContent;
+
+            if (hType === 'image') {
+                if (defaultThumb) {
+                    defaultThumb.src = hContent;
+                    defaultThumb.style.display = 'block';
+                }
+                if (defaultDoc) defaultDoc.style.display = 'none';
+                if (defaultDesc) defaultDesc.textContent = 'Template includes default image banner. Will send automatically if not overridden.';
+            } else {
+                if (defaultThumb) defaultThumb.style.display = 'none';
+                if (defaultDoc) defaultDoc.style.display = 'flex';
+                if (defaultDesc) defaultDesc.textContent = 'Template includes default PDF / document attachment. Will send automatically if not overridden.';
+            }
+
+            if (!clientChosenMediaFile && !clientChosenMediaUrl) {
+                setClientMediaChoice('default');
+            }
+        } else {
+            clientTemplateDefaultMediaUrl = '';
+            if (defaultNotice) defaultNotice.style.display = 'none';
+            if (pillsWrap) pillsWrap.style.display = 'none';
+            if (!clientChosenMediaFile && !clientChosenMediaUrl) {
+                const customInputs = document.getElementById('cwa_custom_media_inputs');
+                if (customInputs) customInputs.style.display = 'flex';
+                setClientMediaChoice('none');
+            }
+        }
+    }
+}
+window.onClientWaTemplateChanged = onClientWaTemplateChanged;
+
+function insertClientWaTag(tagKey) {
+    if (!currentWaClient) return;
+    const textEl = document.getElementById('cwa_message_body');
+    if (!textEl) return;
+
+    let valueToInsert = '';
+    const partyName = currentWaClient.party_name || currentWaClient.client_name || '';
+    const contactPerson = currentWaClient.contact_person || partyName;
+    const softwareType = currentWaClient.software_type || 'Marg ERP';
+    const softwareTrade = currentWaClient.software_trade || '';
+    const displaySw = softwareTrade ? (softwareType + ' (' + softwareTrade + ')') : softwareType;
+    const rawAmt = (currentWaClient.renewal_amount !== undefined && currentWaClient.renewal_amount !== '') ? currentWaClient.renewal_amount : (currentWaClient.total_amount || 0);
+    const totalAmount = rawAmt ? Number(rawAmt).toLocaleString('en-IN') : '0.00';
+    const status = currentWaClient.status || currentWaClient.party_status || currentWaClient.account_status || 'Running';
+
+    if (tagKey in currentWaClient && currentWaClient[tagKey] !== null && currentWaClient[tagKey] !== undefined && currentWaClient[tagKey] !== '') {
+        valueToInsert = String(currentWaClient[tagKey]);
+        if ((tagKey === 'total_amount' || tagKey === 'renewal_amount' || tagKey === 'amount') && !isNaN(valueToInsert)) {
+            valueToInsert = Number(valueToInsert).toLocaleString('en-IN');
+        }
+        if (tagKey === 'due_date' || tagKey === 'due_on' || tagKey === 'software_hit_date' || tagKey === 'hit_date' || tagKey === 'act_on') {
+            valueToInsert = formatWaDateDDMMYYYY(valueToInsert);
+        }
+    } else {
+        switch (tagKey) {
+            case 'party_name':
+            case 'client_name': valueToInsert = partyName; break;
+            case 'customer_id': valueToInsert = currentWaClient.customer_id || ''; break;
+            case 'contact_person': valueToInsert = contactPerson; break;
+            case 'software_type': valueToInsert = displaySw; break;
+            case 'status':
+            case 'party_status':
+            case 'account_status': valueToInsert = status; break;
+            case 'due_on':
+            case 'due_date': valueToInsert = formatWaDateDDMMYYYY(currentWaClient.due_date || currentWaClient.due_on || ''); break;
+            case 'software_hit_date':
+            case 'hit_date': valueToInsert = formatWaDateDDMMYYYY(currentWaClient.software_hit_date || ''); break;
+            case 'act_on': valueToInsert = formatWaDateDDMMYYYY(currentWaClient.act_on || ''); break;
+            case 'total_amount':
+            case 'renewal_amount':
+            case 'amount': valueToInsert = totalAmount; break;
+            case 'no_of_users': valueToInsert = String(currentWaClient.no_of_users || '1'); break;
+            case 'no_of_companies': valueToInsert = String(currentWaClient.no_of_companies || '1'); break;
+            case 'helpline': valueToInsert = '9305045727 / 7523830026'; break;
+            default: valueToInsert = '{' + tagKey + '}'; break;
+        }
+    }
+
+    const startPos = textEl.selectionStart || 0;
+    const endPos = textEl.selectionEnd || 0;
+    textEl.value = textEl.value.substring(0, startPos) + valueToInsert + textEl.value.substring(endPos);
+    textEl.focus();
+    textEl.selectionStart = textEl.selectionEnd = startPos + valueToInsert.length;
+    updateClientWaCharCount();
+}
+window.insertClientWaTag = insertClientWaTag;
+
+function openClientSendWhatsAppModal(client) {
     if (!client || !client.mobile) {
         alert('This client record does not have a registered mobile number.');
         return;
     }
-    const clientName = client.party_name || 'Client';
-    if (!confirm('Send official WhatsApp Welcome message to ' + clientName + ' (' + client.mobile + ')?')) {
+    currentWaClient = client;
+
+    // Badges & info
+    const partyBadge = document.getElementById('cwa_party_name_badge');
+    if (partyBadge) partyBadge.textContent = client.party_name || 'Client';
+    const idBadge = document.getElementById('cwa_customer_id_badge');
+    if (idBadge) idBadge.textContent = client.customer_id || '-';
+    const phoneDisplay = document.getElementById('cwa_phone_display');
+    if (phoneDisplay) phoneDisplay.textContent = normalizePhoneForDialing(client.mobile);
+    const contactDisplay = document.getElementById('cwa_contact_display');
+    if (contactDisplay) contactDisplay.textContent = client.contact_person || client.party_name || '-';
+
+    // Reset chosen media
+    clearClientChosenMedia();
+
+    // Clear alert
+    const alertEl = document.getElementById('cwa_status_alert');
+    if (alertEl) { alertEl.style.display = 'none'; alertEl.innerHTML = ''; }
+
+    // Populate Templates dropdown with Meta Approved templates
+    const tplSelect = document.getElementById('cwa_tpl_select');
+    if (tplSelect) {
+        tplSelect.innerHTML = '';
+        const allTemplates = getAllMergedWaTemplates();
+        let defaultKey = '';
+        allTemplates.forEach((t, idx) => {
+            const opt = document.createElement('option');
+            opt.value = t.key;
+            opt.textContent = t.title;
+            tplSelect.appendChild(opt);
+            if (t.key === 'new_client' || (!defaultKey && idx === 0)) {
+                defaultKey = t.key;
+            }
+        });
+        if (defaultKey) {
+            tplSelect.value = defaultKey;
+            currentWaTemplateKey = defaultKey;
+        }
+    }
+
+    // Default to template mode
+    setClientWaMode('template');
+
+    // Reset Send Button
+    const sendBtn = document.getElementById('cwa_send_btn');
+    const sendBtnText = document.getElementById('cwa_send_btn_text');
+    if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.style.opacity = '1';
+        sendBtn.style.cursor = 'pointer';
+    }
+    if (sendBtnText) sendBtnText.textContent = 'Send WhatsApp Message';
+
+    // Open Modal
+    const modal = document.getElementById('client-send-whatsapp-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        modal.style.opacity = '1';
+    }
+
+    if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+}
+window.openClientSendWhatsAppModal = openClientSendWhatsAppModal;
+window.sendQuickWelcomeWhatsApp = openClientSendWhatsAppModal;
+
+function closeClientSendWhatsAppModal() {
+    const modal = document.getElementById('client-send-whatsapp-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.style.opacity = '0';
+    }
+    currentWaClient = null;
+    clearClientChosenMedia();
+}
+window.closeClientSendWhatsAppModal = closeClientSendWhatsAppModal;
+
+function submitClientSendWhatsApp() {
+    if (!currentWaClient || !currentWaClient.mobile) {
+        alert('Missing client mobile number.');
         return;
     }
 
+    const messageText = (document.getElementById('cwa_message_body')?.value || '').trim();
+    if (!messageText) {
+        alert('Please enter or select a WhatsApp message before sending.');
+        return;
+    }
+
+    const sendBtn = document.getElementById('cwa_send_btn');
+    const sendBtnText = document.getElementById('cwa_send_btn_text');
+    const alertEl = document.getElementById('cwa_status_alert');
+
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.style.opacity = '0.7';
+        sendBtn.style.cursor = 'not-allowed';
+    }
+    if (sendBtnText) sendBtnText.textContent = 'Sending Message...';
+    if (alertEl) { alertEl.style.display = 'none'; alertEl.innerHTML = ''; }
+
     const formData = new FormData();
     formData.append('action', 'send_client_welcome_wa');
-    formData.append('party_name', client.party_name || '');
-    formData.append('customer_id', client.customer_id || '');
-    formData.append('contact_person', client.contact_person || '');
-    formData.append('software_type', client.software_type || '');
-    formData.append('software_trade', client.software_trade || '');
-    formData.append('mobile', client.mobile || '');
+    for (let k in currentWaClient) {
+        if (currentWaClient.hasOwnProperty(k) && currentWaClient[k] !== null && currentWaClient[k] !== undefined && typeof currentWaClient[k] !== 'object') {
+            formData.append(k, currentWaClient[k]);
+        }
+    }
+    formData.append('party_name', currentWaClient.party_name || currentWaClient.client_name || '');
+    formData.append('client_name', currentWaClient.party_name || currentWaClient.client_name || '');
+    formData.append('customer_id', currentWaClient.customer_id || '');
+    formData.append('contact_person', currentWaClient.contact_person || '');
+    formData.append('software_type', currentWaClient.software_type || '');
+    formData.append('software_trade', currentWaClient.software_trade || '');
+    formData.append('mobile', currentWaClient.mobile || '');
+    const setOrAppend = function(fd, key, val) {
+        if (typeof fd.set === 'function') {
+            fd.set(key, val);
+        } else {
+            fd.append(key, val);
+        }
+    };
 
-    fetch('index.php?page=clients', {
+    const formattedDue = formatWaDateDDMMYYYY(currentWaClient.due_date || currentWaClient.due_on || '');
+    setOrAppend(formData, 'due_on', formattedDue);
+    setOrAppend(formData, 'due_date', formattedDue);
+    formData.append('total_amount', currentWaClient.total_amount || '');
+    formData.append('renewal_amount', (currentWaClient.renewal_amount !== undefined && currentWaClient.renewal_amount !== '') ? currentWaClient.renewal_amount : (currentWaClient.total_amount || ''));
+    formData.append('amount', (currentWaClient.renewal_amount !== undefined && currentWaClient.renewal_amount !== '') ? currentWaClient.renewal_amount : (currentWaClient.total_amount || ''));
+    formData.append('no_of_users', currentWaClient.no_of_users || '1');
+    formData.append('no_of_companies', currentWaClient.no_of_companies || '1');
+    formData.append('status', currentWaClient.status || currentWaClient.party_status || 'Running');
+    formData.append('party_status', currentWaClient.party_status || currentWaClient.status || 'Running');
+    formData.append('account_status', currentWaClient.status || currentWaClient.party_status || 'Running');
+    formData.append('template_key', currentWaTemplateKey || '');
+    formData.append('mode', currentWaMode || 'template');
+
+    let finalMsg = messageText;
+    const rawDueStr = String(currentWaClient.due_date || currentWaClient.due_on || '').trim();
+    if (rawDueStr && /^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/.test(rawDueStr) && formattedDue && formattedDue !== '-') {
+        const rawDateOnly = rawDueStr.substring(0, 10);
+        finalMsg = finalMsg.split(rawDateOnly).join(formattedDue);
+    }
+    setOrAppend(formData, 'message_body', finalMsg);
+
+    // Media attachment values
+    formData.append('media_action', clientMediaChoice);
+    if (clientMediaChoice === 'custom') {
+        if (clientChosenMediaFile) {
+            formData.append('media_file', clientChosenMediaFile);
+        } else if (clientChosenMediaUrl) {
+            formData.append('media_url', clientChosenMediaUrl);
+        }
+    } else if (clientMediaChoice === 'default' && clientTemplateDefaultMediaUrl) {
+        formData.append('template_default_media_url', clientTemplateDefaultMediaUrl);
+    }
+
+    fetch('index.php?page=clients&tab=directory', {
         method: 'POST',
         body: formData
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
         if (data && data.success) {
-            alert(data.message || 'WhatsApp Welcome message sent successfully!');
+            if (alertEl) {
+                alertEl.style.display = 'block';
+                alertEl.style.background = 'rgba(16, 185, 129, 0.12)';
+                alertEl.style.color = '#065f46';
+                alertEl.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                alertEl.innerHTML = '<strong>Success!</strong> ' + (data.message || 'WhatsApp message delivered successfully!');
+            }
+            setTimeout(function() {
+                closeClientSendWhatsAppModal();
+            }, 1200);
         } else {
-            alert('Failed to send WhatsApp message: ' + (data && data.message ? data.message : 'Unknown error'));
+            if (alertEl) {
+                alertEl.style.display = 'block';
+                alertEl.style.background = 'rgba(239, 68, 68, 0.1)';
+                alertEl.style.color = '#b91c1c';
+                alertEl.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                alertEl.innerHTML = '<strong>Error:</strong> ' + (data && data.message ? data.message : 'Failed to send message.');
+            }
+            if (sendBtn) {
+                sendBtn.disabled = false;
+                sendBtn.style.opacity = '1';
+                sendBtn.style.cursor = 'pointer';
+            }
+            if (sendBtnText) sendBtnText.textContent = 'Retry Send WhatsApp';
         }
     })
     .catch(function(err) {
-        alert('Network or server error while dispatching WhatsApp message: ' + err.message);
+        if (alertEl) {
+            alertEl.style.display = 'block';
+            alertEl.style.background = 'rgba(239, 68, 68, 0.1)';
+            alertEl.style.color = '#b91c1c';
+            alertEl.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+            alertEl.innerHTML = '<strong>Network Error:</strong> ' + err.message;
+        }
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.style.opacity = '1';
+            sendBtn.style.cursor = 'pointer';
+        }
+        if (sendBtnText) sendBtnText.textContent = 'Retry Send WhatsApp';
     });
 }
-window.sendQuickWelcomeWhatsApp = sendQuickWelcomeWhatsApp;
+window.submitClientSendWhatsApp = submitClientSendWhatsApp;
 </script>
