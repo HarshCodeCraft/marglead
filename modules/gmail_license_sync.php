@@ -1,8 +1,8 @@
 <?php
 /**
- * Marg ERP CRM - Gmail License Automation Module (Ultra-Premium SaaS Edition)
- * Non-destructive live updates (never hides existing records while fetching)
- * Instant live search, KPI metric stat cards, 1-click approvals, and glassmorphic UI.
+ * Marg ERP CRM - Gmail License Automation Module (Server-Side Auto-Load Edition)
+ * Auto-loads data directly on the backend in PHP (Zero frontend spinner delay)
+ * Non-destructive live background sync, instant 0ms client-side filter & search.
  */
 
 if (!defined('APP_RUNNING')) {
@@ -23,11 +23,63 @@ if (!$is_admin && !hasAccess('gmail_license_sync', $user_role)) {
 
 $current_user_id = (int)($_SESSION['tenant_id'] ?? $_SESSION['user_id'] ?? 1);
 if ($current_user_id <= 0) $current_user_id = 1;
+
+// -------------------------------------------------------------------------
+// BACKEND AUTO-LOAD: Fetch Authoritative Data Directly in PHP (0ms Delay)
+// -------------------------------------------------------------------------
+// 1. Fetch Settings
+$stmtSet = $pdo->prepare("SELECT * FROM `tenant_gmail_license_settings` WHERE user_id = ? OR user_id = 1 ORDER BY id DESC LIMIT 1");
+$stmtSet->execute([$current_user_id]);
+$settings = $stmtSet->fetch(PDO::FETCH_ASSOC) ?: [
+    'gmail_address' => '',
+    'app_password' => '',
+    'allowed_senders' => '@margcompusoft.com, licenses@margerp.com',
+    'subject_keywords' => 'License, Registration, Passkey, Customer ID',
+    'sync_mode' => 'manual',
+    'save_attachments' => 1,
+    'allowed_extensions' => 'lic,txt,pdf,zip',
+    'status' => 'Active',
+    'last_sync_at' => null
+];
+
+// Auto-clean any bogus or corrupt records from older test runs
+try {
+    $pdo->exec("DELETE FROM `tenant_incoming_licenses` WHERE customer_id IS NULL OR customer_id = '' OR party_name LIKE '<%' OR party_name LIKE '%Indeed%' OR party_name LIKE '%view this email%'");
+} catch (\Throwable $e) {}
+
+// 2. Fetch Verified License Records (Excluding any invalid/empty customer IDs)
+$stmtLics = $pdo->prepare("
+    SELECT l.*, c.party_name AS client_actual_name 
+    FROM `tenant_incoming_licenses` l 
+    LEFT JOIN `client_directory` c ON l.matched_client_id = c.id 
+    WHERE (l.user_id = ? OR l.user_id = 1 OR l.user_id = 0)
+      AND (l.customer_id IS NOT NULL AND TRIM(l.customer_id) != '')
+      AND (l.party_name NOT LIKE '<%')
+    ORDER BY l.id DESC LIMIT 100
+");
+$stmtLics->execute([$current_user_id]);
+$initial_licenses = $stmtLics->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+// Compute Initial KPI Metrics
+$total_count = count($initial_licenses);
+$pending_count = 0;
+$autosync_count = 0;
+$approved_count = 0;
+foreach ($initial_licenses as $lic) {
+    $st = strtolower(trim((string)($lic['sync_status'] ?? 'pending')));
+    if ($st === 'auto-synced' || $st === 'auto_synced') {
+        $autosync_count++;
+    } elseif ($st === 'approved') {
+        $approved_count++;
+    } elseif ($st === 'pending') {
+        $pending_count++;
+    }
+}
 ?>
 
 <div class="gmail-sync-workspace" style="padding: 1.5rem; max-width: 1450px; margin: 0 auto; font-family: var(--font-body, system-ui, -apple-system, sans-serif);">
 
-    <!-- Top Header Banner (Glassmorphism & Gradients) -->
+    <!-- Top Header Banner -->
     <div class="premium-header-card mb-4" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.98)); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 18px; padding: 1.5rem 1.75rem; box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.4); position: relative; overflow: hidden;">
         <div style="position: absolute; right: -50px; top: -50px; width: 220px; height: 220px; background: radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
         <div style="position: absolute; left: 20%; bottom: -60px; width: 260px; height: 260px; background: radial-gradient(circle, rgba(16, 185, 129, 0.12) 0%, transparent 70%); border-radius: 50%; pointer-events: none;"></div>
@@ -51,7 +103,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
                         </span>
                     </div>
                     <p class="m-0 text-xs" style="color: #94a3b8; margin-top: 4px; max-width: 650px;">
-                        Extracts Marg ERP Customer ID, contacts & dates, downloads attached <code style="color: #fcd34d; background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 4px;">.lic</code> files, and matches Client Directory with zero data overwrites.
+                        Reads Marg ERP license emails in the background, extracts Customer ID & dates, downloads <code style="color: #fcd34d; background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 4px;">.lic</code> files, and syncs Client Directory safely.
                     </p>
                 </div>
             </div>
@@ -69,12 +121,12 @@ if ($current_user_id <= 0) $current_user_id = 1;
         </div>
     </div>
 
-    <!-- Metric KPI Stat Cards -->
+    <!-- Metric KPI Stat Cards (Rendered Directly by PHP - 0ms Delay) -->
     <div class="grid mb-4" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
         <div class="metric-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
             <div>
                 <span class="text-xs text-muted font-semibold" style="text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">Total Received</span>
-                <span id="stat-total-licenses" class="text-2xl font-bold text-main" style="font-family: var(--font-heading);">0</span>
+                <span id="stat-total-licenses" class="text-2xl font-bold text-main" style="font-family: var(--font-heading);"><?php echo $total_count; ?></span>
             </div>
             <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(245, 158, 11, 0.12); display: flex; align-items: center; justify-content: center;">
                 <i data-lucide="inbox" style="width: 20px; height: 20px; color: #f59e0b;"></i>
@@ -84,7 +136,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
         <div class="metric-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
             <div>
                 <span class="text-xs text-muted font-semibold" style="text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">Pending Review</span>
-                <span id="stat-pending-licenses" class="text-2xl font-bold" style="color: #ef4444; font-family: var(--font-heading);">0</span>
+                <span id="stat-pending-licenses" class="text-2xl font-bold" style="color: #ef4444; font-family: var(--font-heading);"><?php echo $pending_count; ?></span>
             </div>
             <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(239, 68, 68, 0.12); display: flex; align-items: center; justify-content: center;">
                 <i data-lucide="clock" style="width: 20px; height: 20px; color: #ef4444;"></i>
@@ -94,7 +146,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
         <div class="metric-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
             <div>
                 <span class="text-xs text-muted font-semibold" style="text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">Auto-Synced</span>
-                <span id="stat-autosync-licenses" class="text-2xl font-bold" style="color: #10b981; font-family: var(--font-heading);">0</span>
+                <span id="stat-autosync-licenses" class="text-2xl font-bold" style="color: #10b981; font-family: var(--font-heading);"><?php echo $autosync_count; ?></span>
             </div>
             <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(16, 185, 129, 0.12); display: flex; align-items: center; justify-content: center;">
                 <i data-lucide="check-check" style="width: 20px; height: 20px; color: #10b981;"></i>
@@ -104,7 +156,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
         <div class="metric-card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
             <div>
                 <span class="text-xs text-muted font-semibold" style="text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">Approved Active</span>
-                <span id="stat-approved-licenses" class="text-2xl font-bold" style="color: #3b82f6; font-family: var(--font-heading);">0</span>
+                <span id="stat-approved-licenses" class="text-2xl font-bold" style="color: #3b82f6; font-family: var(--font-heading);"><?php echo $approved_count; ?></span>
             </div>
             <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(59, 130, 246, 0.12); display: flex; align-items: center; justify-content: center;">
                 <i data-lucide="shield-check" style="width: 20px; height: 20px; color: #3b82f6;"></i>
@@ -118,7 +170,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
             <button type="button" class="tab-btn active" id="btn-tab-inbox" onclick="switchTab('tab-inbox')">
                 <i data-lucide="inbox" style="width: 16px; height: 16px;"></i>
                 <span>Incoming Queue</span>
-                <span class="badge" id="tab-pending-badge" style="background: #ef4444; color: #fff; font-size: 0.65rem; padding: 2px 7px; border-radius: 10px; display: none;">0</span>
+                <span class="badge" id="tab-pending-badge" style="background: #ef4444; color: #fff; font-size: 0.65rem; padding: 2px 7px; border-radius: 10px; <?php echo ($pending_count > 0 ? '' : 'display: none;'); ?>"><?php echo $pending_count; ?></span>
             </button>
             <button type="button" class="tab-btn" id="btn-tab-settings" onclick="switchTab('tab-settings')">
                 <i data-lucide="settings-2" style="width: 16px; height: 16px;"></i>
@@ -131,38 +183,36 @@ if ($current_user_id <= 0) $current_user_id = 1;
         </div>
 
         <div class="flex align-center gap-2 text-xs text-muted">
-            <span id="conn-live-indicator" style="display: inline-flex; align-items: center; gap: 5px;">
-                <span style="width: 7px; height: 7px; border-radius: 50%; background: #94a3b8;"></span>
-                Checking Connection...
+            <span id="conn-live-indicator" style="display: inline-flex; align-items: center; gap: 5px; color: <?php echo (!empty($settings['gmail_address']) ? '#10b981' : '#94a3b8'); ?>;">
+                <span style="width: 7px; height: 7px; border-radius: 50%; background: <?php echo (!empty($settings['gmail_address']) ? '#10b981' : '#94a3b8'); ?>;"></span>
+                <?php echo (!empty($settings['gmail_address']) ? 'Connected: ' . htmlspecialchars($settings['gmail_address']) : 'Not Connected'); ?>
             </span>
             <span style="opacity: 0.3;">|</span>
-            <span id="sync-last-time">Last Synced: Checking...</span>
+            <span id="sync-last-time">Last Synced: <?php echo !empty($settings['last_sync_at']) ? htmlspecialchars($settings['last_sync_at']) : 'Never'; ?></span>
         </div>
     </div>
 
     <!-- TAB 1: INCOMING LICENSE QUEUE -->
     <div id="tab-inbox" class="tab-content">
-        <!-- Interactive Control Bar: Live Search & Filter Pills -->
+        <!-- Interactive Control Bar: Live Search & Instant Filter Pills -->
         <div class="flex justify-between align-center flex-wrap gap-3 mb-3">
             <div class="flex align-center gap-2 flex-wrap">
-                <button type="button" onclick="loadLicenses('all')" class="btn filter-btn active" data-filter="all">All</button>
-                <button type="button" onclick="loadLicenses('pending')" class="btn filter-btn" data-filter="pending">Pending Review</button>
-                <button type="button" onclick="loadLicenses('auto-synced')" class="btn filter-btn" data-filter="auto-synced">Auto-Synced</button>
-                <button type="button" onclick="loadLicenses('approved')" class="btn filter-btn" data-filter="approved">Approved</button>
-                <button type="button" onclick="loadLicenses('ignored')" class="btn filter-btn" data-filter="ignored">Ignored</button>
+                <button type="button" onclick="setFilter('all')" class="btn filter-btn active" data-filter="all">All</button>
+                <button type="button" onclick="setFilter('pending')" class="btn filter-btn" data-filter="pending">Pending Review (<?php echo $pending_count; ?>)</button>
+                <button type="button" onclick="setFilter('auto-synced')" class="btn filter-btn" data-filter="auto-synced">Auto-Synced (<?php echo $autosync_count; ?>)</button>
+                <button type="button" onclick="setFilter('approved')" class="btn filter-btn" data-filter="approved">Approved (<?php echo $approved_count; ?>)</button>
             </div>
 
-            <!-- Client-side Instant Filter Search (0ms Delay) -->
+            <!-- Instant 0ms Client-Side Search Bar -->
             <div style="position: relative; width: 280px; max-width: 100%;">
                 <i data-lucide="search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted); pointer-events: none;"></i>
                 <input type="text" id="license-search-input" oninput="filterLocalLicenses(this.value)" placeholder="Search Licence No, Firm, Phone..." class="form-control" style="width: 100%; border-radius: 8px; padding: 0.45rem 0.75rem 0.45rem 2.1rem; font-size: 0.8rem; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main);">
             </div>
         </div>
 
-        <!-- Main Data Card with Smooth Top Progress Bar -->
+        <!-- Main Data Card with Top Progress Bar (Never Hides Existing Rows) -->
         <div class="card" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.04); position: relative;">
             
-            <!-- Animated Top Progress Bar (Visible while scanning or updating, never destroys rows) -->
             <div id="sync-top-progressbar" style="height: 3px; width: 100%; background: linear-gradient(90deg, #10b981, #06b6d4, #f59e0b, #10b981); background-size: 200% 100%; display: none;"></div>
 
             <div class="table-responsive" style="max-height: 680px; overflow-y: auto;">
@@ -180,20 +230,128 @@ if ($current_user_id <= 0) $current_user_id = 1;
                         </tr>
                     </thead>
                     <tbody id="license-table-body">
-                        <!-- Initial Skeleton Loader -->
-                        <tr>
-                            <td colspan="8" class="text-center py-6 text-muted">
-                                <i data-lucide="loader-2" class="spin mb-2" style="width: 24px; height: 24px; display: inline-block; color: #10b981;"></i>
-                                <p class="m-0 text-sm font-semibold">Connecting to local queue...</p>
-                            </td>
-                        </tr>
+                        <?php if (empty($initial_licenses)): ?>
+                            <tr id="empty-row-placeholder">
+                                <td colspan="8" class="text-center py-6 text-muted">
+                                    <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--bg-body); color: var(--text-muted); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.5rem; border: 1px solid var(--border-color);">
+                                        <i data-lucide="inbox" style="width: 22px; height: 22px; opacity: 0.5;"></i>
+                                    </div>
+                                    <p class="m-0 text-sm font-semibold text-main">No incoming Marg ERP license records in queue.</p>
+                                    <p class="m-0 text-xs mt-1">Click "Fetch & Sync Emails" to check your Gmail inbox.</p>
+                                </td>
+                            </tr>
+                        <?php else: ?>
+                            <?php foreach ($initial_licenses as $lic): 
+                                $status = trim((string)($lic['sync_status'] ?? 'Pending'));
+                                $statusLower = strtolower($status);
+
+                                // Avatar Initials (Safe Alphanumeric Only)
+                                $rawName = trim((string)($lic['party_name'] ?? 'M'));
+                                $cleanName = preg_replace('/[^a-zA-Z0-9]/', '', $rawName);
+                                $initials = strtoupper(substr($cleanName ?: 'M', 0, 2));
+
+                                $searchData = strtolower(implode(' ', [
+                                    $lic['customer_id'] ?? '',
+                                    $lic['party_name'] ?? '',
+                                    $lic['phone'] ?? '',
+                                    $lic['reg_mobile'] ?? '',
+                                    $lic['city'] ?? '',
+                                    $lic['software_type'] ?? '',
+                                    $lic['client_actual_name'] ?? ''
+                                ]));
+                            ?>
+                                <tr class="license-row" data-id="<?php echo (int)$lic['id']; ?>" data-status="<?php echo htmlspecialchars($statusLower); ?>" data-search="<?php echo htmlspecialchars($searchData); ?>" style="border-bottom: 1px solid var(--border-color); transition: background 0.15s ease;">
+                                    <td style="padding: 0.85rem 1.1rem;">
+                                        <div class="text-xs font-semibold text-main"><?php echo htmlspecialchars($lic['email_date'] ?? ''); ?></div>
+                                        <div class="text-xs text-muted" style="font-size: 11px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><?php echo htmlspecialchars($lic['from_email'] ?? ''); ?></div>
+                                    </td>
+                                    <td style="padding: 0.85rem 1rem;">
+                                        <div class="flex align-center gap-1">
+                                            <span class="font-mono text-xs font-bold" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 3px 7px; border-radius: 5px; border: 1px solid rgba(245, 158, 11, 0.25);"><?php echo htmlspecialchars($lic['customer_id'] ?? '-'); ?></span>
+                                            <button type="button" onclick="copyToClipboard('<?php echo htmlspecialchars($lic['customer_id'] ?? ''); ?>', this)" title="Copy Licence No" style="background: none; border: none; cursor: pointer; padding: 2px; color: var(--text-muted);">
+                                                <i data-lucide="copy" style="width: 12px; height: 12px;"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td style="padding: 0.85rem 1.1rem;">
+                                        <div class="flex align-center gap-2">
+                                            <div style="width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.7rem; flex-shrink: 0;">
+                                                <?php echo htmlspecialchars($initials); ?>
+                                            </div>
+                                            <div>
+                                                <div class="text-xs font-bold text-main"><?php echo htmlspecialchars($lic['party_name'] ?? '-'); ?></div>
+                                                <div class="text-xs text-muted" style="font-size: 11px;"><?php echo htmlspecialchars($lic['city'] ?? ''); ?> <?php echo htmlspecialchars($lic['state'] ?? ''); ?></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style="padding: 0.85rem 1rem;">
+                                        <div class="badge text-xs" style="background: rgba(6, 182, 212, 0.1); color: #06b6d4; font-weight: 600; padding: 2px 7px; border-radius: 4px; display: inline-block;">
+                                            <?php echo htmlspecialchars($lic['software_type'] ?: 'Marg ERP'); ?>
+                                        </div>
+                                        <div class="text-xs text-muted mt-1" style="font-size: 11px;">Users: <?php echo htmlspecialchars($lic['users_count'] ?: '1'); ?></div>
+                                    </td>
+                                    <td style="padding: 0.85rem 1rem;">
+                                        <?php if (!empty($lic['matched_client_id'])): ?>
+                                            <div class="flex align-center gap-1">
+                                                <i data-lucide="check-circle" style="width: 14px; height: 14px; color: #10b981; flex-shrink: 0;"></i>
+                                                <a href="index.php?page=clients&search=<?php echo urlencode($lic['customer_id'] ?? ''); ?>" target="_blank" style="color: #10b981; text-decoration: none; font-weight: 600; font-size: 0.75rem;" title="View in Client Directory">
+                                                    <?php echo htmlspecialchars($lic['client_actual_name'] ?: 'ID #' . $lic['matched_client_id']); ?>
+                                                </a>
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="badge text-xs" style="background: rgba(148, 163, 184, 0.12); color: #94a3b8; font-size: 0.7rem; padding: 2px 7px;">New Client (Not in CRM)</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding: 0.85rem 1rem;">
+                                        <?php if (!empty($lic['attachment_path'])): ?>
+                                            <a href="<?php echo htmlspecialchars($lic['attachment_path']); ?>" target="_blank" class="file-chip" download title="Download <?php echo htmlspecialchars($lic['attachment_filename'] ?? ''); ?>">
+                                                <i data-lucide="paperclip" style="width: 12px; height: 12px; color: var(--accent-cyan);"></i>
+                                                <span style="max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><?php echo htmlspecialchars($lic['attachment_filename'] ?: 'marg.lic'); ?></span>
+                                                <i data-lucide="download" style="width: 10px; height: 10px; opacity: 0.7;"></i>
+                                            </a>
+                                        <?php else: ?>
+                                            <span class="text-muted text-xs">No file</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding: 0.85rem 1rem;">
+                                        <?php if ($statusLower === 'auto-synced' || $statusLower === 'auto_synced'): ?>
+                                            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: 700;">Auto-Synced ✓</span>
+                                        <?php elseif ($statusLower === 'approved'): ?>
+                                            <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: 700;">Approved ✓</span>
+                                        <?php elseif ($statusLower === 'ignored'): ?>
+                                            <span class="badge" style="background: rgba(100, 116, 139, 0.15); color: #64748b; font-size: 0.7rem; padding: 2px 8px; border-radius: 12px;">Ignored</span>
+                                        <?php else: ?>
+                                            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: 700;">Pending Review</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding: 0.85rem 1.1rem; text-align: right;">
+                                        <?php if ($statusLower === 'pending'): ?>
+                                            <div class="flex align-center justify-end gap-1">
+                                                <button type="button" onclick="openApproveModal(<?php echo (int)$lic['id']; ?>)" class="btn text-xs font-semibold" style="padding: 5px 12px; border-radius: 7px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);">
+                                                    Approve & Sync
+                                                </button>
+                                                <button type="button" onclick="ignoreLicense(<?php echo (int)$lic['id']; ?>)" class="btn btn-secondary text-xs" style="padding: 5px 8px; border-radius: 7px;" title="Ignore this record">
+                                                    ✕
+                                                </button>
+                                            </div>
+                                        <?php else: ?>
+                                            <div class="flex align-center justify-end gap-1">
+                                                <button type="button" onclick="openApproveModal(<?php echo (int)$lic['id']; ?>)" class="btn btn-secondary text-xs" style="padding: 4px 10px; border-radius: 7px;">
+                                                    View Details
+                                                </button>
+                                            </div>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
 
             <!-- Table Footer Status Summary -->
             <div class="flex justify-between align-center p-3 text-xs text-muted" style="border-top: 1px solid var(--border-color); background: var(--bg-app);">
-                <span id="footer-count-label">Showing records</span>
+                <span id="footer-count-label">Showing <?php echo $total_count; ?> record(s)</span>
                 <span style="display: flex; align-items: center; gap: 4px;">
                     <i data-lucide="shield-check" style="width: 14px; height: 14px; color: #10b981;"></i>
                     Strict Isolation & Safe Sync Active
@@ -218,7 +376,9 @@ if ($current_user_id <= 0) $current_user_id = 1;
                             <span class="text-xs text-muted">Dedicated Google App Password Authentication</span>
                         </div>
                     </div>
-                    <span id="badge-conn-state" class="badge" style="background: rgba(100, 116, 139, 0.15); color: #64748b; font-size: 0.7rem; padding: 2px 8px; border-radius: 12px;">Not Configured</span>
+                    <span id="badge-conn-state" class="badge" style="background: <?php echo (!empty($settings['gmail_address']) ? 'rgba(16, 185, 129, 0.15)' : 'rgba(100, 116, 139, 0.15)'); ?>; color: <?php echo (!empty($settings['gmail_address']) ? '#10b981' : '#64748b'); ?>; font-size: 0.7rem; padding: 2px 8px; border-radius: 12px;">
+                        <?php echo (!empty($settings['gmail_address']) ? 'Connected' : 'Not Configured'); ?>
+                    </span>
                 </div>
 
                 <form id="gmail-settings-form" onsubmit="saveGmailSettings(event)">
@@ -226,7 +386,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
                         <label class="form-label text-xs font-semibold" style="margin-bottom: 6px; display: block;">Gmail Address</label>
                         <div style="position: relative;">
                             <i data-lucide="at-sign" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--text-muted);"></i>
-                            <input type="email" id="set_gmail_address" name="gmail_address" required placeholder="e.g. youragency@gmail.com" class="form-control" style="width: 100%; border-radius: 8px; padding: 0.65rem 0.85rem 0.65rem 2.2rem; font-size: 0.85rem; background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main);">
+                            <input type="email" id="set_gmail_address" name="gmail_address" required value="<?php echo htmlspecialchars($settings['gmail_address'] ?? ''); ?>" placeholder="e.g. youragency@gmail.com" class="form-control" style="width: 100%; border-radius: 8px; padding: 0.65rem 0.85rem 0.65rem 2.2rem; font-size: 0.85rem; background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main);">
                         </div>
                         <span class="text-xs text-muted" style="display: block; margin-top: 4px;">The inbox receiving official Marg ERP license emails.</span>
                     </div>
@@ -238,7 +398,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
                         </div>
                         <div style="position: relative;">
                             <i data-lucide="key-round" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--text-muted);"></i>
-                            <input type="password" id="set_app_password" name="app_password" placeholder="xxxx xxxx xxxx xxxx" class="form-control font-mono" style="width: 100%; border-radius: 8px; padding: 0.65rem 2.4rem 0.65rem 2.2rem; font-size: 0.85rem; background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main); letter-spacing: 0.05em;">
+                            <input type="password" id="set_app_password" name="app_password" value="<?php echo !empty($settings['app_password']) ? '**** **** **** ****' : ''; ?>" placeholder="xxxx xxxx xxxx xxxx" class="form-control font-mono" style="width: 100%; border-radius: 8px; padding: 0.65rem 2.4rem 0.65rem 2.2rem; font-size: 0.85rem; background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main); letter-spacing: 0.05em;">
                             <button type="button" onclick="togglePasswordVisibility()" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted);">
                                 <i data-lucide="eye" id="pwd-eye-icon" style="width: 15px; height: 15px;"></i>
                             </button>
@@ -275,13 +435,13 @@ if ($current_user_id <= 0) $current_user_id = 1;
 
                 <div class="form-group mb-3">
                     <label class="form-label text-xs font-semibold" style="margin-bottom: 6px; display: block;">Allowed Sender Emails / Domains</label>
-                    <input type="text" id="set_allowed_senders" placeholder="@margcompusoft.com, licenses@margerp.com" class="form-control" style="width: 100%; border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.85rem; background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main);">
+                    <input type="text" id="set_allowed_senders" value="<?php echo htmlspecialchars($settings['allowed_senders'] ?? ''); ?>" placeholder="@margcompusoft.com, licenses@margerp.com" class="form-control" style="width: 100%; border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.85rem; background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main);">
                     <span class="text-xs text-muted" style="display: block; margin-top: 4px;">Comma separated. Unrelated emails are skipped instantly without reading body.</span>
                 </div>
 
                 <div class="form-group mb-3">
                     <label class="form-label text-xs font-semibold" style="margin-bottom: 6px; display: block;">Subject Keywords (Filter)</label>
-                    <input type="text" id="set_subject_keywords" placeholder="License, Registration, Passkey, Customer ID" class="form-control" style="width: 100%; border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.85rem; background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main);">
+                    <input type="text" id="set_subject_keywords" value="<?php echo htmlspecialchars($settings['subject_keywords'] ?? ''); ?>" placeholder="License, Registration, Passkey, Customer ID" class="form-control" style="width: 100%; border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.85rem; background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main);">
                     <span class="text-xs text-muted" style="display: block; margin-top: 4px;">Only processes emails containing these keywords.</span>
                 </div>
 
@@ -289,11 +449,11 @@ if ($current_user_id <= 0) $current_user_id = 1;
                     <label class="form-label text-xs font-bold" style="margin-bottom: 8px; display: block;">Sync & Update Mode</label>
                     <div class="flex flex-col gap-2">
                         <label class="flex align-center gap-2 cursor-pointer text-xs" style="padding: 4px 0;">
-                            <input type="radio" name="set_sync_mode" value="manual" id="mode_manual" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px;">
+                            <input type="radio" name="set_sync_mode" value="manual" id="mode_manual" <?php echo (($settings['sync_mode'] ?? '') !== 'auto' ? 'checked' : ''); ?> style="accent-color: var(--accent-primary); width: 16px; height: 16px;">
                             <span><strong>Manual Review Mode (Recommended):</strong> Receive bell alert, preview details, and update with 1 click.</span>
                         </label>
                         <label class="flex align-center gap-2 cursor-pointer text-xs" style="padding: 4px 0;">
-                            <input type="radio" name="set_sync_mode" value="auto" id="mode_auto" style="accent-color: var(--accent-primary); width: 16px; height: 16px;">
+                            <input type="radio" name="set_sync_mode" value="auto" id="mode_auto" <?php echo (($settings['sync_mode'] ?? '') === 'auto' ? 'checked' : ''); ?> style="accent-color: var(--accent-primary); width: 16px; height: 16px;">
                             <span><strong>Auto-Update Mode:</strong> Automatically sync into Client Directory if Customer ID matches 100%.</span>
                         </label>
                     </div>
@@ -305,7 +465,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
                             <span class="text-xs font-bold" style="display: block;">Download & Save Attached License File</span>
                             <span class="text-xs text-muted">Saves <code style="color: var(--accent-cyan);">.lic</code> file into client profile for instant download.</span>
                         </div>
-                        <input type="checkbox" id="set_save_attachments" checked style="width: 18px; height: 18px; accent-color: var(--accent-primary); cursor: pointer;">
+                        <input type="checkbox" id="set_save_attachments" <?php echo (!empty($settings['save_attachments']) ? 'checked' : ''); ?> style="width: 18px; height: 18px; accent-color: var(--accent-primary); cursor: pointer;">
                     </div>
                 </div>
 
@@ -367,7 +527,7 @@ if ($current_user_id <= 0) $current_user_id = 1;
 
 </div>
 
-<!-- Modal: Review & Approve License (Rich Side-by-Side Comparison) -->
+<!-- Modal: Review & Approve License -->
 <div id="approve-license-modal" class="modal-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
     <div class="modal-container" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 18px; width: 92%; max-width: 680px; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.5);">
         <div class="modal-header flex justify-between align-center p-4" style="border-bottom: 1px solid var(--border-color); background: var(--bg-app);">
@@ -386,7 +546,6 @@ if ($current_user_id <= 0) $current_user_id = 1;
         <div class="modal-body p-4" style="max-height: 72vh; overflow-y: auto;">
             <input type="hidden" id="modal_license_id">
 
-            <!-- Extracted summary card -->
             <div class="p-3 mb-3 border-radius-sm" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 12px;">
                 <div class="flex justify-between align-center mb-2 pb-2" style="border-bottom: 1px solid rgba(245, 158, 11, 0.15);">
                     <span class="text-xs font-bold" style="color: #f59e0b; text-transform: uppercase; letter-spacing: 0.05em;">Email Extracted License Data</span>
@@ -403,14 +562,12 @@ if ($current_user_id <= 0) $current_user_id = 1;
                 </div>
             </div>
 
-            <!-- Target Client Match -->
             <div class="form-group mb-3">
                 <label class="form-label text-xs font-semibold" style="margin-bottom: 6px; display: block;">Target Client Directory Record</label>
                 <div id="modal_match_info" class="p-3 border-radius-sm mb-2 text-xs" style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 10px;"></div>
                 <input type="hidden" id="modal_target_client_id">
             </div>
 
-            <!-- Attached License File -->
             <div id="modal_file_info" class="p-3 mb-2 text-xs" style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
                 <span class="flex align-center gap-2">
                     <i data-lucide="paperclip" style="width: 16px; height: 16px; color: var(--accent-cyan);"></i>
@@ -433,14 +590,18 @@ if ($current_user_id <= 0) $current_user_id = 1;
     </div>
 </div>
 
+<!-- Embedded Server-Side Data Store for Instant Modal Access -->
 <script>
-let currentLicensesData = [];
-let currentFilterStatus = 'all';
+window.initialLicensesData = <?php echo json_encode($initial_licenses, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+let currentLicensesData = window.initialLicensesData || [];
+let activeFilter = 'all';
 
 document.addEventListener('DOMContentLoaded', () => {
-    loadSettings();
-    loadLicenses('all', true);
     if (typeof lucide !== 'undefined') lucide.createIcons();
+    <?php if (!empty($settings['gmail_address']) && !empty($settings['app_password'])): ?>
+    // Auto-check in background silently (zero UI freeze, zero data hiding)
+    setTimeout(triggerSilentBackgroundSync, 3500);
+    <?php endif; ?>
 });
 
 function switchTab(tabId) {
@@ -456,53 +617,79 @@ function switchTab(tabId) {
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
-async function loadSettings() {
-    try {
-        const res = await fetch('api/gmail_license_engine.php?action=get_settings');
-        const text = await res.text();
-        const data = JSON.parse(text);
+/**
+ * 0ms Instant Client-Side Filter (Zero Loading, Zero Hiding)
+ */
+function setFilter(status) {
+    activeFilter = status;
 
-        if (data.success && data.settings) {
-            const s = data.settings;
-            document.getElementById('set_gmail_address').value = s.gmail_address || '';
-            if (s.app_password_masked) {
-                document.getElementById('set_app_password').value = s.app_password_masked;
-            }
-            document.getElementById('set_allowed_senders').value = s.allowed_senders || '';
-            document.getElementById('set_subject_keywords').value = s.subject_keywords || '';
-            if (s.sync_mode === 'auto') {
-                document.getElementById('mode_auto').checked = true;
-            } else {
-                document.getElementById('mode_manual').checked = true;
-            }
-            document.getElementById('set_save_attachments').checked = (parseInt(s.save_attachments) === 1);
-            
-            if (s.last_sync_at) {
-                document.getElementById('sync-last-time').innerText = 'Last Synced: ' + s.last_sync_at;
-            }
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`.filter-btn[data-filter="${status}"]`);
+    if (btn) btn.classList.add('active');
 
-            // Connection indicator badge
-            const indicator = document.getElementById('conn-live-indicator');
-            const stateBadge = document.getElementById('badge-conn-state');
-            if (s.gmail_address && s.app_password) {
-                if (indicator) {
-                    indicator.innerHTML = `<span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981;"></span> Connected: ${escapeHtml(s.gmail_address)}`;
-                    indicator.style.color = '#10b981';
-                }
-                if (stateBadge) {
-                    stateBadge.innerText = 'Connected';
-                    stateBadge.style.background = 'rgba(16, 185, 129, 0.15)';
-                    stateBadge.style.color = '#10b981';
-                }
+    applyFilters();
+}
+
+function filterLocalLicenses(query) {
+    applyFilters();
+}
+
+function applyFilters() {
+    const q = (document.getElementById('license-search-input')?.value || '').trim().toLowerCase();
+    const rows = document.querySelectorAll('#license-table-body tr.license-row');
+    let visibleCount = 0;
+
+    rows.forEach(r => {
+        const rowStatus = r.getAttribute('data-status') || '';
+        const searchContent = r.getAttribute('data-search') || '';
+
+        // Status filter match
+        let statusMatch = (activeFilter === 'all');
+        if (!statusMatch) {
+            if (activeFilter === 'auto-synced') {
+                statusMatch = (rowStatus === 'auto-synced' || rowStatus === 'auto_synced');
             } else {
-                if (indicator) {
-                    indicator.innerHTML = `<span style="width: 7px; height: 7px; border-radius: 50%; background: #f59e0b;"></span> Not Connected`;
-                }
+                statusMatch = (rowStatus === activeFilter);
             }
         }
-    } catch (e) {
-        console.error('loadSettings error:', e);
+
+        // Query match
+        const queryMatch = !q || searchContent.includes(q);
+
+        if (statusMatch && queryMatch) {
+            r.style.display = '';
+            visibleCount++;
+        } else {
+            r.style.display = 'none';
+        }
+    });
+
+    const footerLabel = document.getElementById('footer-count-label');
+    if (footerLabel) {
+        footerLabel.innerText = `Showing ${visibleCount} record(s)`;
     }
+}
+
+function copyToClipboard(text, btn) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        const origColor = btn.style.color;
+        btn.style.color = '#10b981';
+        setTimeout(() => { btn.style.color = origColor; }, 1200);
+    });
+}
+
+function togglePasswordVisibility() {
+    const input = document.getElementById('set_app_password');
+    const icon = document.getElementById('pwd-eye-icon');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.setAttribute('data-lucide', 'eye-off');
+    } else {
+        input.type = 'password';
+        icon.setAttribute('data-lucide', 'eye');
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 async function saveGmailSettings(e) {
@@ -523,7 +710,6 @@ async function saveGmailSettings(e) {
         });
         const data = await res.json();
         showAlert(data.message, data.success ? 'success' : 'danger');
-        loadSettings();
     } catch (err) {
         showAlert('Error saving settings: ' + err.message, 'danger');
     }
@@ -531,19 +717,6 @@ async function saveGmailSettings(e) {
 
 function saveFilterRules() {
     saveGmailSettings(null);
-}
-
-function togglePasswordVisibility() {
-    const input = document.getElementById('set_app_password');
-    const icon = document.getElementById('pwd-eye-icon');
-    if (input.type === 'password') {
-        input.type = 'text';
-        icon.setAttribute('data-lucide', 'eye-off');
-    } else {
-        input.type = 'password';
-        icon.setAttribute('data-lucide', 'eye');
-    }
-    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 async function testGmailConnection() {
@@ -569,6 +742,9 @@ async function testGmailConnection() {
     }
 }
 
+/**
+ * Background Sync: Keeps existing table completely visible, shows smooth top progress bar
+ */
 async function triggerEmailSync() {
     const spinIcon = document.getElementById('sync-spin-icon');
     const syncBtn = document.getElementById('btn-sync-now');
@@ -579,10 +755,6 @@ async function triggerEmailSync() {
     syncBtn.disabled = true;
     if (syncBtnText) syncBtnText.innerText = 'Scanning Gmail...';
     if (progressBar) progressBar.style.display = 'block';
-
-    // Dim table without hiding rows!
-    const mainTable = document.getElementById('license-main-table');
-    if (mainTable) mainTable.classList.add('table-loading-dim');
 
     try {
         const formData = new FormData();
@@ -601,8 +773,10 @@ async function triggerEmailSync() {
 
         if (data.success) {
             showAlert(data.message, 'success');
-            await loadLicenses(currentFilterStatus, false);
-            document.getElementById('sync-last-time').innerText = 'Last Synced: Just now';
+            // Reload page smoothly so authoritative server-side PHP data reflects instantly
+            setTimeout(() => {
+                window.location.reload();
+            }, 800);
         } else {
             showAlert(data.message, 'danger');
         }
@@ -613,244 +787,56 @@ async function triggerEmailSync() {
         syncBtn.disabled = false;
         if (syncBtnText) syncBtnText.innerText = 'Fetch & Sync Emails';
         if (progressBar) progressBar.style.display = 'none';
-        if (mainTable) mainTable.classList.remove('table-loading-dim');
     }
 }
 
 /**
- * Non-destructive Load: Keeps existing rows visible while fetching updates!
+ * Headless Background Auto-Sync:
+ * Runs silently in the background, NEVER hides existing rows, NEVER shakes or touches the frontend.
  */
-async function loadLicenses(status = 'all', isInitial = false) {
-    currentFilterStatus = status;
-
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    const activeBtn = document.querySelector(`.filter-btn[data-filter="${status}"]`);
-    if (activeBtn) activeBtn.classList.add('active');
-
-    const tbody = document.getElementById('license-table-body');
-    const progressBar = document.getElementById('sync-top-progressbar');
-    const mainTable = document.getElementById('license-main-table');
-
-    // If initial load or table has no rows, show skeleton
-    if (isInitial && (!tbody.children.length || tbody.innerHTML.includes('loader-2'))) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="8" class="text-center py-6 text-muted">
-                    <i data-lucide="loader-2" class="spin mb-2" style="width: 24px; height: 24px; display: inline-block; color: #10b981;"></i>
-                    <p class="m-0 text-sm font-semibold">Loading license records...</p>
-                </td>
-            </tr>
-        `;
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-    } else {
-        // NON-DESTRUCTIVE: Keep rows visible, just show smooth progress bar
-        if (progressBar) progressBar.style.display = 'block';
-        if (mainTable) mainTable.classList.add('table-loading-dim');
-    }
-
+async function triggerSilentBackgroundSync() {
     try {
-        const res = await fetch(`api/gmail_license_engine.php?action=list_licenses&status=${encodeURIComponent(status)}`);
-        const text = await res.text();
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (je) {
-            console.error('Invalid JSON response:', text);
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Server returned unexpected response. Raw: ${escapeHtml(text.substring(0, 80))}</td></tr>`;
-            return;
+        const formData = new FormData();
+        formData.append('action', 'fetch_emails');
+        formData.append('silent', '1');
+
+        const res = await fetch('api/gmail_license_engine.php', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (data && data.success && data.processed_count > 0) {
+            showSilentToast(`✨ ${data.processed_count} new Marg license email(s) auto-loaded in background!`);
+            const lastTime = document.getElementById('sync-last-time');
+            if (lastTime) lastTime.innerText = 'Last Synced: Just now';
+
+            // Smoothly refresh after 2 seconds to reflect new verified data
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+        } else if (data && data.success) {
+            const lastTime = document.getElementById('sync-last-time');
+            if (lastTime) lastTime.innerText = 'Last Synced: Just now';
         }
-
-        if (!data.success || !data.licenses) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">Unable to load licenses.</td></tr>`;
-            return;
-        }
-
-        currentLicensesData = data.licenses;
-        renderLicenseRows(currentLicensesData);
-        updateStatistics(data.licenses);
-
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Error: ${e.message}</td></tr>`;
-    } finally {
-        if (progressBar) progressBar.style.display = 'none';
-        if (mainTable) mainTable.classList.remove('table-loading-dim');
+        // Completely silent: ignore errors in background
     }
 }
 
-function renderLicenseRows(licenses) {
-    const tbody = document.getElementById('license-table-body');
-    if (!licenses || licenses.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="8" class="text-center py-6 text-muted">
-                    <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--bg-body); color: var(--text-muted); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.5rem; border: 1px solid var(--border-color);">
-                        <i data-lucide="inbox" style="width: 22px; height: 22px; opacity: 0.5;"></i>
-                    </div>
-                    <p class="m-0 text-sm font-semibold text-main">No Marg ERP license records in this view.</p>
-                    <p class="m-0 text-xs mt-1">Click "Fetch & Sync Emails" to scan incoming emails.</p>
-                </td>
-            </tr>
-        `;
-        document.getElementById('footer-count-label').innerText = 'Showing 0 records';
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-        return;
+function showSilentToast(msg) {
+    let toast = document.getElementById('silent-sync-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'silent-sync-toast';
+        toast.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99999;background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #10b981;color:#fff;padding:12px 18px;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.5);font-size:0.85rem;display:flex;align-items:center;gap:10px;animation:fadeIn 0.3s ease;';
+        document.body.appendChild(toast);
     }
-
-    let html = '';
-    licenses.forEach(lic => {
-        let statusBadge = '';
-        if (lic.sync_status === 'Auto-Synced') {
-            statusBadge = '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: 700;">Auto-Synced ✓</span>';
-        } else if (lic.sync_status === 'Approved') {
-            statusBadge = '<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: 700;">Approved ✓</span>';
-        } else if (lic.sync_status === 'Ignored') {
-            statusBadge = '<span class="badge" style="background: rgba(100, 116, 139, 0.15); color: #64748b; font-size: 0.7rem; padding: 2px 8px; border-radius: 12px;">Ignored</span>';
-        } else {
-            statusBadge = '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: 700;">Pending Review</span>';
-        }
-
-        let fileHtml = '<span class="text-muted text-xs">No file</span>';
-        if (lic.attachment_path) {
-            fileHtml = `
-                <a href="${lic.attachment_path}" target="_blank" class="file-chip" download title="Download ${escapeHtml(lic.attachment_filename)}">
-                    <i data-lucide="paperclip" style="width: 12px; height: 12px; color: var(--accent-cyan);"></i>
-                    <span style="max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(lic.attachment_filename || 'marg.lic')}</span>
-                    <i data-lucide="download" style="width: 10px; height: 10px; opacity: 0.7;"></i>
-                </a>
-            `;
-        }
-
-        let matchedHtml = '';
-        if (lic.matched_client_id) {
-            matchedHtml = `
-                <div class="flex align-center gap-1">
-                    <i data-lucide="check-circle" style="width: 14px; height: 14px; color: #10b981; flex-shrink: 0;"></i>
-                    <a href="index.php?page=clients&search=${encodeURIComponent(lic.customer_id || '')}" target="_blank" style="color: #10b981; text-decoration: none; font-weight: 600; font-size: 0.75rem;" title="View in Client Directory">
-                        ${escapeHtml(lic.client_actual_name || 'ID #' + lic.matched_client_id)}
-                    </a>
-                </div>
-            `;
-        } else {
-            matchedHtml = `<span class="badge text-xs" style="background: rgba(148, 163, 184, 0.12); color: #94a3b8; font-size: 0.7rem; padding: 2px 7px;">New Client (Not in CRM)</span>`;
-        }
-
-        let actionsHtml = '';
-        if (lic.sync_status === 'Pending') {
-            actionsHtml = `
-                <div class="flex align-center justify-end gap-1">
-                    <button type="button" onclick="openApproveModal(${lic.id})" class="btn text-xs font-semibold" style="padding: 5px 12px; border-radius: 7px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);">
-                        Approve & Sync
-                    </button>
-                    <button type="button" onclick="ignoreLicense(${lic.id})" class="btn btn-secondary text-xs" style="padding: 5px 8px; border-radius: 7px;" title="Ignore this record">
-                        ✕
-                    </button>
-                </div>
-            `;
-        } else {
-            actionsHtml = `
-                <div class="flex align-center justify-end gap-1">
-                    <button type="button" onclick="openApproveModal(${lic.id})" class="btn btn-secondary text-xs" style="padding: 4px 10px; border-radius: 7px;">
-                        View Details
-                    </button>
-                </div>
-            `;
-        }
-
-        // Generate avatar initials
-        let pName = (lic.party_name || 'M').trim();
-        let initials = pName.substring(0, 2).toUpperCase();
-
-        html += `
-            <tr class="license-row" style="border-bottom: 1px solid var(--border-color); transition: background 0.15s ease;">
-                <td style="padding: 0.85rem 1.1rem;">
-                    <div class="text-xs font-semibold text-main">${escapeHtml(lic.email_date || '')}</div>
-                    <div class="text-xs text-muted" style="font-size: 11px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(lic.from_email || '')}</div>
-                </td>
-                <td style="padding: 0.85rem 1rem;">
-                    <div class="flex align-center gap-1">
-                        <span class="font-mono text-xs font-bold" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 3px 7px; border-radius: 5px; border: 1px solid rgba(245, 158, 11, 0.25);">${escapeHtml(lic.customer_id || '-')}</span>
-                        <button type="button" class="btn-copy-id" onclick="copyToClipboard('${escapeHtml(lic.customer_id || '')}', this)" title="Copy Licence No" style="background: none; border: none; cursor: pointer; padding: 2px; color: var(--text-muted);">
-                            <i data-lucide="copy" style="width: 12px; height: 12px;"></i>
-                        </button>
-                    </div>
-                </td>
-                <td style="padding: 0.85rem 1.1rem;">
-                    <div class="flex align-center gap-2">
-                        <div style="width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.7rem; flex-shrink: 0;">
-                            ${escapeHtml(initials)}
-                        </div>
-                        <div>
-                            <div class="text-xs font-bold text-main">${escapeHtml(lic.party_name || '-')}</div>
-                            <div class="text-xs text-muted" style="font-size: 11px;">${escapeHtml(lic.city || '')} ${escapeHtml(lic.state || '')}</div>
-                        </div>
-                    </div>
-                </td>
-                <td style="padding: 0.85rem 1rem;">
-                    <div class="badge text-xs" style="background: rgba(6, 182, 212, 0.1); color: #06b6d4; font-weight: 600; padding: 2px 7px; border-radius: 4px; display: inline-block;">
-                        ${escapeHtml(lic.software_type || 'Marg ERP')}
-                    </div>
-                    <div class="text-xs text-muted mt-1" style="font-size: 11px;">Users: ${escapeHtml(lic.users_count || '1')}</div>
-                </td>
-                <td style="padding: 0.85rem 1rem;">${matchedHtml}</td>
-                <td style="padding: 0.85rem 1rem;">${fileHtml}</td>
-                <td style="padding: 0.85rem 1rem;">${statusBadge}</td>
-                <td style="padding: 0.85rem 1.1rem; text-align: right;">${actionsHtml}</td>
-            </tr>
-        `;
-    });
-
-    tbody.innerHTML = html;
-    document.getElementById('footer-count-label').innerText = `Showing ${licenses.length} record(s)`;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-}
-
-function updateStatistics(licenses) {
-    if (!licenses) return;
-    const total = licenses.length;
-    const pending = licenses.filter(l => l.sync_status === 'Pending').length;
-    const autoSynced = licenses.filter(l => l.sync_status === 'Auto-Synced').length;
-    const approved = licenses.filter(l => l.sync_status === 'Approved').length;
-
-    document.getElementById('stat-total-licenses').innerText = total;
-    document.getElementById('stat-pending-licenses').innerText = pending;
-    document.getElementById('stat-autosync-licenses').innerText = autoSynced;
-    document.getElementById('stat-approved-licenses').innerText = approved;
-
-    const tabBadge = document.getElementById('tab-pending-badge');
-    if (tabBadge) {
-        tabBadge.innerText = pending;
-        tabBadge.style.display = pending > 0 ? 'inline-block' : 'none';
-    }
-}
-
-/**
- * Instant Local Search without re-querying the database
- */
-function filterLocalLicenses(query) {
-    const q = query.trim().toLowerCase();
-    if (!q) {
-        renderLicenseRows(currentLicensesData);
-        return;
-    }
-    const filtered = currentLicensesData.filter(l => {
-        return (l.customer_id && l.customer_id.toLowerCase().includes(q)) ||
-               (l.party_name && l.party_name.toLowerCase().includes(q)) ||
-               (l.phone && l.phone.toLowerCase().includes(q)) ||
-               (l.reg_mobile && l.reg_mobile.toLowerCase().includes(q)) ||
-               (l.city && l.city.toLowerCase().includes(q)) ||
-               (l.software_type && l.software_type.toLowerCase().includes(q)) ||
-               (l.client_actual_name && l.client_actual_name.toLowerCase().includes(q));
-    });
-    renderLicenseRows(filtered);
-}
-
-function copyToClipboard(text, btn) {
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-        const origColor = btn.style.color;
-        btn.style.color = '#10b981';
-        setTimeout(() => { btn.style.color = origColor; }, 1200);
-    });
+    toast.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span> <span>${escapeHtml(msg)}</span>`;
+    toast.style.display = 'flex';
+    setTimeout(() => {
+        if (toast) toast.style.display = 'none';
+    }, 4500);
 }
 
 function openApproveModal(id) {
@@ -925,7 +911,7 @@ async function confirmApproveLicense() {
         if (data.success) {
             closeApproveModal();
             showAlert(data.message, 'success');
-            loadLicenses(currentFilterStatus, false);
+            setTimeout(() => { window.location.reload(); }, 600);
         } else {
             alert('Approval error: ' + data.message);
         }
@@ -947,7 +933,7 @@ async function ignoreLicense(id) {
         });
         const data = await res.json();
         showAlert(data.message, 'info');
-        loadLicenses(currentFilterStatus, false);
+        setTimeout(() => { window.location.reload(); }, 600);
     } catch (e) {
         alert('Error: ' + e.message);
     }
@@ -1034,11 +1020,6 @@ function escapeHtml(str) {
 }
 .license-row:hover {
     background: rgba(255, 255, 255, 0.02);
-}
-.table-loading-dim {
-    opacity: 0.65;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
 }
 .spin {
     animation: spin 1s linear infinite;

@@ -13,8 +13,11 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
 
+$is_cli = (php_sapi_name() === 'cli');
+$is_cron = (isset($_GET['action']) && $_GET['action'] === 'cron_sync');
+
 // Enforce authentication
-if (!isset($_SESSION['user_id'])) {
+if (!$is_cli && !$is_cron && !isset($_SESSION['user_id'])) {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'message' => 'Unauthorized. Please log in.']);
     exit;
@@ -90,6 +93,9 @@ function init_gmail_license_tables(PDO $pdo) {
                 INDEX `idx_customer_id` (`customer_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
+
+        // Automatically clean up any bogus non-Marg emails
+        $pdo->exec("DELETE FROM `tenant_incoming_licenses` WHERE customer_id IS NULL OR customer_id = '' OR party_name LIKE '<%' OR party_name LIKE '%Indeed%' OR party_name LIKE '%view this email%'");
 
         $initialized = true;
     } catch (\Throwable $ex) {
@@ -476,6 +482,9 @@ function parse_marg_license_text(string $text): array {
 // ROUTE API ACTIONS
 // -------------------------------------------------------------------------
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+if ($is_cli || $is_cron || $action === 'cron_sync') {
+    $action = 'fetch_emails';
+}
 
 if (!empty($action)) {
     header('Content-Type: application/json; charset=utf-8');
@@ -675,9 +684,8 @@ if (!empty($action)) {
                 // 2. Fetch full body ONLY for verified Marg emails!
                 $msg = $client->fetchMessage($uid);
 
-                // Parse Marg License Details
-                $parsed = parse_marg_license_text($msg['body']);
-                if (empty($parsed['customer_id']) && empty($parsed['party_name'])) {
+                // Strictly require a valid Marg ERP Customer ID (Must have Customer ID and not HTML tags)
+                if (empty($parsed['customer_id']) || strlen($parsed['customer_id']) < 3 || strpos($parsed['party_name'] ?? '', '<') !== false) {
                     continue;
                 }
 
