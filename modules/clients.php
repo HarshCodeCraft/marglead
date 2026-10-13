@@ -842,7 +842,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $skipped_count = 0;
 
             if ($pdo) {
-                $pdo->beginTransaction();
+                // Pre-check table outside transaction so tenant table is auto-provisioned if missing
+                try {
+                    $pdo->query("SELECT 1 FROM client_directory LIMIT 0");
+                } catch (\Throwable $eIgn) {}
+
+                if (!$pdo->inTransaction()) {
+                    $pdo->beginTransaction();
+                }
                 try {
                     $checkStmt = $pdo->prepare("SELECT id FROM client_directory WHERE customer_id = ?");
                     
@@ -928,39 +935,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         $software_hit_date = $formatDate($getValue($row, ['Software HitDate', 'software_hit_date'], 26));
                         $wallet_id = $getValue($row, ['Wallet Id', 'wallet_id'], 27) ?: null;
 
-                        $checkStmt->execute([$customer_id]);
-                        $exists = $checkStmt->fetch();
+                        try {
+                            $checkStmt->execute([$customer_id]);
+                            $exists = $checkStmt->fetch();
 
-                        if ($exists) {
-                            if ($duplicate_option === 'update') {
-                                $updateStmt->execute([
-                                    $sno, $sw_type, $category, $subpartner_code, $subpartner_name, $party_name, $company_using,
+                            if ($exists) {
+                                if ($duplicate_option === 'update') {
+                                    $updateStmt->execute([
+                                        $sno, $sw_type, $category, $subpartner_code, $subpartner_name, $party_name, $company_using,
+                                        $address, $mobile, $email, $user_type, $software_type, $no_of_users, $contact_person,
+                                        $due_on, $act_on, $days, $party_status, $city, $transferred_party, $online_zip_code,
+                                        $state, $home_user, $software_trade, $version, $total_amount, $software_hit_date, $wallet_id,
+                                        $customer_id
+                                    ]);
+                                    $updated_count++;
+                                } else {
+                                    $skipped_count++;
+                                }
+                            } else {
+                                $insertStmt->execute([
+                                    $sno, $sw_type, $customer_id, $category, $subpartner_code, $subpartner_name, $party_name, $company_using,
                                     $address, $mobile, $email, $user_type, $software_type, $no_of_users, $contact_person,
                                     $due_on, $act_on, $days, $party_status, $city, $transferred_party, $online_zip_code,
-                                    $state, $home_user, $software_trade, $version, $total_amount, $software_hit_date, $wallet_id,
-                                    $customer_id
+                                    $state, $home_user, $software_trade, $version, $total_amount, $software_hit_date, $wallet_id
                                 ]);
-                                $updated_count++;
-                            } else {
-                                $skipped_count++;
+                                $inserted_count++;
                             }
-                        } else {
-                            $insertStmt->execute([
-                                $sno, $sw_type, $customer_id, $category, $subpartner_code, $subpartner_name, $party_name, $company_using,
-                                $address, $mobile, $email, $user_type, $software_type, $no_of_users, $contact_person,
-                                $due_on, $act_on, $days, $party_status, $city, $transferred_party, $online_zip_code,
-                                $state, $home_user, $software_trade, $version, $total_amount, $software_hit_date, $wallet_id
-                            ]);
-                            $inserted_count++;
+                        } catch (\Throwable $rowEx) {
+                            $skipped_count++;
                         }
                     }
-                    $pdo->commit();
+                    if ($pdo->inTransaction()) {
+                        $pdo->commit();
+                    }
                     $import_result = [
                         'success' => true,
                         'message' => "Bulk Client Directory Import completed successfully! New Imported: <strong>{$inserted_count}</strong>, Updated: <strong>{$updated_count}</strong>, Skipped: <strong>{$skipped_count}</strong> records."
                     ];
-                } catch (Exception $e) {
-                    $pdo->rollBack();
+                } catch (\Throwable $e) {
+                    if ($pdo->inTransaction()) {
+                        try {
+                            $pdo->rollBack();
+                        } catch (\Throwable $rbEx) {}
+                    }
                     $import_result = [
                         'success' => false,
                         'message' => "Import Database Error: " . $e->getMessage()
@@ -1548,12 +1565,21 @@ $software_trades_list = [
     'Wholesale Trader'
 ];
 
-// Master Sub-Partners List
+// Master Sub-Partners List & Lookup Map
 $sub_partners_list = [];
+$sub_partners_map = [];
 if ($pdo) {
     try {
-        $stmt_sp = $pdo->query("SELECT id, partner_code, partner_name, mobile, city FROM sub_partners WHERE status = 'Active' ORDER BY partner_name ASC");
+        $stmt_sp = $pdo->query("SELECT * FROM sub_partners ORDER BY partner_name ASC");
         $sub_partners_list = $stmt_sp->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($sub_partners_list as $spItem) {
+            if (!empty($spItem['partner_code'])) {
+                $sub_partners_map[strtoupper(trim($spItem['partner_code']))] = $spItem;
+            }
+            if (!empty($spItem['partner_name'])) {
+                $sub_partners_map[strtoupper(trim($spItem['partner_name']))] = $spItem;
+            }
+        }
     } catch (Exception $e) {}
 }
 
@@ -1699,82 +1725,16 @@ if ($db_connected && $pdo) {
 }
 
 // --------------------------------------------------------------------------
-// 5. Data Queries for Tab 2: CRM Active Clients (leads table)
+// 5. Data Queries for Tab 2: CRM Active Clients (tenant_companies)
 // --------------------------------------------------------------------------
+global $pdo_master;
 $crm_total_count = 0;
-$crm_installed_count = 0;
-$crm_portfolio_val = 0;
-$crm_records = [];
-$crm_matching_count = 0;
-$operators_list = [];
-
-if ($db_connected && $pdo) {
+if (isset($pdo_master) && $pdo_master) {
     try {
-        $opStmt = $pdo->query("SELECT name FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
-        $operators_list = $opStmt->fetchAll(PDO::FETCH_COLUMN);
-
-        $crm_total_count = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(status) IN ('won', 'closed_won', 'payment_received', 'install_pending', 'install_completed', 'training_completed', 'support', 'renewal')")->fetchColumn();
-        $crm_installed_count = $pdo->query("SELECT COUNT(*) FROM leads WHERE LOWER(status) IN ('install_completed', 'training_completed', 'support')")->fetchColumn();
-        $crmSum = $pdo->query("SELECT SUM(budget) FROM leads WHERE LOWER(status) IN ('won', 'closed_won', 'payment_received', 'install_pending', 'install_completed', 'training_completed', 'support', 'renewal')")->fetchColumn();
-        if ($crmSum) $crm_portfolio_val = floatval($crmSum);
-
-        $crm_where = ["LOWER(status) IN ('won', 'closed_won', 'payment_received', 'install_pending', 'install_completed', 'training_completed', 'support', 'renewal')"];
-        $crm_params = [];
-
-        if (!empty($search_query)) {
-            $crm_where[] = "(name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ? OR gst LIKE ? OR city LIKE ? OR address LIKE ?)";
-            $st = '%' . $search_query . '%';
-            for ($i = 0; $i < 7; $i++) $crm_params[] = $st;
-        }
-
-        if (!empty($status_filter)) {
-            $crm_where[] = "LOWER(status) = ?";
-            $crm_params[] = strtolower($status_filter);
-        }
-
-        if (!empty($product_filter)) {
-            $crm_where[] = "(LOWER(enq_for) = ? OR LOWER(products) LIKE ?)";
-            $crm_params[] = strtolower($product_filter);
-            $crm_params[] = '%' . strtolower($product_filter) . '%';
-        }
-
-        if (!empty($operator_filter)) {
-            $crm_where[] = "assigned_to = ?";
-            $crm_params[] = $operator_filter;
-        }
-
-        $where_crm_sql = "WHERE " . implode(" AND ", $crm_where);
-
-        $countStmt = $pdo->prepare("SELECT COUNT(*) FROM leads {$where_crm_sql}");
-        $countStmt->execute($crm_params);
-        $crm_matching_count = $countStmt->fetchColumn();
-
-        $crm_total_pages = 1;
-        if ($limit !== 'all') {
-            $crm_total_pages = ceil(max(1, $crm_matching_count) / $limit);
-            if ($page_num > $crm_total_pages) $page_num = max(1, $crm_total_pages);
-            $offset = ($page_num - 1) * $limit;
-        }
-
-        if ($limit === 'all') {
-            $fetchSql = "SELECT * FROM leads {$where_crm_sql} ORDER BY updated_at DESC";
-            $stmt = $pdo->prepare($fetchSql);
-            $stmt->execute($crm_params);
-        } else {
-            $fetchSql = "SELECT * FROM leads {$where_crm_sql} ORDER BY updated_at DESC LIMIT ? OFFSET ?";
-            $stmt = $pdo->prepare($fetchSql);
-            $idx = 1;
-            foreach ($crm_params as $pVal) {
-                $stmt->bindValue($idx++, $pVal, PDO::PARAM_STR);
-            }
-            $stmt->bindValue($idx++, $limit, PDO::PARAM_INT);
-            $stmt->bindValue($idx++, $offset, PDO::PARAM_INT);
-            $stmt->execute();
-        }
-
-        $crm_records = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    } catch (PDOException $e) {}
+        $crm_total_count = (int)$pdo_master->query("SELECT COUNT(*) FROM tenant_companies")->fetchColumn();
+    } catch (PDOException $e) {
+        $crm_total_count = 0;
+    }
 }
 
 $products_options = [
@@ -1811,14 +1771,15 @@ function getClientsPageUrl($tab, $p, $limit) {
             <div class="flex align-center gap-2 text-xs text-muted mb-1">
                 <span>Management Hub</span>
                 <i data-lucide="chevron-right" style="width: 12px; height: 12px;"></i>
-                <span class="font-semibold text-main">Client Enterprise Directory</span>
+                <span class="font-semibold text-main"><?php echo ($active_tab === 'crm') ? 'SaaS CRM Clients' : 'Client Enterprise Directory'; ?></span>
             </div>
             <h2 style="font-family: var(--font-heading); font-size: 1.75rem; font-weight: 800; color: var(--text-main);" class="m-0">
-                Clients Management Workspace
+                <?php echo ($active_tab === 'crm') ? 'Active CRM Clients & Accounts' : 'Clients Management Workspace'; ?>
             </h2>
-            <p class="text-muted text-sm m-0">Manage complete client directory records, store old client data, review license/AMC updates, and edit account profiles.</p>
+            <p class="text-muted text-sm m-0"><?php echo ($active_tab === 'crm') ? 'Manage registered SaaS CRM client accounts, data isolation databases, WhatsApp gateways, and client instances.' : 'Manage complete client directory records, store old client data, review license/AMC updates, and edit account profiles.'; ?></p>
         </div>
 
+        <?php if ($active_tab === 'directory'): ?>
         <div class="flex gap-2 flex-wrap">
             <button class="btn btn-primary text-sm flex align-center gap-2" style="font-weight: 700; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);" onclick="openAddClientModal();">
                 <i data-lucide="user-plus" style="width: 16px; height: 16px;"></i>
@@ -1837,6 +1798,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                 <span>Print Directory</span>
             </button>
         </div>
+        <?php endif; ?>
     </div>
 
     <!-- Workspace Tabs Navigation -->
@@ -2101,6 +2063,27 @@ function getClientsPageUrl($tab, $p, $limit) {
                                 $rWa['amount'] = $r['total_amount'] ?? '';
                                 $rWa['status'] = !empty($r['party_status']) ? $r['party_status'] : ($r['status'] ?? 'Active');
                                 $rWa['account_status'] = $rWa['status'];
+
+                                // Enrich with matched subpartner details
+                                $spCodeKey = !empty($r['subpartner_code']) ? strtoupper(trim($r['subpartner_code'])) : '';
+                                $spNameKey = !empty($r['subpartner_name']) ? strtoupper(trim($r['subpartner_name'])) : '';
+                                $matchedSp = $sub_partners_map[$spCodeKey] ?? ($sub_partners_map[$spNameKey] ?? null);
+                                if ($matchedSp) {
+                                    $rWa['subpartner_name'] = $matchedSp['partner_name'] ?? ($r['subpartner_name'] ?? '');
+                                    $rWa['subpartner_code'] = $matchedSp['partner_code'] ?? ($r['subpartner_code'] ?? '');
+                                    $rWa['subpartner_contact_person'] = $matchedSp['contact_person'] ?? '';
+                                    $rWa['subpartner_mobile'] = $matchedSp['mobile'] ?? '';
+                                    $rWa['subpartner_phone'] = $matchedSp['mobile'] ?? '';
+                                    $rWa['subpartner_alt_mobile'] = $matchedSp['alt_mobile'] ?? '';
+                                    $rWa['subpartner_email'] = $matchedSp['email'] ?? '';
+                                    $rWa['subpartner_city'] = $matchedSp['city'] ?? '';
+                                    $rWa['subpartner_state'] = $matchedSp['state'] ?? '';
+                                    $rWa['subpartner_address'] = $matchedSp['address'] ?? '';
+                                    $rWa['subpartner_gstin'] = $matchedSp['gstin'] ?? '';
+                                    $rWa['subpartner_commission_rate'] = $matchedSp['commission_rate'] ?? '';
+                                    $rWa['subpartner_status'] = $matchedSp['status'] ?? '';
+                                }
+
                                 $rWaJson = htmlspecialchars(json_encode($rWa), ENT_QUOTES, 'UTF-8');
                                 
                                 $catVal = trim($r['category'] ?? '');
@@ -2238,286 +2221,11 @@ function getClientsPageUrl($tab, $p, $limit) {
 
     <?php else: ?>
         <!-- ==================================================================== -->
-        <!-- TAB 2: ACTIVE CRM CLIENT ACCOUNTS (leads TABLE)                      -->
+        <!-- TAB 2: ACTIVE CRM CLIENT ACCOUNTS (SaaS Multi-Tenancy tenant_companies) -->
         <!-- ==================================================================== -->
-
-        <!-- KPI Summary Row for CRM Accounts (Modern 4-Column Card Grid) -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
-            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
-                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <i data-lucide="building-2" style="width: 24px; height: 24px;"></i>
-                </div>
-                <div style="display: flex; flex-direction: column;">
-                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Total CRM Clients</span>
-                    <span style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); font-family: var(--font-heading); margin-top: 2px;"><?php echo number_format($crm_total_count); ?></span>
-                </div>
-            </div>
-
-            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
-                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <i data-lucide="check-circle-2" style="width: 24px; height: 24px;"></i>
-                </div>
-                <div style="display: flex; flex-direction: column;">
-                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Installed &amp; Active</span>
-                    <span style="font-size: 1.5rem; font-weight: 800; color: #10b981; font-family: var(--font-heading); margin-top: 2px;"><?php echo number_format($crm_installed_count); ?></span>
-                </div>
-            </div>
-
-            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
-                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(139, 92, 246, 0.12); color: #8b5cf6; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <i data-lucide="indian-rupee" style="width: 24px; height: 24px;"></i>
-                </div>
-                <div style="display: flex; flex-direction: column;">
-                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Portfolio Contract Value</span>
-                    <span style="font-size: 1.4rem; font-weight: 800; color: #8b5cf6; font-family: monospace; margin-top: 2px;">₹<?php echo number_format($crm_portfolio_val / 100000, 2); ?>L</span>
-                </div>
-            </div>
-
-            <div class="card" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.04);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.08)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.04)'">
-                <div style="width: 52px; height: 52px; border-radius: 14px; background-color: rgba(245, 158, 11, 0.12); color: #f59e0b; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <i data-lucide="user-check" style="width: 24px; height: 24px;"></i>
-                </div>
-                <div style="display: flex; flex-direction: column;">
-                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">Account Reps</span>
-                    <span style="font-size: 1.5rem; font-weight: 800; color: #f59e0b; font-family: var(--font-heading); margin-top: 2px;"><?php echo count($operators_list); ?></span>
-                </div>
-            </div>
-        </div>
-
-        <!-- CRM Clients Search Panel — Modern Premium Redesign -->
-        <div class="card mb-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: 18px; padding: 1.25rem 1.5rem; box-shadow: 0 4px 16px rgba(0,0,0,0.03);">
-            <form action="index.php" method="GET" class="flex flex-col gap-4">
-                <input type="hidden" name="page" value="clients">
-                <input type="hidden" name="tab" value="crm">
-                
-                <div class="flex justify-between align-center pb-3" style="border-bottom: 1px solid var(--border-color);">
-                    <div class="flex align-center gap-2">
-                        <div style="background: var(--primary-light); padding: 0.4rem; border-radius: 8px; display:flex; align-items:center; justify-content:center;">
-                            <i data-lucide="search-code" style="width: 16px; height: 16px; color: var(--primary);"></i>
-                        </div>
-                        <h3 class="m-0 text-sm font-extrabold" style="font-family: var(--font-heading); color: var(--text-main);">Filter CRM Accounts</h3>
-                    </div>
-                    <?php if (!empty($search_query) || !empty($status_filter) || !empty($product_filter) || !empty($operator_filter)): ?>
-                        <a href="index.php?page=clients&tab=crm" class="btn text-xs flex align-center gap-1" style="background: rgba(239, 68, 68, 0.08); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; font-weight: 600; padding: 0.35rem 0.85rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.16)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.08)'">
-                            <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
-                            <span>Clear All Filters</span>
-                        </a>
-                    <?php endif; ?>
-                </div>
-
-                <div class="grid" style="grid-template-columns: 2.2fr 1fr 1fr 1fr 1.1fr; gap: 1rem; align-items: end;">
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Search Client Accounts</label>
-                        <div style="display: flex; align-items: center; width: 100%; height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); overflow: hidden; transition: border-color 0.2s, box-shadow 0.2s;" onfocusin="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 3px rgba(37, 99, 235, 0.15)';" onfocusout="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none';">
-                            <div style="padding-left: 14px; padding-right: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary);">
-                                <i data-lucide="search" style="width: 16px; height: 16px;"></i>
-                            </div>
-                            <input type="text" name="search" placeholder="Company, Phone, Email, GSTIN, City..." value="<?php echo htmlspecialchars($search_query); ?>" style="border: none !important; outline: none !important; background: transparent !important; height: 100%; width: 100%; padding: 0 14px 0 0 !important; color: var(--text-main); font-size: 0.85rem; box-shadow: none !important;">
-                        </div>
-                    </div>
-
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Client Status</label>
-                        <select name="status" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
-                            <option value="">All Statuses</option>
-                            <option value="won" <?php echo ($status_filter === 'won' || $status_filter === 'closed_won') ? 'selected' : ''; ?>>Closed Won</option>
-                            <option value="payment_received" <?php echo ($status_filter === 'payment_received') ? 'selected' : ''; ?>>Payment Received</option>
-                            <option value="install_pending" <?php echo ($status_filter === 'install_pending') ? 'selected' : ''; ?>>Installation Pending</option>
-                            <option value="install_completed" <?php echo ($status_filter === 'install_completed') ? 'selected' : ''; ?>>Installation Completed</option>
-                            <option value="training_completed" <?php echo ($status_filter === 'training_completed') ? 'selected' : ''; ?>>Training Completed</option>
-                            <option value="support" <?php echo ($status_filter === 'support') ? 'selected' : ''; ?>>Active Support</option>
-                            <option value="renewal" <?php echo ($status_filter === 'renewal') ? 'selected' : ''; ?>>Renewal Due</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Software Product</label>
-                        <select name="product" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
-                            <option value="">All Products</option>
-                            <?php foreach ($products_options as $pOpt): ?>
-                                <option value="<?php echo htmlspecialchars($pOpt); ?>" <?php echo (strcasecmp($product_filter, $pOpt) === 0) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($pOpt); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold text-muted mb-1" style="letter-spacing: 0.02em; display: block;">Account Representative</label>
-                        <select name="operator" class="form-control form-control-focus text-sm" style="height: 42px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); font-size: 0.85rem;">
-                            <option value="">All Operators</option>
-                            <?php foreach ($operators_list as $op): ?>
-                                <option value="<?php echo htmlspecialchars($op); ?>" <?php echo ($operator_filter === $op) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($op); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div class="form-group m-0">
-                        <label class="form-label text-xs font-bold mb-1" style="visibility: hidden; display: block;">&nbsp;</label>
-                        <button type="submit" class="btn btn-primary font-bold text-sm" style="width: 100%; height: 42px; border-radius: 10px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #1e40af) 100%); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); display: flex; align-items: center; justify-content: center; gap: 8px;">
-                            <i data-lucide="search" style="width: 15px; height: 15px;"></i>
-                            <span>Apply Filters</span>
-                        </button>
-                    </div>
-                </div>
-            </form>
-        </div>
-
-        <!-- CRM Clients Table Card -->
-        <div class="card p-0" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-lg); overflow: hidden;">
-            <div class="p-4 flex justify-between align-center flex-wrap gap-3" style="border-bottom: 1px solid var(--border-color); background-color: var(--border-card);">
-                <div class="flex align-center gap-2">
-                    <span class="text-sm font-bold text-main">Matching CRM Client Accounts:</span>
-                    <span class="badge" style="--badge-bg: var(--success-light); --badge-color: var(--success); font-weight: 700; font-size: 0.8rem;">
-                        <?php echo number_format($crm_matching_count); ?> Accounts
-                    </span>
-                </div>
-
-                <div class="flex align-center gap-3 text-xs flex-wrap">
-                    <div class="flex align-center gap-2">
-                        <span class="text-muted">Rows Per Page:</span>
-                        <a href="<?php echo getClientsPageUrl('crm', 1, 25); ?>" class="btn btn-secondary text-xs <?php echo ($limit == 25) ? 'active' : ''; ?>" style="padding: 0.2rem 0.5rem;">25</a>
-                        <a href="<?php echo getClientsPageUrl('crm', 1, 50); ?>" class="btn btn-secondary text-xs <?php echo ($limit == 50) ? 'active' : ''; ?>" style="padding: 0.2rem 0.5rem;">50</a>
-                        <a href="<?php echo getClientsPageUrl('crm', 1, 'all'); ?>" class="btn btn-secondary text-xs <?php echo ($limit === 'all') ? 'active' : ''; ?>" style="padding: 0.2rem 0.5rem;">All</a>
-                    </div>
-                </div>
-            </div>
-
-            <div class="table-responsive">
-                <table class="table" style="font-size: 0.85rem;">
-                    <thead>
-                        <tr style="text-align: left; background-color: var(--bg-app);">
-                            <th style="padding: 0.85rem 1rem;">Client ID</th>
-                            <th>Company Name</th>
-                            <th>Contact Person</th>
-                            <th>Reg Mobile No</th>
-                            <th>Reg Email</th>
-                            <th>Registered Address</th>
-                            <th>GSTN No</th>
-                            <th>Edition / Product</th>
-                            <th>Account Representative</th>
-                            <th>Contract Value</th>
-                            <th>Status</th>
-                            <th style="text-align: right; padding-right: 1.25rem;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($crm_records)): ?>
-                            <tr>
-                                <td colspan="12" class="text-center text-muted py-8">
-                                    <i data-lucide="building" style="width: 40px; height: 40px; margin: 0 auto 0.75rem auto; color: var(--text-muted);"></i>
-                                    <p class="text-sm font-semibold mb-1">No active CRM client records match your filter criteria.</p>
-                                </td>
-                            </tr>
-                        <?php else: ?>
-                            <?php foreach ($crm_records as $client): ?>
-                                <tr>
-                                    <td style="padding: 0.85rem 1rem;">
-                                        <a href="index.php?page=lead_details&id=<?php echo $client['id']; ?>" class="font-bold text-primary hover-underline text-xs">
-                                            <?php echo $client['id']; ?>
-                                        </a>
-                                    </td>
-                                    <td>
-                                        <a href="index.php?page=lead_details&id=<?php echo $client['id']; ?>" class="font-bold text-main hover-primary text-sm">
-                                            <?php echo htmlspecialchars($client['company']); ?>
-                                        </a>
-                                    </td>
-                                    <td><span class="font-semibold text-main"><?php echo htmlspecialchars(!empty($client['contact_person']) ? $client['contact_person'] : $client['name']); ?></span></td>
-                                    <td>
-                                        <a href="tel:<?php echo $client['phone']; ?>" class="text-xs text-muted hover-primary font-mono flex align-center gap-1">
-                                            <i data-lucide="phone" style="width: 11px; height: 11px;"></i>
-                                            <?php echo htmlspecialchars($client['phone']); ?>
-                                        </a>
-                                    </td>
-                                    <td class="font-mono text-xs"><?php echo htmlspecialchars($client['email'] ?? 'NA'); ?></td>
-                                    <td class="text-xs text-muted" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><?php echo htmlspecialchars($client['address'] ?? 'NA'); ?></td>
-                                    <td class="font-mono text-xs font-semibold"><?php echo htmlspecialchars($client['gst'] ?? 'NA'); ?></td>
-                                    <td>
-                                        <span class="badge text-xs" style="--badge-bg: var(--accent-light); --badge-color: var(--accent); font-weight: 600;">
-                                            <?php echo htmlspecialchars(!empty($client['enq_for']) ? $client['enq_for'] : (!empty($client['products']) ? $client['products'] : 'Marg ERP Pro')); ?>
-                                        </span>
-                                    </td>
-                                    <td><span class="text-xs font-semibold"><?php echo htmlspecialchars(!empty($client['assigned_to']) ? $client['assigned_to'] : 'Unassigned'); ?></span></td>
-                                    <td><span class="text-sm font-extrabold text-success" style="font-family: var(--font-heading);">₹<?php echo number_format($client['budget'], 0); ?></span></td>
-                                    <td><?php echo getStatusBadge($client['status']); ?></td>
-                                    <td style="text-align: right; padding-right: 1.25rem;">
-                                        <div class="flex align-center justify-end gap-1">
-                                            <?php if (!empty($client['phone'])): 
-                                                $crmWa = [
-                                                    'id' => $client['id'],
-                                                    'party_name' => !empty($client['company']) ? $client['company'] : $client['name'],
-                                                    'client_name' => !empty($client['company']) ? $client['company'] : $client['name'],
-                                                    'contact_person' => !empty($client['contact_person']) ? $client['contact_person'] : $client['name'],
-                                                    'mobile' => $client['phone'],
-                                                    'email' => $client['email'] ?? '',
-                                                    'address' => $client['address'] ?? '',
-                                                    'city' => $client['city'] ?? '',
-                                                    'state' => $client['state'] ?? '',
-                                                    'customer_id' => !empty($client['license_no']) ? $client['license_no'] : ('CR-' . $client['id']),
-                                                    'software_type' => !empty($client['enq_for']) ? $client['enq_for'] : (!empty($client['products']) ? $client['products'] : 'Marg ERP'),
-                                                    'software_trade' => $client['software_trade'] ?? '',
-                                                    'total_amount' => $client['budget'] ?? '',
-                                                    'renewal_amount' => $client['budget'] ?? '',
-                                                    'amount' => $client['budget'] ?? '',
-                                                    'status' => $client['status'] ?? 'Active',
-                                                    'party_status' => $client['status'] ?? 'Active',
-                                                    'account_status' => $client['status'] ?? 'Active'
-                                                ];
-                                                $crmWaJson = htmlspecialchars(json_encode($crmWa), ENT_QUOTES, 'UTF-8');
-                                            ?>
-                                                <button type="button" class="btn-icon" style="color: #10b981;" title="Send WhatsApp Message" onclick='openClientSendWhatsAppModal(<?php echo $crmWaJson; ?>)'>
-                                                    <i data-lucide="message-square" style="width: 15px; height: 15px;"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                            <a href="index.php?page=lead_details&id=<?php echo $client['id']; ?>" class="btn-icon" title="View Profile">
-                                                <i data-lucide="eye" style="width: 15px; height: 15px;"></i>
-                                            </a>
-                                            <a href="index.php?page=lead_form&action=edit&id=<?php echo $client['id']; ?>" class="btn-icon" title="Edit Profile">
-                                                <i data-lucide="edit-3" style="width: 15px; height: 15px;"></i>
-                                            </a>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Pagination Controls Bar (Smart Truncated Pagination) -->
-            <?php if ($limit !== 'all' && $crm_total_pages > 1): ?>
-                <div class="p-4 flex justify-between align-center flex-wrap gap-2" style="border-top: 1px solid var(--border-color); background-color: var(--border-card);">
-                    <span class="text-xs text-muted font-bold">Showing Page <?php echo $page_num; ?> of <?php echo $crm_total_pages; ?></span>
-                    <div class="flex gap-1 align-center flex-wrap">
-                        <?php if ($page_num > 1): ?>
-                            <a href="<?php echo getClientsPageUrl('crm', $page_num - 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.35rem 0.65rem;">Previous</a>
-                        <?php endif; ?>
-
-                        <?php 
-                            $prev_p = 0;
-                            for ($i = 1; $i <= $crm_total_pages; $i++):
-                                if ($i == 1 || $i == $crm_total_pages || ($i >= $page_num - 2 && $i <= $page_num + 2)):
-                                    if ($prev_p > 0 && $i - $prev_p > 1):
-                                        echo '<span class="text-xs text-muted px-1" style="line-height: 28px;">...</span>';
-                                    endif;
-                                    $prev_p = $i;
-                        ?>
-                            <a href="<?php echo getClientsPageUrl('crm', $i, $limit); ?>" class="btn btn-secondary text-xs <?php echo ($i == $page_num) ? 'active' : ''; ?>" style="<?php echo ($i == $page_num) ? 'background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700;' : ''; ?> padding: 0.35rem 0.65rem;"><?php echo $i; ?></a>
-                        <?php 
-                                endif;
-                            endfor; 
-                        ?>
-
-                        <?php if ($page_num < $crm_total_pages): ?>
-                            <a href="<?php echo getClientsPageUrl('crm', $page_num + 1, $limit); ?>" class="btn btn-secondary text-xs" style="padding: 0.35rem 0.65rem;">Next</a>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            <?php endif; ?>
-        </div>
-
+        <?php 
+            require __DIR__ . '/admin/crm_clients.php';
+        ?>
     <?php endif; ?>
 
 </div>
@@ -2906,6 +2614,7 @@ function getClientsPageUrl($tab, $p, $limit) {
                                 ['icon'=>'calendar',     'label'=>'Renewal Date',    'id'=>'info_renewal_date',    'warning'=>true],
                                 ['icon'=>'calendar-check','label'=>'Act On',         'id'=>'info_act_on'],
                                 ['icon'=>'zap',          'label'=>'Last Hit Date',   'id'=>'info_last_hit'],
+                                ['icon'=>'paperclip',    'label'=>'License File',    'id'=>'info_license_file'],
                             ],
                         ];
                         foreach ($lic_sections as $sectionTitle => $fields): ?>
@@ -3763,6 +3472,14 @@ function openLicenceAmcWindow(client) {
     document.getElementById('info_renewal_date').innerText         = client.due_on || client.act_on || 'N/A';
     document.getElementById('info_act_on').innerText               = client.act_on || 'N/A';
     document.getElementById('info_last_hit').innerText             = client.software_hit_date || 'N/A';
+    const licFileEl = document.getElementById('info_license_file');
+    if (licFileEl) {
+        if (client.license_file_path) {
+            licFileEl.innerHTML = '<a href="' + client.license_file_path + '" target="_blank" download style="color:var(--accent-cyan); font-weight:600; text-decoration:underline; display:inline-flex; align-items:center; gap:4px;">📥 Download Attached File</a>';
+        } else {
+            licFileEl.innerText = '-';
+        }
+    }
 
     // Populate Right Card: AMC Info
     const totalAmt = parseFloat(client.total_amount || 0);
@@ -5117,33 +4834,49 @@ document.addEventListener('DOMContentLoaded', loadDirColumnPreferences);
                 <textarea id="cwa_message_body" rows="9" placeholder="Type your WhatsApp message here or select a template above..." class="form-control text-xs" style="width: 100%; border-radius: 10px; font-family: inherit; line-height: 1.5; padding: 10px 12px; resize: vertical;" oninput="updateClientWaCharCount()"></textarea>
             </div>
 
-            <!-- Quick Insert Variable Chips -->
-            <div style="margin-bottom: 0.5rem;">
-                <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">
-                    Insert Client Tags (Click to Insert):
-                </span>
-                <div style="display: flex; flex-wrap: wrap; gap: 5px;">
-                    <button type="button" onclick="insertClientWaTag('party_name')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Party Name</button>
-                    <button type="button" onclick="insertClientWaTag('customer_id')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Customer ID</button>
-                    <button type="button" onclick="insertClientWaTag('contact_person')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Contact Person</button>
-                    <button type="button" onclick="insertClientWaTag('mobile')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Mobile</button>
-                    <button type="button" onclick="insertClientWaTag('status')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Status</button>
-                    <button type="button" onclick="insertClientWaTag('software_type')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Software</button>
-                    <button type="button" onclick="insertClientWaTag('software_trade')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Trade</button>
-                    <button type="button" onclick="insertClientWaTag('version')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Version</button>
-                    <button type="button" onclick="insertClientWaTag('due_date')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Due Date</button>
-                    <button type="button" onclick="insertClientWaTag('renewal_amount')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Renewal Amount</button>
-                    <button type="button" onclick="insertClientWaTag('no_of_users')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ No. of Users</button>
-                    <button type="button" onclick="insertClientWaTag('no_of_companies')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ No. of Companies</button>
-                    <button type="button" onclick="insertClientWaTag('city')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ City</button>
-                    <button type="button" onclick="insertClientWaTag('state')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ State</button>
-                    <button type="button" onclick="insertClientWaTag('address')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Address</button>
-                    <button type="button" onclick="insertClientWaTag('online_zip_code')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Pincode</button>
-                    <button type="button" onclick="insertClientWaTag('wallet_id')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Wallet ID</button>
-                    <button type="button" onclick="insertClientWaTag('software_hit_date')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Hit Date</button>
-                    <button type="button" onclick="insertClientWaTag('company_using')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Company Using</button>
-                    <button type="button" onclick="insertClientWaTag('subpartner_name')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Subpartner</button>
-                    <button type="button" onclick="insertClientWaTag('helpline')" class="btn btn-secondary text-xs" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 6px; cursor: pointer;">+ Helpline</button>
+            <!-- Insert Client Tags Section (Search Bar + Alphabetical Dropdown + Filterable Tags) -->
+            <div style="margin-bottom: 0.65rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <i data-lucide="tag" style="width: 13px; height: 13px; color: #059669;"></i>
+                        <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.04em;">
+                            Insert Client Tags
+                        </span>
+                    </div>
+                    <span id="cwa_tags_count_badge" class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 6px;">
+                        A to Z
+                    </span>
+                </div>
+
+                <!-- Responsive Search Bar + Alphabetical Dropdown Row -->
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
+                    <!-- Mini Search Bar -->
+                    <div style="position: relative; flex: 1 1 180px; min-width: 150px;">
+                        <i data-lucide="search" style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; color: var(--text-muted); pointer-events: none;"></i>
+                        <input type="text" id="cwa_tag_search_input" placeholder="Search client tag..." oninput="filterClientWaTags(this.value)" class="form-control text-xs" style="width: 100%; height: 32px; padding-left: 28px; padding-right: 24px; border-radius: 8px; font-size: 0.74rem; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main);">
+                        <button type="button" id="cwa_tag_search_clear" onclick="clearClientWaTagSearch()" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted); display: none; padding: 2px;" title="Clear search">
+                            <i data-lucide="x" style="width: 12px; height: 12px;"></i>
+                        </button>
+                    </div>
+
+                    <!-- Alphabetical Dropdown (A to Z) -->
+                    <div style="display: flex; gap: 6px; flex: 1.4 1 220px; min-width: 200px;">
+                        <select id="cwa_tag_dropdown" onchange="onSelectClientWaTagDropdown(this.value)" class="form-control text-xs" style="flex: 1; height: 32px; border-radius: 8px; font-size: 0.74rem; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-main); cursor: pointer; text-overflow: ellipsis;">
+                            <option value="">▼ Select Client Tag (A to Z)...</option>
+                        </select>
+                        <button type="button" onclick="insertChosenDropdownTag()" class="btn btn-secondary text-xs" style="height: 32px; padding: 0 10px; border-radius: 8px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border-color); cursor: pointer;" title="Insert Tag into Message">
+                            <i data-lucide="plus" style="width: 12px; height: 12px;"></i>
+                            <span>Insert</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Responsive Quick Tag Chips Container -->
+                <div id="cwa_tag_chips_wrapper" style="max-height: 105px; overflow-y: auto; padding: 2px 1px; display: flex; flex-wrap: wrap; gap: 5px; scrollbar-width: thin;">
+                    <!-- Dynamically populated alphabetical tag buttons -->
+                </div>
+                <div id="cwa_no_tags_found" style="display: none; padding: 6px 4px; font-size: 0.72rem; color: var(--text-muted); font-style: italic;">
+                    No matching client tags found for your search.
                 </div>
             </div>
 
@@ -5232,6 +4965,48 @@ window.closeCallQrModal = closeCallQrModal;
 // Client Directory WhatsApp Dispatcher (Template vs Manual Send Controller)
 // --------------------------------------------------------------------------
 window.clientWaDbTemplates = <?php echo json_encode($client_wa_templates ?? []); ?>;
+window.subPartnersList = <?php echo json_encode($sub_partners_list ?? []); ?>;
+
+function getSubPartnerDetails(client) {
+    if (!client) return null;
+    const spList = Array.isArray(window.subPartnersList) ? window.subPartnersList : [];
+    const code = String(client.subpartner_code || client.sub_partner_code || '').trim().toUpperCase();
+    const name = String(client.subpartner_name || client.subpartner || client.sub_partner_name || '').trim().toLowerCase();
+
+    if (!code && !name) return null;
+
+    let found = null;
+    if (code) {
+        found = spList.find(p => String(p.partner_code || '').trim().toUpperCase() === code);
+    }
+    if (!found && name) {
+        found = spList.find(p => String(p.partner_name || '').trim().toLowerCase() === name);
+    }
+    return found || null;
+}
+window.getSubPartnerDetails = getSubPartnerDetails;
+
+function enrichClientWithSubPartner(client) {
+    if (!client) return client;
+    const sp = getSubPartnerDetails(client);
+    if (sp) {
+        if (!client.subpartner_name && sp.partner_name) client.subpartner_name = sp.partner_name;
+        if (!client.subpartner_code && sp.partner_code) client.subpartner_code = sp.partner_code;
+        if (!client.subpartner_contact_person && sp.contact_person) client.subpartner_contact_person = sp.contact_person;
+        if (!client.subpartner_mobile && sp.mobile) client.subpartner_mobile = sp.mobile;
+        if (!client.subpartner_phone && sp.mobile) client.subpartner_phone = sp.mobile;
+        if (!client.subpartner_alt_mobile && sp.alt_mobile) client.subpartner_alt_mobile = sp.alt_mobile;
+        if (!client.subpartner_email && sp.email) client.subpartner_email = sp.email;
+        if (!client.subpartner_city && sp.city) client.subpartner_city = sp.city;
+        if (!client.subpartner_state && sp.state) client.subpartner_state = sp.state;
+        if (!client.subpartner_address && sp.address) client.subpartner_address = sp.address;
+        if (!client.subpartner_gstin && sp.gstin) client.subpartner_gstin = sp.gstin;
+        if (!client.subpartner_commission_rate && sp.commission_rate !== undefined) client.subpartner_commission_rate = sp.commission_rate;
+        if (!client.subpartner_status && sp.status) client.subpartner_status = sp.status;
+    }
+    return client;
+}
+window.enrichClientWithSubPartner = enrichClientWithSubPartner;
 
 const clientWaPresetTemplates = [
     {
@@ -5402,6 +5177,18 @@ function renderClientWaTemplateText(rawText, client) {
         'company_using': client.company_using || '',
         'subpartner_name': client.subpartner_name || '',
         'subpartner': client.subpartner_name || '',
+        'subpartner_code': client.subpartner_code || '',
+        'subpartner_contact_person': client.subpartner_contact_person || '',
+        'subpartner_mobile': normalizePhoneForDialing(client.subpartner_mobile || ''),
+        'subpartner_phone': normalizePhoneForDialing(client.subpartner_mobile || ''),
+        'subpartner_alt_mobile': normalizePhoneForDialing(client.subpartner_alt_mobile || ''),
+        'subpartner_email': client.subpartner_email || '',
+        'subpartner_city': client.subpartner_city || '',
+        'subpartner_state': client.subpartner_state || '',
+        'subpartner_address': client.subpartner_address || '',
+        'subpartner_gstin': client.subpartner_gstin || '',
+        'subpartner_commission_rate': client.subpartner_commission_rate || '',
+        'subpartner_status': client.subpartner_status || '',
         'helpline': helpline,
         'crm_link': crmLink,
         // Positional defaults for marg_bill
@@ -5739,52 +5526,307 @@ function onClientWaTemplateChanged(tplKey) {
 }
 window.onClientWaTemplateChanged = onClientWaTemplateChanged;
 
+// Master definition of recognized client tags with clean alphabetical labels
+const clientWaMasterTagList = [
+    { key: 'act_on', label: 'Act On Date' },
+    { key: 'address', label: 'Address' },
+    { key: 'category', label: 'Category' },
+    { key: 'city', label: 'City' },
+    { key: 'company_using', label: 'Company Using' },
+    { key: 'contact_person', label: 'Contact Person' },
+    { key: 'crm_link', label: 'CRM / Portal Link' },
+    { key: 'customer_id', label: 'Customer ID' },
+    { key: 'days', label: 'Days' },
+    { key: 'due_date', label: 'Due Date' },
+    { key: 'email', label: 'Email ID' },
+    { key: 'helpline', label: 'Helpline' },
+    { key: 'home_user', label: 'Home User' },
+    { key: 'mobile', label: 'Mobile' },
+    { key: 'no_of_companies', label: 'No. of Companies' },
+    { key: 'no_of_users', label: 'No. of Users' },
+    { key: 'online_zip_code', label: 'Pincode' },
+    { key: 'party_name', label: 'Party Name' },
+    { key: 'renewal_amount', label: 'Renewal Amount' },
+    { key: 'sno', label: 'S.No' },
+    { key: 'software_hit_date', label: 'Software Hit Date' },
+    { key: 'software_trade', label: 'Software Trade' },
+    { key: 'software_type', label: 'Software Type' },
+    { key: 'state', label: 'State' },
+    { key: 'status', label: 'Status' },
+    { key: 'subpartner_address', label: 'Subpartner Address' },
+    { key: 'subpartner_alt_mobile', label: 'Subpartner Alt Mobile' },
+    { key: 'subpartner_city', label: 'Subpartner City' },
+    { key: 'subpartner_code', label: 'Subpartner Code' },
+    { key: 'subpartner_commission_rate', label: 'Subpartner Commission' },
+    { key: 'subpartner_contact_person', label: 'Subpartner Contact Person' },
+    { key: 'subpartner_email', label: 'Subpartner Email ID' },
+    { key: 'subpartner_gstin', label: 'Subpartner GSTIN' },
+    { key: 'subpartner_mobile', label: 'Subpartner Mobile' },
+    { key: 'subpartner_name', label: 'Subpartner Name' },
+    { key: 'subpartner_state', label: 'Subpartner State' },
+    { key: 'subpartner_status', label: 'Subpartner Status' },
+    { key: 'total_amount', label: 'Total Amount' },
+    { key: 'transferred_party', label: 'Transferred Party' },
+    { key: 'user_type', label: 'User Type' },
+    { key: 'version', label: 'Version' },
+    { key: 'wallet_id', label: 'Wallet ID' }
+];
+
+function formatWaFieldLabel(key) {
+    if (!key) return '';
+    return key
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function resolveClientWaTagData(tagKey, client) {
+    if (!client) return '';
+    const partyName = client.party_name || client.client_name || '';
+    const contactPerson = client.contact_person || partyName || 'Valued Client';
+    const softwareType = client.software_type || client.sw_type || 'Marg ERP';
+    const softwareTrade = client.software_trade || '';
+    const displaySw = softwareTrade ? (softwareType + ' (' + softwareTrade + ')') : softwareType;
+    const rawDue = client.due_date || client.due_on || '';
+    const dueOn = formatWaDateDDMMYYYY(rawDue);
+    const rawAmt = (client.renewal_amount !== undefined && client.renewal_amount !== '' && client.renewal_amount !== null)
+        ? client.renewal_amount
+        : ((client.total_amount !== undefined && client.total_amount !== '' && client.total_amount !== null) ? client.total_amount : (client.amount || ''));
+    const totalAmount = rawAmt ? (!isNaN(rawAmt) ? Number(rawAmt).toLocaleString('en-IN') : String(rawAmt)) : '';
+    const status = client.status || client.party_status || client.account_status || 'Running';
+    const helpline = '9305045727 / 7523830026';
+    const crmLink = 'https://friendlyaisolution.com/';
+
+    // Resolve subpartner from client or fallback to master sub_partners lookup
+    const sp = getSubPartnerDetails(client);
+
+    switch (tagKey) {
+        case 'party_name':
+        case 'client_name': return partyName;
+        case 'customer_id': return client.customer_id || (client.license_no ? client.license_no : '');
+        case 'contact_person': return contactPerson;
+        case 'software_type': return displaySw;
+        case 'software_trade': return softwareTrade;
+        case 'status':
+        case 'party_status':
+        case 'account_status': return status;
+        case 'due_date':
+        case 'due_on': return dueOn;
+        case 'act_on': return formatWaDateDDMMYYYY(client.act_on || '');
+        case 'software_hit_date':
+        case 'hit_date': return formatWaDateDDMMYYYY(client.software_hit_date || '');
+        case 'renewal_amount':
+        case 'total_amount':
+        case 'amount': return totalAmount;
+        case 'no_of_users': return String(client.no_of_users || '1');
+        case 'no_of_companies': return String(client.no_of_companies || '1');
+        case 'helpline': return helpline;
+        case 'crm_link': return crmLink;
+        case 'mobile':
+        case 'phone': return normalizePhoneForDialing(client.mobile || client.phone || '');
+        case 'online_zip_code':
+        case 'pincode': return String(client.online_zip_code || client.pincode || '');
+        case 'sno':
+        case 'id': return String(client.sno || client.id || '');
+        case 'city': return client.city || '';
+        case 'state': return client.state || '';
+        case 'address': return client.address || '';
+        case 'wallet_id': return client.wallet_id || '';
+        case 'version': return client.version || '';
+        case 'days': return (client.days !== undefined && client.days !== null) ? String(client.days) : '';
+        case 'user_type': return client.user_type || '';
+        case 'company_using': return client.company_using || '';
+        case 'subpartner_name':
+        case 'subpartner': return client.subpartner_name || sp?.partner_name || '';
+        case 'subpartner_code': return client.subpartner_code || sp?.partner_code || '';
+        case 'subpartner_contact_person': return client.subpartner_contact_person || sp?.contact_person || '';
+        case 'subpartner_mobile':
+        case 'subpartner_phone': return normalizePhoneForDialing(client.subpartner_mobile || client.subpartner_phone || sp?.mobile || '');
+        case 'subpartner_alt_mobile': return normalizePhoneForDialing(client.subpartner_alt_mobile || sp?.alt_mobile || '');
+        case 'subpartner_email': return client.subpartner_email || sp?.email || '';
+        case 'subpartner_city': return client.subpartner_city || sp?.city || '';
+        case 'subpartner_state': return client.subpartner_state || sp?.state || '';
+        case 'subpartner_address': return client.subpartner_address || sp?.address || '';
+        case 'subpartner_gstin': return client.subpartner_gstin || sp?.gstin || '';
+        case 'subpartner_commission_rate': return client.subpartner_commission_rate !== undefined && client.subpartner_commission_rate !== '' ? String(client.subpartner_commission_rate) : (sp?.commission_rate !== undefined ? String(sp.commission_rate) : '');
+        case 'subpartner_status': return client.subpartner_status || sp?.status || '';
+        case 'category': return client.category || '';
+        case 'transferred_party': return client.transferred_party || '';
+        case 'home_user': return client.home_user || '';
+        default:
+            if (client[tagKey] !== undefined && client[tagKey] !== null) {
+                const v = String(client[tagKey]);
+                if (tagKey.includes('date') || tagKey.endsWith('_on')) return formatWaDateDDMMYYYY(v);
+                return v;
+            }
+            return '';
+    }
+}
+window.resolveClientWaTagData = resolveClientWaTagData;
+
+let cachedAlphabeticalWaTags = [];
+
+function buildAlphabeticalClientTags(client) {
+    const list = [];
+    const seenKeys = new Set();
+
+    clientWaMasterTagList.forEach(item => {
+        const val = resolveClientWaTagData(item.key, client);
+        list.push({
+            key: item.key,
+            label: item.label,
+            value: val
+        });
+        seenKeys.add(item.key);
+        if (item.key === 'party_name') seenKeys.add('client_name');
+        if (item.key === 'due_date') seenKeys.add('due_on');
+        if (item.key === 'renewal_amount') { seenKeys.add('total_amount'); seenKeys.add('amount'); }
+        if (item.key === 'software_hit_date') seenKeys.add('hit_date');
+        if (item.key === 'online_zip_code') seenKeys.add('pincode');
+        if (item.key === 'mobile') seenKeys.add('phone');
+        if (item.key === 'status') { seenKeys.add('party_status'); seenKeys.add('account_status'); }
+        if (item.key === 'sno') seenKeys.add('id');
+        if (item.key === 'subpartner_name') seenKeys.add('subpartner');
+        if (item.key === 'subpartner_mobile') seenKeys.add('subpartner_phone');
+    });
+
+    if (client && typeof client === 'object') {
+        const ignoredKeys = new Set([
+            'action', 'password', 'csrf_token', 'user_id', 'permissions',
+            'created_at', 'updated_at', 'token', 'auth', '_meta'
+        ]);
+        for (const k in client) {
+            if (client.hasOwnProperty(k) && !seenKeys.has(k) && !ignoredKeys.has(k.toLowerCase())) {
+                const rawVal = client[k];
+                if (typeof rawVal !== 'object' && typeof rawVal !== 'function' && rawVal !== null && rawVal !== undefined) {
+                    const val = resolveClientWaTagData(k, client);
+                    list.push({
+                        key: k,
+                        label: formatWaFieldLabel(k),
+                        value: val
+                    });
+                    seenKeys.add(k);
+                }
+            }
+        }
+    }
+
+    list.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    return list;
+}
+window.buildAlphabeticalClientTags = buildAlphabeticalClientTags;
+
+function renderClientWaTagsUI(filterQuery = '') {
+    const dropdown = document.getElementById('cwa_tag_dropdown');
+    const chipsWrapper = document.getElementById('cwa_tag_chips_wrapper');
+    const badge = document.getElementById('cwa_tags_count_badge');
+    const noTagsMsg = document.getElementById('cwa_no_tags_found');
+    const clearBtn = document.getElementById('cwa_tag_search_clear');
+
+    const q = (filterQuery || '').trim().toLowerCase();
+    if (clearBtn) {
+        clearBtn.style.display = q ? 'block' : 'none';
+    }
+
+    if (!Array.isArray(cachedAlphabeticalWaTags) || cachedAlphabeticalWaTags.length === 0) {
+        cachedAlphabeticalWaTags = buildAlphabeticalClientTags(currentWaClient || {});
+    }
+
+    const filtered = cachedAlphabeticalWaTags.filter(item => {
+        if (!q) return true;
+        const lMatch = item.label.toLowerCase().includes(q);
+        const kMatch = item.key.toLowerCase().includes(q);
+        const vMatch = item.value ? item.value.toLowerCase().includes(q) : false;
+        return lMatch || kMatch || vMatch;
+    });
+
+    if (badge) {
+        badge.textContent = filtered.length + ' Tags (A-Z)';
+    }
+
+    // Populate Dropdown
+    if (dropdown) {
+        const curVal = dropdown.value;
+        dropdown.innerHTML = '<option value="">▼ Select Client Tag (A to Z)...</option>';
+        filtered.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.key;
+            const valSnippet = item.value ? (' (' + (item.value.length > 28 ? item.value.substring(0, 25) + '...' : item.value) + ')') : ' (Empty)';
+            opt.textContent = item.label + valSnippet;
+            dropdown.appendChild(opt);
+        });
+        if (curVal && filtered.some(f => f.key === curVal)) {
+            dropdown.value = curVal;
+        }
+    }
+
+    // Populate Chips
+    if (chipsWrapper) {
+        chipsWrapper.innerHTML = '';
+        if (filtered.length === 0) {
+            if (noTagsMsg) noTagsMsg.style.display = 'block';
+        } else {
+            if (noTagsMsg) noTagsMsg.style.display = 'none';
+            filtered.forEach(item => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn btn-secondary text-xs';
+                btn.style.cssText = 'padding: 3px 8px; font-size: 0.72rem; border-radius: 6px; cursor: pointer; transition: all 0.15s; border: 1px solid var(--border-color); white-space: nowrap;';
+                btn.innerHTML = '+ ' + item.label;
+                if (item.value) {
+                    btn.title = item.label + ': ' + item.value;
+                } else {
+                    btn.title = item.label + ' (Not set for this client)';
+                }
+                btn.onclick = function() {
+                    insertClientWaTag(item.key);
+                };
+                chipsWrapper.appendChild(btn);
+            });
+        }
+    }
+}
+window.renderClientWaTagsUI = renderClientWaTagsUI;
+
+function filterClientWaTags(term) {
+    renderClientWaTagsUI(term);
+}
+window.filterClientWaTags = filterClientWaTags;
+
+function clearClientWaTagSearch() {
+    const sInp = document.getElementById('cwa_tag_search_input');
+    if (sInp) sInp.value = '';
+    renderClientWaTagsUI('');
+    if (sInp) sInp.focus();
+}
+window.clearClientWaTagSearch = clearClientWaTagSearch;
+
+function onSelectClientWaTagDropdown(val) {
+    if (!val) return;
+    insertClientWaTag(val);
+    const dropdown = document.getElementById('cwa_tag_dropdown');
+    if (dropdown) dropdown.value = '';
+}
+window.onSelectClientWaTagDropdown = onSelectClientWaTagDropdown;
+
+function insertChosenDropdownTag() {
+    const dropdown = document.getElementById('cwa_tag_dropdown');
+    if (!dropdown || !dropdown.value) {
+        if (dropdown) dropdown.focus();
+        return;
+    }
+    insertClientWaTag(dropdown.value);
+    dropdown.value = '';
+}
+window.insertChosenDropdownTag = insertChosenDropdownTag;
+
 function insertClientWaTag(tagKey) {
     if (!currentWaClient) return;
     const textEl = document.getElementById('cwa_message_body');
     if (!textEl) return;
 
-    let valueToInsert = '';
-    const partyName = currentWaClient.party_name || currentWaClient.client_name || '';
-    const contactPerson = currentWaClient.contact_person || partyName;
-    const softwareType = currentWaClient.software_type || 'Marg ERP';
-    const softwareTrade = currentWaClient.software_trade || '';
-    const displaySw = softwareTrade ? (softwareType + ' (' + softwareTrade + ')') : softwareType;
-    const rawAmt = (currentWaClient.renewal_amount !== undefined && currentWaClient.renewal_amount !== '') ? currentWaClient.renewal_amount : (currentWaClient.total_amount || 0);
-    const totalAmount = rawAmt ? Number(rawAmt).toLocaleString('en-IN') : '0.00';
-    const status = currentWaClient.status || currentWaClient.party_status || currentWaClient.account_status || 'Running';
-
-    if (tagKey in currentWaClient && currentWaClient[tagKey] !== null && currentWaClient[tagKey] !== undefined && currentWaClient[tagKey] !== '') {
-        valueToInsert = String(currentWaClient[tagKey]);
-        if ((tagKey === 'total_amount' || tagKey === 'renewal_amount' || tagKey === 'amount') && !isNaN(valueToInsert)) {
-            valueToInsert = Number(valueToInsert).toLocaleString('en-IN');
-        }
-        if (tagKey === 'due_date' || tagKey === 'due_on' || tagKey === 'software_hit_date' || tagKey === 'hit_date' || tagKey === 'act_on') {
-            valueToInsert = formatWaDateDDMMYYYY(valueToInsert);
-        }
-    } else {
-        switch (tagKey) {
-            case 'party_name':
-            case 'client_name': valueToInsert = partyName; break;
-            case 'customer_id': valueToInsert = currentWaClient.customer_id || ''; break;
-            case 'contact_person': valueToInsert = contactPerson; break;
-            case 'software_type': valueToInsert = displaySw; break;
-            case 'status':
-            case 'party_status':
-            case 'account_status': valueToInsert = status; break;
-            case 'due_on':
-            case 'due_date': valueToInsert = formatWaDateDDMMYYYY(currentWaClient.due_date || currentWaClient.due_on || ''); break;
-            case 'software_hit_date':
-            case 'hit_date': valueToInsert = formatWaDateDDMMYYYY(currentWaClient.software_hit_date || ''); break;
-            case 'act_on': valueToInsert = formatWaDateDDMMYYYY(currentWaClient.act_on || ''); break;
-            case 'total_amount':
-            case 'renewal_amount':
-            case 'amount': valueToInsert = totalAmount; break;
-            case 'no_of_users': valueToInsert = String(currentWaClient.no_of_users || '1'); break;
-            case 'no_of_companies': valueToInsert = String(currentWaClient.no_of_companies || '1'); break;
-            case 'helpline': valueToInsert = '9305045727 / 7523830026'; break;
-            default: valueToInsert = '{' + tagKey + '}'; break;
-        }
+    let valueToInsert = resolveClientWaTagData(tagKey, currentWaClient);
+    if (!valueToInsert && valueToInsert !== '0') {
+        valueToInsert = '{' + tagKey + '}';
     }
 
     const startPos = textEl.selectionStart || 0;
@@ -5793,6 +5835,13 @@ function insertClientWaTag(tagKey) {
     textEl.focus();
     textEl.selectionStart = textEl.selectionEnd = startPos + valueToInsert.length;
     updateClientWaCharCount();
+
+    // Subtle green flash feedback
+    textEl.style.transition = 'box-shadow 0.2s';
+    textEl.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.45)';
+    setTimeout(() => {
+        textEl.style.boxShadow = '';
+    }, 350);
 }
 window.insertClientWaTag = insertClientWaTag;
 
@@ -5801,6 +5850,7 @@ function openClientSendWhatsAppModal(client) {
         alert('This client record does not have a registered mobile number.');
         return;
     }
+    client = enrichClientWithSubPartner(client);
     currentWaClient = client;
 
     // Badges & info
@@ -5819,6 +5869,12 @@ function openClientSendWhatsAppModal(client) {
     // Clear alert
     const alertEl = document.getElementById('cwa_status_alert');
     if (alertEl) { alertEl.style.display = 'none'; alertEl.innerHTML = ''; }
+
+    // Rebuild alphabetical tags cache & render dynamic tags UI
+    cachedAlphabeticalWaTags = buildAlphabeticalClientTags(client);
+    const tagSearchInput = document.getElementById('cwa_tag_search_input');
+    if (tagSearchInput) tagSearchInput.value = '';
+    renderClientWaTagsUI('');
 
     // Populate Templates dropdown with Meta Approved templates
     const tplSelect = document.getElementById('cwa_tpl_select');
@@ -5875,6 +5931,7 @@ function closeClientSendWhatsAppModal() {
         modal.style.opacity = '0';
     }
     currentWaClient = null;
+    cachedAlphabeticalWaTags = [];
     clearClientChosenMedia();
 }
 window.closeClientSendWhatsAppModal = closeClientSendWhatsAppModal;

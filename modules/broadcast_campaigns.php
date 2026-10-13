@@ -1720,14 +1720,50 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
 
                         <textarea id="indMessageText" name="message" class="input-styled text-xs wa-body-textarea" rows="6" required placeholder="Select a template above, generate with AI, or type custom message... (Select text & press Ctrl+B for Bold, Ctrl+I for Italic)" oninput="updateIndividualPreview()" style="resize: vertical; line-height: 1.5;"></textarea>
                         
-                        <!-- 1-Click Variable Pills (inserts at cursor) -->
-                        <div style="font-size: 0.72rem; color: #64748b; margin-top: 6px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
-                            <span class="font-bold text-slate-700" style="margin-right: 2px;">Insert Variable:</span>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToIndBody('{name}')">+ {name}</button>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToIndBody('{company}')">+ {company}</button>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToIndBody('{phone}')">+ {phone}</button>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToIndBody('{amount}')">+ {amount}</button>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToIndBody('{due_date}')">+ {due_date}</button>
+                        <!-- Insert Client & Sub-Partner Variables (Search Bar + A-Z Dropdown + Filterable Chips) -->
+                        <div style="margin-top: 8px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 10px 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <i data-lucide="tag" style="width: 13px; height: 13px; color: #059669;"></i>
+                                    <span style="font-size: 0.72rem; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.04em;">
+                                        Insert Client &amp; Sub-Partner Variables
+                                    </span>
+                                </div>
+                                <span id="ind_vars_badge" class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 6px;">
+                                    A to Z
+                                </span>
+                            </div>
+
+                            <!-- Responsive Search Bar + Alphabetical Dropdown Row -->
+                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
+                                <!-- Mini Search Bar -->
+                                <div style="position: relative; flex: 1 1 180px; min-width: 150px;">
+                                    <i data-lucide="search" style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; color: #94a3b8; pointer-events: none;"></i>
+                                    <input type="text" id="ind_var_search" placeholder="Search variable (name, due, subpartner)..." oninput="filterIndVars(this.value)" class="input-styled text-xs" style="width: 100%; height: 32px; padding-left: 28px; padding-right: 24px; border-radius: 8px; font-size: 0.74rem;">
+                                    <button type="button" id="ind_var_clear_btn" onclick="clearIndVarSearch()" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8; display: none; padding: 2px;" title="Clear search">
+                                        <i data-lucide="x" style="width: 12px; height: 12px;"></i>
+                                    </button>
+                                </div>
+
+                                <!-- Alphabetical Dropdown (A to Z) -->
+                                <div style="display: flex; gap: 6px; flex: 1.4 1 220px; min-width: 200px;">
+                                    <select id="ind_var_dropdown" onchange="onSelectIndVarDropdown(this.value)" class="input-styled text-xs" style="flex: 1; height: 32px; border-radius: 8px; font-size: 0.74rem; cursor: pointer;">
+                                        <option value="">▼ Select Variable (A to Z)...</option>
+                                    </select>
+                                    <button type="button" onclick="insertChosenIndDropdownVar()" class="btn btn-secondary text-xs" style="height: 32px; padding: 0 10px; border-radius: 8px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #cbd5e1; cursor: pointer;" title="Insert Variable into Message">
+                                        <i data-lucide="plus" style="width: 12px; height: 12px;"></i>
+                                        <span>Insert</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Responsive Quick Variable Chips Container -->
+                            <div id="ind_var_chips_container" style="max-height: 105px; overflow-y: auto; padding: 2px 1px; display: flex; flex-wrap: wrap; gap: 5px; scrollbar-width: thin;">
+                                <!-- Dynamically populated alphabetical variable buttons -->
+                            </div>
+                            <div id="ind_no_vars_msg" style="display: none; padding: 6px 4px; font-size: 0.72rem; color: #94a3b8; font-style: italic;">
+                                No matching variables found.
+                            </div>
                         </div>
                     </div>
 
@@ -2533,14 +2569,50 @@ $canManageTemplates = true; // Any authenticated user or tenant can create & man
 
                         <textarea name="body_text" id="builderBodyText" class="input-styled text-xs wa-body-textarea" rows="6" required placeholder="Type template text... Select text & press Ctrl+B for Bold (*text*) or Ctrl+I for Italic (_text_)..." oninput="updateLivePhoneMockup()" style="resize: vertical; line-height: 1.5;"></textarea>
                         
-                        <!-- 1-Click Variable Pills (inserts at cursor) -->
-                        <div style="font-size: 0.72rem; color: #64748b; margin-top: 6px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
-                            <span class="font-bold text-slate-700" style="margin-right: 2px;">Insert Variable:</span>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToBody('{name}')">+ {name}</button>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToBody('{company}')">+ {company}</button>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToBody('{phone}')">+ {phone}</button>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToBody('{amount}')">+ {amount}</button>
-                            <button type="button" class="var-pill-btn" onclick="insertVarToBody('{due_date}')">+ {due_date}</button>
+                        <!-- Insert Client & Sub-Partner Variables (Search Bar + A-Z Dropdown + Filterable Chips) -->
+                        <div style="margin-top: 8px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 10px 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <i data-lucide="tag" style="width: 13px; height: 13px; color: #059669;"></i>
+                                    <span style="font-size: 0.72rem; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.04em;">
+                                        Insert Client &amp; Sub-Partner Variables
+                                    </span>
+                                </div>
+                                <span id="builder_vars_badge" class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 6px;">
+                                    A to Z
+                                </span>
+                            </div>
+
+                            <!-- Responsive Search Bar + Alphabetical Dropdown Row -->
+                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
+                                <!-- Mini Search Bar -->
+                                <div style="position: relative; flex: 1 1 180px; min-width: 150px;">
+                                    <i data-lucide="search" style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; color: #94a3b8; pointer-events: none;"></i>
+                                    <input type="text" id="builder_var_search" placeholder="Search variable (name, due, subpartner)..." oninput="filterTemplateBuilderVars(this.value)" class="input-styled text-xs" style="width: 100%; height: 32px; padding-left: 28px; padding-right: 24px; border-radius: 8px; font-size: 0.74rem;">
+                                    <button type="button" id="builder_var_clear_btn" onclick="clearTemplateBuilderVarSearch()" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8; display: none; padding: 2px;" title="Clear search">
+                                        <i data-lucide="x" style="width: 12px; height: 12px;"></i>
+                                    </button>
+                                </div>
+
+                                <!-- Alphabetical Dropdown (A to Z) -->
+                                <div style="display: flex; gap: 6px; flex: 1.4 1 220px; min-width: 200px;">
+                                    <select id="builder_var_dropdown" onchange="onSelectBuilderVarDropdown(this.value)" class="input-styled text-xs" style="flex: 1; height: 32px; border-radius: 8px; font-size: 0.74rem; cursor: pointer;">
+                                        <option value="">▼ Select Variable (A to Z)...</option>
+                                    </select>
+                                    <button type="button" onclick="insertChosenBuilderDropdownVar()" class="btn btn-secondary text-xs" style="height: 32px; padding: 0 10px; border-radius: 8px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #cbd5e1; cursor: pointer;" title="Insert Variable into Template">
+                                        <i data-lucide="plus" style="width: 12px; height: 12px;"></i>
+                                        <span>Insert</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Responsive Quick Variable Chips Container -->
+                            <div id="builder_var_chips_container" style="max-height: 105px; overflow-y: auto; padding: 2px 1px; display: flex; flex-wrap: wrap; gap: 5px; scrollbar-width: thin;">
+                                <!-- Dynamically populated alphabetical variable buttons -->
+                            </div>
+                            <div id="builder_no_vars_msg" style="display: none; padding: 6px 4px; font-size: 0.72rem; color: #94a3b8; font-style: italic;">
+                                No matching variables found.
+                            </div>
                         </div>
                     </div>
 
@@ -2900,6 +2972,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const builderBody = document.getElementById('builderBodyText');
     if (builderBody) {
         attachWhatsAppShortcuts(builderBody);
+    }
+
+    // Initialize Variable Selector UI for Template Builder & Individual Send
+    if (typeof renderTemplateBuilderVarsUI === 'function') {
+        renderTemplateBuilderVarsUI('');
+    }
+    if (typeof renderIndVarsUI === 'function') {
+        renderIndVarsUI('');
     }
 
     // GSAP Initial Page Entrance Animation
@@ -3855,7 +3935,9 @@ function updateIndividualPreview() {
 
         // Replace standard named vars with styled tags
         clean = clean.replaceAll('{name}', `<span class="wa-var-tag">${escapeHtml(name)}</span>`);
+        clean = clean.replaceAll('{{name}}', `<span class="wa-var-tag">${escapeHtml(name)}</span>`);
         clean = clean.replaceAll('{phone}', `<span class="wa-var-tag">${escapeHtml(phone)}</span>`);
+        clean = clean.replaceAll('{{phone}}', `<span class="wa-var-tag">${escapeHtml(phone)}</span>`);
 
         // Replace dynamic named vars from inputs
         const dynContainer = document.getElementById('indDynamicVarsContainer');
@@ -3865,6 +3947,7 @@ function updateIndividualPreview() {
                 const val = inp.value.trim();
                 const replacement = val ? `<span class="wa-var-tag">${escapeHtml(val)}</span>` : `<span class="wa-var-tag wa-var-missing">{${escapeHtml(varName)}}</span>`;
                 clean = clean.replaceAll(`{${varName}}`, replacement);
+                clean = clean.replaceAll(`{{${varName}}}`, replacement);
             });
             // Replace positional vars
             dynContainer.querySelectorAll('input[id^="indPosVar_"]').forEach(inp => {
@@ -3875,9 +3958,34 @@ function updateIndividualPreview() {
             });
         }
 
+        // Replace all master variables
+        if (Array.isArray(window.broadcastMasterVarList)) {
+            window.broadcastMasterVarList.forEach(item => {
+                let actualVal = '';
+                if (activeSelectedContact && activeSelectedContact[item.key] !== undefined && activeSelectedContact[item.key] !== null && activeSelectedContact[item.key] !== '') {
+                    actualVal = String(activeSelectedContact[item.key]);
+                } else if (item.key === 'party_name') {
+                    actualVal = name;
+                } else if (item.key === 'mobile') {
+                    actualVal = phone;
+                } else {
+                    actualVal = item.example;
+                }
+                const rep = `<span class="wa-var-tag">${escapeHtml(actualVal)}</span>`;
+                clean = clean.replaceAll(`{{${item.key}}}`, rep);
+                clean = clean.replaceAll(`{${item.key}}`, rep);
+                const noUnderscore = item.key.replace(/_/g, '');
+                if (noUnderscore !== item.key) {
+                    clean = clean.replaceAll(`{{${noUnderscore}}}`, rep);
+                    clean = clean.replaceAll(`{${noUnderscore}}`, rep);
+                }
+            });
+        }
+
         // Fallback for {company} if present
         const comp = (activeSelectedContact ? (activeSelectedContact.company || activeSelectedContact.company_name || activeSelectedContact.firm) : '') || senderProfile.firm || 'Marg ERP';
         clean = clean.replaceAll('{company}', `<span class="wa-var-tag">${escapeHtml(comp)}</span>`);
+        clean = clean.replaceAll('{{company}}', `<span class="wa-var-tag">${escapeHtml(comp)}</span>`);
 
         // Highlight any remaining unplaced placeholders in missing style
         clean = clean.replace(/\{\{(\d+)\}\}/g, '<span class="wa-var-tag wa-var-missing">{{$1}}</span>');
@@ -5843,6 +5951,7 @@ function openCreateTemplateModal() {
     const defaultMode = (activeGatewayMode === 'web_api') ? 'web_api' : (activeGatewayMode === 'meta' ? 'meta' : 'web_api');
     selectTemplateGateway(defaultMode);
     attachWhatsAppShortcuts('builderBodyText');
+    renderTemplateBuilderVarsUI('');
     updateLivePhoneMockup();
     if (window.lucide) lucide.createIcons();
 }
@@ -5977,6 +6086,7 @@ function editTemplate(id) {
     }
 
     attachWhatsAppShortcuts('builderBodyText');
+    renderTemplateBuilderVarsUI('');
     updateLivePhoneMockup();
     if (window.lucide) lucide.createIcons();
 }
@@ -5994,25 +6104,317 @@ function useTemplateInSingle(slug) {
     useTemplateInIndividual(slug);
 }
 
-// Smart Cursor-Position-Aware Variable Insertion
+// ==========================================
+// Master Broadcast Variables (Client & Sub-Partner)
+// ==========================================
+const broadcastMasterVarList = [
+    { key: 'act_on', label: 'Act On Date', example: '10/01/2026' },
+    { key: 'address', label: 'Address', example: 'Shop No. 12, Main Market' },
+    { key: 'category', label: 'Category', example: 'Gold Category' },
+    { key: 'city', label: 'City', example: 'Kanpur' },
+    { key: 'company_using', label: 'Company Using', example: 'Marg ERP 9+ (Full Edition)' },
+    { key: 'contact_person', label: 'Contact Person', example: 'Mr. Poshak Pathak' },
+    { key: 'crm_link', label: 'CRM / Portal Link', example: 'https://friendlyaisolution.com' },
+    { key: 'customer_id', label: 'Customer ID', example: 'MARG-1114878' },
+    { key: 'days', label: 'Days', example: '15' },
+    { key: 'due_date', label: 'Due Date', example: '25/08/2026' },
+    { key: 'email', label: 'Email ID', example: 'client@margerp.com' },
+    { key: 'helpline', label: 'Helpline', example: '9305045727 / 7523830026' },
+    { key: 'home_user', label: 'Home User', example: 'No' },
+    { key: 'mobile', label: 'Mobile', example: '7860510928' },
+    { key: 'no_of_companies', label: 'No. of Companies', example: '2' },
+    { key: 'no_of_users', label: 'No. of Users', example: '3' },
+    { key: 'online_zip_code', label: 'Pincode', example: '208001' },
+    { key: 'party_name', label: 'Party Name', example: 'Rajesh Medical Store' },
+    { key: 'renewal_amount', label: 'Renewal Amount', example: '₹5,640' },
+    { key: 'sno', label: 'S.No', example: '101' },
+    { key: 'software_hit_date', label: 'Software Hit Date', example: '15/09/2026' },
+    { key: 'software_trade', label: 'Software Trade', example: 'Pharma Wholesale & Retail' },
+    { key: 'software_type', label: 'Software Type', example: 'Marg ERP Basic' },
+    { key: 'state', label: 'State', example: 'Uttar Pradesh' },
+    { key: 'status', label: 'Status', example: 'Running' },
+    { key: 'subpartner_address', label: 'Subpartner Address', example: 'Civil Lines, Kanpur' },
+    { key: 'subpartner_alt_mobile', label: 'Subpartner Alt Mobile', example: '9580769213' },
+    { key: 'subpartner_city', label: 'Subpartner City', example: 'Kanpur' },
+    { key: 'subpartner_code', label: 'Subpartner Code', example: 'SP-007' },
+    { key: 'subpartner_commission_rate', label: 'Subpartner Commission', example: '15%' },
+    { key: 'subpartner_contact_person', label: 'Subpartner Contact Person', example: 'Mr. Deepak Awasthi' },
+    { key: 'subpartner_email', label: 'Subpartner Email ID', example: 'deepak@marglead.com' },
+    { key: 'subpartner_gstin', label: 'Subpartner GSTIN', example: '09AAECR1234F1Z5' },
+    { key: 'subpartner_mobile', label: 'Subpartner Mobile', example: '7523830026' },
+    { key: 'subpartner_name', label: 'Subpartner Name', example: 'Awasthi Infotech Solutions' },
+    { key: 'subpartner_state', label: 'Subpartner State', example: 'Uttar Pradesh' },
+    { key: 'subpartner_status', label: 'Subpartner Status', example: 'Active' },
+    { key: 'total_amount', label: 'Total Amount', example: '₹5,640' },
+    { key: 'transferred_party', label: 'Transferred Party', example: 'Direct' },
+    { key: 'user_type', label: 'User Type', example: 'Multi-User' },
+    { key: 'version', label: 'Version', example: 'Release 2026.04' },
+    { key: 'wallet_id', label: 'Wallet ID', example: 'WAL-88902' }
+];
+
+// Sort guaranteed alphabetically by label
+broadcastMasterVarList.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+window.broadcastMasterVarList = broadcastMasterVarList;
+
+// ----------------------------------------------------
+// Template Builder Variable UI (Search + Dropdown + Chips)
+// ----------------------------------------------------
+function renderTemplateBuilderVarsUI(filterQuery = '') {
+    const dropdown = document.getElementById('builder_var_dropdown');
+    const chipsWrapper = document.getElementById('builder_var_chips_container');
+    const badge = document.getElementById('builder_vars_badge');
+    const noVarsMsg = document.getElementById('builder_no_vars_msg');
+    const clearBtn = document.getElementById('builder_var_clear_btn');
+
+    const q = (filterQuery || '').trim().toLowerCase();
+    if (clearBtn) {
+        clearBtn.style.display = q ? 'block' : 'none';
+    }
+
+    const filtered = broadcastMasterVarList.filter(item => {
+        if (!q) return true;
+        return item.label.toLowerCase().includes(q) ||
+               item.key.toLowerCase().includes(q) ||
+               item.example.toLowerCase().includes(q);
+    });
+
+    if (badge) {
+        badge.textContent = filtered.length + ' Vars (A-Z)';
+    }
+
+    if (dropdown) {
+        const curVal = dropdown.value;
+        dropdown.innerHTML = '<option value="">▼ Select Variable (A to Z)...</option>';
+        filtered.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.key;
+            opt.textContent = `${item.label} (${item.key}) — e.g. ${item.example}`;
+            dropdown.appendChild(opt);
+        });
+        if (curVal && filtered.some(f => f.key === curVal)) {
+            dropdown.value = curVal;
+        }
+    }
+
+    if (chipsWrapper) {
+        chipsWrapper.innerHTML = '';
+        if (filtered.length === 0) {
+            if (noVarsMsg) noVarsMsg.style.display = 'block';
+        } else {
+            if (noVarsMsg) noVarsMsg.style.display = 'none';
+            filtered.forEach(item => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn btn-secondary text-xs';
+                btn.style.cssText = 'padding: 3px 8px; font-size: 0.72rem; border-radius: 6px; cursor: pointer; transition: all 0.15s; border: 1px solid #cbd5e1; background: white; color: #1e293b; white-space: nowrap;';
+                btn.innerHTML = `+ ${item.label}`;
+                btn.title = `Insert {{${item.key}}} (e.g. ${item.example})`;
+                btn.onclick = function() {
+                    insertVarToBody('{{' + item.key + '}}');
+                };
+                chipsWrapper.appendChild(btn);
+            });
+        }
+    }
+}
+window.renderTemplateBuilderVarsUI = renderTemplateBuilderVarsUI;
+
+function filterTemplateBuilderVars(term) {
+    renderTemplateBuilderVarsUI(term);
+}
+window.filterTemplateBuilderVars = filterTemplateBuilderVars;
+
+function clearTemplateBuilderVarSearch() {
+    const inp = document.getElementById('builder_var_search');
+    if (inp) inp.value = '';
+    renderTemplateBuilderVarsUI('');
+    if (inp) inp.focus();
+}
+window.clearTemplateBuilderVarSearch = clearTemplateBuilderVarSearch;
+
+function onSelectBuilderVarDropdown(val) {
+    if (!val) return;
+    insertVarToBody('{{' + val + '}}');
+    const dropdown = document.getElementById('builder_var_dropdown');
+    if (dropdown) dropdown.value = '';
+}
+window.onSelectBuilderVarDropdown = onSelectBuilderVarDropdown;
+
+function insertChosenBuilderDropdownVar() {
+    const dropdown = document.getElementById('builder_var_dropdown');
+    const val = dropdown ? dropdown.value : '';
+    if (!val) {
+        alert('Please choose a variable from the dropdown list first.');
+        return;
+    }
+    insertVarToBody('{{' + val + '}}');
+    dropdown.value = '';
+}
+window.insertChosenBuilderDropdownVar = insertChosenBuilderDropdownVar;
+
+// ----------------------------------------------------
+// Individual Send Variable UI (Search + Dropdown + Chips)
+// ----------------------------------------------------
+function renderIndVarsUI(filterQuery = '') {
+    const dropdown = document.getElementById('ind_var_dropdown');
+    const chipsWrapper = document.getElementById('ind_var_chips_container');
+    const badge = document.getElementById('ind_vars_badge');
+    const noVarsMsg = document.getElementById('ind_no_vars_msg');
+    const clearBtn = document.getElementById('ind_var_clear_btn');
+
+    const q = (filterQuery || '').trim().toLowerCase();
+    if (clearBtn) {
+        clearBtn.style.display = q ? 'block' : 'none';
+    }
+
+    const filtered = broadcastMasterVarList.filter(item => {
+        if (!q) return true;
+        return item.label.toLowerCase().includes(q) ||
+               item.key.toLowerCase().includes(q) ||
+               item.example.toLowerCase().includes(q);
+    });
+
+    if (badge) {
+        badge.textContent = filtered.length + ' Vars (A-Z)';
+    }
+
+    if (dropdown) {
+        const curVal = dropdown.value;
+        dropdown.innerHTML = '<option value="">▼ Select Variable (A to Z)...</option>';
+        filtered.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.key;
+            opt.textContent = `${item.label} (${item.key}) — e.g. ${item.example}`;
+            dropdown.appendChild(opt);
+        });
+        if (curVal && filtered.some(f => f.key === curVal)) {
+            dropdown.value = curVal;
+        }
+    }
+
+    if (chipsWrapper) {
+        chipsWrapper.innerHTML = '';
+        if (filtered.length === 0) {
+            if (noVarsMsg) noVarsMsg.style.display = 'block';
+        } else {
+            if (noVarsMsg) noVarsMsg.style.display = 'none';
+            filtered.forEach(item => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn btn-secondary text-xs';
+                btn.style.cssText = 'padding: 3px 8px; font-size: 0.72rem; border-radius: 6px; cursor: pointer; transition: all 0.15s; border: 1px solid #cbd5e1; background: white; color: #1e293b; white-space: nowrap;';
+                btn.innerHTML = `+ ${item.label}`;
+                btn.title = `Insert {{${item.key}}} (e.g. ${item.example})`;
+                btn.onclick = function() {
+                    insertVarToIndBody('{{' + item.key + '}}');
+                };
+                chipsWrapper.appendChild(btn);
+            });
+        }
+    }
+}
+window.renderIndVarsUI = renderIndVarsUI;
+
+function filterIndVars(term) {
+    renderIndVarsUI(term);
+}
+window.filterIndVars = filterIndVars;
+
+function clearIndVarSearch() {
+    const inp = document.getElementById('ind_var_search');
+    if (inp) inp.value = '';
+    renderIndVarsUI('');
+    if (inp) inp.focus();
+}
+window.clearIndVarSearch = clearIndVarSearch;
+
+function onSelectIndVarDropdown(val) {
+    if (!val) return;
+    insertVarToIndBody('{{' + val + '}}');
+    const dropdown = document.getElementById('ind_var_dropdown');
+    if (dropdown) dropdown.value = '';
+}
+window.onSelectIndVarDropdown = onSelectIndVarDropdown;
+
+function insertChosenIndDropdownVar() {
+    const dropdown = document.getElementById('ind_var_dropdown');
+    const val = dropdown ? dropdown.value : '';
+    if (!val) {
+        alert('Please choose a variable from the dropdown list first.');
+        return;
+    }
+    insertVarToIndBody('{{' + val + '}}');
+    dropdown.value = '';
+}
+window.insertChosenIndDropdownVar = insertChosenIndDropdownVar;
+
+// Smart Cursor-Position-Aware Variable Insertion for Template Builder
 function insertVarToBody(v) {
     const bodyArea = document.getElementById('builderBodyText');
     if (bodyArea) {
+        let insertText = v;
+        if (!insertText.startsWith('{')) {
+            insertText = '{{' + insertText + '}}';
+        }
         const start = bodyArea.selectionStart;
         const end = bodyArea.selectionEnd;
         const text = bodyArea.value;
         if (typeof start === 'number') {
             const before = text.substring(0, start);
             const after  = text.substring(end, text.length);
-            bodyArea.value = before + v + after;
-            bodyArea.selectionStart = bodyArea.selectionEnd = start + v.length;
+            bodyArea.value = before + insertText + after;
+            bodyArea.selectionStart = bodyArea.selectionEnd = start + insertText.length;
         } else {
-            bodyArea.value += ' ' + v;
+            bodyArea.value += ' ' + insertText;
         }
         bodyArea.focus();
+
+        // Visual flash feedback
+        bodyArea.style.borderColor = '#10b981';
+        bodyArea.style.boxShadow = '0 0 0 3px rgba(16, 185, 129, 0.25)';
+        setTimeout(() => {
+            bodyArea.style.borderColor = '';
+            bodyArea.style.boxShadow = '';
+        }, 600);
+
         updateLivePhoneMockup();
     }
 }
+window.insertVarToBody = insertVarToBody;
+
+// Smart Cursor-Position-Aware Variable Insertion for Individual Send
+function insertVarToIndBody(v) {
+    const bodyArea = document.getElementById('indMessageText');
+    if (bodyArea) {
+        let insertText = v;
+        if (!insertText.startsWith('{')) {
+            insertText = '{{' + insertText + '}}';
+        }
+        const start = bodyArea.selectionStart;
+        const end = bodyArea.selectionEnd;
+        const text = bodyArea.value;
+        if (typeof start === 'number') {
+            const before = text.substring(0, start);
+            const after  = text.substring(end, text.length);
+            bodyArea.value = before + insertText + after;
+            bodyArea.selectionStart = bodyArea.selectionEnd = start + insertText.length;
+        } else {
+            bodyArea.value += ' ' + insertText;
+        }
+        bodyArea.focus();
+
+        // Visual flash feedback
+        bodyArea.style.borderColor = '#10b981';
+        bodyArea.style.boxShadow = '0 0 0 3px rgba(16, 185, 129, 0.25)';
+        setTimeout(() => {
+            bodyArea.style.borderColor = '';
+            bodyArea.style.boxShadow = '';
+        }, 600);
+
+        updateIndividualPreview();
+    }
+}
+window.insertVarToIndBody = insertVarToIndBody;
 
 function addInteractiveButtonInput() {
     const list = document.getElementById('builderButtonsList');
@@ -6033,11 +6435,13 @@ function addInteractiveButtonInput() {
     list.appendChild(div);
     updateLivePhoneMockup();
 }
+window.addInteractiveButtonInput = addInteractiveButtonInput;
 
 function removeButtonRow(btn) {
     btn.parentElement.remove();
     updateLivePhoneMockup();
 }
+window.removeButtonRow = removeButtonRow;
 
 function updateLivePhoneMockup() {
     const headerInput = document.getElementById('builderHeaderText');
@@ -6048,20 +6452,54 @@ function updateLivePhoneMockup() {
     const bodyVal   = bodyInput ? bodyInput.value : '';
     const footerVal = footerInput ? footerInput.value.trim() : '';
 
-    const defaultBody = 'Dear {name},\n\nYour Marg ERP Software AMC renewal of *{amount}* is due on *{due_date}*.\n\nTo ensure uninterrupted billing & GST filings, kindly renew your AMC.\n\nHelpline: *{phone}*';
+    const defaultBody = 'Dear {{party_name}},\n\nYour Marg ERP Software AMC renewal of *{{renewal_amount}}* is due on *{{due_date}}*.\n\nTo ensure uninterrupted billing & GST filings, kindly renew your AMC.\n\nHelpline: *{{helpline}}*';
     const textToFormat = bodyVal.trim() ? bodyVal : defaultBody;
 
-    let formattedBody = escapeHtml(textToFormat)
-        .replace(/{name}/g, '<span class="wa-var-tag">Rajesh Medical Store</span>')
-        .replace(/{company}/g, '<span class="wa-var-tag">Marg Pharma</span>')
-        .replace(/{phone}/g, '<span class="wa-var-tag">9532620736</span>')
-        .replace(/{amount}/g, '<span class="wa-var-tag">₹3,500</span>')
-        .replace(/{due_date}/g, '<span class="wa-var-tag">25/08/2026</span>')
+    let formattedBody = escapeHtml(textToFormat);
+
+    // Apply WhatsApp markdown formatting
+    formattedBody = formattedBody
         .replace(/\*([^\*]+)\*/g, '<b>$1</b>')
         .replace(/\_([^\_]+)\_/g, '<i>$1</i>')
         .replace(/\~([^\~]+)\~/g, '<del>$1</del>')
-        .replace(/```([^`]+)```/g, '<code style="font-family:monospace; background:rgba(0,0,0,0.06); padding:1px 4px; border-radius:3px;">$1</code>')
-        .replace(/\n/g, '<br>');
+        .replace(/```([^`]+)```/g, '<code style="font-family:monospace; background:rgba(0,0,0,0.06); padding:1px 4px; border-radius:3px;">$1</code>');
+
+    // Replace all master variables
+    broadcastMasterVarList.forEach(item => {
+        const rep = `<span class="wa-var-tag">${escapeHtml(item.example)}</span>`;
+        formattedBody = formattedBody.replaceAll(`{{${item.key}}}`, rep);
+        formattedBody = formattedBody.replaceAll(`{${item.key}}`, rep);
+        const noUnderscore = item.key.replace(/_/g, '');
+        if (noUnderscore !== item.key) {
+            formattedBody = formattedBody.replaceAll(`{{${noUnderscore}}}`, rep);
+            formattedBody = formattedBody.replaceAll(`{${noUnderscore}}`, rep);
+        }
+    });
+
+    // Replace common legacy / synonym tags
+    const legacyMap = {
+        'name': 'Rajesh Medical Store',
+        'partyname': 'Rajesh Medical Store',
+        'company': 'Marg Pharma',
+        'phone': '9532620736',
+        'amount': '₹5,640',
+        'due_date': '25/08/2026',
+        'duedate': '25/08/2026',
+        'pincode': '208001',
+        'subpartner': 'Awasthi Infotech Solutions',
+        'subpartner_phone': '7523830026'
+    };
+    for (const [k, v] of Object.entries(legacyMap)) {
+        const rep = `<span class="wa-var-tag">${escapeHtml(v)}</span>`;
+        formattedBody = formattedBody.replaceAll(`{{${k}}}`, rep);
+        formattedBody = formattedBody.replaceAll(`{${k}}`, rep);
+    }
+
+    // Replace numbered placeholders {{1}} .. {{13}}
+    formattedBody = formattedBody.replace(/\{\{(\d+)\}\}/g, '<span class="wa-var-tag">Param $1</span>');
+
+    // Line breaks
+    formattedBody = formattedBody.replace(/\n/g, '<br>');
 
     const mockImgHeader = document.getElementById('mockupImageHeader');
     const mockImg = document.getElementById('mockupHeaderImg');
@@ -6137,6 +6575,7 @@ function updateLivePhoneMockup() {
         if (window.lucide) lucide.createIcons();
     }
 }
+window.updateLivePhoneMockup = updateLivePhoneMockup;
 
 function handleTemplateSaveSubmit(e) {
     e.preventDefault();

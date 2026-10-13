@@ -1686,6 +1686,7 @@ try {
                 $pdo->prepare("UPDATE merchant_waba_settings SET send_bill_pdf = ? WHERE user_id = ?")->execute([$sbPdf, $currUserId]);
                 if (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master) && $pdo_master) {
                     $pdo_master->prepare("UPDATE `{$_SESSION['tenant_db']}merchant_waba_settings` SET send_bill_pdf = ? WHERE user_id = ? OR id > 0")->execute([$sbPdf, $currUserId]);
+                    $pdo_master->prepare("UPDATE merchant_waba_settings SET send_bill_pdf = ? WHERE user_id = ?")->execute([$sbPdf, $currUserId]);
                 }
                 sendJsonResponse([
                     'success' => true, 
@@ -1718,6 +1719,7 @@ try {
                     $pdo->prepare("UPDATE merchant_waba_settings SET send_bill_pdf = ? WHERE user_id = ?")->execute([$sbPdf, $currUserId]);
                     if (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master) && $pdo_master) {
                         $pdo_master->prepare("UPDATE `{$_SESSION['tenant_db']}merchant_waba_settings` SET send_bill_pdf = ? WHERE user_id = ? OR id > 0")->execute([$sbPdf, $currUserId]);
+                        $pdo_master->prepare("UPDATE merchant_waba_settings SET send_bill_pdf = ? WHERE user_id = ?")->execute([$sbPdf, $currUserId]);
                     }
                 } catch (\Exception $e) {}
             }

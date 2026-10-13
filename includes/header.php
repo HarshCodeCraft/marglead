@@ -217,6 +217,14 @@ if ($db_connected && isset($_SESSION['user_id'])) {
                         <i data-lucide="<?php echo ($_SESSION['theme'] === 'light') ? 'moon' : 'sun'; ?>" style="width: 20px; height: 20px;"></i>
                     </button>
                     
+                    <!-- Marg Gmail License Quick Alert -->
+                    <?php if (hasAccess('gmail_license_sync', $logged_user_role) || ($logged_user_role === 'Admin' || $logged_user_role === 'Super Admin' || $logged_user_role === 'Tenant Admin')): ?>
+                    <a href="index.php?page=gmail_license_sync" class="header-action-btn" title="Marg Gmail License Queue" style="position: relative; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; color: var(--text-main);">
+                        <i data-lucide="mail-check" style="width: 20px; height: 20px; color: #f59e0b;"></i>
+                        <span id="header-license-red-badge" style="display: none; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; border: 2px solid var(--bg-card);"></span>
+                    </a>
+                    <?php endif; ?>
+
                     <!-- Notifications Dropdown -->
                     <div class="profile-menu-container">
                         <button class="header-action-btn dropdown-trigger" data-dropdown="notifications-dropdown" aria-label="View notifications" id="notif-bell-btn">
@@ -317,6 +325,28 @@ if ($db_connected && isset($_SESSION['user_id'])) {
                                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
                             }).catch(err => console.error(err));
                         }
+
+                        function checkPendingLicenseCount() {
+                            fetch('api/gmail_license_engine.php?action=get_pending_count')
+                                .then(r => r.json())
+                                .then(d => {
+                                    if (d && d.success) {
+                                        const count = parseInt(d.pending_count || 0);
+                                        const badge = document.getElementById('header-license-red-badge');
+                                        if (badge) badge.style.display = count > 0 ? 'block' : 'none';
+                                        
+                                        document.querySelectorAll('.sidebar-gmail-pending-badge').forEach(el => {
+                                            el.innerText = count;
+                                            el.style.display = count > 0 ? 'inline-block' : 'none';
+                                        });
+                                    }
+                                })
+                                .catch(() => {});
+                        }
+                        document.addEventListener('DOMContentLoaded', () => {
+                            checkPendingLicenseCount();
+                            setInterval(checkPendingLicenseCount, 60000);
+                        });
                     </script>
                     
                     <!-- Profile Dropdown Menu -->

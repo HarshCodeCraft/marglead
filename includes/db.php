@@ -24,6 +24,8 @@ if (!class_exists('TenantAwarePDO')) {
                     $this->prefixStr = $prefix;
                 }
 
+                private static array $provisionedTables = [];
+
                 public function rewriteSql(string $sql): string {
                     if (empty($this->prefixStr)) return $sql;
                     
@@ -48,10 +50,15 @@ if (!class_exists('TenantAwarePDO')) {
                             $targetTbl = $this->prefixStr . trim($matches[2], '`');
                             $baseTbl = trim($matches[2], '`');
                             
-                            // Auto-provision tenant table if missing
-                            try {
-                                $this->realPdo->exec("CREATE TABLE IF NOT EXISTS `$targetTbl` LIKE `$baseTbl`");
-                            } catch (\Exception $e) {}
+                            // Auto-provision tenant table if missing (only once per table, and never during active transactions to avoid MySQL implicit commit)
+                            if (!isset(self::$provisionedTables[$targetTbl])) {
+                                if (!$this->realPdo->inTransaction()) {
+                                    try {
+                                        $this->realPdo->exec("CREATE TABLE IF NOT EXISTS `$targetTbl` LIKE `$baseTbl`");
+                                    } catch (\Throwable $e) {}
+                                    self::$provisionedTables[$targetTbl] = true;
+                                }
+                            }
 
                             return $matches[1] . ' `' . $targetTbl . '`';
                         }, $sql);
@@ -162,19 +169,44 @@ if (!class_exists('TenantAwarePDO')) {
                 }
 
                 public function beginTransaction(): bool {
-                    return $this->realPdo->beginTransaction();
+                    try {
+                        if (!$this->realPdo->inTransaction()) {
+                            return $this->realPdo->beginTransaction();
+                        }
+                        return true;
+                    } catch (\Throwable $e) {
+                        return false;
+                    }
                 }
 
                 public function commit(): bool {
-                    return $this->realPdo->commit();
+                    try {
+                        if ($this->realPdo->inTransaction()) {
+                            return $this->realPdo->commit();
+                        }
+                        return false;
+                    } catch (\Throwable $e) {
+                        return false;
+                    }
                 }
 
                 public function rollBack(): bool {
-                    return $this->realPdo->rollBack();
+                    try {
+                        if ($this->realPdo->inTransaction()) {
+                            return $this->realPdo->rollBack();
+                        }
+                        return false;
+                    } catch (\Throwable $e) {
+                        return false;
+                    }
                 }
 
                 public function inTransaction(): bool {
-                    return $this->realPdo->inTransaction();
+                    try {
+                        return $this->realPdo->inTransaction();
+                    } catch (\Throwable $e) {
+                        return false;
+                    }
                 }
             };
             return $instance;

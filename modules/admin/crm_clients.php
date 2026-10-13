@@ -14,6 +14,9 @@ if (!isSystemAdminRole($_SESSION['user_role'] ?? '')) {
     return;
 }
 
+$crm_form_action = (!empty($_GET['tab']) && $_GET['tab'] === 'crm') ? 'index.php?page=clients&tab=crm' : 'index.php?page=crm_clients';
+
+if (!function_exists('provisionNewCrmClient')) {
 function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerName, $ownerEmail, $phone, $plan, $passwordStr, $expiryMonths = 12) {
     global $db_host, $db_port, $db_user, $db_pass;
     
@@ -110,10 +113,12 @@ function provisionNewCrmClient($masterPdo, $companyCode, $companyName, $ownerNam
         return ['success' => false, 'message' => 'Database provisioning failure: ' . $e->getMessage()];
     }
 }
+}
 
 // --------------------------------------------------------------------------
 // 1.1 Batch Baileys Live Status Check Helper (Ultra-fast parallel query)
 // --------------------------------------------------------------------------
+if (!function_exists('batchGetLiveBaileysStatus')) {
 function batchGetLiveBaileysStatus($clients) {
     if (empty($clients)) return [];
     
@@ -155,10 +160,12 @@ function batchGetLiveBaileysStatus($clients) {
     
     return $results;
 }
+}
 
 // --------------------------------------------------------------------------
 // 1.2 Tenant WhatsApp Details Helper (Exact Real-Time Status & Gateway Details)
 // --------------------------------------------------------------------------
+if (!function_exists('getTenantWabaDetails')) {
 function getTenantWabaDetails($pdo_master, $tenant, $liveBaileysStatuses = []) {
     global $db_host, $db_port, $db_user, $db_pass;
     $tenantId = (int)($tenant['id'] ?? 0);
@@ -331,6 +338,7 @@ function getTenantWabaDetails($pdo_master, $tenant, $liveBaileysStatuses = []) {
         'web_api_instance_id'    => $settings['web_api_instance_id'] ?? '',
         'web_api_session_status' => $settings['web_api_session_status'] ?? 'disconnected'
     ];
+}
 }
 
 // --------------------------------------------------------------------------
@@ -1017,6 +1025,7 @@ if (isset($pdo_master)) {
     <?php endif; ?>
 
     <!-- Header & Action Button -->
+    <?php if (empty($_GET['tab'])): ?>
     <div class="flex justify-between align-center mb-6 flex-wrap gap-4">
         <div>
             <h2 style="font-family: var(--font-heading); font-size: 1.75rem; font-weight: 700;" class="mb-1">CRM Clients & SaaS Multi-Tenancy</h2>
@@ -1033,6 +1042,18 @@ if (isset($pdo_master)) {
             </button>
         </div>
     </div>
+    <?php else: ?>
+    <div class="flex justify-end align-center mb-4 flex-wrap gap-2">
+        <button type="button" class="btn btn-primary text-sm flex align-center gap-2" style="padding: 0.65rem 1.25rem;" onclick="window.openModal('create-crm-client-modal')">
+            <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
+            <span>Register New CRM Client</span>
+        </button>
+        <button type="button" class="btn btn-success text-sm flex align-center gap-2" style="padding: 0.65rem 1.25rem; background: #10b981; border: none; color: white;" onclick="window.openModal('register-erp-user-modal')">
+            <i data-lucide="user-check" style="width: 16px; height: 16px;"></i>
+            <span>Already ERP User</span>
+        </button>
+    </div>
+    <?php endif; ?>
 
     <!-- SaaS KPI Summary Cards -->
     <div class="grid mb-6" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem;">
@@ -1379,7 +1400,7 @@ if (isset($pdo_master)) {
                                         </button>
 
                                         <!-- Suspend / Reactivate Form -->
-                                        <form action="index.php?page=crm_clients" method="POST" style="display: inline;" onsubmit="return confirm('Change client status to <?php echo ($cl['status'] === 'Active') ? 'Suspended' : 'Active'; ?>?');">
+                                        <form action="<?php echo $crm_form_action; ?>" method="POST" style="display: inline;" onsubmit="return confirm('Change client status to <?php echo ($cl['status'] === 'Active') ? 'Suspended' : 'Active'; ?>?');">
                                             <input type="hidden" name="action" value="toggle_client_suspend">
                                             <input type="hidden" name="tenant_id" value="<?php echo $cl['id']; ?>">
                                             <input type="hidden" name="current_status" value="<?php echo $cl['status']; ?>">
@@ -1390,7 +1411,7 @@ if (isset($pdo_master)) {
 
                                         <?php if ($cl['id'] > 1): ?>
                                             <!-- Delete Client Database -->
-                                            <form action="index.php?page=crm_clients" method="POST" style="display: inline;" onsubmit="return confirm('PERMANENT WARNING: Delete database &amp; all data for <?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>? This cannot be undone.');">
+                                            <form action="<?php echo $crm_form_action; ?>" method="POST" style="display: inline;" onsubmit="return confirm('PERMANENT WARNING: Delete database &amp; all data for <?php echo htmlspecialchars(addslashes($cl['company_name'])); ?>? This cannot be undone.');">
                                                 <input type="hidden" name="action" value="delete_crm_client">
                                                 <input type="hidden" name="tenant_id" value="<?php echo $cl['id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-icon" title="Delete Client &amp; Database">
@@ -1416,7 +1437,7 @@ if (isset($pdo_master)) {
             <h3 class="m-0" style="font-family: var(--font-heading);">Provision New CRM SaaS Client</h3>
             <button class="btn-icon" onclick="window.closeModal('create-crm-client-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
         </div>
-        <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
+        <form class="modal-body flex flex-col gap-4" action="<?php echo $crm_form_action; ?>" method="POST">
             <input type="hidden" name="action" value="create_crm_client">
 
             <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -1499,7 +1520,7 @@ if (isset($pdo_master)) {
             <h3 class="m-0" style="font-family: var(--font-heading); color: #10b981;">Register Existing Marg ERP User</h3>
             <button class="btn-icon" onclick="window.closeModal('register-erp-user-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
         </div>
-        <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
+        <form class="modal-body flex flex-col gap-4" action="<?php echo $crm_form_action; ?>" method="POST">
             <input type="hidden" name="action" value="register_erp_user">
 
             <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -1554,7 +1575,7 @@ if (isset($pdo_master)) {
             <h3 class="m-0" style="font-family: var(--font-heading);" id="edit-plan-modal-title">Edit Client &amp; Subscription</h3>
             <button class="btn-icon" onclick="window.closeModal('edit-client-plan-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
         </div>
-        <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
+        <form class="modal-body flex flex-col gap-4" action="<?php echo $crm_form_action; ?>" method="POST">
             <input type="hidden" name="action" value="update_client_status">
             <input type="hidden" name="tenant_id" id="edit-tenant-id" value="">
 
@@ -1627,7 +1648,7 @@ if (isset($pdo_master)) {
             </div>
             <button class="btn-icon" onclick="window.closeModal('edit-client-permissions-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
         </div>
-        <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
+        <form class="modal-body flex flex-col gap-4" action="<?php echo $crm_form_action; ?>" method="POST">
             <input type="hidden" name="action" value="update_client_permissions">
             <input type="hidden" name="tenant_id" id="perm-tenant-id" value="">
 
@@ -1660,6 +1681,7 @@ if (isset($pdo_master)) {
                     'training'              => ['name' => 'Client Staff Training', 'desc' => 'Training Log & Hours Certification'],
                     'support'               => ['name' => 'Support Tickets', 'desc' => 'Customer Issues & Ticketing Desk'],
                     'renewals'              => ['name' => 'License Renewals', 'desc' => 'Expiry Tracker & AMC Reminders'],
+                    'gmail_license_sync'    => ['name' => 'Gmail License Automation', 'desc' => 'Auto-fetch Marg ERP license emails & sync Client Directory with attached files'],
                     'team_inbox'            => ['name' => 'Team Inbox & Live Chat', 'desc' => 'Multi-agent Team Chat Inbox'],
                     'merchant_waba_settings'=> ['name' => 'Marg ERP WABA Setup', 'desc' => 'Marg ERP 9+ Webhook Gateway Setup & QR'],
                     'whatsapp_settings'     => ['name' => 'WhatsApp Cloud API', 'desc' => 'Meta API Settings & Embedded Signup'],
@@ -1704,7 +1726,7 @@ if (isset($pdo_master)) {
             </div>
             <button class="btn-icon" onclick="window.closeModal('test-client-waba-modal')"><i data-lucide="x" style="width: 16px; height: 16px;"></i></button>
         </div>
-        <form class="modal-body flex flex-col gap-4" action="index.php?page=crm_clients" method="POST">
+        <form class="modal-body flex flex-col gap-4" action="<?php echo $crm_form_action; ?>" method="POST">
             <input type="hidden" name="action" value="test_client_waba_dispatch">
             <input type="hidden" name="tenant_id" id="test-tenant-id" value="">
 

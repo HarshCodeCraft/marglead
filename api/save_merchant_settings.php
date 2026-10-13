@@ -74,6 +74,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $insertStmt->execute([$user_id, $tenant_api_key, $gateway_type, $phone_number_id, $access_token, $web_api_url, $web_api_token, $send_bill_pdf]);
         }
 
+        // Also sync into tenant isolated table if user is a tenant
+        if ($user_id > 1) {
+            try {
+                $stTComp = $pdo->prepare("SELECT db_name FROM tenant_companies WHERE id = ?");
+                $stTComp->execute([$user_id]);
+                $tDb = $stTComp->fetchColumn();
+                if (!empty($tDb) && strpos($tDb, 't_') === 0) {
+                    $tbl = "{$tDb}merchant_waba_settings";
+                    $stCheckT = $pdo->query("SELECT id FROM `{$tbl}` WHERE user_id = {$user_id} OR id > 0 LIMIT 1");
+                    $tRowId = $stCheckT ? $stCheckT->fetchColumn() : null;
+                    if ($tRowId) {
+                        $pdo->prepare("UPDATE `{$tbl}` SET tenant_api_key = ?, gateway_type = ?, phone_number_id = ?, access_token = ?, web_api_url = ?, web_api_token = ?, send_bill_pdf = ? WHERE id = ?")
+                            ->execute([$tenant_api_key, $gateway_type, $phone_number_id, $access_token, $web_api_url, $web_api_token, $send_bill_pdf, $tRowId]);
+                    } else {
+                        $pdo->prepare("INSERT INTO `{$tbl}` (user_id, tenant_api_key, gateway_type, phone_number_id, access_token, web_api_url, web_api_token, send_bill_pdf, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active')")
+                            ->execute([$user_id, $tenant_api_key, $gateway_type, $phone_number_id, $access_token, $web_api_url, $web_api_token, $send_bill_pdf]);
+                    }
+                }
+            } catch (\Exception $exT) {}
+        }
+
         $successMsg = "Merchant Gateway settings updated successfully.";
         if (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false) {
             header('Content-Type: application/json; charset=utf-8');

@@ -982,6 +982,9 @@ switch ($page) {
     case 'merchant_waba_settings':
         $module_path = __DIR__ . '/modules/merchant_waba_settings.php';
         break;
+    case 'gmail_license_sync':
+        $module_path = __DIR__ . '/modules/gmail_license_sync.php';
+        break;
     case 'notification_templates':
         $module_path = __DIR__ . '/modules/notification_templates.php';
         break;

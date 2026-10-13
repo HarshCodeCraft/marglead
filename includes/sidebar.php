@@ -186,6 +186,15 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             </a>
                         </li>
                     <?php endif; ?>
+                    <?php if (hasAccess('gmail_license_sync', $role) || $is_admin): ?>
+                        <li class="sidebar-item <?php echo isActivePage('gmail_license_sync'); ?>">
+                            <a href="index.php?page=gmail_license_sync">
+                                <i data-lucide="mail-check" style="width: 18px; height: 18px; color: #f59e0b;"></i>
+                                <span>Gmail License Sync</span>
+                                <span class="badge sidebar-gmail-pending-badge" style="display:none; margin-left: auto; background: #ef4444; color: white; font-size: 0.65rem; padding: 2px 6px; border-radius: 999px;">0</span>
+                            </a>
+                        </li>
+                    <?php endif; ?>
                 </ul>
             <?php endif; ?>
 
@@ -435,6 +444,15 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                         <a href="index.php?page=renewals">
                             <i data-lucide="rotate-cw" style="width: 18px; height: 18px;"></i>
                             <span>Renewals Management</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if (hasAccess('gmail_license_sync', $role) || $is_admin): ?>
+                    <li class="sidebar-item <?php echo isActivePage('gmail_license_sync'); ?>">
+                        <a href="index.php?page=gmail_license_sync">
+                            <i data-lucide="mail-check" style="width: 18px; height: 18px; color: #f59e0b;"></i>
+                            <span>Gmail License Sync</span>
+                            <span class="badge sidebar-gmail-pending-badge" style="display:none; margin-left: auto; background: #ef4444; color: white; font-size: 0.65rem; padding: 2px 6px; border-radius: 999px;">0</span>
                         </a>
                     </li>
                 <?php endif; ?>

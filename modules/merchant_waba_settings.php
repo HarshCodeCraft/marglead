@@ -195,10 +195,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         ");
         $stmtUp->execute([$gateway_type, $phone_number_id, $waba_id, $access_token, $business_phone, $web_api_url, $web_api_token, $web_api_instance_id, $send_bill_pdf, $user_id]);
 
-        // Sync into active tenant table if table prefix exists
+        // Sync into master merchant_waba_settings table so that global lookup stays 100% synchronized
         if (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master) && $pdo_master) {
             try {
-                $pdo_master->prepare("UPDATE `{$_SESSION['tenant_db']}merchant_waba_settings` SET send_bill_pdf = ? WHERE user_id = ? OR id = ?")->execute([$send_bill_pdf, $user_id, $wabaSettings['id'] ?? 1]);
+                $chkM = $pdo_master->prepare("SELECT id FROM merchant_waba_settings WHERE user_id = ? LIMIT 1");
+                $chkM->execute([$user_id]);
+                $mId = $chkM->fetchColumn();
+                if ($mId) {
+                    $pdo_master->prepare("UPDATE merchant_waba_settings SET send_bill_pdf = ?, gateway_type = ?, phone_number_id = ?, waba_id = ?, access_token = ?, business_phone = ?, web_api_url = ?, web_api_token = ?, web_api_instance_id = ?, tenant_api_key = ? WHERE id = ?")
+                        ->execute([$send_bill_pdf, $gateway_type, $phone_number_id, $waba_id, $access_token, $business_phone, $web_api_url, $web_api_token, $web_api_instance_id, $wabaSettings['tenant_api_key'] ?? '', $mId]);
+                } else {
+                    $pdo_master->prepare("INSERT INTO merchant_waba_settings (user_id, tenant_api_key, gateway_type, phone_number_id, waba_id, access_token, business_phone, web_api_url, web_api_token, web_api_instance_id, send_bill_pdf, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')")
+                        ->execute([$user_id, $wabaSettings['tenant_api_key'] ?? '', $gateway_type, $phone_number_id, $waba_id, $access_token, $business_phone, $web_api_url, $web_api_token, $web_api_instance_id, $send_bill_pdf]);
+                }
             } catch (\Exception $e) {}
         }
 

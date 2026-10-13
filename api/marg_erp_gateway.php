@@ -53,20 +53,47 @@ try {
     $stmtTenants = $pdo->query("SELECT * FROM tenant_companies WHERE status = 'Active'");
     $tenantsList = $stmtTenants ? $stmtTenants->fetchAll(PDO::FETCH_ASSOC) : [];
 
-    foreach ($tenantsList as $tComp) {
-        $tDb = $tComp['db_name'] ?? '';
-        if (!empty($tDb) && strpos($tDb, 't_') === 0) {
-            $tbl = "{$tDb}merchant_waba_settings";
-            try {
-                $stmtT = $pdo->prepare("SELECT * FROM `{$tbl}` WHERE (tenant_api_key = ? OR tenant_api_key = UPPER(?)) LIMIT 1");
-                $stmtT->execute([$api_key, $api_key]);
-                $tMerchant = $stmtT->fetch(PDO::FETCH_ASSOC);
-                if ($tMerchant) {
-                    $merchant = $tMerchant;
-                    $merchant['user_id'] = $tComp['id'];
-                    break;
+    // If API key was found in master table and belongs to a tenant company,
+    // load latest authoritative settings (e.g. send_bill_pdf toggle, gateway_type) from that tenant's dedicated table
+    if ($merchant && !empty($merchant['user_id']) && (int)$merchant['user_id'] > 1) {
+        $tenantId = (int)$merchant['user_id'];
+        foreach ($tenantsList as $tComp) {
+            if ((int)$tComp['id'] === $tenantId) {
+                $tDb = $tComp['db_name'] ?? '';
+                if (!empty($tDb) && strpos($tDb, 't_') === 0) {
+                    $tbl = "{$tDb}merchant_waba_settings";
+                    try {
+                        $stmtTMerge = $pdo->prepare("SELECT * FROM `{$tbl}` WHERE user_id = ? OR id > 0 ORDER BY id DESC LIMIT 1");
+                        $stmtTMerge->execute([$tenantId]);
+                        $tMerchantSettings = $stmtTMerge->fetch(PDO::FETCH_ASSOC);
+                        if ($tMerchantSettings) {
+                            $merchant = array_merge($merchant, $tMerchantSettings);
+                            $merchant['user_id'] = $tenantId;
+                        }
+                    } catch (\PDOException $ex) {}
                 }
-            } catch (\PDOException $ex) {}
+                break;
+            }
+        }
+    }
+
+    // 3. If not found in master table, match against all active tenant tables
+    if (!$merchant) {
+        foreach ($tenantsList as $tComp) {
+            $tDb = $tComp['db_name'] ?? '';
+            if (!empty($tDb) && strpos($tDb, 't_') === 0) {
+                $tbl = "{$tDb}merchant_waba_settings";
+                try {
+                    $stmtT = $pdo->prepare("SELECT * FROM `{$tbl}` WHERE (tenant_api_key = ? OR tenant_api_key = UPPER(?)) LIMIT 1");
+                    $stmtT->execute([$api_key, $api_key]);
+                    $tMerchant = $stmtT->fetch(PDO::FETCH_ASSOC);
+                    if ($tMerchant) {
+                        $merchant = $tMerchant;
+                        $merchant['user_id'] = $tComp['id'];
+                        break;
+                    }
+                } catch (\PDOException $ex) {}
+            }
         }
     }
 
