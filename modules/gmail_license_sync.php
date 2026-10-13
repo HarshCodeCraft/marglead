@@ -47,14 +47,19 @@ try {
     $pdo->exec("DELETE FROM `tenant_incoming_licenses` WHERE customer_id IS NULL OR customer_id = '' OR party_name LIKE '<%' OR party_name LIKE '%Indeed%' OR party_name LIKE '%view this email%'");
 } catch (\Throwable $e) {}
 
-// 2. Fetch Verified License Records (Excluding any invalid/empty customer IDs)
+// 2. Fetch Latest Verified License Records per Customer ID (Deduplicating older entries)
 $stmtLics = $pdo->prepare("
     SELECT l.*, c.party_name AS client_actual_name 
     FROM `tenant_incoming_licenses` l 
+    INNER JOIN (
+        SELECT MAX(id) AS latest_id
+        FROM `tenant_incoming_licenses`
+        WHERE (user_id = ? OR user_id = 1 OR user_id = 0)
+          AND (customer_id IS NOT NULL AND TRIM(customer_id) != '')
+          AND (party_name NOT LIKE '<%')
+        GROUP BY UPPER(TRIM(customer_id))
+    ) latest ON l.id = latest.latest_id
     LEFT JOIN `client_directory` c ON l.matched_client_id = c.id 
-    WHERE (l.user_id = ? OR l.user_id = 1 OR l.user_id = 0)
-      AND (l.customer_id IS NOT NULL AND TRIM(l.customer_id) != '')
-      AND (l.party_name NOT LIKE '<%')
     ORDER BY l.id DESC LIMIT 100
 ");
 $stmtLics->execute([$current_user_id]);

@@ -870,7 +870,7 @@ if (!empty($action)) {
             exit;
         }
 
-        // Action 5: List Incoming Licenses (Lightweight, UTF-8 clean & fast)
+        // Action 5: List Incoming Licenses (Lightweight, UTF-8 clean & fast, Latest per Customer ID)
         if ($action === 'list_licenses') {
             $statusFilter = strtolower(trim($_GET['status'] ?? 'all'));
             
@@ -882,8 +882,16 @@ if (!empty($action)) {
                            l.matched_client_id, l.sync_status, l.synced_at, l.synced_by, l.created_at,
                            c.party_name AS client_actual_name
                     FROM `tenant_incoming_licenses` l 
+                    INNER JOIN (
+                        SELECT MAX(id) AS latest_id
+                        FROM `tenant_incoming_licenses`
+                        WHERE (user_id = ? OR user_id = 1 OR user_id = 0)
+                          AND (customer_id IS NOT NULL AND TRIM(customer_id) != '')
+                          AND (party_name NOT LIKE '<%')
+                        GROUP BY UPPER(TRIM(customer_id))
+                    ) latest ON l.id = latest.latest_id
                     LEFT JOIN `client_directory` c ON l.matched_client_id = c.id 
-                    WHERE (l.user_id = ? OR l.user_id = 1 OR l.user_id = 0)";
+                    WHERE 1=1";
             $params = [$user_id];
 
             if ($statusFilter !== 'all') {
@@ -1016,9 +1024,21 @@ if (!empty($action)) {
             exit;
         }
 
-        // Action 8: Pending Count for Header Bell
+        // Action 8: Pending Count for Header Bell (Latest distinct licenses only)
         if ($action === 'get_pending_count') {
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM `tenant_incoming_licenses` WHERE (user_id = ? OR user_id = 1 OR user_id = 0) AND sync_status = 'Pending'");
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) 
+                FROM `tenant_incoming_licenses` l
+                INNER JOIN (
+                    SELECT MAX(id) AS latest_id
+                    FROM `tenant_incoming_licenses`
+                    WHERE (user_id = ? OR user_id = 1 OR user_id = 0)
+                      AND (customer_id IS NOT NULL AND TRIM(customer_id) != '')
+                      AND (party_name NOT LIKE '<%')
+                    GROUP BY UPPER(TRIM(customer_id))
+                ) latest ON l.id = latest.latest_id
+                WHERE LOWER(l.sync_status) = 'pending'
+            ");
             $stmt->execute([$user_id]);
             $count = (int)$stmt->fetchColumn();
 
