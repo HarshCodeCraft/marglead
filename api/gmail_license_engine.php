@@ -273,6 +273,7 @@ class SimpleImapClient {
 
         $attachments = [];
         $plainBody = '';
+        $htmlBody = '';
 
         $contentType = $headers['content-type'] ?? 'text/plain';
         if (stripos($contentType, 'multipart/') !== false && preg_match('/boundary="?([^";\s]+)"?/i', $contentType, $bm)) {
@@ -316,16 +317,26 @@ class SimpleImapClient {
                         'size' => strlen($fileData)
                     ];
                 } else {
+                    $decodedText = $sContent;
+                    if ($sEncoding === 'base64') {
+                        $decodedText = base64_decode($decodedText);
+                    } elseif ($sEncoding === 'quoted-printable') {
+                        $decodedText = quoted_printable_decode($decodedText);
+                    }
+
                     if (stripos($sType, 'text/plain') !== false || empty($sType)) {
-                        $decodedText = $sContent;
-                        if ($sEncoding === 'base64') {
-                            $decodedText = base64_decode($decodedText);
-                        } elseif ($sEncoding === 'quoted-printable') {
-                            $decodedText = quoted_printable_decode($decodedText);
-                        }
                         $plainBody .= "\n" . $decodedText;
+                    } elseif (stripos($sType, 'text/html') !== false) {
+                        $htmlBody .= "\n" . $decodedText;
                     }
                 }
+            }
+
+            if (empty(trim($plainBody)) && !empty($htmlBody)) {
+                $clean = preg_replace('/<br\s*\/?>/i', "\n", $htmlBody);
+                $clean = preg_replace('/<\/(p|div|tr|li|h\d)>/i', "\n", $clean);
+                $clean = preg_replace('/<td[^>]*>/i', " ", $clean);
+                $plainBody = html_entity_decode(strip_tags($clean), ENT_QUOTES | ENT_HTML5, 'UTF-8');
             }
         } else {
             $encoding = strtolower($headers['content-transfer-encoding'] ?? '');
@@ -335,6 +346,13 @@ class SimpleImapClient {
                 $plainBody = quoted_printable_decode($bodyText);
             } else {
                 $plainBody = $bodyText;
+            }
+
+            if (stripos($contentType, 'text/html') !== false) {
+                $clean = preg_replace('/<br\s*\/?>/i', "\n", $plainBody);
+                $clean = preg_replace('/<\/(p|div|tr|li|h\d)>/i', "\n", $clean);
+                $clean = preg_replace('/<td[^>]*>/i', " ", $clean);
+                $plainBody = html_entity_decode(strip_tags($clean), ENT_QUOTES | ENT_HTML5, 'UTF-8');
             }
         }
 
@@ -415,44 +433,57 @@ function parse_marg_license_text(string $text): array {
         'home_edition' => ''
     ];
 
+    // If text contains HTML, strip and convert tags to clean newlines
+    if (strpos($text, '<') !== false) {
+        $text = preg_replace('/<br\s*\/?>/i', "\n", $text);
+        $text = preg_replace('/<\/(p|div|tr|li|h\d)>/i', "\n", $text);
+        $text = preg_replace('/<td[^>]*>/i', " ", $text);
+        $text = strip_tags($text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
     $lines = array_values(array_filter(array_map('trim', explode("\n", $text))));
 
     foreach ($lines as $line) {
-        if (preg_match('/^Customer\s*ID\s*:\s*(.+)$/i', $line, $m)) {
+        if (preg_match('/(?:Customer\s*ID|Licence\s*No\.?|License\s*No\.?)\s*[:=\-]\s*([^\r\n]+)/i', $line, $m)) {
             $data['customer_id'] = trim($m[1]);
-        } elseif (preg_match('/^Phone\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Phone\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['phone'] = trim($m[1]);
-        } elseif (preg_match('/^Reg\.?\s*Mobile\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Reg\.?\s*Mobile\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['reg_mobile'] = trim($m[1]);
-        } elseif (preg_match('/^Reg\.?\s*Email\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Reg\.?\s*Email\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['reg_email'] = trim($m[1]);
-        } elseif (preg_match('/^Dated\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Dated\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['dated'] = trim($m[1]);
-        } elseif (preg_match('/^Contact\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Contact\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['contact_person'] = trim($m[1]);
-        } elseif (preg_match('/^Software\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Software\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['software_type'] = trim($m[1]);
-        } elseif (preg_match('/^Users\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Users\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['users_count'] = trim($m[1]);
-        } elseif (preg_match('/^Companies\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Companies\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['companies_count'] = trim($m[1]);
-        } elseif (preg_match('/^Main\s*Computer\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Main\s*Computer\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['main_computer'] = trim($m[1]);
-        } elseif (preg_match('/^Home\s*Edition\s*:\s*(.+)$/i', $line, $m)) {
+        } elseif (preg_match('/Home\s*Edition\s*[:=\-]\s*(.+)$/i', $line, $m)) {
             $data['home_edition'] = trim($m[1]);
         }
     }
 
     $headerLines = [];
     foreach ($lines as $line) {
-        if (preg_match('/^(Phone|Customer\s*ID|Dated|Contact|Reg|Software|Users|Main\s*Computer)\s*:/i', $line)) {
+        if (preg_match('/^(Phone|Customer\s*ID|Licence|License|Dated|Contact|Reg|Software|Users|Main\s*Computer)\s*[:=\-]/i', $line)) {
             break;
+        }
+        // Exclude common greeting/signature/forward lines
+        if (preg_match('/^(dear|hi|hello|regards|thanks|from|to|subject|forwarded)/i', $line)) {
+            continue;
         }
         $headerLines[] = $line;
     }
 
     if (!empty($headerLines)) {
-        $data['party_name'] = $headerLines[0];
+        $data['party_name'] = trim(strip_tags($headerLines[0]));
 
         $addrParts = [];
         for ($i = 1; $i < count($headerLines); $i++) {
@@ -482,7 +513,10 @@ function parse_marg_license_text(string $text): array {
 // ROUTE API ACTIONS
 // -------------------------------------------------------------------------
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
-if ($is_cli || $is_cron || $action === 'cron_sync') {
+$is_cron = (isset($_GET['action']) && $_GET['action'] === 'cron_sync') || 
+           (php_sapi_name() === 'cli' && !empty($argv[1]) && in_array($argv[1], ['cron', 'fetch_emails']));
+
+if ($is_cron || $action === 'cron_sync') {
     $action = 'fetch_emails';
 }
 
@@ -627,19 +661,16 @@ if (!empty($action)) {
 
             $client->selectFolder('INBOX');
 
-            // Search unread first, fallback to all
-            $uids = $client->search('UNSEEN');
-            if (empty($uids)) {
-                $uids = $client->search('ALL');
-            }
+            // Search ALL messages (both read and unread, so opened emails are never missed!)
+            $uids = $client->search('ALL');
 
             if (empty($uids)) {
-                echo json_encode(['success' => true, 'message' => 'No license emails found in Inbox.', 'fetched_count' => 0]);
+                echo json_encode(['success' => true, 'message' => 'No emails found in Inbox.', 'fetched_count' => 0]);
                 exit;
             }
 
-            // Limit to latest 10 emails to keep execution lightning fast (< 2-3 seconds)
-            $recentUids = array_slice(array_reverse($uids), 0, 10);
+            // Inspect the latest 30 emails from the inbox
+            $recentUids = array_slice(array_reverse($uids), 0, 30);
             $processedCount = 0;
             $matchedCount = 0;
 
@@ -660,7 +691,9 @@ if (!empty($action)) {
                 $senderMatch = empty($allowedSenders);
                 if (!$senderMatch) {
                     foreach ($allowedSenders as $snd) {
-                        if (strpos($fromLower, $snd) !== false) {
+                        $sndClean = strtolower(trim($snd));
+                        if (empty($sndClean)) continue;
+                        if (strpos($fromLower, $sndClean) !== false) {
                             $senderMatch = true; break;
                         }
                     }
@@ -670,10 +703,17 @@ if (!empty($action)) {
                 $kwMatch = empty($keywords);
                 if (!$kwMatch) {
                     foreach ($keywords as $kw) {
-                        if (strpos($subjectLower, $kw) !== false) {
+                        $kwClean = strtolower(trim($kw));
+                        if (empty($kwClean)) continue;
+                        if (strpos($subjectLower, $kwClean) !== false) {
                             $kwMatch = true; break;
                         }
                     }
+                }
+
+                // Whitelisted sender bypass: If sender was explicitly matched in allowedSenders, allow through!
+                if (!$kwMatch && !empty($allowedSenders) && $senderMatch) {
+                    $kwMatch = true;
                 }
 
                 // Skip non-matching emails immediately without downloading full body!
@@ -681,11 +721,28 @@ if (!empty($action)) {
                     continue;
                 }
 
-                // 2. Fetch full body ONLY for verified Marg emails!
+                // 2. Fetch full message body
                 $msg = $client->fetchMessage($uid);
+                $rawBody = $msg['body'] ?? '';
 
-                // Strictly require a valid Marg ERP Customer ID (Must have Customer ID and not HTML tags)
-                if (empty($parsed['customer_id']) || strlen($parsed['customer_id']) < 3 || strpos($parsed['party_name'] ?? '', '<') !== false) {
+                // PARSE MARG LICENSE CONTENT (CRITICAL FIX)
+                $parsed = parse_marg_license_text($rawBody);
+
+                // Fallback: If Customer ID not in body, check subject line
+                if (empty($parsed['customer_id'])) {
+                    if (preg_match('/(?:Customer\s*ID|Licence|License)\s*[:=\-\s]*([A-Za-z0-9\*\-]{4,})/i', $header['subject'] ?? '', $sm)) {
+                        $parsed['customer_id'] = trim($sm[1]);
+                    }
+                }
+
+                // Fallback: If party name is empty, use subject or generic client name
+                if (empty($parsed['party_name'])) {
+                    $parsed['party_name'] = !empty($header['subject']) ? trim($header['subject']) : 'Marg License Client';
+                }
+                $parsed['party_name'] = trim(strip_tags($parsed['party_name']));
+
+                // Strictly require a valid Marg ERP Customer ID (Must be at least 3 chars)
+                if (empty($parsed['customer_id']) || strlen($parsed['customer_id']) < 3) {
                     continue;
                 }
 
