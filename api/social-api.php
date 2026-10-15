@@ -92,6 +92,53 @@ try {
             break;
 
         // -------------------------------------------------------------
+        // 1.1 Fetch Pages Automatically via Facebook User Access Token
+        // -------------------------------------------------------------
+        case 'fetch_user_pages':
+            $userToken = trim($_POST['user_access_token'] ?? '');
+            if (empty($userToken)) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'User access token is missing.']);
+                exit;
+            }
+
+            $graphVersion = defined('GRAPH_API_VERSION') ? GRAPH_API_VERSION : 'v20.0';
+            $url = "https://graph.facebook.com/{$graphVersion}/me/accounts?" . http_build_query([
+                'fields' => 'id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}',
+                'access_token' => $userToken
+            ]);
+
+            $res = sendGraphRequest($url, 'GET');
+            if (!$res['success']) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => $res['error'] ?? 'Could not retrieve Facebook pages from Meta.']);
+                exit;
+            }
+
+            $pagesData = $res['data']['data'] ?? [];
+            $formattedPages = [];
+            foreach ($pagesData as $p) {
+                $formattedPages[] = [
+                    'page_id' => $p['id'],
+                    'page_name' => $p['name'],
+                    'page_access_token' => $p['access_token'] ?? '',
+                    'picture_url' => $p['picture']['data']['url'] ?? '',
+                    'instagram_account' => isset($p['instagram_business_account']) ? [
+                        'id' => $p['instagram_business_account']['id'],
+                        'username' => $p['instagram_business_account']['username'] ?? '',
+                        'picture_url' => $p['instagram_business_account']['profile_picture_url'] ?? ''
+                    ] : null
+                ];
+            }
+
+            echo json_encode([
+                'success' => true,
+                'pages' => $formattedPages,
+                'count' => count($formattedPages)
+            ]);
+            break;
+
+        // -------------------------------------------------------------
         // 2. Connect / Update Social Account
         // -------------------------------------------------------------
         case 'connect_account':

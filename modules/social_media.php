@@ -288,7 +288,7 @@ if ($pdo) {
                     <!-- Step 1: Campaign Name & Objective -->
                     <div style="margin-bottom: 1.25rem;">
                         <label style="display: block; font-size: 0.825rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.4rem;">Campaign Name *</label>
-                        <input type="text" name="campaign_name" placeholder="e.g. Festive Marg ERP Upgrade Promo" required style="width: 100%; padding: 0.65rem 0.875rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.875rem; box-sizing: border-box;">
+                        <input type="text" name="campaign_name" placeholder="e.g. Festive Mega Promo Campaign" required style="width: 100%; padding: 0.65rem 0.875rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.875rem; box-sizing: border-box;">
                     </div>
 
                     <div style="margin-bottom: 1.25rem;">
@@ -347,55 +347,280 @@ if ($pdo) {
 
 <!-- Connect Account Modal -->
 <div id="connectAccountModal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 9999; align-items: center; justify-content: center; padding: 1rem;">
-    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); width: 100%; max-width: 520px; padding: 1.5rem; box-shadow: var(--shadow-lg);">
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); width: 100%; max-width: 540px; padding: 1.5rem; box-shadow: var(--shadow-lg); max-height: 90vh; overflow-y: auto;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
-            <h3 style="margin: 0; font-size: 1.125rem; font-weight: 600; color: var(--text-main);">Connect Social Channel</h3>
+            <div>
+                <h3 style="margin: 0; font-size: 1.125rem; font-weight: 600; color: var(--text-main);">Connect Social Channel</h3>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Link your official Facebook Page and Instagram Business handle</span>
+            </div>
             <button type="button" onclick="closeConnectModal()" style="border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 1.25rem; padding: 0.25rem;">
                 &times;
             </button>
         </div>
 
-        <form id="connectChannelForm" onsubmit="handleConnectSubmit(event)">
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; font-size: 0.825rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.4rem;">Platform *</label>
-                <select name="platform" id="connectPlatform" required style="width: 100%; padding: 0.65rem 0.875rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.875rem;">
-                    <option value="facebook_page">Facebook Page</option>
-                    <option value="instagram">Instagram Professional Account</option>
-                    <option value="linkedin">LinkedIn Company Page</option>
-                </select>
+        <!-- Option 1: 1-Click Meta Login (Recommended for regular users) -->
+        <div style="background: rgba(24, 119, 242, 0.05); border: 1px solid rgba(24, 119, 242, 0.2); border-radius: var(--border-radius-sm); padding: 1.25rem; text-align: center; margin-bottom: 1.25rem;">
+            <div style="font-size: 0.85rem; color: var(--text-main); font-weight: 600; margin-bottom: 0.35rem;">
+                Method 1: Automatic 1-Click Facebook Connect
             </div>
+            <p style="margin: 0 0 1rem 0; font-size: 0.785rem; color: var(--text-muted); line-height: 1.4;">
+                Log in to Facebook to automatically detect your Pages and linked Instagram accounts. Zero manual IDs or tokens required.
+            </p>
+            <button type="button" id="btnFbOAuth" class="btn" onclick="loginWithFacebook()" style="background: #1877F2; color: #ffffff; border: none; padding: 0.65rem 1.4rem; font-size: 0.85rem; font-weight: 600; border-radius: var(--border-radius-sm); display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <i data-lucide="log-in" style="width: 16px; height: 16px;"></i>
+                <span>Continue with Facebook</span>
+            </button>
+            <div id="fbOAuthStatus" style="display: none; margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);"></div>
+        </div>
 
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; font-size: 0.825rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.4rem;">Channel Display Name *</label>
-                <input type="text" name="account_name" placeholder="e.g. Marg Soft Solution Official" required style="width: 100%; padding: 0.65rem 0.875rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.875rem; box-sizing: border-box;">
-            </div>
+        <!-- Discovered Pages List Container -->
+        <div id="discoveredPagesContainer" style="display: none; margin-bottom: 1.25rem;">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.825rem; font-weight: 600; color: var(--text-main);">Available Pages Found:</h4>
+            <div id="discoveredPagesList" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+        </div>
 
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; font-size: 0.825rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.4rem;">Account / Page ID *</label>
-                <input type="text" name="account_id" placeholder="e.g. 10293847562019" required style="width: 100%; padding: 0.65rem 0.875rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.875rem; box-sizing: border-box;">
-            </div>
+        <!-- Option 2: Collapsible Manual Setup for Custom Tokens -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 0.875rem;">
+            <button type="button" onclick="toggleManualSetup()" style="border: none; background: transparent; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0.25rem 0;">
+                <span style="font-weight: 500;">Method 2: Manual Page ID &amp; Token (Advanced / Developers)</span>
+                <i data-lucide="chevron-down" id="manualChevronIcon" style="width: 14px; height: 14px;"></i>
+            </button>
 
-            <div style="margin-bottom: 1.25rem;">
-                <label style="display: block; font-size: 0.825rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.4rem;">Access Token *</label>
-                <input type="password" name="access_token" placeholder="Enter Page Access Token from Meta Graph API" required style="width: 100%; padding: 0.65rem 0.875rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.875rem; box-sizing: border-box;">
-                <span style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.35rem;">
-                    Tokens are strictly encrypted and isolated per tenant session.
-                </span>
-            </div>
+            <form id="connectChannelForm" onsubmit="handleConnectSubmit(event)" style="display: none; margin-top: 1rem;">
+                <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); padding: 0.75rem; margin-bottom: 1rem; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+                    <strong style="color: var(--text-main); display: block; margin-bottom: 0.25rem;">How to find Page ID &amp; Token manually:</strong>
+                    1. <strong>Page ID:</strong> Open your Facebook Page &gt; Click <em>About</em> &gt; <em>Page transparency</em> &gt; Copy <em>Page ID</em>.<br>
+                    2. <strong>Token:</strong> Go to <em>developers.facebook.com/tools/explorer</em>, select your App &amp; Page, and generate a Page Access Token.
+                </div>
 
-            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
-                <button type="button" class="btn btn-outline-secondary" onclick="closeConnectModal()" style="padding: 0.6rem 1rem; border: 1px solid var(--border-color); background: transparent; color: var(--text-main); border-radius: var(--border-radius-sm); cursor: pointer;">
-                    Cancel
-                </button>
-                <button type="submit" id="btnSaveChannel" class="btn btn-primary" style="padding: 0.6rem 1.25rem; font-weight: 600; border-radius: var(--border-radius-sm);">
-                    Save & Verify
-                </button>
-            </div>
-        </form>
+                <div style="margin-bottom: 0.875rem;">
+                    <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.35rem;">Platform *</label>
+                    <select name="platform" id="connectPlatform" required style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.825rem;">
+                        <option value="facebook_page">Facebook Page</option>
+                        <option value="instagram">Instagram Professional Account</option>
+                        <option value="linkedin">LinkedIn Company Page</option>
+                    </select>
+                </div>
+
+                <div style="margin-bottom: 0.875rem;">
+                    <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.35rem;">Channel Display Name *</label>
+                    <input type="text" name="account_name" placeholder="e.g. Acme Retail Official" required style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.825rem; box-sizing: border-box;">
+                </div>
+
+                <div style="margin-bottom: 0.875rem;">
+                    <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.35rem;">Account / Page ID *</label>
+                    <input type="text" name="account_id" placeholder="e.g. 100293847562019" required style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.825rem; box-sizing: border-box;">
+                </div>
+
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.35rem;">Access Token *</label>
+                    <input type="password" name="access_token" placeholder="Enter Page Access Token" required style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.825rem; box-sizing: border-box;">
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                    <button type="submit" id="btnSaveChannel" class="btn btn-primary" style="padding: 0.55rem 1.1rem; font-size: 0.825rem; font-weight: 600; border-radius: var(--border-radius-sm);">
+                        Save Channel
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
+<!-- Meta Facebook JS SDK Integration -->
 <script>
+window.fbAsyncInit = function() {
+    FB.init({
+        appId      : '<?php echo htmlspecialchars(defined('META_APP_ID') ? META_APP_ID : '2484306222079451'); ?>',
+        cookie     : true,
+        xfbml      : true,
+        version    : 'v20.0'
+    });
+};
+(function(d, s, id){
+    var js, fjs = d.getElementsByTagName(s)[0];
+    if (d.getElementById(id)) {return;}
+    js = d.createElement(s); js.id = id;
+    js.src = "https://connect.facebook.net/en_US/sdk.js";
+    fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));
+
+// 1-Click Facebook Login Handler
+function loginWithFacebook() {
+    var statusEl = document.getElementById('fbOAuthStatus');
+    var btn = document.getElementById('btnFbOAuth');
+    if (typeof FB === 'undefined') {
+        showSocialAlert('Facebook SDK is loading. Please check your network or try again in a moment.', 'error');
+        return;
+    }
+
+    btn.disabled = true;
+    if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.textContent = 'Connecting to Facebook authorization dialog...';
+    }
+
+    FB.login(function(response) {
+        btn.disabled = false;
+        if (response.authResponse && response.authResponse.accessToken) {
+            if (statusEl) statusEl.textContent = 'Authorization granted. Detecting your Facebook & Instagram pages...';
+            fetchUserPagesFromMeta(response.authResponse.accessToken);
+        } else {
+            if (statusEl) statusEl.style.display = 'none';
+            showSocialAlert('Facebook authorization was cancelled by the user.', 'error');
+        }
+    }, {
+        scope: 'pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,instagram_basic,instagram_content_publish'
+    });
+}
+
+// Fetch discovered pages from server
+function fetchUserPagesFromMeta(userToken) {
+    var statusEl = document.getElementById('fbOAuthStatus');
+    var container = document.getElementById('discoveredPagesContainer');
+    var list = document.getElementById('discoveredPagesList');
+
+    var fd = new FormData();
+    fd.append('action', 'fetch_user_pages');
+    fd.append('user_access_token', userToken);
+
+    fetch('api/social-api.php', {
+        method: 'POST',
+        body: fd
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (statusEl) statusEl.style.display = 'none';
+        if (!data.success || !data.pages || data.pages.length === 0) {
+            showSocialAlert('No active Facebook Pages found for this account. Ensure you have Admin access to at least one Facebook Page.', 'error');
+            return;
+        }
+
+        container.style.display = 'block';
+        list.innerHTML = '';
+
+        data.pages.forEach(function(p) {
+            var itemHtml = document.createElement('div');
+            itemHtml.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-app); gap: 0.75rem;';
+
+            var leftCol = document.createElement('div');
+            leftCol.style.cssText = 'display: flex; align-items: center; gap: 0.6rem; overflow: hidden;';
+            
+            var avatar = document.createElement('img');
+            avatar.src = p.picture_url || 'assets/image.png';
+            avatar.style.cssText = 'width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: var(--border-color); flex-shrink: 0;';
+
+            var nameGroup = document.createElement('div');
+            nameGroup.style.cssText = 'overflow: hidden;';
+            nameGroup.innerHTML = '<div style="font-size: 0.825rem; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(p.page_name) + '</div><div style="font-size: 0.7rem; color: var(--text-muted);">Page ID: ' + escapeHtml(p.page_id) + '</div>';
+
+            leftCol.appendChild(avatar);
+            leftCol.appendChild(nameGroup);
+
+            var connectBtn = document.createElement('button');
+            connectBtn.type = 'button';
+            connectBtn.className = 'btn btn-primary';
+            connectBtn.style.cssText = 'padding: 0.4rem 0.85rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; white-space: nowrap; cursor: pointer;';
+            connectBtn.textContent = 'Connect Page';
+            connectBtn.onclick = function() {
+                connectDiscoveredPage(p.page_id, p.page_name, p.page_access_token, p.picture_url, 'facebook_page', connectBtn);
+            };
+
+            itemHtml.appendChild(leftCol);
+            itemHtml.appendChild(connectBtn);
+            list.appendChild(itemHtml);
+
+            // If Instagram is linked, show a 1-click connect button for Instagram too
+            if (p.instagram_account && p.instagram_account.id) {
+                var igItem = document.createElement('div');
+                igItem.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; border: 1px solid rgba(225, 48, 108, 0.25); border-radius: var(--border-radius-sm); background: rgba(225, 48, 108, 0.04); gap: 0.75rem;';
+
+                var igLeftCol = document.createElement('div');
+                igLeftCol.style.cssText = 'display: flex; align-items: center; gap: 0.6rem; overflow: hidden;';
+                
+                var igAvatar = document.createElement('img');
+                igAvatar.src = p.instagram_account.picture_url || 'assets/image.png';
+                igAvatar.style.cssText = 'width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: var(--border-color); flex-shrink: 0;';
+
+                var igNameGroup = document.createElement('div');
+                igNameGroup.style.cssText = 'overflow: hidden;';
+                igNameGroup.innerHTML = '<div style="font-size: 0.825rem; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">@' + escapeHtml(p.instagram_account.username || p.page_name) + ' (Instagram)</div><div style="font-size: 0.7rem; color: var(--text-muted);">IG ID: ' + escapeHtml(p.instagram_account.id) + '</div>';
+
+                igLeftCol.appendChild(igAvatar);
+                igLeftCol.appendChild(igNameGroup);
+
+                var igConnectBtn = document.createElement('button');
+                igConnectBtn.type = 'button';
+                igConnectBtn.className = 'btn';
+                igConnectBtn.style.cssText = 'background: #E1306C; color: #fff; padding: 0.4rem 0.85rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; white-space: nowrap; cursor: pointer; border: none;';
+                igConnectBtn.textContent = 'Connect Instagram';
+                igConnectBtn.onclick = function() {
+                    connectDiscoveredPage(p.instagram_account.id, p.instagram_account.username || p.page_name, p.page_access_token, p.instagram_account.picture_url, 'instagram', igConnectBtn);
+                };
+
+                igItem.appendChild(igLeftCol);
+                igItem.appendChild(igConnectBtn);
+                list.appendChild(igItem);
+            }
+        });
+        if (window.lucide) lucide.createIcons();
+    })
+    .catch(function(err) {
+        if (statusEl) statusEl.style.display = 'none';
+        showSocialAlert('Could not retrieve pages: ' + err.message, 'error');
+    });
+}
+
+// Quick 1-click connect action
+function connectDiscoveredPage(id, name, token, picUrl, platform, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Connecting...';
+
+    var fd = new FormData();
+    fd.append('action', 'connect_account');
+    fd.append('platform', platform);
+    fd.append('account_id', id);
+    fd.append('account_name', name);
+    fd.append('access_token', token);
+    fd.append('profile_picture_url', picUrl || '');
+
+    fetch('api/social-api.php', {
+        method: 'POST',
+        body: fd
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        btn.disabled = false;
+        btn.textContent = 'Connected';
+        btn.style.background = '#10b981';
+        if (data.success) {
+            showSocialAlert(data.message, 'success');
+            setTimeout(function() { window.location.reload(); }, 1000);
+        } else {
+            showSocialAlert(data.message || 'Connection failed.', 'error');
+        }
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+        showSocialAlert('Connection error: ' + err.message, 'error');
+    });
+}
+
+// Toggle manual form
+function toggleManualSetup() {
+    var form = document.getElementById('connectChannelForm');
+    var icon = document.getElementById('manualChevronIcon');
+    if (!form) return;
+    if (form.style.display === 'none' || form.style.display === '') {
+        form.style.display = 'block';
+        if (icon) icon.style.transform = 'rotate(180deg)';
+    } else {
+        form.style.display = 'none';
+        if (icon) icon.style.transform = 'rotate(0deg)';
+    }
+}
+
 // Tab Switching Controller
 function switchSocialTab(tabId, el) {
     document.querySelectorAll('.social-tab-pane').forEach(function(pane) {
