@@ -20,6 +20,9 @@ tmp/
 temp/
 uploads/tmp/*
 !uploads/tmp/.gitkeep
+uploads/client_licenses/*
+!uploads/client_licenses/.gitkeep
+
 
 # Local environment overrides
 .env.local

@@ -539,7 +539,12 @@ try {
                     </p>
                 </div>
             </div>
-            <div style="display: flex; gap: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <?php if ($wabaSettings['gateway_type'] === 'meta' && !empty($wabaSettings['waba_id'])): ?>
+                    <a href="https://business.facebook.com/wa/manage/phone-numbers/?waba_id=<?php echo urlencode($wabaSettings['waba_id']); ?>" target="_blank" class="btn btn-outline-primary font-bold text-xs" style="padding: 8px 14px; border-radius: 8px; border: 1px solid #1877F2; color: #1877F2; background: rgba(24, 119, 242, 0.08); text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
+                        <i data-lucide="external-link" style="width: 14px; height: 14px;"></i> Open Meta Account
+                    </a>
+                <?php endif; ?>
                 <a href="index.php?page=broadcast_campaigns" class="btn btn-primary font-bold text-xs" style="padding: 8px 16px; border-radius: 8px;">
                     <i data-lucide="send" style="width: 14px; height: 14px; margin-right: 4px;"></i> Open Broadcast &amp; Campaigns Hub
                 </a>
@@ -1273,6 +1278,43 @@ function escapeHtml(text) {
                 <i data-lucide="zap" style="width: 14px; height: 14px;"></i> 1-Click Meta Embedded Signup
             </a>
         </div>
+
+        <?php if (!empty($wabaSettings['waba_id'])): ?>
+        <!-- Dedicated Meta WhatsApp Portal & Account Redirection -->
+        <div style="background: linear-gradient(135deg, rgba(24, 119, 242, 0.05) 0%, rgba(37, 211, 102, 0.05) 100%); border: 1px solid rgba(24, 119, 242, 0.25); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="width: 36px; height: 36px; border-radius: 8px; background: #1877F2; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                        <i data-lucide="external-link" style="width: 18px; height: 18px;"></i>
+                    </div>
+                    <div>
+                        <strong style="color: var(--text-main); font-size: 0.92rem; display: block;">Official Meta WhatsApp Portal (Your Business Account)</strong>
+                        <span style="font-size: 0.78rem; color: var(--text-muted);">
+                            Opens directly into your dedicated WhatsApp Business Account (<strong style="color: var(--text-main); font-family: monospace;">WABA: <?php echo htmlspecialchars($wabaSettings['waba_id']); ?></strong>).
+                        </span>
+                    </div>
+                </div>
+                <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;">
+                    🔒 Direct Account Redirect
+                </span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px;">
+                <a href="https://business.facebook.com/wa/manage/phone-numbers/?waba_id=<?php echo urlencode($wabaSettings['waba_id']); ?>" target="_blank" class="btn btn-primary font-bold text-xs" style="background: #1877F2; border: none; padding: 9px 14px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none;">
+                    <i data-lucide="smartphone" style="width: 14px; height: 14px;"></i>
+                    <span>Meta WhatsApp Manager</span>
+                </a>
+                <a href="https://business.facebook.com/wa/manage/message-templates/?waba_id=<?php echo urlencode($wabaSettings['waba_id']); ?>" target="_blank" class="btn btn-secondary font-bold text-xs" style="padding: 9px 14px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none;">
+                    <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
+                    <span>Templates &amp; Approvals</span>
+                </a>
+                <a href="https://business.facebook.com/billing_hub/payment_settings" target="_blank" class="btn btn-secondary font-bold text-xs" style="padding: 9px 14px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none;">
+                    <i data-lucide="credit-card" style="width: 14px; height: 14px;"></i>
+                    <span>Billing &amp; Payment Methods</span>
+                </a>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px;">
             <div>

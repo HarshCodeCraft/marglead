@@ -4,6 +4,35 @@
  */
 
 require_once __DIR__ . '/cors.php';
+if (file_exists(__DIR__ . '/helpers.php')) {
+    require_once __DIR__ . '/helpers.php';
+}
+
+if (!function_exists('format_wa_date_ddmmyyyy')) {
+    function format_wa_date_ddmmyyyy($dateVal): string {
+        if (empty($dateVal) || $dateVal === '-' || $dateVal === '0000-00-00') {
+            return '-';
+        }
+        $s = trim((string)$dateVal);
+        if ($s === '' || $s === '-' || $s === '0000-00-00') {
+            return '-';
+        }
+        if (preg_match('/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/', $s, $m)) {
+            return str_pad($m[3], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[1];
+        }
+        if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})/', $s, $m)) {
+            return str_pad($m[1], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[3];
+        }
+        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})/', $s, $m)) {
+            return str_pad($m[1], 2, '0', STR_PAD_LEFT) . '/' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '/' . $m[3];
+        }
+        $ts = strtotime($s);
+        if ($ts && $ts > 0) {
+            return date('d/m/Y', $ts);
+        }
+        return $s;
+    }
+}
 
 $auth = requireApiAuth();
 
@@ -19,6 +48,7 @@ function getActiveWabaConfig($pdo, $userId = null) {
     if (!$userId) {
         $userId = $_SESSION['user_id'] ?? 1;
     }
+    $isSuperAdmin = (!empty($_SESSION['user_role']) && in_array(strtolower($_SESSION['user_role']), ['super admin', 'superadmin']) && empty($_SESSION['tenant_db']));
     try {
         // STRICT USER & TENANT ISOLATION:
         // Only return THIS specific user's own WhatsApp settings.
@@ -26,6 +56,18 @@ function getActiveWabaConfig($pdo, $userId = null) {
         $stmt = $pdo->prepare("SELECT * FROM merchant_waba_settings WHERE user_id = ? LIMIT 1");
         $stmt->execute([$userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // Bulletproof Super Admin fallback: If Super Admin has empty or unset credentials, fallback to master constants
+        if (($userId == 1 || $isSuperAdmin) && (empty($row) || empty($row['phone_number_id']))) {
+            return [
+                'phone_number_id' => defined('PHONE_NUMBER_ID') ? PHONE_NUMBER_ID : '1370757916110578',
+                'waba_id'         => defined('BUSINESS_ACCOUNT_ID') ? BUSINESS_ACCOUNT_ID : '28958809240386414',
+                'access_token'    => defined('ACCESS_TOKEN') ? ACCESS_TOKEN : '',
+                'business_phone'  => '+91 93050 45727',
+                'gateway_type'    => 'meta',
+                'status'          => 'Active'
+            ];
+        }
 
         // Return only this user's record. NEVER query other users' connected sessions!
         return $row ?: [];
@@ -345,7 +387,7 @@ function dispatchUnifiedWhatsAppMessage($pdo, $phone, $msgText, $buttons = [], $
     } else {
         // Meta WhatsApp Cloud API Mode
         require_once __DIR__ . '/whatsapp-api.php';
-        $whatsapp = new WhatsAppAPI($pdo);
+        $whatsapp = new WhatsAppAPI($pdo, $cfg['phone_number_id'] ?? null, $cfg['access_token'] ?? null);
 
         // 1. Check if template is an approved Meta template FIRST
         $stmtMetaT = $pdo->prepare("SELECT * FROM whatsapp_templates WHERE slug = ? AND (meta_status = 'APPROVED' OR gateway_origin = 'meta') LIMIT 1");

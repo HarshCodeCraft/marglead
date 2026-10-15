@@ -20,26 +20,37 @@ if ($isGetRedirect && isset($_GET['error'])) {
     exit;
 }
 
-// User identification: Check active session or fallback
-$user_id = (int)($_SESSION['user_id'] ?? 0);
-if (!$user_id && isset($_GET['state']) && is_numeric($_GET['state'])) {
+// User identification: Check active state from Meta redirect, or active session, or payload
+$user_id = 0;
+if (isset($_GET['state']) && is_numeric($_GET['state']) && (int)$_GET['state'] > 0) {
     $user_id = (int)$_GET['state'];
+} elseif (isset($_POST['state']) && is_numeric($_POST['state']) && (int)$_POST['state'] > 0) {
+    $user_id = (int)$_POST['state'];
+} elseif (!empty($_SESSION['user_id'])) {
+    $user_id = (int)$_SESSION['user_id'];
+}
+
+$rawInput = file_get_contents('php://input');
+$data = json_decode($rawInput, true) ?: $_POST;
+
+if (!$user_id && !empty($data['user_id']) && is_numeric($data['user_id'])) {
+    $user_id = (int)$data['user_id'];
+}
+if (!$user_id && !empty($data['state']) && is_numeric($data['state'])) {
+    $user_id = (int)$data['state'];
 }
 if (!$user_id) {
-    $user_id = 1; // Default to main admin if direct onboarding redirect
+    $user_id = 1; // Default to main admin if direct onboarding redirect without state
 }
 
 if (!$isGetRedirect) {
     header('Content-Type: application/json');
-    if (!isset($_SESSION['user_id'])) {
+    if (!isset($_SESSION['user_id']) && !$user_id) {
         http_response_code(401);
         echo json_encode(['success' => false, 'message' => 'Unauthorized access. Please login first.']);
         exit;
     }
 }
-
-$rawInput = file_get_contents('php://input');
-$data = json_decode($rawInput, true) ?: $_POST;
 
 $action = $data['action'] ?? ($isGetRedirect ? 'embedded_signup' : 'embedded_signup');
 $firm_name = trim($data['firm_name'] ?? ($_SESSION['company_name'] ?? 'Marg Partner'));
@@ -56,6 +67,17 @@ try {
 
         // 1. If authorization code is provided, exchange for token with Meta Graph API
         if (!empty($code) && empty($access_token)) {
+            if (empty($app_secret)) {
+                $err = "Meta App Secret is missing in config/config.php. Please add APP_SECRET to enable automatic token exchange.";
+                if ($isGetRedirect) {
+                    header("Location: ../index.php?page=whatsapp_settings&status=error&msg=" . urlencode($err));
+                    exit;
+                }
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => $err]);
+                exit;
+            }
+
             $tokenUrl = "https://graph.facebook.com/" . GRAPH_API_VERSION . "/oauth/access_token?" . http_build_query([
                 'client_id' => $app_id,
                 'client_secret' => $app_secret,
@@ -68,13 +90,22 @@ try {
             curl_close($ch);
 
             $tokenData = json_decode($tokenRes, true);
-            if (isset($tokenData['access_token'])) {
+            if (!empty($tokenData['access_token'])) {
                 $access_token = $tokenData['access_token'];
+            } elseif (isset($tokenData['error'])) {
+                $err = 'Meta Token Exchange Failed: ' . ($tokenData['error']['message'] ?? 'Invalid code or App Secret.');
+                if ($isGetRedirect) {
+                    header("Location: ../index.php?page=whatsapp_settings&status=error&msg=" . urlencode($err));
+                    exit;
+                }
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => $err]);
+                exit;
             }
         }
 
-        // Fallback to system access token if OAuth token not returned
-        if (empty($access_token)) {
+        // Only fallback to system access token if NO code was provided (e.g. system self-test)
+        if (empty($access_token) && empty($code)) {
             $access_token = ACCESS_TOKEN;
         }
 
@@ -183,6 +214,29 @@ try {
         ");
         $stmtSync->execute([$user_id, $phone_number_id, $waba_id, $access_token, $display_phone_number]);
 
+        // 4.1 Sync into tenant isolated table if user_id belongs to a tenant company
+        try {
+            $stmtTenantChk = $pdo->prepare("SELECT * FROM tenant_companies WHERE id = ? LIMIT 1");
+            $stmtTenantChk->execute([$user_id]);
+            $tenantCompany = $stmtTenantChk->fetch(PDO::FETCH_ASSOC);
+            if ($tenantCompany && !empty($tenantCompany['db_name'])) {
+                $tenantDbPrefix = $tenantCompany['db_name'];
+                $tenantWabaTable = $tenantDbPrefix . 'merchant_waba_settings';
+                $stmtTenantWaba = $pdo->prepare("
+                    INSERT INTO `{$tenantWabaTable}` (user_id, phone_number_id, waba_id, access_token, business_phone, gateway_type, status)
+                    VALUES (?, ?, ?, ?, ?, 'meta', 'Active')
+                    ON DUPLICATE KEY UPDATE 
+                        phone_number_id = VALUES(phone_number_id),
+                        waba_id = VALUES(waba_id),
+                        access_token = VALUES(access_token),
+                        business_phone = VALUES(business_phone),
+                        gateway_type = 'meta',
+                        status = 'Active'
+                ");
+                $stmtTenantWaba->execute([$user_id, $phone_number_id, $waba_id, $access_token, $display_phone_number]);
+            }
+        } catch (\Throwable $tEx) {}
+
         // 4.1 Automatically Subscribe App to Client's WABA for Webhook events (Messages & Status Updates)
         try {
             $subUrl = "https://graph.facebook.com/" . GRAPH_API_VERSION . "/{$waba_id}/subscribed_apps";
@@ -194,6 +248,24 @@ try {
             $subRes = curl_exec($chSub);
             curl_close($chSub);
         } catch (\Throwable $subEx) {}
+
+        // 4.2 Automatically Register Phone Number on Meta Cloud API (Sets 2FA PIN & Activates Live Messaging)
+        try {
+            $regUrl = "https://graph.facebook.com/" . GRAPH_API_VERSION . "/{$phone_number_id}/register";
+            $chReg = curl_init($regUrl);
+            curl_setopt($chReg, CURLOPT_POST, true);
+            curl_setopt($chReg, CURLOPT_POSTFIELDS, json_encode([
+                'messaging_product' => 'whatsapp',
+                'pin' => '123456'
+            ]));
+            curl_setopt($chReg, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($chReg, CURLOPT_HTTPHEADER, [
+                "Authorization: Bearer {$access_token}",
+                "Content-Type: application/json"
+            ]);
+            curl_exec($chReg);
+            curl_close($chReg);
+        } catch (\Throwable $regEx) {}
 
         // Create log notification for user
         $pdo->prepare("

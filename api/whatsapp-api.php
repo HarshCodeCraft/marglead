@@ -14,16 +14,26 @@ class WhatsAppAPI {
     private string $graphVersion;
     private ?PDO $pdo;
 
-    public function __construct(?PDO $pdo = null) {
+    public function __construct(?PDO $pdo = null, ?string $phoneNumberId = null, ?string $accessToken = null) {
         $this->pdo          = $pdo;
         $this->graphVersion = defined('GRAPH_API_VERSION') ? GRAPH_API_VERSION : 'v20.0';
 
-        $wabaPhone = '';
-        $wabaToken = '';
-        if ($this->pdo) {
+        if (!empty($phoneNumberId) && !empty($accessToken)) {
+            $this->phoneNumberId = $phoneNumberId;
+            $this->accessToken   = $accessToken;
+            return;
+        }
+
+        $wabaPhone = !empty($phoneNumberId) ? $phoneNumberId : '';
+        $wabaToken = !empty($accessToken) ? $accessToken : '';
+        $uid = (int)($_SESSION['user_id'] ?? 1);
+
+        if ($this->pdo && (empty($wabaPhone) || empty($wabaToken))) {
             try {
-                $stmt = $this->pdo->query("SELECT phone_number_id, access_token FROM merchant_waba_settings WHERE phone_number_id != '' AND access_token != '' ORDER BY id DESC LIMIT 1");
-                $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
+                // STRICT USER ISOLATION: Query for THIS specific logged-in user/tenant first!
+                $stmt = $this->pdo->prepare("SELECT phone_number_id, access_token FROM merchant_waba_settings WHERE user_id = ? AND phone_number_id != '' AND access_token != '' LIMIT 1");
+                $stmt->execute([$uid]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
                 if ($row) {
                     $wabaPhone = $row['phone_number_id'] ?? '';
                     $wabaToken = $row['access_token'] ?? '';

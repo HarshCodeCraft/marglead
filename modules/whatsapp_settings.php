@@ -160,8 +160,14 @@ $meta_hosted_onboard_url = "https://business.facebook.com/messaging/whatsapp/onb
                     </div>
                 </div>
             </div>
-            <div>
-                <button type="button" onclick="disconnectWhatsApp()" class="btn btn-outline-danger btn-sm flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+                <?php if (!empty($waba_id)): ?>
+                <a href="https://business.facebook.com/wa/manage/phone-numbers/?waba_id=<?php echo urlencode($waba_id); ?>" target="_blank" class="btn btn-outline-primary btn-sm flex items-center gap-2" style="border: 1px solid #1877F2; color: #1877F2; background: rgba(24, 119, 242, 0.1); text-decoration: none; font-weight: 600; padding: 0.45rem 0.85rem; border-radius: 8px;">
+                    <i data-lucide="external-link" style="width: 14px; height: 14px;"></i>
+                    Open Meta Account
+                </a>
+                <?php endif; ?>
+                <button type="button" onclick="disconnectWhatsApp()" class="btn btn-outline-danger btn-sm flex items-center gap-2" style="padding: 0.45rem 0.85rem; border-radius: 8px;">
                     <i data-lucide="power" style="width: 14px; height: 14px;"></i>
                     Disconnect Account
                 </button>
@@ -352,6 +358,8 @@ function syncEmbeddedCredentials(code, waba_id, phone_number_id) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             action: 'embedded_signup',
+            user_id: <?php echo (int)$user_id; ?>,
+            state: <?php echo (int)$user_id; ?>,
             code: code || '',
             waba_id: waba_id || metaSignupWabaId || '',
             phone_number_id: phone_number_id || metaSignupPhoneId || '',
