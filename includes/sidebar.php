@@ -255,6 +255,15 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             </a>
                         </li>
                     <?php endif; ?>
+                    <?php if (hasAccess('social_media', $role) || $is_admin): ?>
+                        <li class="sidebar-item <?php echo isActivePage('social_media') ? 'active' : ''; ?>">
+                            <a href="index.php?page=social_media">
+                                <i data-lucide="share-2" style="width: 18px; height: 18px; color: #3b82f6;"></i>
+                                <span>Social Media & Ads</span>
+                                <span class="badge" style="margin-left: auto; background: rgba(59, 130, 246, 0.15); color: #3b82f6; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">META</span>
+                            </a>
+                        </li>
+                    <?php endif; ?>
                 </ul>
             <?php endif; ?>
 
@@ -509,6 +518,15 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             <i data-lucide="qr-code" style="width: 18px; height: 18px;"></i>
                             <span>Marg ERP WABA Setup</span>
                             <span class="badge" style="margin-left: auto; background: #10b981; color: white; font-size: 0.65rem;">ADD-ON</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if (hasAccess('social_media', $role) || $is_admin): ?>
+                    <li class="sidebar-item <?php echo isActivePage('social_media') ? 'active' : ''; ?>">
+                        <a href="index.php?page=social_media">
+                            <i data-lucide="share-2" style="width: 18px; height: 18px; color: #3b82f6;"></i>
+                            <span>Social Media & Ads</span>
+                            <span class="badge" style="margin-left: auto; background: rgba(59, 130, 246, 0.15); color: #3b82f6; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">META</span>
                         </a>
                     </li>
                 <?php endif; ?>

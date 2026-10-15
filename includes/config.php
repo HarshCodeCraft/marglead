@@ -604,6 +604,8 @@ function hasAccess($module, $role) {
         $normalized_module = 'bot_flows';
     } elseif ($module === 'bulk_broadcast') {
         $normalized_module = 'broadcast_campaigns';
+    } elseif ($module === 'social_media' || $module === 'social_suite') {
+        $normalized_module = 'social_media';
     }
 
     // Check Tenant Company Power Permissions (CRM Client allowed_modules block)
@@ -785,7 +787,7 @@ function hasAccess($module, $role) {
     }
 
     $permissions = [
-        'Admin' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings', 'bot_flows', 'whatsapp_flows', 'team_inbox', 'broadcast_campaigns', 'merchant_waba_settings', 'whatsapp_settings', 'bulk_broadcast', 'clients', 'sub_partners', 'crm_clients', 'admin_users', 'admin_permissions', 'privacy_policy', 'terms_conditions', 'refund_policy', 'notification_templates'],
+        'Admin' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'bank_accounts', 'installation', 'training', 'support', 'renewals', 'reports', 'settings', 'bot_flows', 'whatsapp_flows', 'team_inbox', 'broadcast_campaigns', 'merchant_waba_settings', 'whatsapp_settings', 'bulk_broadcast', 'clients', 'sub_partners', 'crm_clients', 'admin_users', 'admin_permissions', 'privacy_policy', 'terms_conditions', 'refund_policy', 'notification_templates', 'social_media'],
         'Client' => ['dashboard', 'quotation', 'payments', 'support', 'renewals', 'bot_flows', 'privacy_policy', 'terms_conditions', 'refund_policy'],
         'Sales Head' => ['dashboard', 'leads', 'pipeline', 'followups', 'demo', 'quotation', 'payments', 'team_inbox', 'broadcast_campaigns', 'bulk_broadcast', 'clients', 'sub_partners', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'manager'],
         'Technical Head' => ['dashboard', 'support', 'team_inbox', 'bot_flows', 'installation', 'training', 'renewals', 'reports', 'privacy_policy', 'terms_conditions', 'refund_policy', 'support_create', 'support_edit', 'support_assign', 'support_close', 'manager'],
