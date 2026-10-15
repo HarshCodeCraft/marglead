@@ -660,7 +660,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $flash_type = "success";
                     } else {
                         $errDetail = !empty($resJson['message']) ? $resJson['message'] : ($resRaw ?: ('HTTP ' . $httpCode));
-                        $flash_msg = "⚠️ WhatsApp Web Error: " . $errDetail;
+                        $flash_msg = "WhatsApp Web Error: " . $errDetail;
                         $flash_type = "danger";
                     }
                 } else {
@@ -1129,7 +1129,7 @@ if (isset($pdo_master)) {
                             $status_class = ($cl['status'] === 'Active') ? 'success' : (($cl['status'] === 'Suspended') ? 'danger' : 'warning');
                             $plan_class = ($cl['plan'] === 'Enterprise') ? 'accent' : (($cl['plan'] === 'Gold') ? 'primary' : 'secondary');
 
-                            $default_all = ["workspace_dashboard","whatsapp_dashboard","dashboard","leads","clients","customer_kyc","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","team_inbox","merchant_waba_settings","whatsapp_settings","whatsapp_flows","bot_flows","broadcast_campaigns","bulk_broadcast","reports","settings"];
+                            $default_all = ["workspace_dashboard","whatsapp_dashboard","dashboard","leads","clients","sub_partners","customer_kyc","pipeline","followups","demo","quotation","payments","bank_accounts","installation","training","support","renewals","gmail_license_sync","team_inbox","merchant_waba_settings","whatsapp_settings","whatsapp_flows","bot_flows","broadcast_campaigns","bulk_broadcast","notification_templates","ai_sales_settings","social_media","reports","settings","privacy_policy","terms_conditions","refund_policy"];
                             $allowed_modules = !empty($cl['allowed_modules']) ? json_decode($cl['allowed_modules'], true) : $default_all;
                             if (!is_array($allowed_modules)) $allowed_modules = $default_all;
 
@@ -1670,6 +1670,7 @@ if (isset($pdo_master)) {
                     'whatsapp_dashboard'    => ['name' => 'WhatsApp Hub & Gateway', 'desc' => 'WhatsApp Web API Console, QR Pairing & Live Stats'],
                     'leads'                 => ['name' => 'Leads Management', 'desc' => 'Directory of Leads & Customer Profiles'],
                     'clients'               => ['name' => 'Clients Directory', 'desc' => 'Active Customer Accounts & Business Profiles'],
+                    'sub_partners'          => ['name' => 'Sub Partners Directory', 'desc' => 'Channel partners, sub-dealers & commission tracking'],
                     'customer_kyc'          => ['name' => 'Customer KYC Verification', 'desc' => 'Customer KYC Details & Verification Records'],
                     'pipeline'              => ['name' => 'Sales Pipeline Kanban', 'desc' => 'Stage-by-stage Deal Pipeline'],
                     'followups'             => ['name' => 'Follow-up Planner', 'desc' => 'Call Schedules & Reminders'],
@@ -1683,15 +1684,19 @@ if (isset($pdo_master)) {
                     'renewals'              => ['name' => 'License Renewals', 'desc' => 'Expiry Tracker & AMC Reminders'],
                     'gmail_license_sync'    => ['name' => 'Gmail License Automation', 'desc' => 'Auto-fetch Marg ERP license emails & sync Client Directory with attached files'],
                     'team_inbox'            => ['name' => 'Team Inbox & Live Chat', 'desc' => 'Multi-agent Team Chat Inbox'],
+                    'ai_sales_settings'     => ['name' => 'AI Sales Bot Setup', 'desc' => 'Autonomous sales agent configuration and AI prompt rules'],
                     'merchant_waba_settings'=> ['name' => 'Marg ERP WABA Setup', 'desc' => 'Marg ERP 9+ Webhook Gateway Setup & QR'],
                     'whatsapp_settings'     => ['name' => 'WhatsApp Cloud API', 'desc' => 'Meta API Settings & Embedded Signup'],
-                    'whatsapp_flows'        => ['name' => 'Bots & Auto-Reply', 'desc' => 'Interactive Bot Flow Designer & Auto-Replies (Requires Meta Cloud API)'],
+                    'whatsapp_flows'        => ['name' => 'Bots & Auto-Reply', 'desc' => 'Interactive Bot Flow Designer & Auto-Replies'],
                     'broadcast_campaigns'   => ['name' => 'WhatsApp Campaigns', 'desc' => 'Targeted Audience WhatsApp Broadcasts'],
                     'bulk_broadcast'        => ['name' => 'Bulk Marketing Broadcast', 'desc' => 'Mass CSV/Excel Marketing Broadcasts'],
+                    'notification_templates'=> ['name' => 'Auto Notification Messages', 'desc' => 'Automated system triggers & WhatsApp message templates'],
+                    'social_media'          => ['name' => 'Social Media & Ads Suite', 'desc' => 'Unified Meta Suite, Facebook Page, Instagram, and Express Ads'],
                     'reports'               => ['name' => 'Reports & Analytics', 'desc' => 'Business Intelligence & CSV Exports'],
                     'settings'              => ['name' => 'Workspace Settings', 'desc' => 'General CRM & Company Preferences'],
                     'privacy_policy'        => ['name' => 'Privacy Policy', 'desc' => 'Legal Privacy Policy & Compliance Document'],
-                    'terms_conditions'      => ['name' => 'Terms & Conditions', 'desc' => 'Legal Terms of Service & Usage Terms']
+                    'terms_conditions'      => ['name' => 'Terms & Conditions', 'desc' => 'Legal Terms of Service & Usage Terms'],
+                    'refund_policy'         => ['name' => 'Refund Policy', 'desc' => 'Legal Refund & Cancellation Policy Document']
                 ];
                 foreach ($all_sys_modules as $mod_key => $mod_info):
                 ?>

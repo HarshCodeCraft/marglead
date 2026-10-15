@@ -309,6 +309,26 @@ if ($db_connected && $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         $results[] = ["status" => "success", "msg" => "Social Media & Ads management schema synchronized."];
 
+        // 11. Sync Social Media to Friendly Ai Solution (ID 47 & Primary Master)
+        try {
+            $tList = $pdo->query("SELECT id, allowed_modules FROM tenant_companies WHERE company_code IN ('master', 'friendlyaisolution') OR id IN (1, 47)")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($tList as $tRow) {
+                $mods = json_decode($tRow['allowed_modules'], true) ?: [];
+                $newItems = ['social_media', 'notification_templates', 'ai_sales_settings', 'sub_partners', 'refund_policy'];
+                $changed = false;
+                foreach ($newItems as $ni) {
+                    if (!in_array($ni, $mods)) {
+                        $mods[] = $ni;
+                        $changed = true;
+                    }
+                }
+                if ($changed) {
+                    $pdo->prepare("UPDATE tenant_companies SET allowed_modules = ? WHERE id = ?")->execute([json_encode(array_values(array_unique($mods))), $tRow['id']]);
+                }
+            }
+            $results[] = ["status" => "success", "msg" => "Synchronized permissions for Friendly Ai Solution & Master Admin."];
+        } catch (\Throwable $tEx) {}
+
     } catch (Throwable $e) {
         $results[] = ["status" => "danger", "msg" => "Migration Error: " . $e->getMessage()];
     }

@@ -290,7 +290,7 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                 </ul>
             <?php endif; ?>
 
-            <?php if (hasAccess('privacy_policy', $role) || hasAccess('terms_conditions', $role)): ?>
+            <?php if (hasAccess('privacy_policy', $role) || hasAccess('terms_conditions', $role) || hasAccess('refund_policy', $role)): ?>
             <div class="menu-group-title">Legal & Support</div>
             <ul>
                 <?php if (hasAccess('privacy_policy', $role)): ?>
@@ -306,6 +306,14 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                     <a href="index.php?page=terms_conditions">
                         <i data-lucide="file-text" style="width: 18px; height: 18px;"></i>
                         <span>Terms & Conditions</span>
+                    </a>
+                </li>
+                <?php endif; ?>
+                <?php if (hasAccess('refund_policy', $role)): ?>
+                <li class="sidebar-item <?php echo isActivePage('refund_policy'); ?>">
+                    <a href="index.php?page=refund_policy">
+                        <i data-lucide="receipt-refund" style="width: 18px; height: 18px;"></i>
+                        <span>Refund Policy</span>
                     </a>
                 </li>
                 <?php endif; ?>

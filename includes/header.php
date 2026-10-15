@@ -11,7 +11,7 @@ $logged_user_name = $_SESSION['user_name'] ?? 'System Operator';
 $logged_user_photo = $_SESSION['user_photo'] ?? null;
 $logged_user_role = $_SESSION['user_role'] ?? 'Admin';
 
-$is_tenant_session = (!empty($_SESSION['user_role']) && $_SESSION['user_role'] === 'Tenant Admin') || (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata') && empty($_SESSION['impersonate_tenant_db']));
+$is_tenant_session = (!empty($_SESSION['user_role']) && $_SESSION['user_role'] === 'Tenant Admin') || (!empty($_SESSION['tenant_db']) && $_SESSION['tenant_db'] !== (defined('DB_NAME') ? DB_NAME : 'u978772385_friendlyaidata') && empty($_SESSION['impersonate_tenant_db'])) || (($_SESSION['login_source'] ?? '') === 'tenant_companies');
 
 if ($db_connected && isset($_SESSION['user_id'])) {
     try {
