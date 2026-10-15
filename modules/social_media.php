@@ -470,7 +470,8 @@ function loginWithFacebook() {
             showSocialAlert('Facebook authorization was cancelled by the user.', 'error');
         }
     }, {
-        scope: 'public_profile,pages_show_list,pages_read_engagement'
+        scope: 'public_profile,pages_show_list,pages_read_engagement',
+        auth_type: 'rerequest'
     });
 }
 
