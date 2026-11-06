@@ -68,11 +68,36 @@ try {
     $stmtTc->execute([$user_id]);
     $tenantWaba = $stmtTc->fetch(PDO::FETCH_ASSOC);
 
-    if ($tenantWaba && !empty($tenantWaba['phone_number_id'])) {
-        if (empty($wabaSettings['phone_number_id'])) $wabaSettings['phone_number_id'] = $tenantWaba['phone_number_id'];
-        if (empty($wabaSettings['waba_id'])) $wabaSettings['waba_id'] = $tenantWaba['waba_id'];
-        if (empty($wabaSettings['access_token'])) $wabaSettings['access_token'] = $tenantWaba['access_token'];
-        if (empty($wabaSettings['business_phone'])) $wabaSettings['business_phone'] = $tenantWaba['display_phone_number'];
+        if ($tenantWaba && !empty($tenantWaba['phone_number_id'])) {
+        $shouldSyncBack = false;
+        if (empty($wabaSettings['phone_number_id'])) {
+            $wabaSettings['phone_number_id'] = $tenantWaba['phone_number_id'];
+            $shouldSyncBack = true;
+        }
+        if (empty($wabaSettings['waba_id'])) {
+            $wabaSettings['waba_id'] = $tenantWaba['waba_id'];
+            $shouldSyncBack = true;
+        }
+        if (empty($wabaSettings['access_token'])) {
+            $wabaSettings['access_token'] = $tenantWaba['access_token'];
+            $shouldSyncBack = true;
+        }
+        if (empty($wabaSettings['business_phone'])) {
+            $wabaSettings['business_phone'] = $tenantWaba['display_phone_number'];
+            $shouldSyncBack = true;
+        }
+
+        if ($shouldSyncBack && !empty($wabaSettings['phone_number_id'])) {
+            try {
+                $stmtSyncBack = $pdo->prepare("UPDATE merchant_waba_settings SET phone_number_id = ?, waba_id = ?, access_token = ?, business_phone = ?, gateway_type = 'meta', status = 'Active' WHERE user_id = ?");
+                $stmtSyncBack->execute([$wabaSettings['phone_number_id'], $wabaSettings['waba_id'], $wabaSettings['access_token'], $wabaSettings['business_phone'], $user_id]);
+
+                if (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0 && isset($pdo_master) && $pdo_master) {
+                    $pdo_master->prepare("UPDATE `{$_SESSION['tenant_db']}merchant_waba_settings` SET phone_number_id = ?, waba_id = ?, access_token = ?, business_phone = ?, gateway_type = 'meta', status = 'Active' WHERE user_id = ?")
+                        ->execute([$wabaSettings['phone_number_id'], $wabaSettings['waba_id'], $wabaSettings['access_token'], $wabaSettings['business_phone'], $user_id]);
+                }
+            } catch (\Throwable $e) {}
+        }
     }
 
     if (!$wabaSettings) {
@@ -347,10 +372,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     ['type' => 'text', 'text' => $test_bill_no],
                                     ['type' => 'text', 'text' => '14500.00'],
                                     ['type' => 'text', 'text' => '0.00'],
-                                    ['type' => 'text', 'text' => 'HARSHSAINI2017@OKICCI'],
+                                    ['type' => 'text', 'text' => 'example@OKICCI'],
                                     ['type' => 'text', 'text' => 'BOI'],
                                     ['type' => 'text', 'text' => '178963542456'],
-                                    ['type' => 'text', 'text' => 'MANDHANA'],
+                                    ['type' => 'text', 'text' => 'kanpur'],
                                     ['type' => 'text', 'text' => 'BKI0125'],
                                     ['type' => 'text', 'text' => 'Marg Soft Solution'],
                                     ['type' => 'text', 'text' => '+91 92773 87778'],
@@ -499,7 +524,28 @@ try {
     $totalSentCount = 0;
     $recentDispatches = [];
 }
+$app_id = defined('META_APP_ID') ? META_APP_ID : (getenv('META_APP_ID') ?: '2484306222079451');
+$config_id = defined('META_EMBEDDED_CONFIG_ID') ? META_EMBEDDED_CONFIG_ID : (getenv('META_EMBEDDED_CONFIG_ID') ?: '2568906716913672');
 ?>
+
+<!-- Facebook SDK for Meta Embedded Signup -->
+<script>
+  window.fbAsyncInit = function() {
+    FB.init({
+      appId      : '<?php echo htmlspecialchars($app_id); ?>',
+      cookie     : true,
+      xfbml      : true,
+      version    : 'v20.0'
+    });
+  };
+  (function(d, s, id){
+     var js, fjs = d.getElementsByTagName(s)[0];
+     if (d.getElementById(id)) {return;}
+     js = d.createElement(s); js.id = id;
+     js.src = "https://connect.facebook.net/en_US/sdk.js";
+     fjs.parentNode.insertBefore(js, fjs);
+   }(document, 'script', 'facebook-jssdk'));
+</script>
 
 <div class="content-header" style="margin-bottom: 24px;">
     <div>
@@ -551,6 +597,11 @@ try {
                 <button type="button" onclick="document.getElementById('setupOptionsSection').scrollIntoView({behavior: 'smooth'})" class="btn btn-secondary font-bold text-xs" style="padding: 8px 16px; border-radius: 8px;">
                     <i data-lucide="settings" style="width: 14px; height: 14px; margin-right: 4px;"></i> Switch Method
                 </button>
+                <?php if ($wabaSettings['gateway_type'] === 'meta' && $has_meta_setup): ?>
+                    <button type="button" onclick="disconnectMetaAccount()" class="btn btn-outline-danger font-bold text-xs" style="padding: 8px 14px; border-radius: 8px; border: 1px solid #ef4444; color: #ef4444; background: rgba(239, 68, 68, 0.08); display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <i data-lucide="power" style="width: 14px; height: 14px;"></i> Disconnect Meta Account
+                    </button>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -1274,9 +1325,15 @@ function escapeHtml(text) {
                 <i data-lucide="cloud" style="width: 22px; height: 22px; color: var(--primary);"></i>
                 Meta WhatsApp Cloud API Credentials
             </h3>
-            <a href="index.php?page=whatsapp_settings" class="btn btn-primary font-bold text-xs" style="padding: 6px 14px; border-radius: 8px;">
-                <i data-lucide="zap" style="width: 14px; height: 14px;"></i> 1-Click Meta Embedded Signup
-            </a>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <button type="button" onclick="launchMetaEmbeddedSignup()" class="btn btn-primary font-bold text-xs" style="background: #1877F2; border: none; padding: 7px 16px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(24, 119, 242, 0.25); cursor: pointer;">
+                    <i data-lucide="facebook" style="width: 14px; height: 14px;"></i>
+                    <span>Connect WhatsApp with Meta (1-Click Popup)</span>
+                </button>
+                <a href="index.php?page=whatsapp_settings" class="btn btn-secondary font-bold text-xs" style="padding: 7px 14px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;">
+                    <i data-lucide="settings" style="width: 14px; height: 14px;"></i> Dedicated Setup Page
+                </a>
+            </div>
         </div>
 
         <?php if (!empty($wabaSettings['waba_id'])): ?>
@@ -1338,7 +1395,14 @@ function escapeHtml(text) {
             </div>
         </div>
 
-        <div style="display: flex; justify-content: flex-end;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <?php if (!empty($wabaSettings['phone_number_id']) || !empty($wabaSettings['access_token'])): ?>
+                <button type="button" onclick="disconnectMetaAccount()" class="btn btn-outline-danger font-bold text-xs" style="padding: 9px 18px; border-radius: 8px; border: 1px solid #ef4444; color: #ef4444; background: transparent; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <i data-lucide="power" style="width: 14px; height: 14px;"></i> Disconnect / Logout Meta Account
+                </button>
+            <?php else: ?>
+                <div></div>
+            <?php endif; ?>
             <button type="submit" class="btn btn-primary font-bold" style="padding: 10px 24px; border-radius: 10px; font-size: 0.9rem;">
                 <i data-lucide="save" style="width: 18px; height: 18px; margin-right: 6px;"></i> Save Meta Cloud API Settings
             </button>
@@ -1705,5 +1769,180 @@ document.addEventListener('DOMContentLoaded', () => {
         loadLiveQrCode();
     }
 });
+
+
+
+// Meta Embedded Signup SDK Callback Listener & Sync
+let metaSignupState = {
+    code: '',
+    waba_id: '<?php echo htmlspecialchars($wabaSettings['waba_id'] ?? ''); ?>',
+    phone_number_id: '<?php echo htmlspecialchars($wabaSettings['phone_number_id'] ?? ''); ?>',
+    isSubmitted: false,
+    timeoutId: null
+};
+
+window.addEventListener('message', (event) => {
+    if (!event.origin || !event.origin.includes('facebook.com')) {
+        return;
+    }
+
+    let data = event.data;
+    if (typeof data === 'string') {
+        try {
+            data = JSON.parse(data);
+        } catch (e) {
+            return;
+        }
+    }
+
+    if (!data) return;
+
+    if (data.type === 'WA_EMBEDDED_SIGNUP' || (data.event && (data.event === 'FINISH' || data.event === 'finish'))) {
+        const payload = data.data || data;
+        const wabaId = payload.waba_id || payload.wabaId || payload.waba_account_id || '';
+        const phoneId = payload.phone_number_id || payload.phoneNumberId || payload.phone_id || '';
+
+        console.log("Meta Embedded Signup postMessage received on Gateway Page:", payload);
+
+        if (wabaId) metaSignupState.waba_id = wabaId;
+        if (phoneId) metaSignupState.phone_number_id = phoneId;
+
+        if (typeof showToast === 'function') {
+            showToast("Meta signup verified! Connecting account...", "info");
+        }
+
+        trySubmitSignup();
+    } else if (data.event === 'CANCEL' || data.event === 'cancel') {
+        console.log("User closed/cancelled Meta Embedded Signup.");
+    }
+});
+
+function trySubmitSignup() {
+    if (metaSignupState.isSubmitted) return;
+
+    // Condition 1: Both Auth Code and at least one ID received
+    if (metaSignupState.code && (metaSignupState.waba_id || metaSignupState.phone_number_id)) {
+        if (metaSignupState.timeoutId) {
+            clearTimeout(metaSignupState.timeoutId);
+            metaSignupState.timeoutId = null;
+        }
+        metaSignupState.isSubmitted = true;
+        sendSignupToBackend(metaSignupState.code, metaSignupState.waba_id, metaSignupState.phone_number_id);
+        return;
+    }
+
+    // Condition 2: Auth Code received, wait up to 3.5s for postMessage before backend auto-discovery
+    if (metaSignupState.code && !metaSignupState.timeoutId) {
+        if (typeof showToast === 'function') {
+            showToast("Authorizing with Meta WhatsApp Cloud API...", "info");
+        }
+        metaSignupState.timeoutId = setTimeout(() => {
+            if (!metaSignupState.isSubmitted) {
+                metaSignupState.isSubmitted = true;
+                sendSignupToBackend(metaSignupState.code, metaSignupState.waba_id, metaSignupState.phone_number_id);
+            }
+        }, 3500);
+    }
+}
+
+function sendSignupToBackend(code, waba_id, phone_number_id) {
+    if (typeof showToast === 'function') {
+        showToast("Finalizing Meta WhatsApp credentials...", "info");
+    }
+
+    fetch('api/meta_embedded_signup.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'embedded_signup',
+            user_id: <?php echo (int)$user_id; ?>,
+            state: <?php echo (int)$user_id; ?>,
+            code: code || '',
+            waba_id: waba_id || '',
+            phone_number_id: phone_number_id || ''
+        })
+    })
+    .then(res => res.json())
+    .then(result => {
+        if (result.success) {
+            const ph = (result.data && result.data.display_phone_number) ? result.data.display_phone_number : '';
+            alert("WhatsApp Business Cloud API successfully connected via Meta Embedded Signup!" + (ph ? "\n\nPhone: " + ph : ""));
+            window.location.reload();
+        } else {
+            metaSignupState.isSubmitted = false;
+            if (result.code === 'MISSING_APP_SECRET') {
+                alert("Meta App Secret Required:\n\n" + result.message);
+            } else {
+                alert("Embedded Signup Notice: " + (result.message || 'Verification failed.'));
+            }
+        }
+    })
+    .catch(err => {
+        metaSignupState.isSubmitted = false;
+        alert("Network error processing Meta Embedded Signup: " + err.message);
+    });
+}
+
+function launchMetaEmbeddedSignup() {
+    metaSignupState = {
+        code: '',
+        waba_id: '',
+        phone_number_id: '',
+        isSubmitted: false,
+        timeoutId: null
+    };
+
+    let fbLoginOptions = {
+        scope: 'whatsapp_business_management,whatsapp_business_messaging',
+        response_type: 'code',
+        override_default_response_type: true
+    };
+    <?php if (!empty($config_id)): ?>
+    fbLoginOptions.config_id = '<?php echo htmlspecialchars($config_id); ?>';
+    fbLoginOptions.extras = {
+        setup: {},
+        sessionInfoVersion: '3'
+    };
+    <?php endif; ?>
+
+    if (typeof FB === 'undefined') {
+        alert("Facebook SDK is still loading. Please wait 2 seconds and try again.");
+        return;
+    }
+
+    FB.login(function(response) {
+        console.log("FB.login response received on Gateway Page:", response);
+        if (response.authResponse && response.authResponse.code) {
+            metaSignupState.code = response.authResponse.code;
+            trySubmitSignup();
+        } else {
+            console.log("FB Login cancelled or no auth response.", response);
+        }
+    }, fbLoginOptions);
+}
+
+
+
+function disconnectMetaAccount() {
+    if (!confirm("Are you sure you want to disconnect & logout this Meta WhatsApp account? This will unlink the phone number and reset your connection.")) return;
+
+    fetch("api/meta_embedded_signup.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            action: "disconnect",
+            user_id: currentUserId
+        })
+    })
+    .then(res => res.json())
+    .then(result => {
+        alert(result.message || "Meta WhatsApp account disconnected successfully!");
+        location.reload();
+    })
+    .catch(err => {
+        alert("Account disconnected.");
+        location.reload();
+    });
+}
 
 </script>

@@ -81,6 +81,230 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
+// 2.5 Process sending official Meta WhatsApp templates
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'send_lead_whatsapp_template') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json');
+
+    $leadId = trim($_POST['lead_id'] ?? '');
+    $template_slug = trim($_POST['template_slug'] ?? '');
+    $recipient = trim($_POST['recipient'] ?? '');
+    $vars = isset($_POST['vars']) && is_array($_POST['vars']) ? $_POST['vars'] : [];
+    $mediaUrl = trim($_POST['media_url'] ?? '');
+
+    // Format recipient phone number: remove non-digits, ensure country code (default 91 for India if 10 digits)
+    $cleanMobile = preg_replace('/[^0-9]/', '', $recipient);
+    if (strlen($cleanMobile) === 10) {
+        $cleanMobile = '91' . $cleanMobile;
+    } elseif (strlen($cleanMobile) === 11 && str_starts_with($cleanMobile, '0')) {
+        $cleanMobile = '91' . substr($cleanMobile, 1);
+    }
+
+    if (empty($cleanMobile) || strlen($cleanMobile) < 10) {
+        echo json_encode(['success' => false, 'message' => 'Invalid recipient phone number. Please specify a valid 10-12 digit mobile number.']);
+        exit;
+    }
+
+    if (empty($template_slug)) {
+        echo json_encode(['success' => false, 'message' => 'Please select an approved Meta template to dispatch.']);
+        exit;
+    }
+
+    if (!$db_connected || !$pdo) {
+        echo json_encode(['success' => false, 'message' => 'Database connection offline.']);
+        exit;
+    }
+
+    try {
+        // Fetch approved Meta template from DB
+        $stmtTpl = $pdo->prepare("SELECT * FROM whatsapp_templates WHERE slug = ? AND UPPER(meta_status) = 'APPROVED' LIMIT 1");
+        $stmtTpl->execute([$template_slug]);
+        $tplRow = $stmtTpl->fetch(PDO::FETCH_ASSOC);
+
+        if (!$tplRow) {
+            echo json_encode(['success' => false, 'message' => "Template '{$template_slug}' is not found or not approved by Meta."]);
+            exit;
+        }
+
+        // Fetch lead record to provide variable fallback context
+        $stmtLd = $pdo->prepare("SELECT * FROM leads WHERE id = ? LIMIT 1");
+        $stmtLd->execute([$leadId]);
+        $curLead = $stmtLd->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        require_once __DIR__ . '/../../api/whatsapp-api.php';
+        $whatsappObj = new WhatsAppAPI($pdo);
+
+        // Language resolution
+        $templateLangs = [
+            'new_client'            => 'en_US',
+            'hello_world'           => 'en_US',
+            'amc_overdue'           => 'en',
+            'amc_renewal_remainder' => 'en',
+            'boo_demo'              => 'en',
+            'hello_template'        => 'en',
+            'marg_bill'             => 'en'
+        ];
+        $langCode = $templateLangs[$template_slug] ?? 'en_US';
+
+        $components = [];
+
+        // 1. Header component
+        $hType = strtolower($tplRow['header_type'] ?? 'none');
+        $chosenMedia = !empty($mediaUrl) ? $mediaUrl : (!empty($tplRow['header_content']) ? trim($tplRow['header_content']) : '');
+
+        if ($hType === 'image') {
+            if (empty($chosenMedia) || stripos($chosenMedia, 'scontent.whatsapp.net') !== false) {
+                $chosenMedia = 'https://friendlyaisolution.com/assets/image.png';
+            }
+            $components[] = [
+                'type' => 'header',
+                'parameters' => [
+                    [
+                        'type' => 'image',
+                        'image' => ['link' => $chosenMedia]
+                    ]
+                ]
+            ];
+        } elseif ($hType === 'document' && !empty($chosenMedia)) {
+            $components[] = [
+                'type' => 'header',
+                'parameters' => [
+                    [
+                        'type' => 'document',
+                        'document' => ['link' => $chosenMedia, 'filename' => basename($chosenMedia) ?: 'Document.pdf']
+                    ]
+                ]
+            ];
+        } elseif ($hType === 'video' && !empty($chosenMedia)) {
+            $components[] = [
+                'type' => 'header',
+                'parameters' => [
+                    [
+                        'type' => 'video',
+                        'video' => ['link' => $chosenMedia]
+                    ]
+                ]
+            ];
+        }
+
+        // 2. Body component & variable mapping
+        $bodyTpl = $tplRow['body_text'] ?? '';
+        $bodyParams = [];
+
+        preg_match_all('/\{\{([a-zA-Z0-9_]+)\}\}/', $bodyTpl, $tplMatches);
+        $rawVarKeys = !empty($tplMatches[1]) ? $tplMatches[1] : [];
+
+        if (!empty($rawVarKeys)) {
+            foreach ($rawVarKeys as $k) {
+                $val = trim($vars[$k] ?? ($vars[strtolower($k)] ?? ''));
+                if ($val === '') {
+                    // Fallback to standard lead defaults
+                    if (is_numeric($k)) {
+                        switch ($k) {
+                            case '1': $val = $curLead['name'] ?: ($curLead['company'] ?: 'Client'); break;
+                            case '2': $val = $curLead['enq_for'] ?: ($curLead['products'] ?: 'Marg ERP'); break;
+                            case '3': $val = $_SESSION['user_name'] ?? 'Support Team'; break;
+                            case '4': $val = 'https://friendlyaisolution.com'; break;
+                            default:  $val = '-'; break;
+                        }
+                    } else {
+                        switch (strtolower($k)) {
+                            case 'name':
+                            case 'client_name':
+                            case 'party_name':
+                                $val = $curLead['name'] ?: ($curLead['company'] ?: 'Valued Client');
+                                break;
+                            case 'company':
+                            case 'company_name':
+                                $val = $curLead['company'] ?: 'Marg Soft';
+                                break;
+                            case 'phone':
+                            case 'mobile':
+                                $val = $curLead['phone'] ?: '';
+                                break;
+                            case 'software_type':
+                            case 'product':
+                                $val = $curLead['enq_for'] ?: ($curLead['products'] ?: 'Marg ERP');
+                                break;
+                            case 'agent_name':
+                            case 'assigned_to':
+                                $val = $curLead['assigned_to'] ?: ($_SESSION['user_name'] ?? 'Support Team');
+                                break;
+                            default:
+                                $val = '-';
+                                break;
+                        }
+                    }
+                }
+
+                if (is_numeric($k)) {
+                    $bodyParams[] = [
+                        'type' => 'text',
+                        'text' => (string)$val
+                    ];
+                } else {
+                    $bodyParams[] = [
+                        'type' => 'text',
+                        'parameter_name' => $k,
+                        'text' => (string)$val
+                    ];
+                }
+            }
+
+            if (!empty($bodyParams)) {
+                $components[] = [
+                    'type' => 'body',
+                    'parameters' => $bodyParams
+                ];
+            }
+        }
+
+        // Dispatch via WhatsAppAPI
+        $res = $whatsappObj->sendTemplate($cleanMobile, $template_slug, $langCode, $components);
+
+        // Auto-retry with alternate language (en_US <-> en) on language mismatch (error 132001)
+        if (empty($res['success'])) {
+            $altLang = ($langCode === 'en_US') ? 'en' : 'en_US';
+            $retryRes = $whatsappObj->sendTemplate($cleanMobile, $template_slug, $altLang, $components);
+            if (!empty($retryRes['success'])) {
+                $res = $retryRes;
+            }
+        }
+
+        if (!empty($res['success'])) {
+            $wamid = $res['response']['messages'][0]['id'] ?? ($res['messages'][0]['id'] ?? '');
+
+            // Log timeline activity
+            try {
+                $actor = $_SESSION['user_name'] ?? 'System User';
+                $actionMsg = "Dispatched official Meta WhatsApp Template '{$tplRow['title']}' to +{$cleanMobile}";
+                $stmtTl = $pdo->prepare("INSERT INTO timeline (lead_id, actor, action_taken) VALUES (?, ?, ?)");
+                $stmtTl->execute([$leadId, $actor, $actionMsg]);
+            } catch (\Throwable $eTl) {}
+
+            echo json_encode([
+                'success' => true,
+                'message' => "Meta WhatsApp Template '{$tplRow['title']}' delivered successfully to +{$cleanMobile}!",
+                'wamid'   => $wamid
+            ]);
+            exit;
+        } else {
+            $errMsg = $res['response']['error']['message'] ?? ($res['error']['message'] ?? ($res['message'] ?? 'Meta API error: Could not dispatch template.'));
+            echo json_encode([
+                'success' => false,
+                'message' => $errMsg
+            ]);
+            exit;
+        }
+    } catch (\Throwable $ex) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Server exception: ' . $ex->getMessage()
+        ]);
+        exit;
+    }
+}
+
 // Auto-initialize lead_documents table schema
 if ($db_connected && $pdo) {
     try {
@@ -111,6 +335,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         $origName = basename($_FILES['document_file']['name']);
         $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+        
+        // Strict file extension validation against webshells and executable scripts
+        $allowedExts = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'jpg', 'jpeg', 'png', 'webp', 'txt'];
+        $disallowedExts = ['php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'php8', 'phps', 'exe', 'sh', 'bat', 'cmd', 'ps1', 'py', 'pl', 'cgi', 'js', 'html', 'htm', 'svg', 'vbs'];
+
+        if (in_array($ext, $disallowedExts, true) || !in_array($ext, $allowedExts, true)) {
+            $_SESSION['flash_error'] = "Security Warning: File type (." . htmlspecialchars($ext) . ") is not allowed. Only PDF, Office documents, CSV, and standard image files are permitted.";
+            header("Location: index.php?page=lead_details&id=" . $leadId);
+            exit;
+        }
+
+        if ($_FILES['document_file']['size'] > 15 * 1024 * 1024) {
+            $_SESSION['flash_error'] = "File size exceeds the 15MB limit.";
+            header("Location: index.php?page=lead_details&id=" . $leadId);
+            exit;
+        }
+
         $sanitizedName = time() . '_' . rand(100, 999) . '_' . preg_replace('/[^a-zA-Z0-9_\.-]/', '_', $origName);
         $targetPath = $uploadDir . $sanitizedName;
         $relPath = 'uploads/documents/' . $sanitizedName;
@@ -328,18 +569,47 @@ if ($db_connected && $pdo && $lead) {
 $leadStatusNorm = strtolower(str_replace(['_', '-'], ' ', trim($lead['status'] ?? '')));
 $isClientWon = in_array($leadStatusNorm, ['closed won', 'won', 'client', 'converted', 'closed']) || !empty($client_dir_data);
 
-// Indian States & Cities Master List
+// Indian States & Cities Master List (Alphabetically Sorted with Custom Cities Support)
 $indian_states_map = function_exists('getIndianStatesAndCities') ? getIndianStatesAndCities() : [];
+
+// Merge custom cities from database into states map
+if ($pdo) {
+    try {
+        $custCitiesStmt = $pdo->query("SELECT DISTINCT state, city FROM custom_cities WHERE city IS NOT NULL AND TRIM(city) != ''");
+        while ($cRow = $custCitiesStmt->fetch(PDO::FETCH_ASSOC)) {
+            $st = trim($cRow['state'] ?? '');
+            $ct = trim($cRow['city'] ?? '');
+            if ($st && $ct) {
+                if (!isset($indian_states_map[$st])) {
+                    $indian_states_map[$st] = [];
+                }
+                if (!in_array($ct, $indian_states_map[$st], true)) {
+                    $indian_states_map[$st][] = $ct;
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// 100% Alphabetical sorting for states and all cities
+ksort($indian_states_map, SORT_NATURAL | SORT_FLAG_CASE);
+foreach ($indian_states_map as $st => &$cList) {
+    $cList = array_values(array_unique($cList));
+    sort($cList, SORT_NATURAL | SORT_FLAG_CASE);
+}
+unset($cList);
+
 $indian_states_list = array_keys($indian_states_map);
+sort($indian_states_list, SORT_NATURAL | SORT_FLAG_CASE);
+
 $all_indian_cities = [];
 foreach ($indian_states_map as $stName => $cList) {
-    foreach ($cList as $cName) {
-        if (!in_array($cName, $all_indian_cities)) {
-            $all_indian_cities[] = $cName;
-        }
+    foreach ($cList as $cItem) {
+        $all_indian_cities[] = $cItem;
     }
 }
-sort($all_indian_cities);
+$all_indian_cities = array_values(array_unique($all_indian_cities));
+sort($all_indian_cities, SORT_NATURAL | SORT_FLAG_CASE);
 
 // Default City Areas Map
 $default_city_areas_map = [
@@ -476,6 +746,10 @@ if ($db_connected && $pdo) {
                 <i data-lucide="edit-3" style="width: 16px; height: 16px;"></i>
                 <span>Edit Lead</span>
             </a>
+            <button type="button" class="btn text-sm" onclick="openLeadWhatsAppTab()" style="background: rgba(37, 211, 102, 0.12); color: #0d9f4f; border: 1px solid rgba(37, 211, 102, 0.35); font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <i data-lucide="message-square" style="width: 15px; height: 15px; color: #10b981;"></i>
+                <span>WhatsApp Template</span>
+            </button>
             <button class="btn btn-primary text-sm" onclick="openLeadDetailsFollowupModal('<?php echo htmlspecialchars($lead['id']); ?>');">
                 <i data-lucide="calendar-plus" style="width: 16px; height: 16px;"></i>
                 <span>Schedule Follow-up</span>
@@ -628,20 +902,28 @@ if ($db_connected && $pdo) {
         </div>
 
         <!-- COLUMN 2: Tab Panels Workspace -->
+        <?php
+        $isClientWonTab = (isset($_GET['active_tab']) && $_GET['active_tab'] === 'client-details');
+        $isWhatsappActive = (isset($_GET['tab']) && strtolower($_GET['tab']) === 'whatsapp') || (isset($_GET['active_tab']) && strtolower($_GET['active_tab']) === 'whatsapp');
+        $isOverviewActive = !$isWhatsappActive && !$isClientWonTab;
+        ?>
         <div class="card p-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); min-height: 520px;">
             <div class="tab-container">
                 <!-- Horizontally scrolling Tab navigation links -->
                 <div class="tab-nav flex gap-2" style="border-bottom: 2px solid var(--border-color); margin-bottom: 2rem; overflow-x: auto; padding-bottom: 0.5rem;">
-                    <button class="tab-link active" data-tab="tab-overview">Overview</button>
+                    <button class="tab-link <?php echo $isOverviewActive ? 'active' : ''; ?>" data-tab="tab-overview">Overview</button>
                     <button class="tab-link" data-tab="tab-timeline">Timeline</button>
                     <button class="tab-link" data-tab="tab-followups">Follow-ups</button>
                     <button class="tab-link" data-tab="tab-emails">Emails</button>
+                    <button class="tab-link <?php echo $isWhatsappActive ? 'active' : ''; ?>" data-tab="tab-whatsapp" id="tab-nav-whatsapp" style="display: inline-flex; align-items: center; gap: 4px;">
+                        <i data-lucide="message-square" style="width: 13px; height: 13px; color: #10b981;"></i> WhatsApp
+                    </button>
                     <button class="tab-link" data-tab="tab-quotations">Quotations</button>
                     <button class="tab-link" data-tab="tab-payments">Payments</button>
                     <button class="tab-link" data-tab="tab-installation">Installation</button>
                     <button class="tab-link" data-tab="tab-training">Training</button>
                     <button class="tab-link" data-tab="tab-support">Support</button>
-                    <button class="tab-link <?php echo (isset($_GET['active_tab']) && $_GET['active_tab'] === 'client-details') ? 'active' : ''; ?>" data-tab="tab-documents">Documents</button>
+                    <button class="tab-link <?php echo (isset($_GET['active_tab']) && $_GET['active_tab'] === 'documents') ? 'active' : ''; ?>" data-tab="tab-documents">Documents</button>
                     <?php if ($isClientWon): ?>
                         <button class="tab-link <?php echo (isset($_GET['active_tab']) && $_GET['active_tab'] === 'client-details') ? 'active' : ''; ?>" data-tab="tab-client-details" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 700; border: 1px solid rgba(16, 185, 129, 0.3);">
                             <i data-lucide="award" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Client Details
@@ -652,7 +934,7 @@ if ($db_connected && $pdo) {
                 <!-- Tab Panels Contents -->
 
                 <!-- TAB 1: Overview -->
-                <div class="tab-pane active" id="tab-overview">
+                <div class="tab-pane <?php echo $isOverviewActive ? 'active' : ''; ?>" id="tab-overview">
                     <h3 class="text-base font-semibold mb-4">Lead Executive Summary</h3>
                     <p class="text-muted text-sm mb-6"><?php echo htmlspecialchars($lead['remarks'] ?? 'No additional summary recorded.'); ?></p>
                     
@@ -819,6 +1101,321 @@ if ($db_connected && $pdo) {
                     </div>
                 </div>
 
+                
+                                <!-- TAB: WhatsApp (Meta Approved Templates Studio) -->
+                <div class="tab-pane <?php echo $isWhatsappActive ? 'active' : ''; ?>" id="tab-whatsapp">
+                    <?php
+                    // Fetch Meta Approved Templates
+                    $meta_templates = [];
+                    if ($db_connected && $pdo) {
+                        try {
+                            $stmtWT = $pdo->query("SELECT id, title, slug, category, header_type, header_text, header_content, body_text, footer_text, buttons_json, meta_status FROM whatsapp_templates WHERE UPPER(meta_status) = 'APPROVED' ORDER BY (CASE WHEN slug LIKE '%lead%' OR slug LIKE '%demo%' OR slug LIKE '%hello%' OR slug = 'new_client' THEN 1 ELSE 2 END), id DESC");
+                            $meta_templates = $stmtWT->fetchAll(PDO::FETCH_ASSOC);
+                        } catch (\PDOException $e) {
+                            $meta_templates = [];
+                        }
+                    }
+
+                    // Fetch previous WhatsApp message logs for this lead
+                    $lead_wa_logs = [];
+                    if ($db_connected && $pdo && !empty($lead['phone'])) {
+                        try {
+                            $cleanPhone = preg_replace('/[^0-9]/', '', $lead['phone']);
+                            $last10 = substr($cleanPhone, -10);
+                            if (!empty($last10)) {
+                                $stmtLogs = $pdo->prepare("SELECT id, direction, recipient_or_sender, message_type, message_body, wamid, status, created_at FROM message_logs WHERE recipient_or_sender LIKE ? ORDER BY id DESC LIMIT 30");
+                                $stmtLogs->execute(["%$last10%"]);
+                                $lead_wa_logs = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
+                            }
+                        } catch (\PDOException $e) {
+                            $lead_wa_logs = [];
+                        }
+                    }
+                    ?>
+                    
+                    <!-- WhatsApp Studio Top Bar -->
+                    <div class="wa-studio-header">
+                        <div class="flex align-center gap-3">
+                            <div class="wa-studio-icon">
+                                <i data-lucide="message-square" style="width: 18px; height: 18px; color: #10b981;"></i>
+                            </div>
+                            <div>
+                                <div class="flex align-center gap-2">
+                                    <h3 class="wa-studio-title">WhatsApp Template Studio</h3>
+                                    <span class="wa-pill-verified">
+                                        <i data-lucide="shield-check" style="width: 11px; height: 11px;"></i> Meta Cloud API Active
+                                    </span>
+                                </div>
+                                <p class="wa-studio-sub">Dispatch official pre-approved templates directly to this client's verified mobile</p>
+                            </div>
+                        </div>
+
+                        <!-- Sub-tab Switcher: Composer vs History -->
+                        <div class="flex align-center gap-2">
+                            <div class="wa-mode-toggle">
+                                <button type="button" class="wa-mode-btn active" id="wa-btn-mode-compose" onclick="switchWAMode('compose')">
+                                    <i data-lucide="send" style="width: 13px; height: 13px;"></i> Composer
+                                </button>
+                                <button type="button" class="wa-mode-btn" id="wa-btn-mode-history" onclick="switchWAMode('history')">
+                                    <i data-lucide="history" style="width: 13px; height: 13px;"></i> Deliveries (<span id="wa-history-badge-count"><?php echo count($lead_wa_logs); ?></span>)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Toast Notification Placeholder -->
+                    <div id="wa-toast-alert" class="wa-toast hidden"></div>
+
+                    <!-- VIEW 1: 3-Column Studio Composer -->
+                    <div id="wa-view-compose" class="wa-studio-grid">
+                        
+                        <!-- COLUMN 1: Template Explorer (310px) -->
+                        <div class="wa-col-templates">
+                            <div class="wa-panel-heading">
+                                <span class="wa-panel-title">1. Choose Template</span>
+                                <span class="wa-panel-meta" id="wa-template-count"><?php echo count($meta_templates); ?> ready</span>
+                            </div>
+
+                            <!-- Search & Category Filters -->
+                            <div class="wa-search-box">
+                                <i data-lucide="search" style="width: 14px; height: 14px; color: var(--text-muted);"></i>
+                                <input type="text" id="wa-template-search" placeholder="Search templates..." oninput="filterWATemplates()">
+                            </div>
+
+                            <div class="wa-filter-chips">
+                                <button type="button" class="wa-chip active" onclick="setWACategoryFilter('all', this)">All</button>
+                                <button type="button" class="wa-chip" onclick="setWACategoryFilter('MARKETING', this)">Marketing</button>
+                                <button type="button" class="wa-chip" onclick="setWACategoryFilter('UTILITY', this)">Utility</button>
+                                <button type="button" class="wa-chip" onclick="setWACategoryFilter('SERVICE', this)">Service</button>
+                            </div>
+
+                            <!-- Template List Scroll -->
+                            <div class="wa-templates-scroll" id="wa-template-list-container">
+                                <?php if (empty($meta_templates)): ?>
+                                    <div class="wa-empty-state">
+                                        <i data-lucide="file-question" style="width: 28px; height: 28px; color: var(--text-muted); margin-bottom: 0.5rem;"></i>
+                                        <p class="text-xs text-muted m-0">No approved templates found.</p>
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($meta_templates as $index => $t): 
+                                        $cat = strtoupper($t['category'] ?? 'UTILITY');
+                                        $hType = strtolower($t['header_type'] ?? 'none');
+                                    ?>
+                                        <div class="wa-tpl-card <?php echo $index === 0 ? 'active' : ''; ?>" 
+                                             data-id="<?php echo $t['id']; ?>"
+                                             data-slug="<?php echo htmlspecialchars($t['slug']); ?>"
+                                             data-title="<?php echo htmlspecialchars($t['title']); ?>"
+                                             data-category="<?php echo htmlspecialchars($cat); ?>"
+                                             data-header-type="<?php echo htmlspecialchars($hType); ?>"
+                                             data-header-content="<?php echo htmlspecialchars($t['header_content'] ?? ''); ?>"
+                                             data-body="<?php echo htmlspecialchars($t['body_text'] ?? ''); ?>"
+                                             data-footer="<?php echo htmlspecialchars($t['footer_text'] ?? ''); ?>"
+                                             data-buttons="<?php echo htmlspecialchars($t['buttons_json'] ?? ''); ?>"
+                                             onclick="selectWATemplateCard(this)">
+                                            
+                                            <div class="wa-tpl-card-top">
+                                                <span class="wa-tag wa-tag-<?php echo strtolower($cat); ?>"><?php echo htmlspecialchars($cat); ?></span>
+                                                <span class="wa-tpl-type">
+                                                    <?php if ($hType !== 'none'): ?>
+                                                        <i data-lucide="<?php echo $hType === 'image' ? 'image' : ($hType === 'document' ? 'file-text' : 'video'); ?>" style="width: 10px; height: 10px;"></i>
+                                                        <?php echo ucfirst($hType); ?>
+                                                    <?php else: ?>
+                                                        Text
+                                                    <?php endif; ?>
+                                                </span>
+                                            </div>
+
+                                            <div class="wa-tpl-card-title"><?php echo htmlspecialchars($t['title']); ?></div>
+                                            <div class="wa-tpl-card-snippet"><?php echo htmlspecialchars($t['body_text'] ?? ''); ?></div>
+                                            
+                                            <div class="wa-tpl-card-footer">
+                                                <code><?php echo htmlspecialchars($t['slug']); ?></code>
+                                                <span class="wa-verified-pill"><i data-lucide="check" style="width: 9px; height: 9px;"></i> Approved</span>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                        <!-- COLUMN 2: Parameters Composer (~380px) -->
+                        <div class="wa-col-composer">
+                            <div class="wa-panel-heading">
+                                <span class="wa-panel-title">2. Parameters & Variables</span>
+                                <span class="wa-tpl-badge-slug" id="wa-selected-template-badge">Loading...</span>
+                            </div>
+
+                            <form id="wa-lead-dispatch-form" class="wa-form-wrapper" onsubmit="submitWALeadTemplate(event)">
+                                <input type="hidden" name="action" value="send_lead_whatsapp_template">
+                                <input type="hidden" name="lead_id" value="<?php echo htmlspecialchars($lead['id']); ?>">
+                                <input type="hidden" name="template_slug" id="wa-form-template-slug" value="">
+
+                                <!-- Recipient Target -->
+                                <div class="wa-form-section">
+                                    <div class="flex justify-between align-center mb-1">
+                                        <label class="wa-input-label m-0">Client Mobile Number</label>
+                                        <span class="wa-input-hint">India (+91)</span>
+                                    </div>
+                                    <div class="wa-input-prefix-box">
+                                        <span class="wa-prefix-tag">+91</span>
+                                        <input type="text" name="recipient" id="wa-form-recipient" class="wa-control-input font-semibold" value="<?php echo htmlspecialchars(preg_replace('/[^0-9]/', '', $lead['phone'] ?? '')); ?>" required>
+                                    </div>
+                                </div>
+
+                                <!-- Dynamic Parameters Container -->
+                                <div id="wa-variables-wrapper" class="wa-form-section" style="display: none;">
+                                    <div class="flex justify-between align-center mb-2">
+                                        <label class="wa-input-label m-0">Template Dynamic Values</label>
+                                        <span class="wa-input-hint">Auto-mapped from Lead</span>
+                                    </div>
+                                    <div id="wa-variables-fields" class="wa-vars-list">
+                                        <!-- Injected via JavaScript -->
+                                    </div>
+                                </div>
+
+                                <!-- Header Media Attachment (Conditional) -->
+                                <div id="wa-media-wrapper" class="wa-form-section" style="display: none;">
+                                    <label class="wa-input-label mb-1" id="wa-media-label">Header Media Attachment</label>
+                                    <input type="text" name="media_url" id="wa-form-media-url" class="wa-control-input" placeholder="https://..." oninput="updateWAPreview()">
+                                    <span class="wa-input-hint mt-1 block">Leave empty to use the pre-configured template default media.</span>
+                                </div>
+
+                                <!-- Action Buttons -->
+                                <div class="wa-composer-actions mt-3">
+                                    <button type="submit" id="wa-submit-dispatch-btn" class="wa-btn-send">
+                                        <i data-lucide="send" style="width: 15px; height: 15px;"></i>
+                                        <span>Dispatch via WhatsApp</span>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- COLUMN 3: Smartphone Device Mockup (~340px) -->
+                        <div class="wa-col-device">
+                            <div class="wa-panel-heading">
+                                <span class="wa-panel-title">3. Live Device Preview</span>
+                                <span class="wa-live-badge"><span class="wa-live-dot"></span> Real-time</span>
+                            </div>
+
+                            <!-- Authentic Smartphone WhatsApp Frame -->
+                            <div class="wa-device-frame">
+                                <!-- Phone Notch & Status -->
+                                <div class="wa-phone-top-bar">
+                                    <div class="wa-phone-chat-info">
+                                        <div class="wa-phone-avatar">
+                                            <?php echo strtoupper(substr($lead['name'] ?: ($lead['company'] ?: 'C'), 0, 1)); ?>
+                                        </div>
+                                        <div class="wa-phone-contact">
+                                            <div class="wa-phone-name"><?php echo htmlspecialchars($lead['name'] ?: ($lead['company'] ?: 'Client')); ?></div>
+                                            <div class="wa-phone-status">Online</div>
+                                        </div>
+                                    </div>
+                                    <div class="wa-phone-actions">
+                                        <i data-lucide="video" style="width: 14px; height: 14px; color: #ffffff;"></i>
+                                        <i data-lucide="phone" style="width: 13px; height: 13px; color: #ffffff;"></i>
+                                    </div>
+                                </div>
+
+                                <!-- Chat Body Wallpaper -->
+                                <div class="wa-phone-chat-body">
+                                    <div class="wa-phone-date-pill">TODAY</div>
+
+                                    <!-- Incoming/Outgoing Message Bubble with authentic WhatsApp tail -->
+                                    <div class="wa-chat-bubble">
+                                        <!-- Header Media -->
+                                        <div id="wa-preview-header" class="wa-bubble-media" style="display: none;">
+                                            <img id="wa-preview-header-img" src="" alt="Header" style="width: 100%; max-height: 140px; object-fit: cover; display: none;">
+                                            <div id="wa-preview-header-doc" class="wa-bubble-doc-card" style="display: none;">
+                                                <div class="wa-doc-icon-box">
+                                                    <i data-lucide="file-text" style="width: 18px; height: 18px; color: #ffffff;"></i>
+                                                </div>
+                                                <div class="wa-doc-info">
+                                                    <div class="wa-doc-name">Official Document.pdf</div>
+                                                    <div class="wa-doc-size">PDF Document • 240 KB</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Message Body Content -->
+                                        <div id="wa-preview-body" class="wa-bubble-text">Select a template on the left to preview...</div>
+
+                                        <!-- Message Footer Text -->
+                                        <div id="wa-preview-footer" class="wa-bubble-footer" style="display: none;"></div>
+
+                                        <!-- Bubble Meta & Blue Ticks -->
+                                        <div class="wa-bubble-meta-row">
+                                            <span class="wa-bubble-time"><?php echo date('h:i A'); ?></span>
+                                            <span class="wa-bubble-ticks">
+                                                <i data-lucide="check-check" style="width: 13px; height: 13px; color: #53bdeb;"></i>
+                                            </span>
+                                        </div>
+
+                                        <!-- Interactive Action Buttons -->
+                                        <div id="wa-preview-buttons" class="wa-bubble-action-btns" style="display: none;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- VIEW 2: Delivery History Audit Table -->
+                    <div id="wa-view-history" class="wa-history-view" style="display: none;">
+                        <div class="flex justify-between align-center mb-3">
+                            <div>
+                                <h4 class="font-bold text-sm m-0" style="font-family: var(--font-heading);">Meta WhatsApp Delivery Audit Logs</h4>
+                                <p class="text-xs text-muted m-0">Full record of template messages dispatched to +<?php echo htmlspecialchars($lead['phone']); ?></p>
+                            </div>
+                            <button type="button" class="btn btn-secondary text-xs" onclick="switchWAMode('compose')">
+                                <i data-lucide="arrow-left" style="width: 13px; height: 13px;"></i> Return to Composer
+                            </button>
+                        </div>
+
+                        <div class="table-responsive" style="border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-card);">
+                            <table class="table" style="font-size: 0.75rem;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 150px;">Sent Timestamp</th>
+                                        <th style="width: 130px;">Recipient</th>
+                                        <th>Message / Template Title</th>
+                                        <th style="width: 120px;">Meta Status</th>
+                                        <th style="width: 180px;">WAMID Reference</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wa-history-tbody">
+                                    <?php if (empty($lead_wa_logs)): ?>
+                                        <tr id="wa-no-logs-row">
+                                            <td colspan="5" class="text-center text-muted py-6" style="font-style: italic;">
+                                                <i data-lucide="inbox" style="width: 24px; height: 24px; margin: 0 auto 0.5rem auto; display: block; opacity: 0.5;"></i>
+                                                No previous WhatsApp template messages dispatched to this client yet.
+                                            </td>
+                                        </tr>
+                                    <?php else: ?>
+                                        <?php foreach ($lead_wa_logs as $log): 
+                                            $st = strtolower($log['status'] ?? 'sent');
+                                            $stClass = ($st === 'delivered' || $st === 'read' || $st === 'sent') ? 'var(--success)' : 'var(--danger)';
+                                            $stBg = ($st === 'delivered' || $st === 'read' || $st === 'sent') ? 'var(--success-light)' : 'var(--danger-light)';
+                                            $stIcon = ($st === 'delivered' || $st === 'read' || $st === 'sent') ? 'check-check' : 'alert-circle';
+                                        ?>
+                                            <tr>
+                                                <td class="font-semibold text-muted"><?php echo date('d-M-Y h:i A', strtotime($log['created_at'])); ?></td>
+                                                <td class="font-semibold">+<?php echo htmlspecialchars($log['recipient_or_sender']); ?></td>
+                                                <td style="word-break: break-word; font-weight: 500;"><?php echo htmlspecialchars($log['message_body']); ?></td>
+                                                <td>
+                                                    <span class="badge text-xs font-semibold" style="--badge-bg: <?php echo $stBg; ?>; --badge-color: <?php echo $stClass; ?>; font-size: 0.68rem; padding: 2px 7px; display: inline-flex; align-items: center; gap: 4px;">
+                                                        <i data-lucide="<?php echo $stIcon; ?>" style="width: 11px; height: 11px;"></i>
+                                                        <?php echo ucfirst($st); ?>
+                                                    </span>
+                                                </td>
+                                                <td class="text-muted" style="font-family: monospace; font-size: 0.68rem;"><?php echo htmlspecialchars(substr($log['wamid'] ?? 'N/A', 0, 22) . '...'); ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
                 <!-- TAB 5: Quotations -->
                 <div class="tab-pane" id="tab-quotations">
                     <div class="flex justify-between align-center mb-4">
@@ -1319,7 +1916,12 @@ if ($db_connected && $pdo) {
 
                                     <!-- City Dropdown -->
                                     <div class="form-group m-0">
-                                        <label class="form-label text-xs font-semibold">City</label>
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                            <label class="form-label text-xs font-semibold" style="margin: 0;">City</label>
+                                            <button type="button" onclick="openQuickAddLeadCityPrompt()" class="btn-ghost" title="Add New City for selected State" style="background: none; border: none; padding: 0 2px; font-size: 0.7rem; font-weight: 700; color: var(--primary); cursor: pointer; display: flex; align-items: center; gap: 3px;">
+                                                <i data-lucide="plus-circle" style="width: 12px; height: 12px;"></i> Add City
+                                            </button>
+                                        </div>
                                         <?php 
                                             $curCity = $client_dir_data['city'] ?? ($lead['city'] ?? 'Kanpur');
                                             if (empty($curCity)) $curCity = 'Kanpur';
@@ -1511,29 +2113,84 @@ if ($db_connected && $pdo) {
     </div>
 </div>
 
-<!-- Quick Follow-up & Data Fill Modal (Rich 2-Column Mode) -->
-<div id="quick-followup-modal" class="modal-overlay hidden" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); transition: all 0.3s ease;">
-    <div class="card p-6" style="width: 100%; max-width: 900px; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); animation: scaleUp 0.3s ease-out; background: var(--bg-card); display: flex; flex-direction: column; max-height: 90vh; color: var(--text-main);">
+<!-- Quick Follow-up & Data Fill Modal (Modern Enterprise UI) -->
+<div id="quick-followup-modal" class="modal-overlay hidden" style="display: none !important; position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; background: rgba(15, 23, 42, 0.65) !important; align-items: center !important; justify-content: center !important; z-index: 2000 !important; backdrop-filter: blur(6px) !important; -webkit-backdrop-filter: blur(6px) !important; padding: 1rem !important; box-sizing: border-box !important;">
+    <div class="qf-modal-dialog">
         <!-- Modal Header -->
-        <div class="flex justify-between align-center mb-6" style="border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
-            <h3 class="font-bold text-lg" id="qf-modal-title" style="font-family: var(--font-heading); margin: 0;">Follow-Up For Client</h3>
-            <button type="button" class="btn-icon" onclick="closeQuickFollowupModal()" style="border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--border-radius-full);">
-                <i data-lucide="x" style="width: 20px; height: 20px; color: var(--text-muted);"></i>
+        <div class="qf-modal-header">
+            <div class="qf-header-meta">
+                <div class="qf-header-icon">
+                    <i data-lucide="phone-call" style="width: 22px; height: 22px;"></i>
+                </div>
+                <div class="qf-header-title-box">
+                    <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                        <h3 class="qf-header-title" id="qf-modal-title">Follow-Up For Client</h3>
+                        <span id="qf-hero-lead-badge" class="qf-id-badge" style="display: none;"></span>
+                    </div>
+                    <p class="qf-header-sub">Update lead classification, team assignment and schedule interaction</p>
+                </div>
+            </div>
+            <button type="button" class="qf-close-btn" onclick="closeQuickFollowupModal()" title="Close (Esc)">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
             </button>
+        </div>
+
+        <!-- High-Priority Hero Contact Bar: Large Prominent Phone, 1-Click Copy & Quick Actions -->
+        <div class="qf-hero-contact-bar" id="qf-hero-contact-bar">
+            <div class="qf-hero-phone-group">
+                <div class="qf-hero-phone-meta">
+                    <span class="qf-hero-badge-tag">
+                        <i data-lucide="phone" style="width: 13px; height: 13px;"></i> Mobile Number
+                    </span>
+                    <span class="qf-hero-phone-number" id="qf-hero-phone-val">--</span>
+                </div>
+                <div class="qf-hero-buttons">
+                    <button type="button" class="qf-hero-btn qf-hero-btn-copy" id="qf-copy-phone-btn" title="Copy Mobile Number">
+                        <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
+                        <span class="btn-text">Copy</span>
+                    </button>
+                    <a href="#" id="qf-hero-wa-link" class="qf-hero-btn qf-hero-btn-wa" title="Open Meta WhatsApp Template Studio for this Lead">
+                        <i data-lucide="message-square" style="width: 14px; height: 14px;"></i>
+                        <span class="btn-text">WhatsApp</span>
+                    </a>
+                    <a href="#" id="qf-hero-call-link" class="qf-hero-btn qf-hero-btn-call" title="Call directly">
+                        <i data-lucide="phone-outgoing" style="width: 14px; height: 14px;"></i>
+                        <span class="btn-text">Call</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="qf-hero-email-group" id="qf-hero-email-wrap" style="display: none;">
+                <div class="qf-hero-email-meta">
+                    <span class="qf-hero-badge-tag">
+                        <i data-lucide="mail" style="width: 13px; height: 13px;"></i> Email Address
+                    </span>
+                    <span class="qf-hero-email-val" id="qf-hero-email-val">--</span>
+                </div>
+                <button type="button" class="qf-hero-btn qf-hero-btn-copy" id="qf-copy-email-btn" title="Copy Email">
+                    <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
+                    <span class="btn-text">Copy</span>
+                </button>
+            </div>
         </div>
         
         <!-- Modal Form Content -->
-        <form id="quick-followup-form" method="POST" style="overflow-y: auto; flex: 1; padding-right: 8px;">
+        <form id="quick-followup-form" method="POST" class="qf-modal-form">
             <input type="hidden" name="action" value="quick_followup_save">
-            <input type="hidden" name="lead_id" id="qf-lead-id" value="<?php echo htmlspecialchars($lead['id']); ?>">
+            <input type="hidden" name="lead_id" id="qf-lead-id" value="<?php echo htmlspecialchars($lead['id'] ?? ''); ?>">
             
-            <div class="grid" style="grid-template-columns: 1.2fr 1fr; gap: 2rem; align-items: start;">
-                <!-- Left Column: Lead Data -->
+            <div class="qf-modal-body">
+                <!-- Left Column: Lead Data & Assignments -->
                 <div>
-                    <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Group</label>
-                            <select name="group_stage" id="qf-group-stage" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
+                    <div class="qf-sec-heading">
+                        <i data-lucide="user-check" style="width: 14px; height: 14px; color: var(--primary);"></i>
+                        <span>Lead Status & Team Assignment</span>
+                    </div>
+
+                    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Group / Pipeline Stage</label>
+                            <select name="group_stage" id="qf-group-stage" class="qf-control" required>
                                 <option value="Fresh">Fresh</option>
                                 <option value="Followup">Followup</option>
                                 <option value="Future Prospect">Future Prospect</option>
@@ -1543,42 +2200,83 @@ if ($db_connected && $pdo) {
                                 <option value="Not Required">Not Required</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Lead Status</label>
-                            <select name="status" id="qf-status" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Lead Status</label>
+                            <select name="status" id="qf-status" class="qf-control" style="height: 38px; font-size: 0.84rem;">
                                 <?php foreach ($PIPELINE_STAGES as $key => $stage): ?>
                                     <option value="<?php echo htmlspecialchars($key); ?>"><?php echo htmlspecialchars($stage['label']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Assign to Employee(s) (Select Multiple)</label>
-                            <div class="employee-select-grid" style="display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 100px; overflow-y: auto; padding: 0.4rem; background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);">
-                                <?php foreach ($operators as $op): ?>
-                                    <label class="flex align-center gap-15 text-xs pointer" style="padding: 0.25rem 0.5rem; border-radius: 4px; background: var(--bg-card); border: 1px solid var(--border-color); user-select: none;">
-                                        <input type="checkbox" name="assigned_to[]" class="qf-assigned-cb" value="<?php echo htmlspecialchars($op); ?>" style="accent-color: var(--primary); width: 13px; height: 13px;">
-                                        <span><?php echo htmlspecialchars($op); ?></span>
-                                    </label>
-                                <?php endforeach; ?>
+                        <div class="qf-form-group" style="margin-bottom: 0; position: relative;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                                <label class="qf-label m-0">Assign Member(s)</label>
+                                <span id="qf-assigned-count-badge" style="font-size: 0.68rem; font-weight: 700; color: var(--primary);">0 Selected</span>
+                            </div>
+                            <div id="qf-assigned-dropdown-wrapper" style="position: relative;">
+                                <button type="button" id="qf-assigned-dropdown-btn" class="qf-control" onclick="toggleQfAssignedDropdown(event)" style="text-align: left; display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 0.48rem 0.65rem; height: 38px;">
+                                    <span id="qf-assigned-btn-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; font-weight: 600; font-size: 0.82rem; color: var(--text-main);">
+                                        -- Select Team --
+                                    </span>
+                                    <i data-lucide="chevron-down" style="width: 14px; height: 14px; color: var(--text-muted); flex-shrink: 0; transition: transform 0.2s;" id="qf-assigned-chevron"></i>
+                                </button>
+
+                                <!-- Dropdown Menu with Checkboxes -->
+                                <div id="qf-assigned-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 220px; background: var(--bg-card, #ffffff); border: 1px solid var(--border-color, #cbd5e1); border-radius: 10px; box-shadow: 0 14px 28px rgba(0,0,0,0.18); z-index: 1060; padding: 6px; max-height: 200px; overflow-y: auto;">
+                                    <div style="padding: 2px 4px 6px; border-bottom: 1px solid var(--border-color, #e2e8f0); margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Team Members</span>
+                                        <button type="button" onclick="clearQfAssigned(event)" style="background: none; border: none; font-size: 0.68rem; color: var(--primary); font-weight: 700; cursor: pointer; padding: 0;">Clear All</button>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                                        <?php foreach ($operators as $op): 
+                                            $opParts = preg_split('/\s+/', trim($op));
+                                            $initials = '';
+                                            if (count($opParts) >= 2) {
+                                                $initials = strtoupper(substr($opParts[0], 0, 1) . substr($opParts[count($opParts)-1], 0, 1));
+                                            } else {
+                                                $initials = strtoupper(substr(trim($op), 0, 2));
+                                            }
+                                        ?>
+                                            <label class="qf-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; transition: background 0.15s; font-size: 0.78rem; color: var(--text-main);">
+                                                <input type="checkbox" name="assigned_to[]" class="qf-assigned-cb" value="<?php echo htmlspecialchars($op); ?>" onchange="updateQfAssignedBtnText()" style="width: 15px; height: 15px; cursor: pointer; accent-color: var(--primary);">
+                                                <span class="qf-emp-avatar" style="width: 20px; height: 20px; font-size: 0.62rem;"><?php echo htmlspecialchars($initials); ?></span>
+                                                <span style="flex: 1; font-weight: 500;"><?php echo htmlspecialchars($op); ?></span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px; color: var(--text-muted);">Assigned By (Read-Only)</label>
-                            <input type="text" id="qf-assigned-by" class="form-control text-sm" readonly disabled style="width: 100%; height: 36px; padding: 0.5rem; background: var(--bg-hover); opacity: 0.85; cursor: not-allowed; font-weight: 600;" placeholder="Not assigned yet">
+                    </div>
+
+                    <div class="grid" style="grid-template-columns: 1fr 1.6fr; gap: 0.65rem; margin-bottom: 0.75rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label" style="color: var(--text-muted); display: flex; align-items: center; gap: 0.3rem;">
+                                <i data-lucide="lock" style="width: 12px; height: 12px;"></i>
+                                Assigned By (Audit Trail)
+                            </label>
+                            <input type="text" id="qf-assigned-by" class="qf-control" readonly disabled placeholder="Not assigned yet" style="height: 38px; font-size: 0.84rem;">
+                        </div>
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label" style="display: flex; align-items: center; gap: 0.3rem;">
+                                <i data-lucide="map-pin" style="width: 12px; height: 12px; color: var(--text-muted);"></i>
+                                Address
+                            </label>
+                            <input type="text" name="address" id="qf-address" class="qf-control" placeholder="Full office or delivery address..." style="height: 38px; font-size: 0.84rem;">
                         </div>
                     </div>
                     
-                    <div class="form-group mb-4">
-                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Address</label>
-                        <textarea name="address" id="qf-address" class="form-control text-sm" style="width: 100%; min-height: 60px; height: 60px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);"></textarea>
+                    <hr class="qf-sec-divider" style="margin: 0.75rem 0 0.65rem 0;">
+                    
+                    <div class="qf-sec-heading" style="margin-bottom: 0.65rem;">
+                        <i data-lucide="sliders" style="width: 13px; height: 13px; color: var(--primary);"></i>
+                        <span>Additional Details</span>
                     </div>
                     
-                    <h4 class="text-xs font-bold text-muted mb-3" style="text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 1.5rem; margin-bottom: 1rem;">Additional Fields</h4>
-                    
-                    <div class="grid" style="grid-template-columns: 1fr 1fr 1.2fr; gap: 0.75rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Source</label>
-                            <select name="source" id="qf-source" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                    <div class="grid" style="grid-template-columns: 1fr 1fr 1.2fr; gap: 0.65rem; margin-bottom: 0.75rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Source</label>
+                            <select name="source" id="qf-source" class="qf-control" style="height: 36px; font-size: 0.82rem;">
                                 <option value="Website">Website</option>
                                 <option value="Google Ads">Google Ads</option>
                                 <option value="Cold Calls">Cold Calls</option>
@@ -1592,9 +2290,9 @@ if ($db_connected && $pdo) {
                                 <option value="Imported">Imported</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Enq_For</label>
-                            <select name="enq_for" id="qf-enq-for" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Enquiry For</label>
+                            <select name="enq_for" id="qf-enq-for" class="qf-control" style="height: 36px; font-size: 0.82rem;">
                                 <option value="">-- Choose --</option>
                                 <option value="Marg Basic">Marg Basic</option>
                                 <option value="Marg Silver">Marg Silver</option>
@@ -1609,59 +2307,108 @@ if ($db_connected && $pdo) {
                                 <option value="Marg Dimond">Marg Dimond</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Contact Person</label>
-                            <input type="text" name="contact_person" id="qf-contact-person" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" placeholder="Contact Person Name">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Contact Person</label>
+                            <input type="text" name="contact_person" id="qf-contact-person" class="qf-control" placeholder="Contact person name" style="height: 36px; font-size: 0.82rem;">
                         </div>
                     </div>
                     
-                    <div class="form-group">
-                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Remarks</label>
-                        <textarea name="remarks" id="qf-remarks" class="form-control text-sm" style="width: 100%; min-height: 50px; height: 50px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);"></textarea>
+                    <div class="qf-form-group" style="margin-bottom: 0;">
+                        <label class="qf-label">Lead Remarks</label>
+                        <textarea name="remarks" id="qf-remarks" class="qf-control" style="min-height: 44px; height: 44px; font-size: 0.84rem; line-height: 1.35;" placeholder="General background notes or requirements..."></textarea>
                     </div>
                 </div>
                 
                 <!-- Right Column: Schedule Follow-up Reminder & History -->
-                <div style="border-left: 1px solid var(--border-color); padding-left: 2rem; display: flex; flex-direction: column; justify-content: flex-start; height: 100%;">
-                    <h4 class="text-sm font-bold text-main mb-3" style="font-family: var(--font-heading); margin-top: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--primary);">
-                        <i data-lucide="bell-ring" style="width: 16px; height: 16px;"></i>
-                        Schedule Follow-up reminder
-                    </h4>
+                <div class="qf-scheduler-panel">
+                    <div>
+                        <div class="flex justify-between align-center mb-1.5">
+                            <div class="qf-sec-heading m-0" style="color: var(--primary); font-size: 0.8rem;">
+                                <i data-lucide="bell-ring" style="width: 13px; height: 13px;"></i>
+                                <span>Schedule Follow-up Reminder</span>
+                            </div>
+                        </div>
 
-                    <!-- Date & Time & Action Type Row -->
-                    <div class="grid mb-3" style="grid-template-columns: 1fr 1fr; gap: 0.75rem; width: 100%;">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Date & Time</label>
-                            <input type="datetime-local" name="scheduled_at" id="qf-scheduled-at" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.4rem 0.5rem;">
+                        <!-- Quick Date Shortcuts -->
+                        <div class="qf-quick-dates-bar mb-2" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                            <button type="button" class="qf-date-shortcut-btn" onclick="setQFQuickDate('today')" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;">
+                                <i data-lucide="sun" style="width: 11px; height: 11px;"></i> Today 5 PM
+                            </button>
+                            <button type="button" class="qf-date-shortcut-btn" onclick="setQFQuickDate('tomorrow')" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;">
+                                <i data-lucide="sunrise" style="width: 11px; height: 11px;"></i> Tomorrow 11 AM
+                            </button>
+                            <button type="button" class="qf-date-shortcut-btn" onclick="setQFQuickDate('2days')" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;">
+                                <i data-lucide="calendar" style="width: 11px; height: 11px;"></i> +2 Days
+                            </button>
+                            <button type="button" class="qf-date-shortcut-btn" onclick="setQFQuickDate('nextweek')" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;">
+                                <i data-lucide="calendar-days" style="width: 11px; height: 11px;"></i> Next Week
+                            </button>
                         </div>
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Action Type</label>
-                            <select name="action_type" id="qf-action-type" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
-                                <option value="Call">Call / Phone Call</option>
-                                <option value="Trail Installed">Trail Installed</option>
-                                <option value="Data Input Follow Up">Data Input Follow Up</option>
-                                <option value="Payment Followup">Payment Followup</option>
-                                <option value="Rest Amt Followup">Rest Amt Followup</option>
-                                <option value="Product Demo">Product Demo</option>
-                                <option value="On-Site Visit">On-Site Visit</option>
-                                <option value="Renewal / Expiry">Renewal / Expiry</option>
-                            </select>
+
+                        <!-- Date & Time & Action Type Row -->
+                        <div class="grid mb-2" style="grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+                            <div class="qf-form-group m-0">
+                                <label class="qf-label">Date & Time</label>
+                                <input type="datetime-local" name="scheduled_at" id="qf-scheduled-at" class="qf-control" style="height: 36px; padding: 0.4rem 0.6rem; font-size: 0.85rem;">
+                            </div>
+                            <div class="qf-form-group m-0">
+                                <label class="qf-label">Action Type</label>
+                                <select name="action_type" id="qf-action-type" class="qf-control" style="height: 36px; padding: 0.4rem 0.6rem; font-size: 0.85rem;">
+                                    <option value="Call">Call / Phone Call</option>
+                                    <option value="Trail Installed">Trail Installed</option>
+                                    <option value="Data Input Follow Up">Data Input Follow Up</option>
+                                    <option value="Payment Followup">Payment Followup</option>
+                                    <option value="Rest Amt Followup">Rest Amt Followup</option>
+                                    <option value="Product Demo">Product Demo</option>
+                                    <option value="On-Site Visit">On-Site Visit</option>
+                                    <option value="Renewal / Expiry">Renewal / Expiry</option>
+                                </select>
+                            </div>
                         </div>
-                    </div>
-                    
-                    <!-- Reminder Notes / Instructions -->
-                    <div class="form-group mb-3" style="width: 100%;">
-                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Reminder notes / Instructions</label>
-                        <textarea name="fup_notes" id="qf-fup-notes" class="form-control text-sm" style="width: 100%; min-height: 75px; height: 75px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);" placeholder="Add reminder notes or instructions..."></textarea>
+                        
+                        <!-- Reminder Notes / Instructions with Smart Telecaller Suggestions -->
+                        <div class="qf-form-group mb-2">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                                <label class="qf-label m-0" style="font-size: 0.82rem; font-weight: 700;">Reminder Notes / Action Plan</label>
+                                <span class="text-xs text-muted" style="font-size: 0.68rem;">Quick Suggestion Chips below</span>
+                            </div>
+
+                            <!-- Smart Suggestion Quick Chips Bar -->
+                            <div id="qf-smart-suggestions-bar" style="display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px;">
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="CUSTOMER CALL BACK">
+                                    Call Back
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Call Not Picked / Busy">
+                                    Not Picked / Busy
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Interested - Quotation / Details Shared on WhatsApp">
+                                    WhatsApp Shared
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Demo Scheduled - Team to connect">
+                                    Demo Scheduled
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Rate Quote Discussion / Negotiation">
+                                    Rate Quote
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Payment Followup - Balance Due">
+                                    Payment Due
+                                </button>
+                            </div>
+
+                            <textarea name="fup_notes" id="qf-fup-notes" class="qf-control" style="min-height: 52px; height: 52px; padding: 0.45rem 0.65rem; font-size: 0.85rem;" placeholder="Type notes or click any quick suggestion above..."></textarea>
+                        </div>
                     </div>
 
                     <!-- Upcoming & Past Follow-ups Section -->
-                    <div style="width: 100%; border-top: 1px solid var(--border-color); padding-top: 0.5rem; flex: 1; display: flex; flex-direction: column;">
-                        <h4 class="text-xs font-bold text-muted mb-2" style="text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.5rem 0; display: flex; align-items: center; justify-content: space-between;">
-                            <span>Upcoming & Past Follow-ups</span>
-                            <span class="badge text-xs" id="qf-history-count" style="--badge-bg: var(--primary-light); --badge-color: var(--primary);">0 entries</span>
-                        </h4>
-                        <div id="qf-history-timeline" style="max-height: 125px; overflow-y: auto; padding-right: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                    <div style="border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 0.55rem; flex: 1; display: flex; flex-direction: column;">
+                        <div class="flex justify-between align-center mb-1.5">
+                            <div class="qf-sec-heading m-0" style="font-size: 0.78rem;">
+                                <i data-lucide="history" style="width: 12px; height: 12px;"></i>
+                                <span>Upcoming & Past Activity</span>
+                            </div>
+                            <span class="badge text-xs" id="qf-history-count" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 10px;">0 entries</span>
+                        </div>
+                        <div id="qf-history-timeline" class="qf-timeline-box" style="max-height: 110px; overflow-y: auto;">
                             <p class="text-xs text-muted" style="font-style: italic;">Loading history...</p>
                         </div>
                     </div>
@@ -1669,13 +2416,632 @@ if ($db_connected && $pdo) {
             </div>
             
             <!-- Modal Actions Footer -->
-            <div class="flex justify-end gap-3 mt-6 pt-4" style="border-top: 1px solid var(--border-color);">
-                <button type="button" class="btn text-sm" onclick="closeQuickFollowupModal()" style="border-radius: 50px; border: 1.5px solid #004d40; background-color: transparent; color: #004d40; padding: 0.5rem 1.7rem; cursor: pointer; font-weight: 500; font-family: var(--font-heading); transition: all 0.2s ease;">Cancel</button>
-                <button type="submit" class="btn text-sm" style="border-radius: 50px; border: none; background-color: #004d40; color: #ffffff; padding: 0.5rem 2.5rem; cursor: pointer; font-weight: 600; font-family: var(--font-heading); transition: all 0.2s ease;">Save</button>
+            <div class="qf-modal-footer">
+                <span class="text-xs text-muted" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem;">
+                    <i data-lucide="info" style="width: 13px; height: 13px;"></i>
+                    Syncs lead stage & schedules next reminder
+                </span>
+                <div class="flex gap-2">
+                    <button type="button" class="qf-btn-cancel" onclick="closeQuickFollowupModal()">Cancel</button>
+                    <button type="submit" id="qf-submit-btn" class="qf-btn-submit">
+                        <i data-lucide="check" style="width: 15px; height: 15px;"></i>
+                        <span>Save & Log Follow-up</span>
+                    </button>
+                </div>
             </div>
         </form>
     </div>
 </div>
+
+<style>
+/* ==========================================================================
+   Quick Follow-up Modal Modern Enterprise Styling (High Legibility & Hero Info)
+   ========================================================================== */
+#quick-followup-modal {
+    display: none !important;
+    position: fixed !important;
+    inset: 0 !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(15, 23, 42, 0.65) !important;
+    backdrop-filter: blur(6px) !important;
+    -webkit-backdrop-filter: blur(6px) !important;
+    z-index: 2000 !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 1rem !important;
+    box-sizing: border-box !important;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+#quick-followup-modal.open {
+    display: flex !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+.qf-modal-dialog {
+    width: 100%;
+    max-width: 1040px;
+    max-height: 92vh;
+    background: var(--bg-card, #ffffff);
+    border-radius: 16px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.03);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--text-main, #0f172a);
+    animation: qfModalZoom 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes qfModalZoom {
+    0% { transform: scale(0.96) translateY(8px); opacity: 0; }
+    100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* Header */
+.qf-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.15rem 1.75rem;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-card, #ffffff);
+}
+.qf-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.95rem;
+    min-width: 0;
+}
+.qf-header-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--primary-light, rgba(37, 99, 235, 0.1));
+    color: var(--primary, #2563eb);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.qf-header-title-box {
+    min-width: 0;
+}
+.qf-header-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    font-family: var(--font-heading);
+    color: var(--text-main, #0f172a);
+    margin: 0;
+    line-height: 1.3;
+}
+.qf-header-title strong {
+    color: var(--primary, #2563eb);
+}
+.qf-header-sub {
+    font-size: 0.85rem;
+    color: var(--text-muted, #64748b);
+    margin: 3px 0 0 0;
+}
+.qf-id-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.65rem;
+    border-radius: 6px;
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--primary, #2563eb);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    border: 1px solid rgba(37, 99, 235, 0.2);
+}
+.qf-close-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    background: transparent;
+    color: var(--text-muted, #64748b);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+.qf-close-btn:hover {
+    background: var(--bg-app, #f8fafc);
+    color: var(--text-main, #0f172a);
+    border-color: var(--text-muted);
+}
+
+/* High-Contrast Hero Contact Bar */
+.qf-hero-contact-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    padding: 0.95rem 1.75rem;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    flex-wrap: wrap;
+}
+[data-theme="dark"] .qf-hero-contact-bar {
+    background: rgba(30, 41, 59, 0.7);
+    border-color: rgba(51, 65, 85, 0.8);
+}
+.qf-hero-phone-group {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+.qf-hero-phone-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+.qf-hero-badge-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted, #64748b);
+}
+.qf-hero-phone-number {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: 0.04em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    line-height: 1.2;
+}
+[data-theme="dark"] .qf-hero-phone-number {
+    color: #f8fafc;
+}
+.qf-hero-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.qf-hero-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.48rem 0.95rem;
+    border-radius: 8px;
+    font-size: 0.86rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+.qf-hero-btn-copy {
+    background: #ffffff;
+    border-color: #cbd5e1;
+    color: #1e293b;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.qf-hero-btn-copy:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+[data-theme="dark"] .qf-hero-btn-copy {
+    background: rgba(51, 65, 85, 0.8);
+    border-color: rgba(100, 116, 139, 0.4);
+    color: #f1f5f9;
+}
+.qf-hero-btn-wa {
+    background: #10b981;
+    color: #ffffff;
+    box-shadow: 0 1px 2px rgba(16, 185, 129, 0.2);
+}
+.qf-hero-btn-wa:hover {
+    background: #059669;
+    color: #ffffff;
+}
+.qf-hero-btn-call {
+    background: var(--primary, #2563eb);
+    color: #ffffff;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+}
+.qf-hero-btn-call:hover {
+    background: var(--primary-hover, #1d4ed8);
+    color: #ffffff;
+}
+.qf-hero-email-group {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    background: #ffffff;
+    padding: 0.45rem 0.95rem;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+[data-theme="dark"] .qf-hero-email-group {
+    background: rgba(30, 41, 59, 0.9);
+    border-color: rgba(51, 65, 85, 0.8);
+}
+.qf-hero-email-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+.qf-hero-email-val {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+[data-theme="dark"] .qf-hero-email-val {
+    color: #f1f5f9;
+}
+
+/* Body Form & Grid */
+.qf-modal-form {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+}
+.qf-modal-body {
+    overflow-y: auto;
+    padding: 1.1rem 1.4rem;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 1.25rem;
+    align-items: start;
+}
+@media (max-width: 860px) {
+    .qf-modal-body {
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+    }
+}
+
+/* Section Headings */
+.qf-sec-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted, #475569);
+    margin: 0 0 0.95rem 0;
+}
+.qf-sec-divider {
+    border: none;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    margin: 1.35rem 0 1.1rem 0;
+}
+
+/* Form Controls */
+.qf-form-group {
+    margin-bottom: 0.95rem;
+}
+.qf-label {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-main, #1e293b);
+    margin-bottom: 0.45rem;
+}
+.qf-control {
+    width: 100%;
+    font-size: 0.93rem;
+    font-family: inherit;
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 8px;
+    background: var(--bg-card, #ffffff);
+    color: var(--text-main, #0f172a);
+    padding: 0.58rem 0.85rem;
+    line-height: 1.45;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    outline: none;
+    box-sizing: border-box;
+}
+.qf-control:focus {
+    border-color: var(--primary, #2563eb);
+    box-shadow: 0 0 0 3px var(--primary-light, rgba(37, 99, 235, 0.15));
+}
+.qf-control[readonly], .qf-control:disabled {
+    background: var(--bg-app, #f1f5f9);
+    color: var(--text-muted, #64748b);
+    cursor: not-allowed;
+}
+textarea.qf-control {
+    resize: vertical;
+    line-height: 1.5;
+}
+
+/* Employee Multi-Select Chips */
+.qf-employee-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    max-height: 135px;
+    overflow-y: auto;
+    padding: 0.55rem;
+    background: var(--bg-app, #f8fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+}
+.qf-emp-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.32rem 0.7rem;
+    border-radius: 20px;
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #cbd5e1);
+    font-size: 0.84rem;
+    font-weight: 500;
+    color: var(--text-main, #0f172a);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s ease;
+}
+.qf-emp-pill:hover {
+    border-color: var(--primary, #2563eb);
+    background: var(--primary-light, rgba(37, 99, 235, 0.05));
+}
+.qf-emp-pill input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+}
+.qf-emp-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--border-color, #e2e8f0);
+    color: var(--text-muted, #475569);
+    font-size: 0.68rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+.qf-emp-check-icon {
+    display: none;
+    width: 12px;
+    height: 12px;
+    margin-left: 2px;
+}
+.qf-emp-pill.active,
+.qf-emp-pill:has(input:checked) {
+    border-color: var(--primary, #2563eb);
+    background: var(--primary-light, rgba(37, 99, 235, 0.1));
+    color: var(--primary, #2563eb);
+    font-weight: 600;
+}
+.qf-emp-pill.active .qf-emp-avatar,
+.qf-emp-pill:has(input:checked) .qf-emp-avatar {
+    background: var(--primary, #2563eb);
+    color: #ffffff;
+}
+.qf-emp-pill.active .qf-emp-check-icon,
+.qf-emp-pill:has(input:checked) .qf-emp-check-icon {
+    display: inline-block;
+}
+
+/* Right Column Schedule Card */
+.qf-scheduler-panel {
+    background: var(--bg-app, #f8fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 12px;
+    padding: 0.95rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+.qf-chip-btn {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted, #475569);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    line-height: 1.4;
+}
+.qf-chip-btn:hover {
+    border-color: var(--primary, #2563eb);
+    color: var(--primary, #2563eb);
+    background: var(--primary-light, rgba(37, 99, 235, 0.08));
+}
+.qf-chip-last {
+    background: rgba(37, 99, 235, 0.08);
+    border-color: var(--primary, #2563eb);
+    color: var(--primary, #2563eb);
+    font-weight: 700;
+}
+.qf-dropdown-item:hover {
+    background: var(--primary-light, rgba(37, 99, 235, 0.08));
+}
+.qf-quick-dates-bar {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+.qf-date-shortcut-btn {
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: var(--bg-card, #ffffff);
+    color: var(--text-muted, #475569);
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.qf-date-shortcut-btn:hover {
+    border-color: var(--primary, #2563eb);
+    color: var(--primary, #2563eb);
+    background: var(--primary-light, rgba(37, 99, 235, 0.08));
+}
+
+/* Timeline Cards */
+.qf-timeline-box {
+    max-height: 110px;
+    overflow-y: auto;
+    padding-right: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+.qf-timeline-card {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    padding: 0.45rem 0.65rem;
+    transition: border-color 0.15s ease;
+}
+.qf-timeline-card:hover {
+    border-color: var(--primary, #2563eb);
+}
+.qf-timeline-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+    gap: 0.5rem;
+}
+.qf-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+}
+.qf-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+.qf-status-pending { background: var(--warning-light, rgba(234, 179, 8, 0.15)); color: var(--warning, #d97706); }
+.qf-status-pending .qf-status-dot { background: var(--warning, #d97706); }
+.qf-status-completed { background: var(--success-light, rgba(34, 197, 94, 0.15)); color: var(--success, #16a34a); }
+.qf-status-completed .qf-status-dot { background: var(--success, #16a34a); }
+.qf-status-rescheduled { background: var(--info-light, rgba(6, 182, 212, 0.15)); color: var(--info, #0891b2); }
+.qf-status-rescheduled .qf-status-dot { background: var(--info, #0891b2); }
+.qf-status-danger { background: var(--danger-light, rgba(239, 68, 68, 0.15)); color: var(--danger, #dc2626); }
+.qf-status-danger .qf-status-dot { background: var(--danger, #dc2626); }
+
+.qf-timeline-time {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted, #64748b);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+.qf-timeline-note {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-main, #0f172a);
+    margin: 0.2rem 0;
+    word-break: break-word;
+    line-height: 1.35;
+}
+.qf-timeline-meta {
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: var(--text-muted, #64748b);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+/* Footer */
+.qf-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.95rem 1.75rem;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-card, #ffffff);
+}
+.qf-btn-cancel {
+    border-radius: 8px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: transparent;
+    color: var(--text-main, #0f172a);
+    padding: 0.6rem 1.35rem;
+    cursor: pointer;
+    font-size: 0.92rem;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all 0.15s ease;
+}
+.qf-btn-cancel:hover {
+    background: var(--bg-app, #f1f5f9);
+    border-color: var(--text-muted);
+}
+.qf-btn-submit {
+    border-radius: 8px;
+    border: none;
+    background: var(--primary, #2563eb);
+    color: #ffffff;
+    padding: 0.6rem 1.65rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.qf-btn-submit:hover {
+    background: var(--primary-hover, #1d4ed8);
+}
+.qf-btn-submit:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Custom Slim Scrollbars */
+.qf-employee-grid::-webkit-scrollbar,
+.qf-timeline-box::-webkit-scrollbar,
+.qf-modal-body::-webkit-scrollbar {
+    width: 5px;
+}
+.qf-employee-grid::-webkit-scrollbar-thumb,
+.qf-timeline-box::-webkit-scrollbar-thumb,
+.qf-modal-body::-webkit-scrollbar-thumb {
+    background: var(--border-color, #cbd5e1);
+    border-radius: 4px;
+}
+</style>
 
 <!-- Modal: Upload Lead Document -->
 <div id="upload-document-modal" class="modal-overlay">
@@ -1893,6 +3259,61 @@ function applyTemplateFields() {
                 <i data-lucide="phone-call" style="width: 14px; height: 14px;"></i>
                 <span>Direct Call Now</span>
             </a>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: In-Panel Quick Add City Dialog (Lead Details) -->
+<div id="lead-quick-add-city-modal" class="modal-overlay" style="z-index: 1080;">
+    <div class="modal-container" style="max-width: 440px; width: 92%; border-radius: 14px; border: 1px solid var(--border-color); background: var(--bg-card); box-shadow: 0 20px 45px -10px rgba(0,0,0,0.5); overflow: hidden;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, var(--primary) 0%, #1e40af 100%); padding: 0.85rem 1.15rem; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="background: rgba(255,255,255,0.2); padding: 5px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="map-pin" style="width: 16px; height: 16px; color: #fff;"></i>
+                </div>
+                <div>
+                    <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #fff;">Add New City</h4>
+                    <span style="font-size: 0.68rem; color: rgba(255,255,255,0.85);">Register a custom city for regional directory</span>
+                </div>
+            </div>
+            <button type="button" onclick="closeQuickAddLeadCityModal()" style="background: rgba(255,255,255,0.15); border: none; border-radius: 6px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #fff;">
+                <i data-lucide="x" style="width: 15px; height: 15px;"></i>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 1.1rem 1.15rem; background: var(--bg-app);">
+            <div id="lead_quick_city_error_msg" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 7px 10px; margin-bottom: 12px; font-size: 0.75rem; color: #dc2626; align-items: center; gap: 6px;">
+                <i data-lucide="alert-circle" style="width: 14px; height: 14px; flex-shrink: 0;"></i>
+                <span id="lead_quick_city_error_text"></span>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">State</label>
+                <select id="lead_quick_city_state_select" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
+                    <option value="">-- Select State --</option>
+                    <?php foreach ($indian_states_list as $stName): ?>
+                        <option value="<?php echo htmlspecialchars($stName); ?>"><?php echo htmlspecialchars($stName); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 4px;">
+                <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">City Name *</label>
+                <input type="text" id="lead_quick_city_name_input" placeholder="e.g. Mainpuri, Firozabad, Noida" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitQuickNewLeadCity();}">
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="padding: 0.75rem 1.15rem; background: var(--bg-card); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px;">
+            <button type="button" onclick="closeQuickAddLeadCityModal()" class="btn btn-secondary text-xs" style="border-radius: 7px; padding: 0.4rem 0.9rem;">
+                Cancel
+            </button>
+            <button type="button" id="lead_quick_city_save_btn" onclick="submitQuickNewLeadCity()" class="btn btn-primary text-xs font-bold" style="border-radius: 7px; padding: 0.4rem 1.1rem; display: flex; align-items: center; gap: 5px;">
+                <i data-lucide="check" style="width: 14px; height: 14px;"></i>
+                <span>Save &amp; Add City</span>
+            </button>
         </div>
     </div>
 </div>
@@ -2149,7 +3570,8 @@ function onLeadClientStateSelect(stateVal, targetCity = '') {
         return;
     }
 
-    const cities = leadIndianStatesMap[stateVal] || [];
+    const rawCities = leadIndianStatesMap[stateVal] || [];
+    const cities = rawCities.slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }));
     cities.forEach(c => {
         const opt = document.createElement('option');
         opt.value = c;
@@ -2174,6 +3596,167 @@ function onLeadClientStateSelect(stateVal, targetCity = '') {
     }
 }
 window.onLeadClientStateSelect = onLeadClientStateSelect;
+
+// Quick Add City In-Panel Modal Controller for Lead Details
+function openQuickAddLeadCityPrompt() {
+    const stateVal = (document.getElementById('lead_client_state')?.value || '').trim();
+    const stateSelect = document.getElementById('lead_quick_city_state_select');
+    if (stateSelect && stateVal) {
+        stateSelect.value = stateVal;
+    }
+    const input = document.getElementById('lead_quick_city_name_input');
+    if (input) input.value = '';
+    const errorBox = document.getElementById('lead_quick_city_error_msg');
+    if (errorBox) errorBox.style.display = 'none';
+
+    const modal = document.getElementById('lead-quick-add-city-modal');
+    if (modal) {
+        modal.classList.add('open');
+        modal.classList.remove('hidden');
+    }
+    if (window.lucide) lucide.createIcons();
+    setTimeout(() => {
+        if (input) input.focus();
+    }, 150);
+}
+window.openQuickAddLeadCityPrompt = openQuickAddLeadCityPrompt;
+
+function closeQuickAddLeadCityModal() {
+    const modal = document.getElementById('lead-quick-add-city-modal');
+    if (modal) {
+        modal.classList.remove('open');
+        modal.classList.add('hidden');
+    }
+}
+window.closeQuickAddLeadCityModal = closeQuickAddLeadCityModal;
+
+async function submitQuickNewLeadCity() {
+    const stateSelect = document.getElementById('lead_quick_city_state_select');
+    const input = document.getElementById('lead_quick_city_name_input');
+    const errorBox = document.getElementById('lead_quick_city_error_msg');
+    const errorText = document.getElementById('lead_quick_city_error_text');
+    const saveBtn = document.getElementById('lead_quick_city_save_btn');
+
+    const stateVal = (stateSelect ? stateSelect.value : '').trim();
+    const cityName = (input ? input.value : '').trim();
+
+    if (!stateVal) {
+        if (errorBox && errorText) {
+            errorText.textContent = 'Please select a State before adding a city.';
+            errorBox.style.display = 'flex';
+        }
+        if (stateSelect) stateSelect.focus();
+        return;
+    }
+
+    if (!cityName) {
+        if (errorBox && errorText) {
+            errorText.textContent = 'Please enter a valid City name.';
+            errorBox.style.display = 'flex';
+        }
+        if (input) input.focus();
+        return;
+    }
+
+    if (errorBox) errorBox.style.display = 'none';
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span style="font-size:0.75rem;">Saving...</span>';
+    }
+
+    try {
+        const result = await quickAddNewLeadCity(cityName, stateVal);
+        if (result && result.success) {
+            closeQuickAddLeadCityModal();
+        } else if (result && result.message) {
+            if (errorBox && errorText) {
+                errorText.textContent = result.message;
+                errorBox.style.display = 'flex';
+            }
+        }
+    } catch (e) {
+        console.error('Error in submitQuickNewLeadCity:', e);
+        if (errorBox && errorText) {
+            errorText.textContent = 'Server communication error while saving city.';
+            errorBox.style.display = 'flex';
+        }
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i data-lucide="check" style="width: 14px; height: 14px;"></i><span>Save &amp; Add City</span>';
+            if (window.lucide) lucide.createIcons();
+        }
+    }
+}
+window.submitQuickNewLeadCity = submitQuickNewLeadCity;
+
+async function quickAddNewLeadCity(cityName, stateVal) {
+    if (!cityName) return { success: false, message: 'City name is required' };
+    cityName = cityName.trim();
+    if (!stateVal) {
+        stateVal = (document.getElementById('lead_client_state')?.value || '').trim();
+    }
+    if (!stateVal) {
+        return { success: false, message: 'Please select a State first' };
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('action', 'add_custom_city');
+        formData.append('state', stateVal);
+        formData.append('city', cityName);
+
+        const res = await fetch('index.php?page=clients', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            const addedCity = (data.city || cityName).trim();
+
+            const mainStateEl = document.getElementById('lead_client_state');
+            if (mainStateEl && mainStateEl.value !== stateVal) {
+                mainStateEl.value = stateVal;
+            }
+
+            if (!leadIndianStatesMap[stateVal]) {
+                leadIndianStatesMap[stateVal] = [];
+            }
+            const existsInState = leadIndianStatesMap[stateVal].some(c => c.toLowerCase() === addedCity.toLowerCase());
+            if (!existsInState) {
+                leadIndianStatesMap[stateVal].push(addedCity);
+                leadIndianStatesMap[stateVal].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }));
+            }
+
+            onLeadClientStateSelect(stateVal, addedCity);
+
+            if (typeof onLeadClientCitySelect === 'function') {
+                onLeadClientCitySelect(addedCity);
+            }
+
+            const areaEl = document.getElementById('lead_client_area');
+            if (areaEl) {
+                areaEl.focus();
+            }
+            return { success: true, city: addedCity };
+        } else {
+            return { success: false, message: data.message || 'Could not add city.' };
+        }
+    } catch (e) {
+        console.error('Error adding new city:', e);
+        const citySelect = document.getElementById('lead_client_city');
+        if (citySelect) {
+            const opt = document.createElement('option');
+            opt.value = cityName;
+            opt.textContent = cityName;
+            opt.selected = true;
+            citySelect.appendChild(opt);
+        }
+        return { success: true, city: cityName };
+    }
+}
+window.quickAddNewLeadCity = quickAddNewLeadCity;
 
 function onLeadClientCitySelect(cityVal) {
     const stateVal = (document.getElementById('lead_client_state')?.value || '').trim();
@@ -2421,6 +4004,122 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// Quick Date Shortcut Helper
+window.setQFQuickDate = function(type) {
+    const input = document.getElementById('qf-scheduled-at');
+    if (!input) return;
+    const now = new Date();
+    let target = new Date(now);
+    
+    if (type === 'today') {
+        target.setHours(17, 0, 0, 0);
+        if (target <= now) {
+            target = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+        }
+    } else if (type === 'tomorrow') {
+        target.setDate(target.getDate() + 1);
+        target.setHours(11, 0, 0, 0);
+    } else if (type === '2days') {
+        target.setDate(target.getDate() + 2);
+        target.setHours(11, 0, 0, 0);
+    } else if (type === 'nextweek') {
+        target.setDate(target.getDate() + 7);
+        target.setHours(11, 0, 0, 0);
+    }
+    
+    const pad = n => String(n).padStart(2, '0');
+    const formatted = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
+    input.value = formatted;
+};
+
+// Multi-Select Team Dropdown Controllers
+window.toggleQfAssignedDropdown = function(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const menu = document.getElementById('qf-assigned-dropdown-menu');
+    const chevron = document.getElementById('qf-assigned-chevron');
+    if (!menu) return;
+    const isShowing = menu.style.display === 'block';
+    menu.style.display = isShowing ? 'none' : 'block';
+    if (chevron) {
+        chevron.style.transform = isShowing ? 'rotate(0deg)' : 'rotate(180deg)';
+    }
+};
+
+window.clearQfAssigned = function(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
+        cb.checked = false;
+    });
+    updateQfAssignedBtnText();
+};
+
+window.updateQfAssignedBtnText = function() {
+    const checked = Array.from(document.querySelectorAll('.qf-assigned-cb:checked')).map(cb => cb.value.trim());
+    const btnText = document.getElementById('qf-assigned-btn-text');
+    const badge = document.getElementById('qf-assigned-count-badge');
+    const count = checked.length;
+
+    if (badge) {
+        badge.textContent = `${count} Selected`;
+    }
+
+    if (!btnText) return;
+    if (count === 0) {
+        btnText.textContent = '-- Select Team --';
+        btnText.style.color = 'var(--text-muted)';
+        btnText.title = 'No member assigned';
+    } else if (count === 1) {
+        btnText.textContent = checked[0];
+        btnText.style.color = 'var(--text-main)';
+        btnText.title = checked[0];
+    } else if (count === 2) {
+        btnText.textContent = `${checked[0]}, ${checked[1]}`;
+        btnText.style.color = 'var(--text-main)';
+        btnText.title = checked.join(', ');
+    } else {
+        btnText.textContent = `${checked[0]} (+${count - 1})`;
+        btnText.style.color = 'var(--text-main)';
+        btnText.title = checked.join(', ');
+    }
+};
+
+// Quick Telecaller Notes Suggestion helper
+window.applyQfNoteSuggestion = function(note) {
+    const textarea = document.getElementById('qf-fup-notes');
+    if (!textarea || !note) return;
+    const current = textarea.value.trim();
+    if (!current) {
+        textarea.value = note;
+    } else if (!current.includes(note)) {
+        textarea.value = current + ' | ' + note;
+    }
+    textarea.focus();
+};
+
+// Close assigned dropdown on outside click
+document.addEventListener('click', function(e) {
+    const wrapper = document.getElementById('qf-assigned-dropdown-wrapper');
+    const menu = document.getElementById('qf-assigned-dropdown-menu');
+    const chevron = document.getElementById('qf-assigned-chevron');
+    if (menu && wrapper && !wrapper.contains(e.target)) {
+        menu.style.display = 'none';
+        if (chevron) chevron.style.transform = 'rotate(0deg)';
+    }
+});
+
+// Keep Employee multi-select dropdown in sync with checkbox changes
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList.contains('qf-assigned-cb')) {
+        updateQfAssignedBtnText();
+    }
+});
+
 // Quick Follow-up Modal handler for Lead Details
 function openLeadDetailsFollowupModal(leadId) {
     if (!leadId) leadId = '<?php echo htmlspecialchars($lead['id'] ?? ''); ?>';
@@ -2433,14 +4132,109 @@ function openLeadDetailsFollowupModal(leadId) {
             const lead = res.lead;
             
             if (document.getElementById('qf-lead-id')) document.getElementById('qf-lead-id').value = lead.id || '';
-            if (document.getElementById('qf-modal-title')) document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name || ''}</strong> ( ${lead.phone || ''} )`;
+            
+            // Hero Phone & Contact Controls
+            const rawPhone = (lead.phone || '').trim();
+            let digitsOnly = rawPhone.replace(/[^0-9]/g, '');
+            let formattedPhone = rawPhone || 'Not Available';
+            
+            if (digitsOnly.length === 10) {
+                formattedPhone = `+91 ${digitsOnly.slice(0, 5)} ${digitsOnly.slice(5)}`;
+            } else if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
+                formattedPhone = `+91 ${digitsOnly.slice(2, 7)} ${digitsOnly.slice(7)}`;
+            }
+
+            const heroPhoneVal = document.getElementById('qf-hero-phone-val');
+            if (heroPhoneVal) {
+                heroPhoneVal.textContent = formattedPhone;
+            }
+
+            const copyPhoneBtn = document.getElementById('qf-copy-phone-btn');
+            if (copyPhoneBtn) {
+                copyPhoneBtn.onclick = function() {
+                    window.copyQfText(rawPhone || digitsOnly, this);
+                };
+                copyPhoneBtn.style.display = rawPhone ? 'inline-flex' : 'none';
+            }
+
+            const waLink = document.getElementById('qf-hero-wa-link');
+            if (waLink) {
+                if (lead.id) {
+                    waLink.href = 'index.php?page=lead_details&id=' + encodeURIComponent(lead.id) + '&tab=whatsapp';
+                    waLink.title = 'Send Meta Approved WhatsApp Template';
+                    waLink.style.display = 'inline-flex';
+                    waLink.onclick = function(e) {
+                        e.preventDefault();
+                        if (typeof closeQuickFollowupModal === 'function') {
+                            closeQuickFollowupModal();
+                        }
+                        if (typeof openLeadWhatsAppTab === 'function') {
+                            openLeadWhatsAppTab();
+                        } else {
+                            window.location.href = waLink.href;
+                        }
+                    };
+                } else {
+                    waLink.style.display = 'none';
+                }
+            }
+
+            const callLink = document.getElementById('qf-hero-call-link');
+            if (callLink) {
+                if (digitsOnly) {
+                    callLink.href = `tel:+${digitsOnly.startsWith('91') ? digitsOnly : '91' + digitsOnly}`;
+                    callLink.style.display = 'inline-flex';
+                } else {
+                    callLink.style.display = 'none';
+                }
+            }
+
+            // Email
+            const rawEmail = (lead.email || '').trim();
+            const emailWrap = document.getElementById('qf-hero-email-wrap');
+            const emailVal = document.getElementById('qf-hero-email-val');
+            const copyEmailBtn = document.getElementById('qf-copy-email-btn');
+
+            if (rawEmail && rawEmail.toLowerCase() !== 'null' && rawEmail.toLowerCase() !== 'na') {
+                if (emailWrap) emailWrap.style.display = 'flex';
+                if (emailVal) emailVal.textContent = rawEmail;
+                if (copyEmailBtn) {
+                    copyEmailBtn.onclick = function() {
+                        window.copyQfText(rawEmail, this);
+                    };
+                }
+            } else {
+                if (emailWrap) emailWrap.style.display = 'none';
+            }
+
+            // Lead ID Badge
+            const heroLeadBadge = document.getElementById('qf-hero-lead-badge');
+            if (heroLeadBadge) {
+                if (lead.id) {
+                    heroLeadBadge.textContent = String(lead.id).startsWith('LD-') ? lead.id : 'LD-' + lead.id;
+                    heroLeadBadge.style.display = 'inline-flex';
+                } else {
+                    heroLeadBadge.style.display = 'none';
+                }
+            }
+
+            // Modal Title
+            const leadName = (lead.name && lead.name !== 'NA' && lead.name.trim() !== '') ? lead.name : (lead.company && lead.company !== 'NA' ? lead.company : 'Client');
+            if (document.getElementById('qf-modal-title')) {
+                document.getElementById('qf-modal-title').innerHTML = `Follow-Up: <strong>${leadName}</strong>`;
+            }
             if (document.getElementById('qf-group-stage')) document.getElementById('qf-group-stage').value = lead.group_stage || lead.company || 'Fresh';
             if (document.getElementById('qf-status')) document.getElementById('qf-status').value = lead.status || 'new';
             
             const assignedList = (lead.assigned || '').split(',').map(s => s.trim().toLowerCase());
             document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
-                cb.checked = assignedList.includes(cb.value.trim().toLowerCase());
+                const isChecked = assignedList.includes(cb.value.trim().toLowerCase());
+                cb.checked = isChecked;
             });
+            if (typeof updateQfAssignedBtnText === 'function') {
+                updateQfAssignedBtnText();
+            }
+            
             if (document.getElementById('qf-assigned-by')) document.getElementById('qf-assigned-by').value = lead.assigned_by || 'Not assigned yet';
             if (document.getElementById('qf-tags')) document.getElementById('qf-tags').value = lead.tags || '';
             if (document.getElementById('qf-address')) document.getElementById('qf-address').value = lead.address || '';
@@ -2454,29 +4248,55 @@ function openLeadDetailsFollowupModal(leadId) {
                 pendingFup = res.followup_history.find(f => f.status === 'pending') || res.followup_history[0];
             }
 
-            if (pendingFup && pendingFup.scheduled_at) {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            const defaultDateTime = now.toISOString().slice(0, 16);
+
+            // If existing pending follow-up is strictly in the future, show its future scheduled date;
+            // if it was from the past (e.g. earlier days), default to current time so user schedules forward!
+            if (pendingFup && pendingFup.scheduled_at && new Date(pendingFup.scheduled_at).getTime() > Date.now()) {
                 const fupDateStr = pendingFup.scheduled_at.replace(' ', 'T').slice(0, 16);
                 if (document.getElementById('qf-scheduled-at')) {
                     document.getElementById('qf-scheduled-at').value = fupDateStr;
                 }
                 if (document.getElementById('qf-action-type')) {
-                    document.getElementById('qf-action-type').value = pendingFup.action_type || 'Trail Installed';
-                }
-                if (document.getElementById('qf-fup-notes')) {
-                    document.getElementById('qf-fup-notes').value = pendingFup.remarks || '';
+                    document.getElementById('qf-action-type').value = pendingFup.action_type || 'Call';
                 }
             } else {
-                const now = new Date();
-                now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-                const defaultDateTime = now.toISOString().slice(0, 16);
                 if (document.getElementById('qf-scheduled-at')) {
                     document.getElementById('qf-scheduled-at').value = defaultDateTime;
                 }
                 if (document.getElementById('qf-action-type')) {
-                    document.getElementById('qf-action-type').value = 'Trail Installed';
+                    document.getElementById('qf-action-type').value = (pendingFup && pendingFup.action_type) ? pendingFup.action_type : 'Call';
                 }
-                if (document.getElementById('qf-fup-notes')) {
-                    document.getElementById('qf-fup-notes').value = '';
+            }
+
+            // Keep notes input fresh/empty for new calling entry (telecaller can click "Last Note" chip if they wish)
+            if (document.getElementById('qf-fup-notes')) {
+                document.getElementById('qf-fup-notes').value = '';
+            }
+
+            // Render Smart Suggestion Chip for Last Note if available
+            const lastSavedNote = (pendingFup && pendingFup.remarks ? pendingFup.remarks : (localStorage.getItem('marg_last_fup_note') || '')).trim();
+            const suggestionsBar = document.getElementById('qf-smart-suggestions-bar');
+            if (suggestionsBar) {
+                let lastChip = document.getElementById('qf-last-note-chip');
+                if (lastSavedNote) {
+                    if (!lastChip) {
+                        lastChip = document.createElement('button');
+                        lastChip.type = 'button';
+                        lastChip.id = 'qf-last-note-chip';
+                        lastChip.className = 'qf-chip-btn qf-chip-last';
+                        suggestionsBar.prepend(lastChip);
+                    }
+                    const cleanShort = lastSavedNote.length > 25 ? lastSavedNote.slice(0, 25) + '...' : lastSavedNote;
+                    lastChip.setAttribute('data-note', lastSavedNote);
+                    lastChip.title = `Fill previous note: "${lastSavedNote}"`;
+                    lastChip.onclick = function() { window.applyQfNoteSuggestion(this.getAttribute('data-note')); };
+                    lastChip.innerHTML = `<i data-lucide="rotate-ccw" style="width:10px;height:10px;"></i> Last: ${typeof escapeHtml === 'function' ? escapeHtml(cleanShort) : cleanShort}`;
+                    if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
+                } else if (lastChip) {
+                    lastChip.remove();
                 }
             }
             
@@ -2484,49 +4304,46 @@ function openLeadDetailsFollowupModal(leadId) {
             const historyCount = document.getElementById('qf-history-count');
 
             if (res.followup_history && res.followup_history.length > 0) {
-                if (historyCount) historyCount.textContent = res.followup_history.length + ' entries';
+                if (historyCount) historyCount.textContent = res.followup_history.length + (res.followup_history.length === 1 ? ' entry' : ' entries');
                 let html = '';
                 res.followup_history.forEach(fup => {
-                    let badgeColor = 'var(--primary)';
-                    let badgeBg = 'var(--primary-light)';
-                    if (fup.status === 'completed') {
-                        badgeColor = 'var(--success)';
-                        badgeBg = 'var(--success-light)';
-                    } else if (fup.status === 'pending') {
-                        badgeColor = 'var(--warning)';
-                        badgeBg = 'var(--warning-light)';
-                    } else if (fup.status === 'rescheduled') {
-                        badgeColor = 'var(--info)';
-                        badgeBg = 'var(--info-light)';
-                    } else if (fup.status === 'missed' || fup.status === 'cancelled') {
-                        badgeColor = 'var(--danger)';
-                        badgeBg = 'var(--danger-light)';
-                    }
+                    let statusClass = 'pending';
+                    const statusVal = (fup.status || 'pending').toLowerCase();
+                    if (statusVal === 'completed') statusClass = 'completed';
+                    else if (statusVal === 'rescheduled') statusClass = 'rescheduled';
+                    else if (statusVal === 'missed' || statusVal === 'cancelled') statusClass = 'danger';
 
                     const formattedDate = fup.scheduled_at ? new Date(fup.scheduled_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A';
                     html += `
-                        <div style="background-color: var(--bg-app); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem 0.75rem;">
-                            <div class="flex justify-between align-center mb-1">
-                                <span class="badge text-xs font-semibold" style="--badge-bg: ${badgeBg}; --badge-color: ${badgeColor}; padding: 0.15rem 0.4rem; font-size: 0.7rem;">
-                                    ${fup.action_type || 'Call'} (${fup.status})
+                        <div class="qf-timeline-card">
+                            <div class="qf-timeline-header">
+                                <span class="qf-status-pill qf-status-${statusClass}">
+                                    <span class="qf-status-dot"></span>
+                                    ${fup.action_type || 'Call'} (${statusVal})
                                 </span>
-                                <span class="text-xs text-muted font-semibold" style="font-size: 0.7rem;">${formattedDate}</span>
+                                <span class="qf-timeline-time">
+                                    <i data-lucide="clock" style="width: 11px; height: 11px;"></i>
+                                    ${formattedDate}
+                                </span>
                             </div>
-                            <p class="text-xs text-main m-0" style="word-break: break-word; font-size: 0.75rem;">${fup.remarks || 'No notes added.'}</p>
-                            <div class="text-xs text-muted mt-1" style="font-size: 0.65rem;">Assigned: ${fup.assigned_to || 'System'}</div>
+                            <p class="qf-timeline-note">${fup.remarks || 'No notes added.'}</p>
+                            <div class="qf-timeline-meta">
+                                <i data-lucide="user" style="width: 10px; height: 10px;"></i>
+                                <span>Assigned: ${fup.assigned_to || 'System'}</span>
+                            </div>
                         </div>
                     `;
                 });
                 if (historyTimeline) historyTimeline.innerHTML = html;
             } else {
                 if (historyCount) historyCount.textContent = '0 entries';
-                if (historyTimeline) historyTimeline.innerHTML = '<p class="text-xs text-muted" style="font-style: italic; font-size: 0.75rem;">No previous follow-up history logged yet for this lead.</p>';
+                if (historyTimeline) historyTimeline.innerHTML = '<p class="text-xs text-muted" style="font-style: italic; font-size: 0.75rem; margin: 0.5rem 0;">No previous follow-up history logged yet for this lead.</p>';
             }
 
             if (quickFollowupModal) {
                 quickFollowupModal.classList.remove('hidden');
                 quickFollowupModal.classList.add('open');
-                quickFollowupModal.style.display = 'flex';
+                quickFollowupModal.style.setProperty('display', 'flex', 'important');
             }
             if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
                 lucide.createIcons();
@@ -2547,17 +4364,92 @@ function closeQuickFollowupModal() {
     if (quickFollowupModal) {
         quickFollowupModal.classList.add('hidden');
         quickFollowupModal.classList.remove('open');
-        quickFollowupModal.style.display = 'none';
+        quickFollowupModal.style.setProperty('display', 'none', 'important');
     }
 }
 window.closeQuickFollowupModal = closeQuickFollowupModal;
 
-// Quick Follow-up Form Submission in Details page
+// 1-Click Copy Helper with visual feedback
+window.copyQfText = function(text, btn) {
+    if (!text) return;
+    const cleanText = text.trim();
+    const originalHtml = btn.innerHTML;
+
+    function showSuccess() {
+        btn.classList.add('qf-copied');
+        btn.innerHTML = '<i data-lucide="check" style="width: 14px; height: 14px; color: #16a34a;"></i> <span style="color: #16a34a; font-weight: 700;">Copied!</span>';
+        if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+            lucide.createIcons();
+        }
+        setTimeout(() => {
+            btn.classList.remove('qf-copied');
+            btn.innerHTML = originalHtml;
+            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+        }, 1800);
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(cleanText).then(showSuccess).catch(() => fallbackCopy(cleanText));
+    } else {
+        fallbackCopy(cleanText);
+    }
+
+    function fallbackCopy(val) {
+        const ta = document.createElement('textarea');
+        ta.value = val;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try {
+            document.execCommand('copy');
+            showSuccess();
+        } catch (err) {
+            console.error('Copy fallback failed', err);
+        }
+        document.body.removeChild(ta);
+    }
+};
+
+// Close on backdrop click & Escape key in Details page
 document.addEventListener('DOMContentLoaded', function() {
+    const qfModal = document.getElementById('quick-followup-modal');
+    if (qfModal) {
+        qfModal.addEventListener('click', function(e) {
+            if (e.target === qfModal) {
+                closeQuickFollowupModal();
+            }
+        });
+    }
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            const m = document.getElementById('quick-followup-modal');
+            if (m && !m.classList.contains('hidden') && m.style.display !== 'none') {
+                closeQuickFollowupModal();
+            }
+        }
+    });
+
+    // Quick Follow-up Form Submission in Details page with button loading state
     const qfForm = document.getElementById('quick-followup-form');
     if (qfForm) {
         qfForm.addEventListener('submit', function(e) {
             e.preventDefault();
+
+            const noteVal = (document.getElementById('qf-fup-notes')?.value || '').trim();
+            if (noteVal) {
+                try { localStorage.setItem('marg_last_fup_note', noteVal); } catch(e){}
+            }
+
+            const submitBtn = document.getElementById('qf-submit-btn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span style="display: inline-block; width: 13px; height: 13px; border: 2px solid #ffffff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite;"></span> <span>Saving...</span>';
+            }
             const formData = new FormData(this);
             
             fetch('index.php', {
@@ -2584,8 +4476,1105 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(err => {
                 console.error(err);
                 alert('Save error: ' + err.message);
+            })
+            .finally(() => {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i data-lucide="check" style="width: 15px; height: 15px;"></i><span>Save & Log Follow-up</span>';
+                    if (window.lucide && typeof lucide.createIcons === 'function') {
+                        lucide.createIcons();
+                    }
+                }
             });
         });
+    }
+});
+</script>
+
+
+<style>
+/* ==========================================================================
+   WhatsApp Template Studio Modern Enterprise Styling
+   ========================================================================== */
+.wa-studio-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 1rem;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+.wa-studio-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: rgba(16, 185, 129, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.wa-studio-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    font-family: var(--font-heading);
+    color: var(--text-main);
+    margin: 0;
+    line-height: 1.2;
+}
+.wa-studio-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin: 2px 0 0 0;
+}
+.wa-pill-verified {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 20px;
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+}
+.wa-mode-toggle {
+    display: inline-flex;
+    padding: 3px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+.wa-mode-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+}
+.wa-mode-btn.active {
+    background: var(--bg-card);
+    color: var(--text-main);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+/* 3-Column Studio Grid */
+.wa-studio-grid {
+    display: grid;
+    grid-template-columns: 290px minmax(320px, 1fr) 330px;
+    gap: 1.25rem;
+    align-items: start;
+}
+@media (max-width: 1280px) {
+    .wa-studio-grid {
+        grid-template-columns: 280px 1fr;
+    }
+    .wa-col-device {
+        grid-column: span 2;
+    }
+}
+@media (max-width: 820px) {
+    .wa-studio-grid {
+        grid-template-columns: 1fr;
+    }
+    .wa-col-device {
+        grid-column: auto;
+    }
+}
+
+/* Panel Headings */
+.wa-panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.6rem;
+}
+.wa-panel-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+.wa-panel-meta {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+.wa-tpl-badge-slug {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--primary);
+    background: var(--primary-light);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+}
+.wa-live-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #059669;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.wa-live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    animation: waPulse 1.5s infinite;
+}
+@keyframes waPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* Column 1: Template Explorer */
+.wa-search-box {
+    position: relative;
+    margin-bottom: 0.5rem;
+}
+.wa-search-box input {
+    width: 100%;
+    height: 32px;
+    font-size: 0.75rem;
+    padding-left: 28px;
+    padding-right: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-main);
+    box-sizing: border-box;
+    outline: none;
+}
+.wa-search-box input:focus {
+    border-color: #10b981;
+}
+.wa-search-box i {
+    position: absolute;
+    left: 8px;
+    top: 9px;
+    pointer-events: none;
+}
+.wa-filter-chips {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.65rem;
+    flex-wrap: wrap;
+}
+.wa-chip {
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.wa-chip:hover {
+    border-color: #10b981;
+    color: #10b981;
+}
+.wa-chip.active {
+    background: #10b981;
+    color: #ffffff;
+    border-color: #10b981;
+}
+
+.wa-templates-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    max-height: 440px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+.wa-templates-scroll::-webkit-scrollbar {
+    width: 4px;
+}
+.wa-templates-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.wa-tpl-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.65rem 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-left: 3px solid transparent;
+}
+.wa-tpl-card:hover {
+    border-color: var(--border-color-hover, #94a3b8);
+    background: var(--bg-app);
+}
+.wa-tpl-card.active {
+    border-color: #10b981;
+    border-left-color: #10b981;
+    background: rgba(16, 185, 129, 0.04);
+}
+.wa-tpl-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+}
+.wa-tag {
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.03em;
+}
+.wa-tag-marketing { background: rgba(59, 130, 246, 0.12); color: #2563eb; }
+.wa-tag-utility { background: rgba(16, 185, 129, 0.12); color: #059669; }
+.wa-tag-service { background: rgba(139, 92, 246, 0.12); color: #7c3aed; }
+.wa-tpl-type {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+.wa-tpl-card-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 2px;
+    line-height: 1.25;
+}
+.wa-tpl-card-snippet {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.wa-tpl-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 0.35rem;
+    padding-top: 0.35rem;
+    border-top: 1px dashed var(--border-color);
+    font-size: 0.62rem;
+}
+.wa-tpl-card-footer code {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+}
+.wa-verified-pill {
+    color: #059669;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Column 2: Parameters Form */
+.wa-form-wrapper {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+.wa-form-section {
+    display: flex;
+    flex-direction: column;
+}
+.wa-input-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-main);
+}
+.wa-input-hint {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+.wa-input-prefix-box {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-card);
+    overflow: hidden;
+}
+.wa-prefix-tag {
+    background: var(--bg-app);
+    padding: 0 0.55rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    height: 32px;
+    display: flex;
+    align-items: center;
+    border-right: 1px solid var(--border-color);
+}
+.wa-control-input {
+    width: 100%;
+    height: 32px;
+    font-size: 0.78rem;
+    padding: 0 0.55rem;
+    border: none;
+    background: transparent;
+    color: var(--text-main);
+    outline: none;
+    box-sizing: border-box;
+}
+.wa-form-section .wa-control-input:not(.wa-input-prefix-box *) {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+.wa-control-input:focus {
+    border-color: #10b981;
+}
+
+/* Compact Variable List */
+.wa-vars-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-height: 250px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+.wa-var-item {
+    background: var(--bg-app);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.4rem 0.55rem;
+}
+.wa-var-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+}
+.wa-var-token {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #059669;
+    font-family: monospace;
+}
+.wa-var-pills {
+    display: flex;
+    gap: 3px;
+}
+.wa-pill-fill {
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    font-size: 0.62rem;
+    font-weight: 500;
+    padding: 1px 5px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.wa-pill-fill:hover {
+    border-color: #10b981;
+    color: #059669;
+    background: rgba(16, 185, 129, 0.08);
+}
+.wa-var-field {
+    width: 100%;
+    height: 28px;
+    font-size: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-card);
+    color: var(--text-main);
+    padding: 0 0.45rem;
+    outline: none;
+    box-sizing: border-box;
+}
+.wa-var-field:focus {
+    border-color: #10b981;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+}
+
+.wa-btn-send {
+    width: 100%;
+    height: 38px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    border: none;
+    border-radius: 8px;
+    color: #ffffff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.25);
+}
+.wa-btn-send:hover {
+    background: linear-gradient(135deg, #059669, #047857);
+}
+.wa-btn-send:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Column 3: Device Mockup */
+.wa-device-frame {
+    background: #efeae2;
+    background-image: radial-gradient(#dfd7cb 1.1px, transparent 1.1px);
+    background-size: 14px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    display: flex;
+    flex-direction: column;
+    min-height: 380px;
+}
+.wa-phone-top-bar {
+    background: #008069;
+    color: #ffffff;
+    padding: 0.55rem 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.wa-phone-chat-info {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+.wa-phone-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.wa-phone-name {
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.1;
+}
+.wa-phone-status {
+    font-size: 0.62rem;
+    opacity: 0.85;
+}
+.wa-phone-actions {
+    display: flex;
+    gap: 0.55rem;
+    opacity: 0.9;
+}
+.wa-phone-chat-body {
+    padding: 0.85rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.wa-phone-date-pill {
+    align-self: center;
+    background: rgba(255, 255, 255, 0.8);
+    color: #54656f;
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+    margin-bottom: 0.65rem;
+}
+.wa-chat-bubble {
+    align-self: flex-start;
+    background: #ffffff;
+    border-radius: 8px 8px 8px 2px;
+    padding: 0.65rem 0.75rem;
+    max-width: 95%;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+    position: relative;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: #111b21;
+}
+.wa-bubble-media {
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 0.4rem;
+}
+.wa-bubble-doc-card {
+    background: #f0f2f5;
+    padding: 0.45rem 0.6rem;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.wa-doc-icon-box {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    background: #ef4444;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.wa-doc-name {
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+.wa-doc-size {
+    font-size: 0.62rem;
+    color: #64748b;
+}
+.wa-bubble-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.wa-val-pill {
+    background: rgba(16, 185, 129, 0.22);
+    color: #065f46;
+    font-weight: 700;
+    padding: 0 3px;
+    border-radius: 3px;
+}
+.wa-bubble-footer {
+    font-size: 0.68rem;
+    color: #667781;
+    margin-top: 0.35rem;
+    font-style: italic;
+}
+.wa-bubble-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px;
+    margin-top: 0.25rem;
+}
+.wa-bubble-time {
+    font-size: 0.6rem;
+    color: #8696a0;
+}
+.wa-bubble-action-btns {
+    margin-top: 0.45rem;
+    border-top: 1px solid #f0f2f5;
+    padding-top: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.wa-bubble-btn {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    color: #00a884;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+}
+
+/* Toast Alert */
+.wa-toast {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    z-index: 9999;
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    border-radius: 8px;
+    padding: 0.75rem 1.15rem;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    animation: waToastSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    max-width: 420px;
+}
+@keyframes waToastSlide {
+    0% { transform: translateY(-12px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+}
+.wa-toast.hidden { display: none; }
+.wa-toast-success { border-left: 4px solid #10b981; }
+.wa-toast-error { border-left: 4px solid #ef4444; }
+
+/* Dark Mode Overrides */
+[data-theme="dark"] .wa-device-frame {
+    background: #0b141a;
+    background-image: radial-gradient(#1f2c34 1.1px, transparent 1.1px);
+}
+[data-theme="dark"] .wa-chat-bubble {
+    background: #202c33;
+    color: #e9edef;
+}
+[data-theme="dark"] .wa-val-pill {
+    background: rgba(16, 185, 129, 0.28);
+    color: #34d399;
+}
+[data-theme="dark"] .wa-bubble-footer {
+    color: #8696a0;
+}
+[data-theme="dark"] .wa-phone-date-pill {
+    background: #182229;
+    color: #8696a0;
+}
+[data-theme="dark"] .wa-bubble-action-btns {
+    border-top-color: #2a3942;
+}
+[data-theme="dark"] .wa-bubble-btn {
+    background: #202c33;
+    border-color: #2a3942;
+    color: #25d366;
+}
+[data-theme="dark"] .wa-toast {
+    background: #1e293b;
+    border-color: #334155;
+    color: #f1f5f9;
+}
+</style>
+
+<script>
+// Open WhatsApp Tab dynamically from top action button
+function openLeadWhatsAppTab() {
+    const waTabBtn = document.querySelector('.tab-link[data-tab="tab-whatsapp"]');
+    if (waTabBtn) {
+        waTabBtn.click();
+        waTabBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+// Automatically activate WhatsApp Tab on DOM load if requested via URL param or hash
+document.addEventListener('DOMContentLoaded', function() {
+    const params = new URLSearchParams(window.location.search);
+    const reqTab = params.get('tab') || params.get('active_tab') || (window.location.hash ? window.location.hash.replace('#', '') : '');
+    if (reqTab === 'whatsapp') {
+        setTimeout(function() {
+            openLeadWhatsAppTab();
+        }, 80);
+    }
+});
+
+// Switch between Composer and History sub-views
+function switchWAMode(mode) {
+    const composeView = document.getElementById('wa-view-compose');
+    const historyView = document.getElementById('wa-view-history');
+    const btnCompose = document.getElementById('wa-btn-mode-compose');
+    const btnHistory = document.getElementById('wa-btn-mode-history');
+
+    if (mode === 'history') {
+        if (composeView) composeView.style.display = 'none';
+        if (historyView) historyView.style.display = 'block';
+        if (btnCompose) btnCompose.classList.remove('active');
+        if (btnHistory) btnHistory.classList.add('active');
+    } else {
+        if (composeView) composeView.style.display = 'grid';
+        if (historyView) historyView.style.display = 'none';
+        if (btnCompose) btnCompose.classList.add('active');
+        if (btnHistory) btnHistory.classList.remove('active');
+    }
+}
+
+// Active WhatsApp Template State
+let currentSelectedWATpl = null;
+
+const leadContextDefaults = {
+    client_name: <?php echo json_encode($lead['name'] ?: ($lead['company'] ?: 'Client')); ?>,
+    company: <?php echo json_encode($lead['company'] ?: 'Marg Soft'); ?>,
+    product: <?php echo json_encode($lead['enq_for'] ?: ($lead['products'] ?: 'Marg ERP')); ?>,
+    phone: <?php echo json_encode($lead['phone'] ?: ''); ?>,
+    agent_name: <?php echo json_encode($lead['assigned_to'] ?: ($_SESSION['user_name'] ?? 'Support Team')); ?>
+};
+
+function selectWATemplateCard(cardEl) {
+    if (!cardEl) return;
+    document.querySelectorAll('.wa-tpl-card').forEach(c => c.classList.remove('active'));
+    cardEl.classList.add('active');
+
+    currentSelectedWATpl = {
+        id: cardEl.getAttribute('data-id'),
+        slug: cardEl.getAttribute('data-slug'),
+        title: cardEl.getAttribute('data-title'),
+        category: cardEl.getAttribute('data-category'),
+        header_type: cardEl.getAttribute('data-header-type'),
+        header_content: cardEl.getAttribute('data-header-content'),
+        body_text: cardEl.getAttribute('data-body'),
+        footer_text: cardEl.getAttribute('data-footer'),
+        buttons_json: cardEl.getAttribute('data-buttons')
+    };
+
+    renderWATemplateComposer(currentSelectedWATpl);
+}
+
+function renderWATemplateComposer(tpl) {
+    if (!tpl) return;
+
+    // Set hidden slug & title badge
+    const slugInput = document.getElementById('wa-form-template-slug');
+    if (slugInput) slugInput.value = tpl.slug;
+
+    const titleBadge = document.getElementById('wa-selected-template-badge');
+    if (titleBadge) titleBadge.textContent = tpl.slug;
+
+    // Parse variables from body text {{...}}
+    const varMatches = tpl.body_text.match(/\{\{([a-zA-Z0-9_]+)\}\}/g) || [];
+    const varKeys = [...new Set(varMatches.map(m => m.replace(/[\{\}]/g, '')))];
+
+    const varWrapper = document.getElementById('wa-variables-wrapper');
+    const varFields = document.getElementById('wa-variables-fields');
+
+    if (varKeys.length > 0) {
+        varWrapper.style.display = 'block';
+        let fieldsHtml = '';
+        varKeys.forEach((key, idx) => {
+            let defVal = '';
+            let friendlyLabel = `Field ${key}`;
+            if (key === '1' || key.toLowerCase().includes('name') || key.toLowerCase().includes('client')) {
+                defVal = leadContextDefaults.client_name;
+                friendlyLabel = 'Customer Name';
+            } else if (key === '2' || key.toLowerCase().includes('product') || key.toLowerCase().includes('software')) {
+                defVal = leadContextDefaults.product;
+                friendlyLabel = 'Product / Enquiry';
+            } else if (key === '3' || key.toLowerCase().includes('agent')) {
+                defVal = leadContextDefaults.agent_name;
+                friendlyLabel = 'Support Executive';
+            } else if (key.toLowerCase().includes('company')) {
+                defVal = leadContextDefaults.company;
+                friendlyLabel = 'Company Name';
+            } else if (key.toLowerCase().includes('phone')) {
+                defVal = leadContextDefaults.phone;
+                friendlyLabel = 'Mobile Number';
+            } else {
+                defVal = leadContextDefaults.client_name;
+            }
+
+            fieldsHtml += `
+                <div class="wa-var-item">
+                    <div class="wa-var-item-header">
+                        <span class="wa-var-token">{{${key}}} • ${friendlyLabel}</span>
+                        <div class="wa-var-pills">
+                            <button type="button" class="wa-pill-fill" onclick="insertWAVar('${key}', leadContextDefaults.client_name)">Client</button>
+                            <button type="button" class="wa-pill-fill" onclick="insertWAVar('${key}', leadContextDefaults.product)">Product</button>
+                            <button type="button" class="wa-pill-fill" onclick="insertWAVar('${key}', leadContextDefaults.agent_name)">Agent</button>
+                        </div>
+                    </div>
+                    <input type="text" name="vars[${key}]" id="wa-var-input-${key}" data-var-key="${key}" class="wa-var-field wa-var-input" value="${escapeHtml(defVal)}" oninput="updateWAPreview()">
+                </div>
+            `;
+        });
+        varFields.innerHTML = fieldsHtml;
+    } else {
+        varWrapper.style.display = 'none';
+        varFields.innerHTML = '';
+    }
+
+    // Media header support
+    const mediaWrapper = document.getElementById('wa-media-wrapper');
+    const mediaUrlInput = document.getElementById('wa-form-media-url');
+    const mediaLabel = document.getElementById('wa-media-label');
+
+    if (tpl.header_type === 'image' || tpl.header_type === 'document' || tpl.header_type === 'video') {
+        mediaWrapper.style.display = 'block';
+        if (mediaLabel) mediaLabel.textContent = 'Header ' + tpl.header_type.toUpperCase() + ' Attachment';
+        if (mediaUrlInput) {
+            mediaUrlInput.value = tpl.header_content || '';
+            mediaUrlInput.placeholder = tpl.header_type === 'image' ? 'https://.../banner.png' : 'https://.../doc.pdf';
+        }
+    } else {
+        mediaWrapper.style.display = 'none';
+        if (mediaUrlInput) mediaUrlInput.value = '';
+    }
+
+    updateWAPreview();
+}
+
+function insertWAVar(key, value) {
+    const input = document.getElementById(`wa-var-input-${key}`);
+    if (input) {
+        input.value = value;
+        updateWAPreview();
+    }
+}
+
+// Convert WhatsApp Markdown (*bold*, _italic_, etc.) into clean HTML for realistic preview
+function formatWhatsAppMarkdown(text) {
+    if (!text) return '';
+    let res = escapeHtml(text);
+    // Bold: *text* -> <strong>text</strong>
+    res = res.replace(/\*([^\*]+)\*/g, '<strong>$1</strong>');
+    // Italic: _text_ -> <em>$1</em>
+    res = res.replace(/_([^_]+)_/g, '<em>$1</em>');
+    // Strikethrough: ~text~ -> <del>$1</del>
+    res = res.replace(/~([^~]+)~/g, '<del>$1</del>');
+    // Monospace: ```text``` -> <code>text</code>
+    res = res.replace(/```([^`]+)```/g, '<code style="background: rgba(0,0,0,0.06); padding: 1px 3px; border-radius: 3px;">$1</code>');
+    // Newline to <br>
+    res = res.replace(/\n/g, '<br>');
+    return res;
+}
+
+function updateWAPreview() {
+    if (!currentSelectedWATpl) return;
+
+    let body = currentSelectedWATpl.body_text || '';
+
+    // Replace variables with unique placeholders first to preserve formatting
+    const varInputs = document.querySelectorAll('.wa-var-input');
+    const replacements = [];
+    varInputs.forEach((input, index) => {
+        const key = input.getAttribute('data-var-key');
+        const val = input.value.trim() || `{{${key}}}`;
+        const placeholder = `___VAR_TOKEN_${index}___`;
+        const regex = new RegExp(`\{\{${key}\}\}`, 'g');
+        body = body.replace(regex, placeholder);
+        replacements.push({ token: placeholder, value: val });
+    });
+
+    // Format Markdown on the body text
+    body = formatWhatsAppMarkdown(body);
+
+    // Reinsert variables with styled highlight pills
+    replacements.forEach(item => {
+        body = body.split(item.token).join(`<span class="wa-val-pill">${escapeHtml(item.value)}</span>`);
+    });
+
+    const bodyPreview = document.getElementById('wa-preview-body');
+    if (bodyPreview) bodyPreview.innerHTML = body;
+
+    // Header preview
+    const previewHeader = document.getElementById('wa-preview-header');
+    const previewImg = document.getElementById('wa-preview-header-img');
+    const previewDoc = document.getElementById('wa-preview-header-doc');
+    const mediaUrlInput = document.getElementById('wa-form-media-url');
+    const chosenMedia = mediaUrlInput ? mediaUrlInput.value.trim() : '';
+
+    if (currentSelectedWATpl.header_type === 'image') {
+        previewHeader.style.display = 'block';
+        previewImg.style.display = 'block';
+        previewDoc.style.display = 'none';
+        previewImg.src = chosenMedia || 'https://friendlyaisolution.com/assets/image.png';
+    } else if (currentSelectedWATpl.header_type === 'document') {
+        previewHeader.style.display = 'block';
+        previewImg.style.display = 'none';
+        previewDoc.style.display = 'block';
+    } else {
+        previewHeader.style.display = 'none';
+    }
+
+    // Footer preview
+    const footerPreview = document.getElementById('wa-preview-footer');
+    if (footerPreview) {
+        if (currentSelectedWATpl.footer_text) {
+            footerPreview.style.display = 'block';
+            footerPreview.textContent = currentSelectedWATpl.footer_text;
+        } else {
+            footerPreview.style.display = 'none';
+        }
+    }
+
+    // Buttons preview
+    const buttonsPreview = document.getElementById('wa-preview-buttons');
+    if (buttonsPreview) {
+        let btns = [];
+        try {
+            if (currentSelectedWATpl.buttons_json) {
+                btns = JSON.parse(currentSelectedWATpl.buttons_json);
+            }
+        } catch (e) {}
+
+        if (Array.isArray(btns) && btns.length > 0) {
+            buttonsPreview.style.display = 'flex';
+            let btnHtml = '';
+            btns.forEach(b => {
+                const bText = b.text || b.title || 'Action';
+                btnHtml += `<div class="wa-bubble-btn"><i data-lucide="external-link" style="width: 11px; height: 11px;"></i> ${escapeHtml(bText)}</div>`;
+            });
+            buttonsPreview.innerHTML = btnHtml;
+            if (window.lucide && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+        } else {
+            buttonsPreview.style.display = 'none';
+            buttonsPreview.innerHTML = '';
+        }
+    }
+}
+
+// Live Search & Category Filtering
+function filterWATemplates() {
+    const query = (document.getElementById('wa-template-search')?.value || '').toLowerCase().trim();
+    const activeChip = document.querySelector('.wa-chip.active');
+    const cat = activeChip ? activeChip.textContent.trim().toUpperCase() : 'ALL';
+
+    const cards = document.querySelectorAll('.wa-tpl-card');
+    let visibleCount = 0;
+
+    cards.forEach(card => {
+        const title = (card.getAttribute('data-title') || '').toLowerCase();
+        const slug = (card.getAttribute('data-slug') || '').toLowerCase();
+        const body = (card.getAttribute('data-body') || '').toLowerCase();
+        const cardCat = (card.getAttribute('data-category') || '').toUpperCase();
+
+        const matchQuery = !query || title.includes(query) || slug.includes(query) || body.includes(query);
+        const matchCat = (cat === 'ALL') || cardCat === cat;
+
+        if (matchQuery && matchCat) {
+            card.style.display = 'block';
+            visibleCount++;
+        } else {
+            card.style.display = 'none';
+        }
+    });
+
+    const countBadge = document.getElementById('wa-template-count');
+    if (countBadge) countBadge.textContent = visibleCount + ' ready';
+}
+
+function setWACategoryFilter(cat, btn) {
+    document.querySelectorAll('.wa-chip').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    filterWATemplates();
+}
+
+function showWAToast(type, message, ref) {
+    const toast = document.getElementById('wa-toast-alert');
+    if (!toast) return;
+
+    toast.className = `wa-toast wa-toast-${type}`;
+    const icon = type === 'success' ? 'check-circle' : 'alert-circle';
+    const color = type === 'success' ? '#059669' : '#dc2626';
+
+    toast.innerHTML = `
+        <i data-lucide="${icon}" style="width: 18px; height: 18px; color: ${color}; flex-shrink: 0;"></i>
+        <div style="flex: 1; font-size: 0.78rem;">
+            <div style="font-weight: 600;">${escapeHtml(message)}</div>
+            ${ref ? `<div style="font-size: 0.65rem; color: var(--text-muted); font-family: monospace;">Ref: ${escapeHtml(ref)}</div>` : ''}
+        </div>
+    `;
+    toast.classList.remove('hidden');
+
+    if (window.lucide && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+
+    setTimeout(() => {
+        toast.classList.add('hidden');
+    }, 5500);
+}
+
+// Submit Dispatch AJAX
+function submitWALeadTemplate(e) {
+    e.preventDefault();
+    const form = document.getElementById('wa-lead-dispatch-form');
+    const submitBtn = document.getElementById('wa-submit-dispatch-btn');
+
+    if (!form) return;
+    const formData = new FormData(form);
+
+    if (!formData.get('template_slug')) {
+        showWAToast('error', 'Please choose an approved template from the left list.');
+        return;
+    }
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span style="display: inline-block; width: 13px; height: 13px; border: 2px solid #ffffff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px;"></span> Dispatching via Meta...';
+    }
+
+    fetch('index.php?page=lead_details&id=<?php echo urlencode($lead['id']); ?>', {
+        method: 'POST',
+        body: formData
+    })
+    .then(async response => {
+        const text = await response.text();
+        try {
+            return JSON.parse(text);
+        } catch (err) {
+            throw new Error('Server returned invalid response: ' + text.substring(0, 150));
+        }
+    })
+    .then(data => {
+        if (data.success) {
+            showWAToast('success', data.message, data.wamid);
+
+            // Append to Sent History Table
+            const tbody = document.getElementById('wa-history-tbody');
+            const noLogsRow = document.getElementById('wa-no-logs-row');
+            if (noLogsRow) noLogsRow.remove();
+
+            if (tbody) {
+                const now = new Date();
+                const pad = n => String(n).padStart(2, '0');
+                const timeStr = `${pad(now.getDate())}-${now.toLocaleString('default', { month: 'short' })}-${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+                const tplTitle = currentSelectedWATpl ? currentSelectedWATpl.title : formData.get('template_slug');
+
+                const newRow = `
+                    <tr style="background: rgba(16, 185, 129, 0.05);">
+                        <td class="font-semibold text-muted">${timeStr}</td>
+                        <td class="font-semibold">+${escapeHtml(formData.get('recipient'))}</td>
+                        <td style="word-break: break-word; font-weight: 500;">Template: ${escapeHtml(tplTitle)}</td>
+                        <td>
+                            <span class="badge text-xs font-semibold" style="--badge-bg: var(--success-light); --badge-color: var(--success); font-size: 0.68rem; padding: 2px 7px; display: inline-flex; align-items: center; gap: 4px;">
+                                <i data-lucide="check-check" style="width: 11px; height: 11px;"></i> Sent
+                            </span>
+                        </td>
+                        <td class="text-muted" style="font-family: monospace; font-size: 0.68rem;">${escapeHtml((data.wamid || '').substring(0, 22))}...</td>
+                    </tr>
+                `;
+                tbody.insertAdjacentHTML('afterbegin', newRow);
+
+                // Update badge count
+                const countBadge = document.getElementById('wa-history-badge-count');
+                if (countBadge) {
+                    countBadge.textContent = parseInt(countBadge.textContent || '0') + 1;
+                }
+            }
+        } else {
+            showWAToast('error', 'Failed: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        showWAToast('error', 'Network error: ' + err.message);
+    })
+    .finally(() => {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i data-lucide="send" style="width: 15px; height: 15px;"></i><span>Dispatch via WhatsApp</span>';
+            if (window.lucide && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+        }
+    });
+}
+
+// Auto-select first template on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const firstCard = document.querySelector('.wa-tpl-card');
+    if (firstCard) {
+        selectWATemplateCard(firstCard);
     }
 });
 </script>

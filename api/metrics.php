@@ -1,6 +1,13 @@
 <?php
 require_once __DIR__ . '/cors.php';
 
+// Ensure system configuration and metric helper functions are loaded
+if (file_exists(__DIR__ . '/../includes/config.php')) {
+    require_once __DIR__ . '/../includes/config.php';
+} elseif (file_exists(__DIR__ . '/../config.php')) {
+    require_once __DIR__ . '/../config.php';
+}
+
 if (!$db_connected || !$pdo) {
     sendJsonResponse(['success' => false, 'message' => 'Database offline.'], 500);
 }
@@ -51,10 +58,7 @@ try {
         str_contains($lr, 'admin') ||
         str_contains($lr, 'super') ||
         str_contains($lr, 'manager') ||
-        in_array($user_id, ['1', '16', '19', '20']) ||
-        (stripos($user_name, 'Sahil') !== false && stripos($user_name, 'Savita') !== false) ||
-        (stripos($user_email, 'sahilsavita') !== false) ||
-        (stripos($user_name, 'Deepak') !== false && stripos($user_name, 'Awasthi') !== false)
+        (function_exists('isSystemAdminRole') && isSystemAdminRole($role))
     );
 
     // Collect user identifiers for employees
@@ -64,13 +68,21 @@ try {
 
     // Admin & Super Admin get full company metrics.
     // Employees get strictly their assigned leads metrics.
-    $metrics = getLiveMetricCounts($pdo, $is_admin, $user_idents);
+    if (function_exists('getLiveMetricCounts')) {
+        $metrics = getLiveMetricCounts($pdo, $is_admin, $user_idents);
+    } else {
+        $metrics = [
+            'expired' => ['total' => 0, 'today' => 0, 'tomorrow' => 0, 'next_day' => 0],
+            'demo' => ['total' => 0, 'today' => 0, 'tomorrow' => 0, 'next_day' => 0],
+            'callback' => ['total' => 0, 'today' => 0, 'tomorrow' => 0, 'next_day' => 0]
+        ];
+    }
 
     sendJsonResponse([
         'success' => true,
         'is_admin' => $is_admin,
         'metrics' => $metrics
     ]);
-} catch (Exception $e) {
+} catch (\Throwable $e) {
     sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 500);
 }

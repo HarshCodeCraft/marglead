@@ -2,7 +2,16 @@
 require_once __DIR__ . '/../../includes/config.php';
 require_once __DIR__ . '/../../includes/db.php';
 
-
+// View Toggle: Modern View vs Classic Leads List
+// If accessed via old view=zoho parameter, automatically redirect to view=modern
+if (isset($_GET['view']) && strtolower($_GET['view']) === 'zoho') {
+    header("Location: index.php?page=leads&view=modern");
+    exit;
+}
+if (isset($_GET['view']) && in_array(strtolower($_GET['view']), ['modern', 'crm'])) {
+    require __DIR__ . '/modern_home.php';
+    return;
+}
 
 // Pagination variables
 $page_num = isset($_GET['p']) ? max(1, intval($_GET['p'])) : 1;
@@ -64,10 +73,7 @@ $is_admin = (
     str_contains($lr, 'admin') ||
     str_contains($lr, 'super') ||
     str_contains($lr, 'manager') ||
-    in_array($user_id, ['1', '16', '19', '20']) ||
-    (stripos($user_name, 'Sahil') !== false && stripos($user_name, 'Savita') !== false) ||
-    (stripos($user_email, 'sahilsavita') !== false) ||
-    (stripos($user_name, 'Deepak') !== false && stripos($user_name, 'Awasthi') !== false)
+    (function_exists('isSystemAdminRole') && isSystemAdminRole($user_role))
 );
 
 // Add email username prefix (e.g. 'harsh.saini') if >= 3 characters and not numeric
@@ -159,6 +165,8 @@ if ($db_connected && $pdo) {
         $filter_date_to = trim($_GET['date_to'] ?? '');
         $filter_date_type = trim($_GET['date_type'] ?? 'created_at'); // 'created_at' or 'scheduled_at'
         $filter_date = trim($_GET['lead_date'] ?? $_GET['date'] ?? '');
+        $raw_assigned = $_GET['assigned_to'] ?? '';
+        $selected_assigned_list = is_array($raw_assigned) ? array_values(array_filter(array_map('trim', $raw_assigned))) : array_values(array_filter(array_map('trim', explode(',', $raw_assigned))));
 
         if (!empty($filter_date_from) && !empty($filter_date_to)) {
             if ($filter_date_type === 'scheduled_at') {
@@ -195,6 +203,9 @@ if ($db_connected && $pdo) {
             $query_params[] = $filter_date;
             $query_params[] = $filter_date;
         } elseif (!empty($_GET['filter']) && $_GET['filter'] === 'today') {
+            $where_conditions[] = "(DATE(leads.created_at) = ?)";
+            $query_params[] = $today_str;
+        } elseif (!empty($_GET['filter']) && $_GET['filter'] === 'today_followups') {
             $where_conditions[] = "(id IN (SELECT lead_id FROM followups WHERE DATE(scheduled_at) = ? AND status = 'pending') OR id IN (SELECT lead_id FROM demos WHERE DATE(scheduled_at) = ? AND status = 'scheduled'))";
             $query_params[] = $today_str;
             $query_params[] = $today_str;
@@ -236,15 +247,56 @@ if ($db_connected && $pdo) {
             $query_params[] = '%' . $req_src . '%';
         }
 
-        if (!empty($_GET['assigned_to'])) {
-            $req_op = trim($_GET['assigned_to']);
-            if (strtolower($req_op) === 'unassigned') {
-                $where_conditions[] = "(assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
-            } else {
-                $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR FIND_IN_SET(LOWER(TRIM(?)), LOWER(REPLACE(assigned_to, ', ', ','))) OR assigned_to LIKE ?)";
-                $query_params[] = $req_op;
-                $query_params[] = $req_op;
-                $query_params[] = '%' . $req_op . '%';
+        if (!empty($selected_assigned_list)) {
+            $has_unassigned = false;
+            $clean_assigned = [];
+            foreach ($selected_assigned_list as $aName) {
+                if (strcasecmp($aName, 'unassigned') === 0) {
+                    $has_unassigned = true;
+                } else {
+                    $clean_assigned[] = $aName;
+                }
+            }
+
+            $assigned_clauses = [];
+
+            if ($has_unassigned) {
+                $assigned_clauses[] = "(leads.assigned_to IS NULL OR TRIM(leads.assigned_to) = '' OR LOWER(TRIM(leads.assigned_to)) = 'unassigned')";
+            }
+
+            $n_emps = count($clean_assigned);
+            if ($n_emps === 1) {
+                // Strict individual match ONLY. Excludes shared leads per user rule:
+                // "OR EK TOH SIRF OR SIRF OUSI KI AYE OTHER KISI LEAD ME SHARING ME B H TOH B NA SIRF INDIVIDUAL JO LEAD ASSGINED WO AYE"
+                $assigned_clauses[] = "LOWER(TRIM(leads.assigned_to)) = LOWER(?)";
+                $query_params[] = $clean_assigned[0];
+            } elseif ($n_emps > 1) {
+                // Multi-employee selected:
+                // 1. Individual leads of any selected employee
+                // 2. Shared leads between selected employees ("AGR MULIT EMPLOYYEE CHOOSE H TOH DONO KO EK LEAD ASSGINED H TOH WO SHOW HO JAYE")
+                $multi_sub_clauses = [];
+
+                // 1) Individual matches
+                $in_placeholders = implode(',', array_fill(0, $n_emps, 'LOWER(?)'));
+                $multi_sub_clauses[] = "LOWER(TRIM(leads.assigned_to)) IN ($in_placeholders)";
+                foreach ($clean_assigned as $emp) {
+                    $query_params[] = $emp;
+                }
+
+                // 2) Shared matches: for every pair of selected employees, if lead contains both
+                for ($i = 0; $i < $n_emps; $i++) {
+                    for ($j = $i + 1; $j < $n_emps; $j++) {
+                        $multi_sub_clauses[] = "(FIND_IN_SET(LOWER(?), LOWER(REPLACE(REPLACE(leads.assigned_to, ', ', ','), ' ,', ','))) > 0 AND FIND_IN_SET(LOWER(?), LOWER(REPLACE(REPLACE(leads.assigned_to, ', ', ','), ' ,', ','))) > 0)";
+                        $query_params[] = $clean_assigned[$i];
+                        $query_params[] = $clean_assigned[$j];
+                    }
+                }
+
+                $assigned_clauses[] = "(" . implode(" OR ", $multi_sub_clauses) . ")";
+            }
+
+            if (!empty($assigned_clauses)) {
+                $where_conditions[] = "(" . implode(" OR ", $assigned_clauses) . ")";
             }
         }
 
@@ -532,7 +584,7 @@ if ($db_connected && $pdo) {
                 }
             } elseif ($active_filter === 'demo_scheduled') {
                 $demo_base = "group_stage LIKE '%Demo Scheduled%'";
-                $demo_date_expr = "COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at))";
+                $demo_date_expr = "COALESCE((SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status IN ('pending', 'missed') ORDER BY CASE WHEN status = 'pending' THEN 1 ELSE 2 END, scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1))";
                 if ($active_day === 'all' || $active_day === 'total') {
                     $where_conditions[] = "({$card_exclude}) AND {$demo_base}";
                 } elseif ($active_day === 'today') {
@@ -601,6 +653,20 @@ if ($db_connected && $pdo) {
                 if (!isset($fup_dates[$fRow['lead_id']])) {
                     $fup_dates[$fRow['lead_id']] = date('Y-m-d', strtotime($fRow['scheduled_at']));
                     $fup_datetimes[$fRow['lead_id']] = date('d-m-Y h:i A', strtotime($fRow['scheduled_at']));
+                }
+            }
+
+            // Fallback to demos table if no pending followup exists for the lead
+            $missingDemoIds = array_diff($lead_ids, array_keys($fup_dates));
+            if (!empty($missingDemoIds)) {
+                $dPlaceholders = implode(',', array_fill(0, count($missingDemoIds), '?'));
+                $dStmt = $pdo->prepare("SELECT lead_id, scheduled_at FROM demos WHERE lead_id IN ($dPlaceholders) AND status = 'scheduled' ORDER BY scheduled_at ASC");
+                $dStmt->execute(array_values($missingDemoIds));
+                while ($dRow = $dStmt->fetch(PDO::FETCH_ASSOC)) {
+                    if (!isset($fup_dates[$dRow['lead_id']]) && !empty($dRow['scheduled_at'])) {
+                        $fup_dates[$dRow['lead_id']] = date('Y-m-d', strtotime($dRow['scheduled_at']));
+                        $fup_datetimes[$dRow['lead_id']] = date('d-m-Y h:i A', strtotime($dRow['scheduled_at']));
+                    }
                 }
             }
         }
@@ -688,6 +754,10 @@ if (empty($leads)) {
             <p class="text-muted text-sm">Review, screen, sort, assign, and execute conversions on incoming business opportunities.</p>
         </div>
         <div class="flex gap-2">
+            <a href="index.php?page=leads&view=modern" class="btn text-sm" style="background: #2563eb; color: #ffffff; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; padding: 6px 14px; border-radius: 6px; text-decoration: none;">
+                <i data-lucide="layout-grid" style="width: 15px; height: 15px;"></i>
+                <span>Switch to Modern View</span>
+            </a>
             <?php if (hasActionAccess('can_bulk_upload')): ?>
                 <a href="index.php?page=lead_import" class="btn btn-secondary text-sm">
                     <i data-lucide="file-down" style="width: 16px; height: 16px;"></i>
@@ -1081,79 +1151,68 @@ if (empty($leads)) {
     </div>
 
     <!-- Advanced Filter Drawer (Collapsible) -->
-    <div id="advanced-filter-drawer" class="card p-6 mb-6 <?php echo $quick_filters_active ? '' : 'hidden'; ?>" style="border: 1px solid var(--border-color); animation: fadeIn 0.2s ease-in-out;">
-        <div class="flex justify-between align-center mb-4 flex-wrap gap-2">
+    <div id="advanced-filter-drawer" class="card mb-4 <?php echo $quick_filters_active ? '' : 'hidden'; ?>" style="padding: 1rem 1.25rem; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-card); box-shadow: 0 2px 8px rgba(0,0,0,0.04); animation: fadeIn 0.2s ease-in-out;">
+        <div class="flex justify-between align-center mb-3 flex-wrap gap-2" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.65rem;">
             <div class="flex align-center gap-2">
-                <i data-lucide="sliders" style="width: 16px; height: 16px; color: var(--primary);"></i>
-                <h4 class="font-semibold text-sm m-0" style="text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Lead Filters Configuration</h4>
+                <i data-lucide="sliders" style="width: 15px; height: 15px; color: var(--primary);"></i>
+                <h4 class="font-bold text-xs m-0" style="text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-main);">Lead Filters Configuration</h4>
             </div>
-            <button class="text-xs text-primary font-semibold pointer" onclick="resetFilters()">Reset All Filters</button>
+
+            <!-- Quick Date Range Presets in header -->
+            <div class="flex align-center gap-1 flex-wrap">
+                <span class="text-xs text-muted font-semibold mr-1" style="font-size: 11px;">Quick Dates:</span>
+                <button type="button" class="btn btn-secondary text-xs" style="padding: 0.2rem 0.55rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('today')">Today</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding: 0.2rem 0.55rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('yesterday')">Yesterday</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding: 0.2rem 0.55rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('last_7')">Last 7 Days</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding: 0.2rem 0.55rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('this_month')">This Month</button>
+                <?php if (!empty($filter_date_from) || !empty($filter_date_to) || !empty($filter_date)): ?>
+                    <button type="button" class="btn text-xs text-danger font-semibold" style="padding: 0.2rem 0.55rem; font-size: 11px; background: rgba(229,57,53,0.1); border: 1px solid #e53935; border-radius: 4px;" onclick="setDateRangePreset('clear')">Clear Dates</button>
+                <?php endif; ?>
+            </div>
+
+            <button class="text-xs text-primary font-semibold pointer flex align-center gap-1" onclick="resetFilters()" style="background: none; border: none; cursor: pointer;">
+                <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i> Reset All Filters
+            </button>
         </div>
 
-        <!-- Section 1: DATE TO DATE (Date Range Filter) -->
-        <div style="background: rgba(0, 77, 64, 0.04); border: 1.5px solid rgba(0, 77, 64, 0.15); border-radius: 8px; padding: 0.9rem 1rem; margin-bottom: 1.25rem;">
-            <div class="flex justify-between align-center mb-3 flex-wrap gap-2">
-                <div class="flex align-center gap-2">
-                    <i data-lucide="calendar" style="width: 15px; height: 15px; color: var(--primary);"></i>
-                    <span class="text-xs font-bold" style="color: var(--primary); text-transform: uppercase; letter-spacing: 0.04em;">Date to Date Filter</span>
-                    <?php if (!empty($filter_date_from) || !empty($filter_date_to)): ?>
-                        <span class="badge text-xs" style="background: var(--primary); color: #fff; font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700;">
-                            <?php echo htmlspecialchars($filter_date_from ?: 'Any'); ?> &rarr; <?php echo htmlspecialchars($filter_date_to ?: 'Any'); ?>
-                            (<?php echo ($filter_date_type === 'scheduled_at') ? 'Scheduled' : 'Created'; ?>)
-                        </span>
-                    <?php endif; ?>
-                </div>
-                <!-- Quick Date Range Presets -->
-                <div class="flex align-center gap-1 flex-wrap">
-                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.6rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('today')">Today</button>
-                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.6rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('yesterday')">Yesterday</button>
-                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.6rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('last_7')">Last 7 Days</button>
-                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.6rem; font-size: 11px; border-radius: 4px;" onclick="setDateRangePreset('this_month')">This Month</button>
-                    <?php if (!empty($filter_date_from) || !empty($filter_date_to) || !empty($filter_date)): ?>
-                        <button type="button" class="btn text-xs text-danger font-semibold" style="padding: 0.25rem 0.6rem; font-size: 11px; background: rgba(229,57,53,0.1); border: 1px solid #e53935; border-radius: 4px;" onclick="setDateRangePreset('clear')">✕ Clear Dates</button>
-                    <?php endif; ?>
-                </div>
+        <!-- Section: All 8 Filters in One Unified Horizontal Row -->
+        <div class="lead-filters-unified-row" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.65rem;">
+            <!-- 1. Filter Date By -->
+            <div class="form-group m-0" style="flex: 1 1 150px; min-width: 140px;">
+                <label class="form-label text-xs font-semibold mb-1" style="color: var(--text-main);">Filter Date By</label>
+                <select id="filter-date-type" class="form-control text-xs" style="height: 35px; background: var(--bg-card);" onchange="applyAdvancedFilters(true)">
+                    <option value="created_at" <?php echo ($filter_date_type === 'created_at') ? 'selected' : ''; ?>>Lead Creation Date</option>
+                    <option value="scheduled_at" <?php echo ($filter_date_type === 'scheduled_at') ? 'selected' : ''; ?>>Scheduled / Follow-up Date</option>
+                </select>
             </div>
-            <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: flex-end;">
-                <!-- Date By / Date Type -->
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold mb-1" style="color: var(--text-main);">Filter Date By</label>
-                    <select id="filter-date-type" class="form-control text-xs" style="height: 35px; background: #fff;" onchange="applyAdvancedFilters(true)">
-                        <option value="created_at" <?php echo ($filter_date_type === 'created_at') ? 'selected' : ''; ?>>📅 Lead Creation Date</option>
-                        <option value="scheduled_at" <?php echo ($filter_date_type === 'scheduled_at') ? 'selected' : ''; ?>>⏰ Scheduled / Follow-up Date</option>
-                    </select>
-                </div>
-                <!-- Date From -->
-                <div class="form-group m-0">
-                    <div class="flex justify-between align-center mb-1">
-                        <label class="form-label text-xs font-semibold m-0" style="color: var(--text-main);">Date From (Start)</label>
-                        <?php if (!empty($filter_date_from)): ?>
-                            <span class="text-xs text-danger font-semibold pointer" style="cursor: pointer; font-size: 11px;" onclick="clearDateRangePart('from')">✕ Clear</span>
-                        <?php endif; ?>
-                    </div>
-                    <input type="date" id="filter-date-from" class="form-control text-xs no-quick" data-no-quick="true" style="height: 35px; background: #fff;" value="<?php echo htmlspecialchars($filter_date_from); ?>" onchange="applyAdvancedFilters(true)">
-                </div>
-                <!-- Date To -->
-                <div class="form-group m-0">
-                    <div class="flex justify-between align-center mb-1">
-                        <label class="form-label text-xs font-semibold m-0" style="color: var(--text-main);">Date To (End)</label>
-                        <?php if (!empty($filter_date_to)): ?>
-                            <span class="text-xs text-danger font-semibold pointer" style="cursor: pointer; font-size: 11px;" onclick="clearDateRangePart('to')">✕ Clear</span>
-                        <?php endif; ?>
-                    </div>
-                    <input type="date" id="filter-date-to" class="form-control text-xs no-quick" data-no-quick="true" style="height: 35px; background: #fff;" value="<?php echo htmlspecialchars($filter_date_to); ?>" onchange="applyAdvancedFilters(true)">
-                </div>
-                <!-- Hidden legacy input for compatibility -->
-                <input type="hidden" id="filter-date" value="<?php echo htmlspecialchars($filter_date); ?>">
-            </div>
-        </div>
 
-        <!-- Section 2: Other Filters (Source, Priority, Status, Employee, Group) -->
-        <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.25rem;">
-            <!-- Source Filter -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Lead Source</label>
-                <select id="filter-source" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
+            <!-- 2. Date From -->
+            <div class="form-group m-0" style="flex: 1 1 130px; min-width: 125px;">
+                <div class="flex justify-between align-center mb-1">
+                    <label class="form-label text-xs font-semibold m-0" style="color: var(--text-main);">Date From</label>
+                    <?php if (!empty($filter_date_from)): ?>
+                        <span class="text-xs text-danger font-semibold pointer" style="cursor: pointer; font-size: 10px;" onclick="clearDateRangePart('from')">Clear</span>
+                    <?php endif; ?>
+                </div>
+                <input type="date" id="filter-date-from" class="form-control text-xs no-quick" data-no-quick="true" style="height: 35px; background: var(--bg-card);" value="<?php echo htmlspecialchars($filter_date_from); ?>" onchange="applyAdvancedFilters(true)">
+            </div>
+
+            <!-- 3. Date To -->
+            <div class="form-group m-0" style="flex: 1 1 130px; min-width: 125px;">
+                <div class="flex justify-between align-center mb-1">
+                    <label class="form-label text-xs font-semibold m-0" style="color: var(--text-main);">Date To</label>
+                    <?php if (!empty($filter_date_to)): ?>
+                        <span class="text-xs text-danger font-semibold pointer" style="cursor: pointer; font-size: 10px;" onclick="clearDateRangePart('to')">Clear</span>
+                    <?php endif; ?>
+                </div>
+                <input type="date" id="filter-date-to" class="form-control text-xs no-quick" data-no-quick="true" style="height: 35px; background: var(--bg-card);" value="<?php echo htmlspecialchars($filter_date_to); ?>" onchange="applyAdvancedFilters(true)">
+            </div>
+            <input type="hidden" id="filter-date" value="<?php echo htmlspecialchars($filter_date); ?>">
+
+            <!-- 4. Lead Source -->
+            <div class="form-group m-0" style="flex: 1 1 125px; min-width: 120px;">
+                <label class="form-label text-xs font-semibold mb-1" style="color: var(--text-main);">Lead Source</label>
+                <select id="filter-source" class="form-control text-xs" style="height: 35px; background: var(--bg-card);" onchange="applyAdvancedFilters(true)">
                     <option value="">All Sources</option>
                     <?php 
                     $cur_src = $_GET['source'] ?? '';
@@ -1164,10 +1223,11 @@ if (empty($leads)) {
                     <?php endforeach; ?>
                 </select>
             </div>
-            <!-- Priority Filter -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Priority</label>
-                <select id="filter-priority" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
+
+            <!-- 5. Priority -->
+            <div class="form-group m-0" style="flex: 1 1 110px; min-width: 105px;">
+                <label class="form-label text-xs font-semibold mb-1" style="color: var(--text-main);">Priority</label>
+                <select id="filter-priority" class="form-control text-xs" style="height: 35px; background: var(--bg-card);" onchange="applyAdvancedFilters(true)">
                     <option value="">All Priorities</option>
                     <?php $cur_prio = strtolower($_GET['priority'] ?? ''); ?>
                     <option value="hot" <?php echo ($cur_prio === 'hot') ? 'selected' : ''; ?>>Hot</option>
@@ -1175,10 +1235,11 @@ if (empty($leads)) {
                     <option value="cold" <?php echo ($cur_prio === 'cold') ? 'selected' : ''; ?>>Cold</option>
                 </select>
             </div>
-            <!-- Status Filter -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Pipeline Status</label>
-                <select id="filter-status" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
+
+            <!-- 6. Pipeline Status -->
+            <div class="form-group m-0" style="flex: 1 1 130px; min-width: 125px;">
+                <label class="form-label text-xs font-semibold mb-1" style="color: var(--text-main);">Pipeline Status</label>
+                <select id="filter-status" class="form-control text-xs" style="height: 35px; background: var(--bg-card);" onchange="applyAdvancedFilters(true)">
                     <option value="">All Stages</option>
                     <?php 
                     $cur_st = strtolower($_GET['status'] ?? '');
@@ -1188,24 +1249,61 @@ if (empty($leads)) {
                     <?php endforeach; ?>
                 </select>
             </div>
-            <!-- Assigned Exec Filter -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Assigned Employee</label>
-                <select id="filter-assigned" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
-                    <option value="">All Employees</option>
-                    <?php 
-                    $cur_ass = $_GET['assigned_to'] ?? '';
-                    ?>
-                    <option value="Unassigned" <?php echo (strcasecmp($cur_ass, 'Unassigned') === 0) ? 'selected' : ''; ?>>Unassigned (Not Assigned)</option>
-                    <?php foreach ($operators as $op): ?>
-                        <option value="<?php echo htmlspecialchars($op); ?>" <?php echo (strcasecmp($cur_ass, $op) === 0) ? 'selected' : ''; ?>><?php echo htmlspecialchars($op); ?></option>
-                    <?php endforeach; ?>
-                </select>
+
+            <!-- 7. Assigned Employee (Multi-Select Checkbox Dropdown) -->
+            <?php
+            $assigned_count = count($selected_assigned_list);
+            $assigned_btn_label = 'All Employees';
+            if ($assigned_count === 1) {
+                $assigned_btn_label = htmlspecialchars($selected_assigned_list[0]);
+            } elseif ($assigned_count > 1) {
+                $assigned_btn_label = $assigned_count . ' Employees Selected';
+            }
+            ?>
+            <div class="form-group m-0" style="flex: 1.2 1 170px; min-width: 165px; position: relative;">
+                <div class="flex justify-between align-center mb-1">
+                    <label class="form-label text-xs font-semibold m-0" style="color: var(--text-main);">Assigned Employee</label>
+                    <span id="filter-assigned-count-badge" class="badge text-xs" style="font-size: 10px; padding: 1px 6px; <?php echo $assigned_count > 0 ? '' : 'display: none;'; ?> background: var(--primary); color: #fff; border-radius: 10px;">
+                        <?php echo $assigned_count; ?>
+                    </span>
+                </div>
+                <div class="assigned-cb-dropdown-wrap" style="position: relative;">
+                    <button type="button" id="assigned-cb-trigger" class="form-control text-xs flex align-center justify-between pointer" style="height: 35px; background: var(--bg-card); cursor: pointer; text-align: left; padding: 0 0.65rem; border: 1px solid var(--border-color); border-radius: 6px;" onclick="toggleAssignedCbDropdown(event)">
+                        <span id="assigned-cb-trigger-label" class="text-truncate" style="max-width: 135px; font-weight: 500; font-size: 11px;"><?php echo $assigned_btn_label; ?></span>
+                        <i data-lucide="chevron-down" style="width: 13px; height: 13px; flex-shrink: 0; opacity: 0.7;"></i>
+                    </button>
+                    <div id="assigned-cb-menu" class="hidden" style="position: absolute; top: calc(100% + 4px); left: 0; z-index: 1050; min-width: 250px; max-height: 290px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.18); padding: 0.6rem; animation: fadeIn 0.15s ease-out;">
+                        <div class="flex justify-between align-center pb-2 mb-2" style="border-bottom: 1px solid var(--border-color);">
+                            <span class="text-xs font-bold text-muted" style="text-transform: uppercase; font-size: 10px;">Select Assignees</span>
+                            <span class="text-xs text-primary font-semibold pointer" style="font-size: 11px; cursor: pointer;" onclick="clearAllAssignedCb()">Clear All</span>
+                        </div>
+                        <!-- Mini search box inside employee dropdown -->
+                        <div style="margin-bottom: 0.5rem; position: relative;">
+                            <input type="text" id="assigned-cb-search" placeholder="Search staff name..." class="form-control text-xs" style="height: 28px; padding: 0 0.5rem; font-size: 11px;" oninput="filterAssignedCbList(this.value)">
+                        </div>
+                        <div class="assigned-cb-list" style="max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;">
+                            <!-- Unassigned option -->
+                            <label class="assigned-cb-item flex align-center gap-2 p-1 rounded pointer hover-bg" style="cursor: pointer; padding: 4px 6px; border-radius: 4px; font-size: 11px; display: flex; align-items: center;">
+                                <input type="checkbox" class="filter-assigned-cb" value="Unassigned" <?php echo in_array('unassigned', array_map('strtolower', $selected_assigned_list)) ? 'checked' : ''; ?> onchange="handleAssignedCbChange()" style="accent-color: var(--primary); width: 14px; height: 14px;">
+                                <span class="font-semibold text-danger">Unassigned (Not Assigned)</span>
+                            </label>
+                            <?php foreach ($operators as $op): 
+                                $opChecked = in_array(strtolower($op), array_map('strtolower', $selected_assigned_list));
+                            ?>
+                                <label class="assigned-cb-item flex align-center gap-2 p-1 rounded pointer hover-bg" style="cursor: pointer; padding: 4px 6px; border-radius: 4px; font-size: 11px; display: flex; align-items: center;" data-op-name="<?php echo htmlspecialchars(strtolower($op)); ?>">
+                                    <input type="checkbox" class="filter-assigned-cb" value="<?php echo htmlspecialchars($op); ?>" <?php echo $opChecked ? 'checked' : ''; ?> onchange="handleAssignedCbChange()" style="accent-color: var(--primary); width: 14px; height: 14px;">
+                                    <span><?php echo htmlspecialchars($op); ?></span>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <!-- Group / Stage Filter -->
-            <div class="form-group m-0">
-                <label class="form-label text-xs">Group / Stage</label>
-                <select id="filter-group" class="form-control text-xs" onchange="applyAdvancedFilters(true)">
+
+            <!-- 8. Group / Stage -->
+            <div class="form-group m-0" style="flex: 1 1 130px; min-width: 125px;">
+                <label class="form-label text-xs font-semibold mb-1" style="color: var(--text-main);">Group / Stage</label>
+                <select id="filter-group" class="form-control text-xs" style="height: 35px; background: var(--bg-card);" onchange="applyAdvancedFilters(true)">
                     <option value="">All Groups</option>
                     <?php 
                     $cur_grp = strtolower($_GET['group_stage'] ?? '');
@@ -1339,33 +1437,134 @@ if (empty($leads)) {
                                 </button>
                             </div>
                         </th>
-                        <th class="col-sno" style="width: 55px; text-align: center;">S.No.</th>
-                        <th class="col-lead-id">Lead ID</th>
-                        <th class="col-assigned">Assigned to</th>
-                        <th class="col-contact-person">Person Name</th>
-                        <th class="col-name">Client Details</th>
-                        <th class="col-group">Group</th>
-                        <th class="col-status">Status</th>
-                        <th class="col-priority">Priority</th>
-                        <th class="col-source">Source</th>
-                        <th class="col-enq-for">Enq For</th>
-                        <th class="col-tags">Tags</th>
-                        <th class="col-address">Address</th>
-                        <th class="col-remarks">Remarks</th>
-                        <th class="col-scheduled-fup">Scheduled Follow-up</th>
-                        <th class="col-created-at">Created At</th>
-                        <th class="col-activity">Last Activity</th>
+                        <th class="col-sno" style="width: 55px; text-align: center;">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-sno')">
+                                <span>S.No.</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-lead-id">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-lead-id')">
+                                <span>Lead ID</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-assigned">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-assigned')">
+                                <span>Assigned to</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-contact-person">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-contact-person')">
+                                <span>Person Name</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-name">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-name')">
+                                <span>Client Details</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-group">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-group')">
+                                <span>Group</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-status">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-status')">
+                                <span>Status</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-priority">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-priority')">
+                                <span>Priority</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-source">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-source')">
+                                <span>Source</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-enq-for">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-enq-for')">
+                                <span>Enq For</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-tags">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-tags')">
+                                <span>Tags</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-address">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-address')">
+                                <span>Address</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-remarks">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-remarks')">
+                                <span>Remarks</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-scheduled-fup">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-scheduled-fup')">
+                                <span>Scheduled Follow-up</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-created-at">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-created-at')">
+                                <span>Created At</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
+                        <th class="col-activity">
+                            <div class="th-sort-wrapper" onclick="sortClassicTable('col-activity')">
+                                <span>Last Activity</span>
+                                <i data-lucide="arrow-up-down" class="sort-icon"></i>
+                            </div>
+                        </th>
                         <th style="text-align: right;">Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="classicLeadsTbody">
                     <?php 
                     $loop_idx = 0;
                     foreach ($leads as $lead): 
                         $sno = ($limit === 'all') ? ($loop_idx + 1) : ($offset + $loop_idx + 1);
                         $loop_idx++;
                     ?>
-                        <tr data-source="<?php echo htmlspecialchars($lead['source']); ?>" data-priority="<?php echo htmlspecialchars($lead['priority']); ?>" data-status="<?php echo htmlspecialchars($lead['status']); ?>" data-assigned="<?php echo htmlspecialchars($lead['assigned']); ?>" data-group="<?php echo htmlspecialchars($lead['group_stage'] ?? ''); ?>" data-date="<?php echo htmlspecialchars($lead['scheduled_date'] ?? ''); ?>" data-fupdate="<?php echo htmlspecialchars($lead['scheduled_date'] ?? ''); ?>" data-createdate="<?php echo htmlspecialchars($lead['created_date'] ?? ''); ?>" data-updatedate="<?php echo htmlspecialchars($lead['updated_date'] ?? ''); ?>">
+                        <?php
+                        $l_raw_sched = !empty($lead['scheduled_datetime']) ? strtotime($lead['scheduled_datetime']) : (!empty($lead['scheduled_date']) ? strtotime($lead['scheduled_date']) : 0);
+                        $l_raw_created = !empty($lead['created_datetime']) ? strtotime($lead['created_datetime']) : (!empty($lead['created_date']) ? strtotime($lead['created_date']) : 0);
+                        $l_raw_activity = !empty($lead['last_contact']) ? strtotime(strip_tags($lead['last_contact'])) : 0;
+                        ?>
+                        <tr data-source="<?php echo htmlspecialchars($lead['source']); ?>" data-priority="<?php echo htmlspecialchars($lead['priority']); ?>" data-status="<?php echo htmlspecialchars($lead['status']); ?>" data-assigned="<?php echo htmlspecialchars($lead['assigned']); ?>" data-group="<?php echo htmlspecialchars($lead['group_stage'] ?? ''); ?>" data-date="<?php echo htmlspecialchars($lead['scheduled_date'] ?? ''); ?>" data-fupdate="<?php echo htmlspecialchars($lead['scheduled_date'] ?? ''); ?>" data-createdate="<?php echo htmlspecialchars($lead['created_date'] ?? ''); ?>" data-updatedate="<?php echo htmlspecialchars($lead['updated_date'] ?? ''); ?>"
+                            data-val-col-sno="<?php echo $sno; ?>"
+                            data-val-col-lead-id="<?php echo intval(preg_replace('/[^0-9]/', '', $lead['id'])); ?>"
+                            data-val-col-assigned="<?php echo htmlspecialchars(strtolower($lead['assigned'] ?? '')); ?>"
+                            data-val-col-contact-person="<?php echo htmlspecialchars(strtolower(!empty($lead['name']) ? $lead['name'] : (!empty($lead['company']) ? $lead['company'] : ''))); ?>"
+                            data-val-col-name="<?php echo htmlspecialchars(strtolower($lead['phone'] ?? '')); ?>"
+                            data-val-col-group="<?php echo htmlspecialchars(strtolower($lead['group_stage'] ?? '')); ?>"
+                            data-val-col-status="<?php echo htmlspecialchars(strtolower($lead['status'] ?? '')); ?>"
+                            data-val-col-priority="<?php echo htmlspecialchars(strtolower($lead['priority'] ?? '')); ?>"
+                            data-val-col-source="<?php echo htmlspecialchars(strtolower($lead['source'] ?? '')); ?>"
+                            data-val-col-enq-for="<?php echo htmlspecialchars(strtolower($lead['enq_for'] ?? '')); ?>"
+                            data-val-col-tags="<?php echo htmlspecialchars(strtolower($lead['tags'] ?? '')); ?>"
+                            data-val-col-address="<?php echo htmlspecialchars(strtolower($lead['address'] ?? '')); ?>"
+                            data-val-col-remarks="<?php echo htmlspecialchars(strtolower($lead['remarks'] ?? '')); ?>"
+                            data-val-col-scheduled-fup="<?php echo intval($l_raw_sched ?: 0); ?>"
+                            data-val-col-created-at="<?php echo intval($l_raw_created ?: 0); ?>"
+                            data-val-col-activity="<?php echo intval($l_raw_activity ?: 0); ?>">
                             <td style="text-align: center; vertical-align: middle;">
                                 <input type="checkbox" class="lead-checkbox" value="<?php echo $lead['id']; ?>" style="accent-color: var(--primary);">
                             </td>
@@ -1566,29 +1765,84 @@ if (empty($leads)) {
     </button>
 </div>
 
-<!-- Quick Follow-up & Data Fill Modal -->
-<div id="quick-followup-modal" class="modal-overlay hidden" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); transition: all 0.3s ease;">
-    <div class="card p-6" style="width: 100%; max-width: 900px; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); animation: scaleUp 0.3s ease-out; background: var(--bg-card); display: flex; flex-direction: column; max-height: 90vh; color: var(--text-main);">
+<!-- Quick Follow-up & Data Fill Modal (Modern Enterprise UI) -->
+<div id="quick-followup-modal" class="modal-overlay hidden" style="display: none !important; position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; background: rgba(15, 23, 42, 0.65) !important; align-items: center !important; justify-content: center !important; z-index: 2000 !important; backdrop-filter: blur(6px) !important; -webkit-backdrop-filter: blur(6px) !important; padding: 1rem !important; box-sizing: border-box !important;">
+    <div class="qf-modal-dialog">
         <!-- Modal Header -->
-        <div class="flex justify-between align-center mb-6" style="border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
-            <h3 class="font-bold text-lg" id="qf-modal-title" style="font-family: var(--font-heading); margin: 0;">Follow-Up For Client</h3>
-            <button type="button" class="btn-icon" onclick="closeQuickFollowupModal()" style="border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--border-radius-full);">
-                <i data-lucide="x" style="width: 20px; height: 20px; color: var(--text-muted);"></i>
+        <div class="qf-modal-header">
+            <div class="qf-header-meta">
+                <div class="qf-header-icon">
+                    <i data-lucide="phone-call" style="width: 22px; height: 22px;"></i>
+                </div>
+                <div class="qf-header-title-box">
+                    <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                        <h3 class="qf-header-title" id="qf-modal-title">Follow-Up For Client</h3>
+                        <span id="qf-hero-lead-badge" class="qf-id-badge" style="display: none;"></span>
+                    </div>
+                    <p class="qf-header-sub">Update lead classification, team assignment and schedule interaction</p>
+                </div>
+            </div>
+            <button type="button" class="qf-close-btn" onclick="closeQuickFollowupModal()" title="Close (Esc)">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
             </button>
+        </div>
+
+        <!-- High-Priority Hero Contact Bar: Large Prominent Phone, 1-Click Copy & Quick Actions -->
+        <div class="qf-hero-contact-bar" id="qf-hero-contact-bar">
+            <div class="qf-hero-phone-group">
+                <div class="qf-hero-phone-meta">
+                    <span class="qf-hero-badge-tag">
+                        <i data-lucide="phone" style="width: 13px; height: 13px;"></i> Mobile Number
+                    </span>
+                    <span class="qf-hero-phone-number" id="qf-hero-phone-val">--</span>
+                </div>
+                <div class="qf-hero-buttons">
+                    <button type="button" class="qf-hero-btn qf-hero-btn-copy" id="qf-copy-phone-btn" title="Copy Mobile Number">
+                        <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
+                        <span class="btn-text">Copy</span>
+                    </button>
+                    <a href="#" id="qf-hero-wa-link" class="qf-hero-btn qf-hero-btn-wa" title="Open Meta WhatsApp Template Studio for this Lead">
+                        <i data-lucide="message-square" style="width: 14px; height: 14px;"></i>
+                        <span class="btn-text">WhatsApp</span>
+                    </a>
+                    <a href="#" id="qf-hero-call-link" class="qf-hero-btn qf-hero-btn-call" title="Call directly">
+                        <i data-lucide="phone-outgoing" style="width: 14px; height: 14px;"></i>
+                        <span class="btn-text">Call</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="qf-hero-email-group" id="qf-hero-email-wrap" style="display: none;">
+                <div class="qf-hero-email-meta">
+                    <span class="qf-hero-badge-tag">
+                        <i data-lucide="mail" style="width: 13px; height: 13px;"></i> Email Address
+                    </span>
+                    <span class="qf-hero-email-val" id="qf-hero-email-val">--</span>
+                </div>
+                <button type="button" class="qf-hero-btn qf-hero-btn-copy" id="qf-copy-email-btn" title="Copy Email">
+                    <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
+                    <span class="btn-text">Copy</span>
+                </button>
+            </div>
         </div>
         
         <!-- Modal Form Content -->
-        <form id="quick-followup-form" method="POST" style="overflow-y: auto; flex: 1; padding-right: 8px;">
+        <form id="quick-followup-form" method="POST" class="qf-modal-form">
             <input type="hidden" name="action" value="quick_followup_save">
             <input type="hidden" name="lead_id" id="qf-lead-id">
             
-            <div class="grid" style="grid-template-columns: 1.2fr 1fr; gap: 2rem; align-items: start;">
-                <!-- Left Column: Lead Data -->
+            <div class="qf-modal-body">
+                <!-- Left Column: Lead Data & Assignments -->
                 <div>
-                    <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Group</label>
-                            <select name="group_stage" id="qf-group-stage" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" required>
+                    <div class="qf-sec-heading">
+                        <i data-lucide="user-check" style="width: 14px; height: 14px; color: var(--primary);"></i>
+                        <span>Lead Status & Team Assignment</span>
+                    </div>
+
+                    <div class="grid" style="grid-template-columns: 1fr 1fr 1.25fr; gap: 0.65rem; margin-bottom: 0.75rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Group / Pipeline Stage</label>
+                            <select name="group_stage" id="qf-group-stage" class="qf-control" style="height: 38px; font-size: 0.84rem;" required>
                                 <option value="Fresh">Fresh</option>
                                 <option value="Followup">Followup</option>
                                 <option value="Future Prospect">Future Prospect</option>
@@ -1598,62 +1852,83 @@ if (empty($leads)) {
                                 <option value="Not Required">Not Required</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Lead Status</label>
-                            <select name="status" id="qf-status" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Lead Status</label>
+                            <select name="status" id="qf-status" class="qf-control" style="height: 38px; font-size: 0.84rem;">
                                 <?php foreach ($PIPELINE_STAGES as $key => $stage): ?>
                                     <option value="<?php echo htmlspecialchars($key); ?>"><?php echo htmlspecialchars($stage['label']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Assign to Employee(s) (Select Multiple)</label>
-                            <div class="employee-select-grid" style="display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 100px; overflow-y: auto; padding: 0.4rem; background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);">
-                                <?php foreach ($operators as $op): ?>
-                                    <label class="flex align-center gap-15 text-xs pointer" style="padding: 0.25rem 0.5rem; border-radius: 4px; background: var(--bg-card); border: 1px solid var(--border-color); user-select: none;">
-                                        <input type="checkbox" name="assigned_to[]" class="qf-assigned-cb" value="<?php echo htmlspecialchars($op); ?>" style="accent-color: var(--primary); width: 13px; height: 13px;">
-                                        <span><?php echo htmlspecialchars($op); ?></span>
-                                    </label>
-                                <?php endforeach; ?>
+                        <div class="qf-form-group" style="margin-bottom: 0; position: relative;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                                <label class="qf-label m-0">Assign Member(s)</label>
+                                <span id="qf-assigned-count-badge" style="font-size: 0.68rem; font-weight: 700; color: var(--primary);">0 Selected</span>
+                            </div>
+                            <div id="qf-assigned-dropdown-wrapper" style="position: relative;">
+                                <button type="button" id="qf-assigned-dropdown-btn" class="qf-control" onclick="toggleQfAssignedDropdown(event)" style="text-align: left; display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 0.48rem 0.65rem; height: 38px;">
+                                    <span id="qf-assigned-btn-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; font-weight: 600; font-size: 0.82rem; color: var(--text-main);">
+                                        -- Select Team --
+                                    </span>
+                                    <i data-lucide="chevron-down" style="width: 14px; height: 14px; color: var(--text-muted); flex-shrink: 0; transition: transform 0.2s;" id="qf-assigned-chevron"></i>
+                                </button>
+
+                                <!-- Dropdown Menu with Checkboxes -->
+                                <div id="qf-assigned-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 220px; background: var(--bg-card, #ffffff); border: 1px solid var(--border-color, #cbd5e1); border-radius: 10px; box-shadow: 0 14px 28px rgba(0,0,0,0.18); z-index: 1060; padding: 6px; max-height: 200px; overflow-y: auto;">
+                                    <div style="padding: 2px 4px 6px; border-bottom: 1px solid var(--border-color, #e2e8f0); margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Team Members</span>
+                                        <button type="button" onclick="clearQfAssigned(event)" style="background: none; border: none; font-size: 0.68rem; color: var(--primary); font-weight: 700; cursor: pointer; padding: 0;">Clear All</button>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                                        <?php foreach ($operators as $op): 
+                                            $opParts = preg_split('/\s+/', trim($op));
+                                            $initials = '';
+                                            if (count($opParts) >= 2) {
+                                                $initials = strtoupper(substr($opParts[0], 0, 1) . substr($opParts[count($opParts)-1], 0, 1));
+                                            } else {
+                                                $initials = strtoupper(substr(trim($op), 0, 2));
+                                            }
+                                        ?>
+                                            <label class="qf-dropdown-item" style="display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; transition: background 0.15s; font-size: 0.78rem; color: var(--text-main);">
+                                                <input type="checkbox" name="assigned_to[]" class="qf-assigned-cb" value="<?php echo htmlspecialchars($op); ?>" onchange="updateQfAssignedBtnText()" style="width: 15px; height: 15px; cursor: pointer; accent-color: var(--primary);">
+                                                <span class="qf-emp-avatar" style="width: 20px; height: 20px; font-size: 0.62rem;"><?php echo htmlspecialchars($initials); ?></span>
+                                                <span style="flex: 1; font-weight: 500;"><?php echo htmlspecialchars($op); ?></span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px; color: var(--text-muted);">Assigned By (Read-Only)</label>
-                            <input type="text" id="qf-assigned-by" class="form-control text-sm" readonly disabled style="width: 100%; height: 36px; padding: 0.5rem; background: var(--bg-hover); opacity: 0.85; cursor: not-allowed; font-weight: 600;" placeholder="Not assigned yet">
+                    </div>
+
+                    <div class="grid" style="grid-template-columns: 1fr 1.6fr; gap: 0.65rem; margin-bottom: 0.75rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label" style="color: var(--text-muted); display: flex; align-items: center; gap: 0.3rem;">
+                                <i data-lucide="lock" style="width: 12px; height: 12px;"></i>
+                                Assigned By (Audit Trail)
+                            </label>
+                            <input type="text" id="qf-assigned-by" class="qf-control" readonly disabled placeholder="Not assigned yet" style="height: 38px; font-size: 0.84rem;">
+                        </div>
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label" style="display: flex; align-items: center; gap: 0.3rem;">
+                                <i data-lucide="map-pin" style="width: 12px; height: 12px; color: var(--text-muted);"></i>
+                                Address
+                            </label>
+                            <input type="text" name="address" id="qf-address" class="qf-control" placeholder="Full office or delivery address..." style="height: 38px; font-size: 0.84rem;">
                         </div>
                     </div>
                     
-                    <!-- <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                <label class="form-label text-xs font-semibold" style="margin: 0;">Tags</label>
-                                <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 1.2px solid var(--text-muted); border-radius: 50%; cursor: pointer;" title="Add Tag"><i data-lucide="plus" style="width: 10px; height: 10px; color: var(--text-muted);"></i></span>
-                            </div>
-                            <input type="text" name="tags" id="qf-tags" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" placeholder="e.g. Cold, Hot, Retail">
-                        </div>
-                        <div class="grid" style="grid-template-columns: 1.2fr 1fr; gap: 0.5rem; margin-bottom: 0;">
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Reminder</label>
-                                <input type="date" name="reminder_date" id="qf-reminder-date" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
-                            </div>
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Time</label>
-                                <input type="time" name="reminder_time" id="qf-reminder-time" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
-                            </div>
-                        </div>
-                    </div> -->
+                    <hr class="qf-sec-divider" style="margin: 0.75rem 0 0.65rem 0;">
                     
-                    <div class="form-group mb-4">
-                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Address</label>
-                        <textarea name="address" id="qf-address" class="form-control text-sm" style="width: 100%; min-height: 60px; height: 60px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);"></textarea>
+                    <div class="qf-sec-heading" style="margin-bottom: 0.65rem;">
+                        <i data-lucide="sliders" style="width: 13px; height: 13px; color: var(--primary);"></i>
+                        <span>Additional Details</span>
                     </div>
                     
-                    <h4 class="text-xs font-bold text-muted mb-3" style="text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 1.5rem; margin-bottom: 1rem;">Additional Fields</h4>
-                    
-                    <div class="grid" style="grid-template-columns: 1fr 1fr 1.2fr; gap: 0.75rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Source</label>
-                            <select name="source" id="qf-source" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                    <div class="grid" style="grid-template-columns: 1fr 1fr 1.2fr; gap: 0.65rem; margin-bottom: 0.75rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Source</label>
+                            <select name="source" id="qf-source" class="qf-control" style="height: 36px; font-size: 0.82rem;">
                                 <option value="Website">Website</option>
                                 <option value="Google Ads">Google Ads</option>
                                 <option value="Cold Calls">Cold Calls</option>
@@ -1667,9 +1942,9 @@ if (empty($leads)) {
                                 <option value="Imported">Imported</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Enq_For</label>
-                            <select name="enq_for" id="qf-enq-for" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Enquiry For</label>
+                            <select name="enq_for" id="qf-enq-for" class="qf-control" style="height: 36px; font-size: 0.82rem;">
                                 <option value="">-- Choose --</option>
                                 <option value="Marg Basic">Marg Basic</option>
                                 <option value="Marg Silver">Marg Silver</option>
@@ -1684,59 +1959,108 @@ if (empty($leads)) {
                                 <option value="Marg Dimond">Marg Dimond</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Contact Person</label>
-                            <input type="text" name="contact_person" id="qf-contact-person" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;" placeholder="Contact Person Name">
+                        <div class="qf-form-group" style="margin-bottom: 0;">
+                            <label class="qf-label">Contact Person</label>
+                            <input type="text" name="contact_person" id="qf-contact-person" class="qf-control" placeholder="Contact person name" style="height: 36px; font-size: 0.82rem;">
                         </div>
                     </div>
                     
-                    <div class="form-group">
-                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Remarks</label>
-                        <textarea name="remarks" id="qf-remarks" class="form-control text-sm" style="width: 100%; min-height: 50px; height: 50px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);"></textarea>
+                    <div class="qf-form-group" style="margin-bottom: 0;">
+                        <label class="qf-label">Lead Remarks</label>
+                        <textarea name="remarks" id="qf-remarks" class="qf-control" style="min-height: 44px; height: 44px; font-size: 0.84rem; line-height: 1.35;" placeholder="General background notes or requirements..."></textarea>
                     </div>
                 </div>
                 
                 <!-- Right Column: Schedule Follow-up Reminder & History -->
-                <div style="border-left: 1px solid var(--border-color); padding-left: 2rem; display: flex; flex-direction: column; justify-content: flex-start; height: 100%;">
-                    <h4 class="text-sm font-bold text-main mb-3" style="font-family: var(--font-heading); margin-top: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--primary);">
-                        <i data-lucide="bell-ring" style="width: 16px; height: 16px;"></i>
-                        Schedule Follow-up reminder
-                    </h4>
+                <div class="qf-scheduler-panel">
+                    <div>
+                        <div class="flex justify-between align-center mb-1.5">
+                            <div class="qf-sec-heading m-0" style="color: var(--primary); font-size: 0.8rem;">
+                                <i data-lucide="bell-ring" style="width: 13px; height: 13px;"></i>
+                                <span>Schedule Follow-up Reminder</span>
+                            </div>
+                        </div>
 
-                    <!-- Date & Time & Action Type Row -->
-                    <div class="grid mb-3" style="grid-template-columns: 1fr 1fr; gap: 0.75rem; width: 100%;">
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Date & Time</label>
-                            <input type="datetime-local" name="scheduled_at" id="qf-scheduled-at" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.4rem 0.5rem;">
+                        <!-- Quick Date Shortcuts -->
+                        <div class="qf-quick-dates-bar mb-2" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                            <button type="button" class="qf-date-shortcut-btn" onclick="setQFQuickDate('today')" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;">
+                                <i data-lucide="sun" style="width: 11px; height: 11px;"></i> Today 5 PM
+                            </button>
+                            <button type="button" class="qf-date-shortcut-btn" onclick="setQFQuickDate('tomorrow')" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;">
+                                <i data-lucide="sunrise" style="width: 11px; height: 11px;"></i> Tomorrow 11 AM
+                            </button>
+                            <button type="button" class="qf-date-shortcut-btn" onclick="setQFQuickDate('2days')" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;">
+                                <i data-lucide="calendar" style="width: 11px; height: 11px;"></i> +2 Days
+                            </button>
+                            <button type="button" class="qf-date-shortcut-btn" onclick="setQFQuickDate('nextweek')" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;">
+                                <i data-lucide="calendar-days" style="width: 11px; height: 11px;"></i> Next Week
+                            </button>
                         </div>
-                        <div class="form-group m-0">
-                            <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Action Type</label>
-                            <select name="action_type" id="qf-action-type" class="form-control text-sm" style="width: 100%; height: 36px; padding: 0.5rem;">
-                                <option value="Call">Call / Phone Call</option>
-                                <option value="Trail Installed">Trail Installed</option>
-                                <option value="Data Input Follow Up">Data Input Follow Up</option>
-                                <option value="Payment Followup">Payment Followup</option>
-                                <option value="Rest Amt Followup">Rest Amt Followup</option>
-                                <option value="Product Demo">Product Demo</option>
-                                <option value="On-Site Visit">On-Site Visit</option>
-                                <option value="Renewal / Expiry">Renewal / Expiry</option>
-                            </select>
+
+                        <!-- Date & Time & Action Type Row -->
+                        <div class="grid mb-2" style="grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+                            <div class="qf-form-group m-0">
+                                <label class="qf-label">Date & Time</label>
+                                <input type="datetime-local" name="scheduled_at" id="qf-scheduled-at" class="qf-control" style="height: 36px; padding: 0.4rem 0.6rem; font-size: 0.85rem;">
+                            </div>
+                            <div class="qf-form-group m-0">
+                                <label class="qf-label">Action Type</label>
+                                <select name="action_type" id="qf-action-type" class="qf-control" style="height: 36px; padding: 0.4rem 0.6rem; font-size: 0.85rem;">
+                                    <option value="Call">Call / Phone Call</option>
+                                    <option value="Trail Installed">Trail Installed</option>
+                                    <option value="Data Input Follow Up">Data Input Follow Up</option>
+                                    <option value="Payment Followup">Payment Followup</option>
+                                    <option value="Rest Amt Followup">Rest Amt Followup</option>
+                                    <option value="Product Demo">Product Demo</option>
+                                    <option value="On-Site Visit">On-Site Visit</option>
+                                    <option value="Renewal / Expiry">Renewal / Expiry</option>
+                                </select>
+                            </div>
                         </div>
-                    </div>
-                    
-                    <!-- Reminder Notes / Instructions -->
-                    <div class="form-group mb-3" style="width: 100%;">
-                        <label class="form-label text-xs font-semibold" style="display: block; margin-bottom: 4px;">Reminder notes / Instructions</label>
-                        <textarea name="fup_notes" id="qf-fup-notes" class="form-control text-sm" style="width: 100%; min-height: 75px; height: 75px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); outline: none; background-color: var(--bg-app);" placeholder="Add reminder notes or instructions..."></textarea>
+                        
+                        <!-- Reminder Notes / Instructions with Smart Telecaller Suggestions -->
+                        <div class="qf-form-group mb-2">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                                <label class="qf-label m-0" style="font-size: 0.82rem; font-weight: 700;">Reminder Notes / Action Plan</label>
+                                <span class="text-xs text-muted" style="font-size: 0.68rem;">Quick Suggestion Chips below</span>
+                            </div>
+
+                            <!-- Smart Suggestion Quick Chips Bar -->
+                            <div id="qf-smart-suggestions-bar" style="display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px;">
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="CUSTOMER CALL BACK">
+                                    Call Back
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Call Not Picked / Busy">
+                                    Not Picked / Busy
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Interested - Quotation / Details Shared on WhatsApp">
+                                    WhatsApp Shared
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Demo Scheduled - Team to connect">
+                                    Demo Scheduled
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Rate Quote Discussion / Negotiation">
+                                    Rate Quote
+                                </button>
+                                <button type="button" class="qf-chip-btn" onclick="applyQfNoteSuggestion(this.getAttribute('data-note'))" data-note="Payment Followup - Balance Due">
+                                    Payment Due
+                                </button>
+                            </div>
+
+                            <textarea name="fup_notes" id="qf-fup-notes" class="qf-control" style="min-height: 52px; height: 52px; padding: 0.45rem 0.65rem; font-size: 0.85rem;" placeholder="Type notes or click any quick suggestion above..."></textarea>
+                        </div>
                     </div>
 
                     <!-- Upcoming & Past Follow-ups Section -->
-                    <div style="width: 100%; border-top: 1px solid var(--border-color); padding-top: 0.5rem; flex: 1; display: flex; flex-direction: column;">
-                        <h4 class="text-xs font-bold text-muted mb-2" style="text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.5rem 0; display: flex; align-items: center; justify-content: space-between;">
-                            <span>Upcoming & Past Follow-ups</span>
-                            <span class="badge text-xs" id="qf-history-count" style="--badge-bg: var(--primary-light); --badge-color: var(--primary);">0 entries</span>
-                        </h4>
-                        <div id="qf-history-timeline" style="max-height: 125px; overflow-y: auto; padding-right: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                    <div style="border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 0.55rem; flex: 1; display: flex; flex-direction: column;">
+                        <div class="flex justify-between align-center mb-1.5">
+                            <div class="qf-sec-heading m-0" style="font-size: 0.78rem;">
+                                <i data-lucide="history" style="width: 12px; height: 12px;"></i>
+                                <span>Upcoming & Past Activity</span>
+                            </div>
+                            <span class="badge text-xs" id="qf-history-count" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 10px;">0 entries</span>
+                        </div>
+                        <div id="qf-history-timeline" class="qf-timeline-box" style="max-height: 110px; overflow-y: auto;">
                             <p class="text-xs text-muted" style="font-style: italic;">Loading history...</p>
                         </div>
                     </div>
@@ -1744,15 +2068,665 @@ if (empty($leads)) {
             </div>
             
             <!-- Modal Actions Footer -->
-            <div class="flex justify-end gap-3 mt-6 pt-4" style="border-top: 1px solid var(--border-color);">
-                <button type="button" class="btn text-sm" onclick="closeQuickFollowupModal()" style="border-radius: 50px; border: 1.5px solid #004d40; background-color: transparent; color: #004d40; padding: 0.5rem 1.7rem; cursor: pointer; font-weight: 500; font-family: var(--font-heading); transition: all 0.2s ease;">Cancel</button>
-                <button type="submit" class="btn text-sm" style="border-radius: 50px; border: none; background-color: #004d40; color: #ffffff; padding: 0.5rem 2.5rem; cursor: pointer; font-weight: 600; font-family: var(--font-heading); transition: all 0.2s ease;">Save</button>
+            <div class="qf-modal-footer">
+                <span class="text-xs text-muted" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem;">
+                    <i data-lucide="info" style="width: 13px; height: 13px;"></i>
+                    Syncs lead stage & schedules next reminder
+                </span>
+                <div class="flex gap-2">
+                    <button type="button" class="qf-btn-cancel" onclick="closeQuickFollowupModal()">Cancel</button>
+                    <button type="submit" id="qf-submit-btn" class="qf-btn-submit">
+                        <i data-lucide="check" style="width: 15px; height: 15px;"></i>
+                        <span>Save & Log Follow-up</span>
+                    </button>
+                </div>
             </div>
         </form>
     </div>
 </div>
 
 <style>
+/* ==========================================================================
+   Quick Follow-up Modal Modern Enterprise Styling (High Legibility & Hero Info)
+   ========================================================================== */
+#quick-followup-modal {
+    display: none !important;
+    position: fixed !important;
+    inset: 0 !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(15, 23, 42, 0.65) !important;
+    backdrop-filter: blur(6px) !important;
+    -webkit-backdrop-filter: blur(6px) !important;
+    z-index: 2000 !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 1rem !important;
+    box-sizing: border-box !important;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+#quick-followup-modal.open {
+    display: flex !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+.qf-modal-dialog {
+    width: 100%;
+    max-width: 1040px;
+    max-height: 92vh;
+    background: var(--bg-card, #ffffff);
+    border-radius: 16px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.03);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--text-main, #0f172a);
+    animation: qfModalZoom 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes qfModalZoom {
+    0% { transform: scale(0.96) translateY(8px); opacity: 0; }
+    100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* Header */
+.qf-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.15rem 1.75rem;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-card, #ffffff);
+}
+.qf-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.95rem;
+    min-width: 0;
+}
+.qf-header-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--primary-light, rgba(37, 99, 235, 0.1));
+    color: var(--primary, #2563eb);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.qf-header-title-box {
+    min-width: 0;
+}
+.qf-header-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    font-family: var(--font-heading);
+    color: var(--text-main, #0f172a);
+    margin: 0;
+    line-height: 1.3;
+}
+.qf-header-title strong {
+    color: var(--primary, #2563eb);
+}
+.qf-header-sub {
+    font-size: 0.85rem;
+    color: var(--text-muted, #64748b);
+    margin: 3px 0 0 0;
+}
+.qf-id-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.65rem;
+    border-radius: 6px;
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--primary, #2563eb);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    border: 1px solid rgba(37, 99, 235, 0.2);
+}
+.qf-close-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    background: transparent;
+    color: var(--text-muted, #64748b);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+.qf-close-btn:hover {
+    background: var(--bg-app, #f8fafc);
+    color: var(--text-main, #0f172a);
+    border-color: var(--text-muted);
+}
+
+/* High-Contrast Hero Contact Bar */
+.qf-hero-contact-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    padding: 0.95rem 1.75rem;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    flex-wrap: wrap;
+}
+[data-theme="dark"] .qf-hero-contact-bar {
+    background: rgba(30, 41, 59, 0.7);
+    border-color: rgba(51, 65, 85, 0.8);
+}
+.qf-hero-phone-group {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+.qf-hero-phone-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+.qf-hero-badge-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted, #64748b);
+}
+.qf-hero-phone-number {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: 0.04em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    line-height: 1.2;
+}
+[data-theme="dark"] .qf-hero-phone-number {
+    color: #f8fafc;
+}
+.qf-hero-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.qf-hero-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.48rem 0.95rem;
+    border-radius: 8px;
+    font-size: 0.86rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+.qf-hero-btn-copy {
+    background: #ffffff;
+    border-color: #cbd5e1;
+    color: #1e293b;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.qf-hero-btn-copy:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+[data-theme="dark"] .qf-hero-btn-copy {
+    background: rgba(51, 65, 85, 0.8);
+    border-color: rgba(100, 116, 139, 0.4);
+    color: #f1f5f9;
+}
+.qf-hero-btn-wa {
+    background: #10b981;
+    color: #ffffff;
+    box-shadow: 0 1px 2px rgba(16, 185, 129, 0.2);
+}
+.qf-hero-btn-wa:hover {
+    background: #059669;
+    color: #ffffff;
+}
+.qf-hero-btn-call {
+    background: var(--primary, #2563eb);
+    color: #ffffff;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+}
+.qf-hero-btn-call:hover {
+    background: var(--primary-hover, #1d4ed8);
+    color: #ffffff;
+}
+.qf-hero-email-group {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    background: #ffffff;
+    padding: 0.45rem 0.95rem;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+[data-theme="dark"] .qf-hero-email-group {
+    background: rgba(30, 41, 59, 0.9);
+    border-color: rgba(51, 65, 85, 0.8);
+}
+.qf-hero-email-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+.qf-hero-email-val {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+[data-theme="dark"] .qf-hero-email-val {
+    color: #f1f5f9;
+}
+
+/* Body Form & Grid */
+.qf-modal-form {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+}
+.qf-modal-body {
+    overflow-y: auto;
+    padding: 1.1rem 1.4rem;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 1.25rem;
+    align-items: start;
+}
+@media (max-width: 860px) {
+    .qf-modal-body {
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+    }
+}
+
+/* Section Headings */
+.qf-sec-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted, #475569);
+    margin: 0 0 0.95rem 0;
+}
+.qf-sec-divider {
+    border: none;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    margin: 1.35rem 0 1.1rem 0;
+}
+
+/* Form Controls */
+.qf-form-group {
+    margin-bottom: 0.95rem;
+}
+.qf-label {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-main, #1e293b);
+    margin-bottom: 0.45rem;
+}
+.qf-control {
+    width: 100%;
+    font-size: 0.93rem;
+    font-family: inherit;
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 8px;
+    background: var(--bg-card, #ffffff);
+    color: var(--text-main, #0f172a);
+    padding: 0.58rem 0.85rem;
+    line-height: 1.45;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    outline: none;
+    box-sizing: border-box;
+}
+.qf-control:focus {
+    border-color: var(--primary, #2563eb);
+    box-shadow: 0 0 0 3px var(--primary-light, rgba(37, 99, 235, 0.15));
+}
+.qf-control[readonly], .qf-control:disabled {
+    background: var(--bg-app, #f1f5f9);
+    color: var(--text-muted, #64748b);
+    cursor: not-allowed;
+}
+textarea.qf-control {
+    resize: vertical;
+    line-height: 1.5;
+}
+
+/* Employee Multi-Select Chips */
+.qf-employee-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    max-height: 135px;
+    overflow-y: auto;
+    padding: 0.55rem;
+    background: var(--bg-app, #f8fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+}
+.qf-emp-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.32rem 0.7rem;
+    border-radius: 20px;
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #cbd5e1);
+    font-size: 0.84rem;
+    font-weight: 500;
+    color: var(--text-main, #0f172a);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s ease;
+}
+.qf-emp-pill:hover {
+    border-color: var(--primary, #2563eb);
+    background: var(--primary-light, rgba(37, 99, 235, 0.05));
+}
+.qf-emp-pill input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+}
+.qf-emp-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--border-color, #e2e8f0);
+    color: var(--text-muted, #475569);
+    font-size: 0.68rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+.qf-emp-check-icon {
+    display: none;
+    width: 12px;
+    height: 12px;
+    margin-left: 2px;
+}
+.qf-emp-pill.active,
+.qf-emp-pill:has(input:checked) {
+    border-color: var(--primary, #2563eb);
+    background: var(--primary-light, rgba(37, 99, 235, 0.1));
+    color: var(--primary, #2563eb);
+    font-weight: 600;
+}
+.qf-emp-pill.active .qf-emp-avatar,
+.qf-emp-pill:has(input:checked) .qf-emp-avatar {
+    background: var(--primary, #2563eb);
+    color: #ffffff;
+}
+.qf-emp-pill.active .qf-emp-check-icon,
+.qf-emp-pill:has(input:checked) .qf-emp-check-icon {
+    display: inline-block;
+}
+
+/* Right Column Schedule Card */
+.qf-scheduler-panel {
+    background: var(--bg-app, #f8fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 12px;
+    padding: 0.95rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+.qf-chip-btn {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted, #475569);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    line-height: 1.4;
+}
+.qf-chip-btn:hover {
+    border-color: var(--primary, #2563eb);
+    color: var(--primary, #2563eb);
+    background: var(--primary-light, rgba(37, 99, 235, 0.08));
+}
+.qf-chip-last {
+    background: rgba(37, 99, 235, 0.08);
+    border-color: var(--primary, #2563eb);
+    color: var(--primary, #2563eb);
+    font-weight: 700;
+}
+.qf-dropdown-item:hover {
+    background: var(--primary-light, rgba(37, 99, 235, 0.08));
+}
+.qf-quick-dates-bar {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+.qf-date-shortcut-btn {
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: var(--bg-card, #ffffff);
+    color: var(--text-muted, #475569);
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.qf-date-shortcut-btn:hover {
+    border-color: var(--primary, #2563eb);
+    color: var(--primary, #2563eb);
+    background: var(--primary-light, rgba(37, 99, 235, 0.08));
+}
+
+/* Timeline Cards */
+.qf-timeline-box {
+    max-height: 110px;
+    overflow-y: auto;
+    padding-right: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+.qf-timeline-card {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    padding: 0.45rem 0.65rem;
+    transition: border-color 0.15s ease;
+}
+.qf-timeline-card:hover {
+    border-color: var(--primary, #2563eb);
+}
+.qf-timeline-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+    gap: 0.5rem;
+}
+.qf-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+}
+.qf-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+.qf-status-pending { background: var(--warning-light, rgba(234, 179, 8, 0.15)); color: var(--warning, #d97706); }
+.qf-status-pending .qf-status-dot { background: var(--warning, #d97706); }
+.qf-status-completed { background: var(--success-light, rgba(34, 197, 94, 0.15)); color: var(--success, #16a34a); }
+.qf-status-completed .qf-status-dot { background: var(--success, #16a34a); }
+.qf-status-rescheduled { background: var(--info-light, rgba(6, 182, 212, 0.15)); color: var(--info, #0891b2); }
+.qf-status-rescheduled .qf-status-dot { background: var(--info, #0891b2); }
+.qf-status-danger { background: var(--danger-light, rgba(239, 68, 68, 0.15)); color: var(--danger, #dc2626); }
+.qf-status-danger .qf-status-dot { background: var(--danger, #dc2626); }
+
+.qf-timeline-time {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted, #64748b);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+.qf-timeline-note {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-main, #0f172a);
+    margin: 0.2rem 0;
+    word-break: break-word;
+    line-height: 1.35;
+}
+.qf-timeline-meta {
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: var(--text-muted, #64748b);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+/* Footer */
+.qf-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.95rem 1.75rem;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-card, #ffffff);
+}
+.qf-btn-cancel {
+    border-radius: 8px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: transparent;
+    color: var(--text-main, #0f172a);
+    padding: 0.6rem 1.35rem;
+    cursor: pointer;
+    font-size: 0.92rem;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all 0.15s ease;
+}
+.qf-btn-cancel:hover {
+    background: var(--bg-app, #f1f5f9);
+    border-color: var(--text-muted);
+}
+.qf-btn-submit {
+    border-radius: 8px;
+    border: none;
+    background: var(--primary, #2563eb);
+    color: #ffffff;
+    padding: 0.6rem 1.65rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.qf-btn-submit:hover {
+    background: var(--primary-hover, #1d4ed8);
+}
+.qf-btn-submit:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Custom Slim Scrollbars */
+.qf-employee-grid::-webkit-scrollbar,
+.qf-timeline-box::-webkit-scrollbar,
+.qf-modal-body::-webkit-scrollbar {
+    width: 5px;
+}
+.qf-employee-grid::-webkit-scrollbar-thumb,
+.qf-timeline-box::-webkit-scrollbar-thumb,
+.qf-modal-body::-webkit-scrollbar-thumb {
+    background: var(--border-color, #cbd5e1);
+    border-radius: 4px;
+}
+</style>
+
+<style>
+        .th-sort-wrapper {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        user-select: none;
+        padding: 2px 4px;
+        border-radius: 4px;
+        transition: all 0.15s ease;
+    }
+    .th-sort-wrapper:hover {
+        background: rgba(0, 0, 0, 0.05);
+        color: var(--primary);
+    }
+    [data-theme="dark"] .th-sort-wrapper:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+    .th-sort-wrapper.active-sort {
+        color: var(--primary);
+        font-weight: 700;
+    }
+    .th-sort-wrapper .sort-icon {
+        width: 13px;
+        height: 13px;
+        opacity: 0.35;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    .th-sort-wrapper:hover .sort-icon,
+    .th-sort-wrapper.active-sort .sort-icon {
+        opacity: 1;
+    }
     .gear-settings-btn {
         display: inline-flex;
         align-items: center;
@@ -1914,7 +2888,140 @@ if (empty($leads)) {
 
     // Quick Follow-up Modal controls
     const quickFollowupModal = document.getElementById('quick-followup-modal');
-    
+
+    // Quick Date Shortcut Helper
+    window.setQFQuickDate = function(type) {
+        const input = document.getElementById('qf-scheduled-at');
+        if (!input) return;
+        const now = new Date();
+        let target = new Date(now);
+        
+        if (type === 'today') {
+            target.setHours(17, 0, 0, 0);
+            if (target <= now) {
+                target = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+            }
+        } else if (type === 'tomorrow') {
+            target.setDate(target.getDate() + 1);
+            target.setHours(11, 0, 0, 0);
+        } else if (type === '2days') {
+            target.setDate(target.getDate() + 2);
+            target.setHours(11, 0, 0, 0);
+        } else if (type === 'nextweek') {
+            target.setDate(target.getDate() + 7);
+            target.setHours(11, 0, 0, 0);
+        }
+        
+        const pad = n => String(n).padStart(2, '0');
+        const formatted = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
+        input.value = formatted;
+    };
+
+    // Multi-Select Team Dropdown Controllers
+    window.toggleQfAssignedDropdown = function(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        const menu = document.getElementById('qf-assigned-dropdown-menu');
+        const chevron = document.getElementById('qf-assigned-chevron');
+        if (!menu) return;
+        const isShowing = menu.style.display === 'block';
+        menu.style.display = isShowing ? 'none' : 'block';
+        if (chevron) {
+            chevron.style.transform = isShowing ? 'rotate(0deg)' : 'rotate(180deg)';
+        }
+    };
+
+    window.clearQfAssigned = function(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
+            cb.checked = false;
+        });
+        updateQfAssignedBtnText();
+    };
+
+    window.updateQfAssignedBtnText = function() {
+        const checked = Array.from(document.querySelectorAll('.qf-assigned-cb:checked')).map(cb => cb.value.trim());
+        const btnText = document.getElementById('qf-assigned-btn-text');
+        const badge = document.getElementById('qf-assigned-count-badge');
+        const count = checked.length;
+
+        if (badge) {
+            badge.textContent = `${count} Selected`;
+        }
+
+        if (!btnText) return;
+        if (count === 0) {
+            btnText.textContent = '-- Select Team --';
+            btnText.style.color = 'var(--text-muted)';
+            btnText.title = 'No member assigned';
+        } else if (count === 1) {
+            btnText.textContent = checked[0];
+            btnText.style.color = 'var(--text-main)';
+            btnText.title = checked[0];
+        } else if (count === 2) {
+            btnText.textContent = `${checked[0]}, ${checked[1]}`;
+            btnText.style.color = 'var(--text-main)';
+            btnText.title = checked.join(', ');
+        } else {
+            btnText.textContent = `${checked[0]} (+${count - 1})`;
+            btnText.style.color = 'var(--text-main)';
+            btnText.title = checked.join(', ');
+        }
+    };
+
+    // Quick Telecaller Notes Suggestion helper
+    window.applyQfNoteSuggestion = function(note) {
+        const textarea = document.getElementById('qf-fup-notes');
+        if (!textarea || !note) return;
+        const current = textarea.value.trim();
+        if (!current) {
+            textarea.value = note;
+        } else if (!current.includes(note)) {
+            textarea.value = current + ' | ' + note;
+        }
+        textarea.focus();
+    };
+
+    // Close assigned dropdown on outside click
+    document.addEventListener('click', function(e) {
+        const wrapper = document.getElementById('qf-assigned-dropdown-wrapper');
+        const menu = document.getElementById('qf-assigned-dropdown-menu');
+        const chevron = document.getElementById('qf-assigned-chevron');
+        if (menu && wrapper && !wrapper.contains(e.target)) {
+            menu.style.display = 'none';
+            if (chevron) chevron.style.transform = 'rotate(0deg)';
+        }
+    });
+
+    // Keep Employee multi-select dropdown in sync with checkbox changes
+    document.addEventListener('change', function(e) {
+        if (e.target && e.target.classList.contains('qf-assigned-cb')) {
+            updateQfAssignedBtnText();
+        }
+    });
+
+    // Close on backdrop click & Escape key
+    if (quickFollowupModal) {
+        quickFollowupModal.addEventListener('click', function(e) {
+            if (e.target === quickFollowupModal) {
+                closeQuickFollowupModal();
+            }
+        });
+    }
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            const m = document.getElementById('quick-followup-modal');
+            if (m && !m.classList.contains('hidden') && m.style.display !== 'none') {
+                closeQuickFollowupModal();
+            }
+        }
+    });
+
     document.addEventListener('click', function(e) {
         const btn = e.target.closest('.quick-followup-btn');
         if (!btn) return;
@@ -1930,14 +3037,99 @@ if (empty($leads)) {
                 
                 // Set lead properties in form with safety checks
                 if (document.getElementById('qf-lead-id')) document.getElementById('qf-lead-id').value = lead.id || '';
-                if (document.getElementById('qf-modal-title')) document.getElementById('qf-modal-title').innerHTML = `Follow-Up For <strong>${lead.name || ''}</strong> ( ${lead.phone || ''} )`;
+                
+                // Hero Phone & Contact Controls
+                const rawPhone = (lead.phone || '').trim();
+                let digitsOnly = rawPhone.replace(/[^0-9]/g, '');
+                let formattedPhone = rawPhone || 'Not Available';
+                
+                if (digitsOnly.length === 10) {
+                    formattedPhone = `+91 ${digitsOnly.slice(0, 5)} ${digitsOnly.slice(5)}`;
+                } else if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
+                    formattedPhone = `+91 ${digitsOnly.slice(2, 7)} ${digitsOnly.slice(7)}`;
+                }
+
+                const heroPhoneVal = document.getElementById('qf-hero-phone-val');
+                if (heroPhoneVal) {
+                    heroPhoneVal.textContent = formattedPhone;
+                }
+
+                const copyPhoneBtn = document.getElementById('qf-copy-phone-btn');
+                if (copyPhoneBtn) {
+                    copyPhoneBtn.onclick = function() {
+                        window.copyQfText(rawPhone || digitsOnly, this);
+                    };
+                    copyPhoneBtn.style.display = rawPhone ? 'inline-flex' : 'none';
+                }
+
+                const waLink = document.getElementById('qf-hero-wa-link');
+                if (waLink) {
+                    if (lead.id) {
+                        waLink.href = 'index.php?page=lead_details&id=' + encodeURIComponent(lead.id) + '&tab=whatsapp';
+                        waLink.title = 'Send Meta Approved WhatsApp Template';
+                        waLink.style.display = 'inline-flex';
+                    } else {
+                        waLink.style.display = 'none';
+                    }
+                }
+
+                const callLink = document.getElementById('qf-hero-call-link');
+                if (callLink) {
+                    if (digitsOnly) {
+                        callLink.href = `tel:+${digitsOnly.startsWith('91') ? digitsOnly : '91' + digitsOnly}`;
+                        callLink.style.display = 'inline-flex';
+                    } else {
+                        callLink.style.display = 'none';
+                    }
+                }
+
+                // Email
+                const rawEmail = (lead.email || '').trim();
+                const emailWrap = document.getElementById('qf-hero-email-wrap');
+                const emailVal = document.getElementById('qf-hero-email-val');
+                const copyEmailBtn = document.getElementById('qf-copy-email-btn');
+
+                if (rawEmail && rawEmail.toLowerCase() !== 'null' && rawEmail.toLowerCase() !== 'na') {
+                    if (emailWrap) emailWrap.style.display = 'flex';
+                    if (emailVal) emailVal.textContent = rawEmail;
+                    if (copyEmailBtn) {
+                        copyEmailBtn.onclick = function() {
+                            window.copyQfText(rawEmail, this);
+                        };
+                    }
+                } else {
+                    if (emailWrap) emailWrap.style.display = 'none';
+                }
+
+                // Lead ID Badge
+                const heroLeadBadge = document.getElementById('qf-hero-lead-badge');
+                if (heroLeadBadge) {
+                    if (lead.id) {
+                        heroLeadBadge.textContent = String(lead.id).startsWith('LD-') ? lead.id : 'LD-' + lead.id;
+                        heroLeadBadge.style.display = 'inline-flex';
+                    } else {
+                        heroLeadBadge.style.display = 'none';
+                    }
+                }
+
+                // Modal Title
+                const leadName = (lead.name && lead.name !== 'NA' && lead.name.trim() !== '') ? lead.name : (lead.company && lead.company !== 'NA' ? lead.company : 'Client');
+                if (document.getElementById('qf-modal-title')) {
+                    document.getElementById('qf-modal-title').innerHTML = `Follow-Up: <strong>${leadName}</strong>`;
+                }
                 if (document.getElementById('qf-group-stage')) document.getElementById('qf-group-stage').value = lead.group_stage || lead.company || 'Fresh';
                 if (document.getElementById('qf-company')) document.getElementById('qf-company').value = lead.group_stage || lead.company || 'Fresh';
                 if (document.getElementById('qf-status')) document.getElementById('qf-status').value = lead.status || 'new';
+                
                 const assignedList = (lead.assigned || '').split(',').map(s => s.trim().toLowerCase());
                 document.querySelectorAll('.qf-assigned-cb').forEach(cb => {
-                    cb.checked = assignedList.includes(cb.value.trim().toLowerCase());
+                    const isChecked = assignedList.includes(cb.value.trim().toLowerCase());
+                    cb.checked = isChecked;
                 });
+                if (typeof updateQfAssignedBtnText === 'function') {
+                    updateQfAssignedBtnText();
+                }
+                
                 if (document.getElementById('qf-assigned-by')) document.getElementById('qf-assigned-by').value = lead.assigned_by || 'Not assigned yet';
                 if (document.getElementById('qf-tags')) document.getElementById('qf-tags').value = lead.tags || '';
                 if (document.getElementById('qf-address')) document.getElementById('qf-address').value = lead.address || '';
@@ -1952,31 +3144,55 @@ if (empty($leads)) {
                     pendingFup = res.followup_history.find(f => f.status === 'pending') || res.followup_history[0];
                 }
 
-                if (pendingFup && pendingFup.scheduled_at) {
-                    // Pre-fill existing scheduled follow-up date/time from database
+                const now = new Date();
+                now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                const defaultDateTime = now.toISOString().slice(0, 16);
+
+                // If existing pending follow-up is strictly in the future, show its future scheduled date;
+                // if it was from the past (e.g. earlier days), default to current time so user schedules forward!
+                if (pendingFup && pendingFup.scheduled_at && new Date(pendingFup.scheduled_at).getTime() > Date.now()) {
                     const fupDateStr = pendingFup.scheduled_at.replace(' ', 'T').slice(0, 16);
                     if (document.getElementById('qf-scheduled-at')) {
                         document.getElementById('qf-scheduled-at').value = fupDateStr;
                     }
                     if (document.getElementById('qf-action-type')) {
-                        document.getElementById('qf-action-type').value = pendingFup.action_type || 'Trail Installed';
-                    }
-                    if (document.getElementById('qf-fup-notes')) {
-                        document.getElementById('qf-fup-notes').value = pendingFup.remarks || '';
+                        document.getElementById('qf-action-type').value = pendingFup.action_type || 'Call';
                     }
                 } else {
-                    // Fallback to current date/time if no follow-up exists yet
-                    const now = new Date();
-                    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-                    const defaultDateTime = now.toISOString().slice(0, 16);
                     if (document.getElementById('qf-scheduled-at')) {
                         document.getElementById('qf-scheduled-at').value = defaultDateTime;
                     }
                     if (document.getElementById('qf-action-type')) {
-                        document.getElementById('qf-action-type').value = 'Trail Installed';
+                        document.getElementById('qf-action-type').value = (pendingFup && pendingFup.action_type) ? pendingFup.action_type : 'Call';
                     }
-                    if (document.getElementById('qf-fup-notes')) {
-                        document.getElementById('qf-fup-notes').value = '';
+                }
+
+                // Keep notes input fresh/empty for new calling entry (telecaller can click "Last Note" chip if they wish)
+                if (document.getElementById('qf-fup-notes')) {
+                    document.getElementById('qf-fup-notes').value = '';
+                }
+
+                // Render Smart Suggestion Chip for Last Note if available
+                const lastSavedNote = (pendingFup && pendingFup.remarks ? pendingFup.remarks : (localStorage.getItem('marg_last_fup_note') || '')).trim();
+                const suggestionsBar = document.getElementById('qf-smart-suggestions-bar');
+                if (suggestionsBar) {
+                    let lastChip = document.getElementById('qf-last-note-chip');
+                    if (lastSavedNote) {
+                        if (!lastChip) {
+                            lastChip = document.createElement('button');
+                            lastChip.type = 'button';
+                            lastChip.id = 'qf-last-note-chip';
+                            lastChip.className = 'qf-chip-btn qf-chip-last';
+                            suggestionsBar.prepend(lastChip);
+                        }
+                        const cleanShort = lastSavedNote.length > 25 ? lastSavedNote.slice(0, 25) + '...' : lastSavedNote;
+                        lastChip.setAttribute('data-note', lastSavedNote);
+                        lastChip.title = `Fill previous note: "${lastSavedNote}"`;
+                        lastChip.onclick = function() { window.applyQfNoteSuggestion(this.getAttribute('data-note')); };
+                        lastChip.innerHTML = `<i data-lucide="rotate-ccw" style="width:10px;height:10px;"></i> Last: ${typeof escapeHtml === 'function' ? escapeHtml(cleanShort) : cleanShort}`;
+                        if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
+                    } else if (lastChip) {
+                        lastChip.remove();
                     }
                 }
                 
@@ -1985,52 +3201,54 @@ if (empty($leads)) {
                 const historyCount = document.getElementById('qf-history-count');
 
                 if (res.followup_history && res.followup_history.length > 0) {
-                    if (historyCount) historyCount.textContent = res.followup_history.length + ' entries';
+                    if (historyCount) historyCount.textContent = res.followup_history.length + (res.followup_history.length === 1 ? ' entry' : ' entries');
                     let html = '';
                     res.followup_history.forEach(fup => {
-                        let badgeColor = 'var(--primary)';
-                        let badgeBg = 'var(--primary-light)';
-                        if (fup.status === 'completed') {
-                            badgeColor = 'var(--success)';
-                            badgeBg = 'var(--success-light)';
-                        } else if (fup.status === 'pending') {
-                            badgeColor = 'var(--warning)';
-                            badgeBg = 'var(--warning-light)';
-                        } else if (fup.status === 'rescheduled') {
-                            badgeColor = 'var(--info)';
-                            badgeBg = 'var(--info-light)';
-                        } else if (fup.status === 'missed' || fup.status === 'cancelled') {
-                            badgeColor = 'var(--danger)';
-                            badgeBg = 'var(--danger-light)';
-                        }
+                        let statusClass = 'pending';
+                        const statusVal = (fup.status || 'pending').toLowerCase();
+                        if (statusVal === 'completed') statusClass = 'completed';
+                        else if (statusVal === 'rescheduled') statusClass = 'rescheduled';
+                        else if (statusVal === 'missed' || statusVal === 'cancelled') statusClass = 'danger';
 
                         const formattedDate = fup.scheduled_at ? new Date(fup.scheduled_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A';
+                        const cleanAction = typeof escapeHtml === 'function' ? escapeHtml(fup.action_type || 'Call') : (fup.action_type || 'Call');
+                        const cleanRemarks = typeof escapeHtml === 'function' ? escapeHtml(fup.remarks || 'No notes added.') : (fup.remarks || 'No notes added.');
+                        const cleanAssigned = typeof escapeHtml === 'function' ? escapeHtml(fup.assigned_to || 'System') : (fup.assigned_to || 'System');
+
                         html += `
-                            <div style="background-color: var(--bg-app); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem 0.75rem;">
-                                <div class="flex justify-between align-center mb-1">
-                                    <span class="badge text-xs font-semibold" style="--badge-bg: ${badgeBg}; --badge-color: ${badgeColor}; padding: 0.15rem 0.4rem; font-size: 0.7rem;">
-                                        ${fup.action_type || 'Call'} (${fup.status})
+                            <div class="qf-timeline-card">
+                                <div class="qf-timeline-header">
+                                    <span class="qf-status-pill qf-status-${statusClass}">
+                                        <span class="qf-status-dot"></span>
+                                        ${cleanAction} (${statusVal})
                                     </span>
-                                    <span class="text-xs text-muted font-semibold" style="font-size: 0.7rem;">${formattedDate}</span>
+                                    <span class="qf-timeline-time">
+                                        <i data-lucide="clock" style="width: 11px; height: 11px;"></i>
+                                        ${formattedDate}
+                                    </span>
                                 </div>
-                                <p class="text-xs text-main m-0" style="word-break: break-word; font-size: 0.75rem;">${fup.remarks || 'No notes added.'}</p>
-                                <div class="text-xs text-muted mt-1" style="font-size: 0.65rem;">Assigned: ${fup.assigned_to || 'System'}</div>
+                                <p class="qf-timeline-note">${cleanRemarks}</p>
+                                <div class="qf-timeline-meta">
+                                    <i data-lucide="user" style="width: 10px; height: 10px;"></i>
+                                    <span>Assigned: ${cleanAssigned}</span>
+                                </div>
                             </div>
                         `;
                     });
                     if (historyTimeline) historyTimeline.innerHTML = html;
                 } else {
                     if (historyCount) historyCount.textContent = '0 entries';
-                    if (historyTimeline) historyTimeline.innerHTML = '<p class="text-xs text-muted" style="font-style: italic; font-size: 0.75rem;">No previous follow-up history logged yet for this lead.</p>';
+                    if (historyTimeline) historyTimeline.innerHTML = '<p class="text-xs text-muted" style="font-style: italic; font-size: 0.75rem; margin: 0.5rem 0;">No previous follow-up history logged yet for this lead.</p>';
                 }
 
-
-                
                 // Open modal
                 if (quickFollowupModal) {
                     quickFollowupModal.classList.remove('hidden');
                     quickFollowupModal.classList.add('open');
-                    quickFollowupModal.style.display = 'flex';
+                    quickFollowupModal.style.setProperty('display', 'flex', 'important');
+                }
+                if (window.lucide && typeof lucide.createIcons === 'function') {
+                    lucide.createIcons();
                 }
             } else {
                 alert('Error loading lead data: ' + res.message);
@@ -2141,13 +3359,26 @@ if (empty($leads)) {
             });
 
             // 4. Sync Advanced Filter Drawer inputs if present
-            ['filter-date-from', 'filter-date-to', 'filter-date-type', 'filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-assigned', 'filter-group'].forEach(id => {
+            ['filter-date-from', 'filter-date-to', 'filter-date-type', 'filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-group'].forEach(id => {
                 const cur = document.getElementById(id);
                 const nw = doc.getElementById(id);
                 if (cur && nw && cur !== document.activeElement) {
                     cur.value = nw.value;
                 }
             });
+
+            // 4a. Sync Assigned Employee Checkbox Dropdown state
+            const newAssignedWrap = doc.querySelector('.assigned-cb-dropdown-wrap');
+            const curAssignedWrap = document.querySelector('.assigned-cb-dropdown-wrap');
+            if (newAssignedWrap && curAssignedWrap) {
+                curAssignedWrap.innerHTML = newAssignedWrap.innerHTML;
+            }
+            const newCountBadge = doc.querySelector('#filter-assigned-count-badge');
+            const curCountBadge = document.querySelector('#filter-assigned-count-badge');
+            if (newCountBadge && curCountBadge) {
+                curCountBadge.innerHTML = newCountBadge.innerHTML;
+                curCountBadge.style.display = newCountBadge.style.display;
+            }
 
             // 5. Sync Quick Preset Filter Button & Dropdown state
             const newPresetContainer = doc.querySelector('#quick-preset-dropdown-container');
@@ -2266,6 +3497,89 @@ if (empty($leads)) {
     }
     window.setDateRangePreset = setDateRangePreset;
 
+    // Multi-Select Checkbox Dropdown Handlers for Assigned Employee
+    function toggleAssignedCbDropdown(e) {
+        if (e) e.stopPropagation();
+        const menu = document.getElementById('assigned-cb-menu');
+        if (!menu) return;
+        const isHidden = menu.classList.contains('hidden');
+        document.querySelectorAll('#assigned-cb-menu').forEach(m => m.classList.add('hidden'));
+        if (isHidden) {
+            menu.classList.remove('hidden');
+            const searchInput = document.getElementById('assigned-cb-search');
+            if (searchInput) {
+                searchInput.value = '';
+                filterAssignedCbList('');
+                setTimeout(() => searchInput.focus(), 50);
+            }
+        } else {
+            menu.classList.add('hidden');
+        }
+    }
+    window.toggleAssignedCbDropdown = toggleAssignedCbDropdown;
+
+    function handleAssignedCbChange() {
+        updateAssignedCbTriggerLabel();
+        applyAdvancedFilters(true);
+    }
+    window.handleAssignedCbChange = handleAssignedCbChange;
+
+    function updateAssignedCbTriggerLabel() {
+        const cbs = Array.from(document.querySelectorAll('.filter-assigned-cb:checked'));
+        const labelEl = document.getElementById('assigned-cb-trigger-label');
+        const badgeEl = document.getElementById('filter-assigned-count-badge');
+        if (!labelEl) return;
+
+        if (cbs.length === 0) {
+            labelEl.textContent = 'All Employees';
+            if (badgeEl) badgeEl.style.display = 'none';
+        } else if (cbs.length === 1) {
+            labelEl.textContent = cbs[0].value;
+            if (badgeEl) {
+                badgeEl.textContent = '1';
+                badgeEl.style.display = 'inline-block';
+            }
+        } else {
+            labelEl.textContent = cbs.length + ' Employees Selected';
+            if (badgeEl) {
+                badgeEl.textContent = cbs.length;
+                badgeEl.style.display = 'inline-block';
+            }
+        }
+    }
+    window.updateAssignedCbTriggerLabel = updateAssignedCbTriggerLabel;
+
+    function clearAllAssignedCb() {
+        document.querySelectorAll('.filter-assigned-cb').forEach(cb => cb.checked = false);
+        updateAssignedCbTriggerLabel();
+        applyAdvancedFilters(true);
+    }
+    window.clearAllAssignedCb = clearAllAssignedCb;
+
+    function filterAssignedCbList(query) {
+        const q = (query || '').toLowerCase().trim();
+        document.querySelectorAll('.assigned-cb-item').forEach(item => {
+            const text = item.textContent.toLowerCase();
+            if (!q || text.includes(q)) {
+                item.style.display = 'flex';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+    window.filterAssignedCbList = filterAssignedCbList;
+
+    // Close employee dropdown on click outside
+    document.addEventListener('click', function(e) {
+        const menu = document.getElementById('assigned-cb-menu');
+        const trigger = document.getElementById('assigned-cb-trigger');
+        if (menu && !menu.classList.contains('hidden')) {
+            if (!menu.contains(e.target) && !trigger?.contains(e.target)) {
+                menu.classList.add('hidden');
+            }
+        }
+    });
+
     function applyAdvancedFilters(triggerServer = false) {
         const searchVal = (document.getElementById('leads-search-input')?.value || '').toLowerCase().trim();
         const dateFromVal = (document.getElementById('filter-date-from')?.value || '').trim();
@@ -2275,8 +3589,10 @@ if (empty($leads)) {
         const sourceVal = (document.getElementById('filter-source')?.value || '').toLowerCase().trim();
         const priorityVal = (document.getElementById('filter-priority')?.value || '').toLowerCase().trim();
         const statusVal = (document.getElementById('filter-status')?.value || '').toLowerCase().trim();
-        const assignedVal = (document.getElementById('filter-assigned')?.value || '').toLowerCase().trim();
         const groupVal = (document.getElementById('filter-group')?.value || '').toLowerCase().trim();
+
+        const selectedAssignedCheckboxes = Array.from(document.querySelectorAll('.filter-assigned-cb:checked')).map(cb => cb.value.trim());
+        const assignedVal = selectedAssignedCheckboxes.join(',');
 
         if (triggerServer) {
             const url = new URL(window.location.href);
@@ -2322,7 +3638,11 @@ if (empty($leads)) {
             if (sourceVal) url.searchParams.set('source', sourceVal); else url.searchParams.delete('source');
             if (priorityVal) url.searchParams.set('priority', priorityVal); else url.searchParams.delete('priority');
             if (statusVal) url.searchParams.set('status', statusVal); else url.searchParams.delete('status');
-            if (assignedVal) url.searchParams.set('assigned_to', assignedVal); else url.searchParams.delete('assigned_to');
+            if (selectedAssignedCheckboxes.length > 0) {
+                url.searchParams.set('assigned_to', selectedAssignedCheckboxes.join(','));
+            } else {
+                url.searchParams.delete('assigned_to');
+            }
             if (groupVal) url.searchParams.set('group_stage', groupVal); else url.searchParams.delete('group_stage');
             url.searchParams.set('p', '1');
             fetchLeadsPartialWithoutReload(url.toString(), true);
@@ -2359,14 +3679,35 @@ if (empty($leads)) {
 
             const matchSource = !sourceVal || rSource.includes(sourceVal) || text.includes(sourceVal);
             const matchPriority = !priorityVal || rPriority === priorityVal;
+
             let matchAssigned = true;
-            if (assignedVal) {
-                if (assignedVal === 'unassigned') {
-                    matchAssigned = (!rAssigned || rAssigned === 'unassigned' || rAssigned.trim() === '');
-                } else {
-                    matchAssigned = rAssigned.includes(assignedVal);
+            if (selectedAssignedCheckboxes.length > 0) {
+                const rAssignedClean = (row.getAttribute('data-assigned') || '').toLowerCase().trim();
+                const rAssignedParts = rAssignedClean.split(',').map(s => s.trim()).filter(Boolean);
+                const hasUnassigned = selectedAssignedCheckboxes.some(s => s.toLowerCase() === 'unassigned');
+                const cleanEmps = selectedAssignedCheckboxes.filter(s => s.toLowerCase() !== 'unassigned').map(s => s.toLowerCase());
+
+                const isUnassignedMatch = hasUnassigned && (!rAssignedClean || rAssignedClean === 'unassigned');
+                let isEmpMatch = false;
+
+                if (cleanEmps.length === 1) {
+                    // Strict individual match ONLY per user rule:
+                    isEmpMatch = (rAssignedClean === cleanEmps[0]);
+                } else if (cleanEmps.length > 1) {
+                    // Individual match
+                    if (cleanEmps.includes(rAssignedClean)) {
+                        isEmpMatch = true;
+                    } else {
+                        // Shared match: lead has 2+ assigned persons and at least 2 belong to cleanEmps
+                        const matchingCount = rAssignedParts.filter(p => cleanEmps.includes(p)).length;
+                        if (matchingCount >= 2) {
+                            isEmpMatch = true;
+                        }
+                    }
                 }
+                matchAssigned = isUnassignedMatch || isEmpMatch;
             }
+
             const matchGroup = !groupVal || rGroup === groupVal || rGroup.includes(groupVal);
 
             const closedWonStatuses = ['won', 'closed_won', 'install_pending', 'payment_pending'];
@@ -2392,10 +3733,12 @@ if (empty($leads)) {
     }
 
     function resetFilters() {
-        ['filter-date-from', 'filter-date-to', 'filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-assigned', 'filter-group', 'leads-search-input'].forEach(id => {
+        ['filter-date-from', 'filter-date-to', 'filter-date', 'filter-source', 'filter-priority', 'filter-status', 'filter-group', 'leads-search-input'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
         });
+        document.querySelectorAll('.filter-assigned-cb').forEach(cb => cb.checked = false);
+        updateAssignedCbTriggerLabel();
         const dtType = document.getElementById('filter-date-type');
         if (dtType) dtType.value = 'created_at';
         fetchLeadsPartialWithoutReload('index.php?page=leads', true);
@@ -2520,11 +3863,22 @@ if (empty($leads)) {
     // Apply default filtering immediately on load to hide dropped leads
     applyAdvancedFilters();
 
-    // AJAX submit handler
+    // AJAX submit handler with modern button loading state
     const qfForm = document.getElementById('quick-followup-form');
     if (qfForm) {
         qfForm.addEventListener('submit', function(e) {
             e.preventDefault();
+
+            const noteVal = (document.getElementById('qf-fup-notes')?.value || '').trim();
+            if (noteVal) {
+                try { localStorage.setItem('marg_last_fup_note', noteVal); } catch(e){}
+            }
+
+            const submitBtn = document.getElementById('qf-submit-btn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span style="display: inline-block; width: 13px; height: 13px; border: 2px solid #ffffff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite;"></span> <span>Saving...</span>';
+            }
             const formData = new FormData(this);
             
             fetch('index.php?page=leads', {
@@ -2557,6 +3911,15 @@ if (empty($leads)) {
             .catch(err => {
                 console.error(err);
                 alert('Save error: ' + err.message);
+            })
+            .finally(() => {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i data-lucide="check" style="width: 15px; height: 15px;"></i><span>Save & Log Follow-up</span>';
+                    if (window.lucide && typeof lucide.createIcons === 'function') {
+                        lucide.createIcons();
+                    }
+                }
             });
         });
     }
@@ -2566,9 +3929,56 @@ if (empty($leads)) {
         if (quickFollowupModal) {
             quickFollowupModal.classList.add('hidden');
             quickFollowupModal.classList.remove('open');
-            quickFollowupModal.style.display = 'none';
+            quickFollowupModal.style.setProperty('display', 'none', 'important');
         }
     }
+    window.closeQuickFollowupModal = closeQuickFollowupModal;
+
+    // 1-Click Copy Helper with visual feedback
+    window.copyQfText = function(text, btn) {
+        if (!text) return;
+        const cleanText = text.trim();
+        const originalHtml = btn.innerHTML;
+
+        function showSuccess() {
+            btn.classList.add('qf-copied');
+            btn.innerHTML = '<i data-lucide="check" style="width: 14px; height: 14px; color: #16a34a;"></i> <span style="color: #16a34a; font-weight: 700;">Copied!</span>';
+            if (window.lucide && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+            setTimeout(() => {
+                btn.classList.remove('qf-copied');
+                btn.innerHTML = originalHtml;
+                if (window.lucide && typeof lucide.createIcons === 'function') {
+                    lucide.createIcons();
+                }
+            }, 1800);
+        }
+
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(cleanText).then(showSuccess).catch(() => fallbackCopy(cleanText));
+        } else {
+            fallbackCopy(cleanText);
+        }
+
+        function fallbackCopy(val) {
+            const ta = document.createElement('textarea');
+            ta.value = val;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            try {
+                document.execCommand('copy');
+                showSuccess();
+            } catch (err) {
+                console.error('Fallback copy failed', err);
+            }
+            document.body.removeChild(ta);
+        }
+    };
 
     function handleBatchActionChange() {
         const action = document.getElementById('batch-action-select').value;
@@ -2694,12 +4104,7 @@ if (empty($leads)) {
         });
     }
 
-    function resetFilters() {
-        const selects = document.querySelectorAll('#advanced-filter-drawer select');
-        selects.forEach(select => select.selectedIndex = 0);
-        if (searchInput) searchInput.value = '';
-        applyAdvancedFilters();
-    }
+
 
     // Dynamic Select Columns Drawer Functions
     function toggleColumnCheckbox(checkboxId) {
@@ -4221,4 +5626,69 @@ function escapeHtml(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// Column sorting for classic table
+let classicSortCol = null;
+let classicSortDir = 'asc';
+
+function sortClassicTable(colClass) {
+    const tbody = document.getElementById('classicLeadsTbody') || document.querySelector('table.table tbody');
+    if (!tbody) return;
+
+    if (classicSortCol === colClass) {
+        classicSortDir = (classicSortDir === 'asc') ? 'desc' : 'asc';
+    } else {
+        classicSortCol = colClass;
+        classicSortDir = 'asc';
+    }
+
+    const rows = Array.from(tbody.querySelectorAll('tr[data-source]'));
+    if (rows.length <= 1) return;
+
+    const attrName = 'val' + colClass.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+
+    rows.sort((a, b) => {
+        let valA = a.dataset[attrName];
+        let valB = b.dataset[attrName];
+
+        if (valA === undefined) valA = a.querySelector('.' + colClass)?.innerText.trim() || '';
+        if (valB === undefined) valB = b.querySelector('.' + colClass)?.innerText.trim() || '';
+
+        const numA = parseFloat(valA);
+        const numB = parseFloat(valB);
+        const isNum = !isNaN(numA) && !isNaN(numB) && String(numA) === String(valA).trim() && String(numB) === String(valB).trim();
+
+        let res = 0;
+        if (isNum) {
+            res = numA - numB;
+        } else {
+            res = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+        }
+
+        return (classicSortDir === 'asc') ? res : -res;
+    });
+
+    rows.forEach(r => tbody.appendChild(r));
+
+    // Update header sort indicators
+    document.querySelectorAll('table.table thead th').forEach(th => {
+        const wrapper = th.querySelector('.th-sort-wrapper');
+        const icon = th.querySelector('.sort-icon');
+        if (!wrapper || !icon) return;
+
+        if (th.classList.contains(colClass)) {
+            wrapper.classList.add('active-sort');
+            icon.setAttribute('data-lucide', classicSortDir === 'asc' ? 'arrow-up' : 'arrow-down');
+        } else {
+            wrapper.classList.remove('active-sort');
+            icon.setAttribute('data-lucide', 'arrow-up-down');
+        }
+    });
+
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+window.sortClassicTable = sortClassicTable;
+
 </script>

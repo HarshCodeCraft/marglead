@@ -502,9 +502,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_lead_json') {
             $stmt->execute([$_GET['id']]);
             $l = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($l) {
-                // Fetch followup history for this lead
-                $stmtFup = $pdo->prepare("SELECT * FROM followups WHERE lead_id = ? ORDER BY scheduled_at DESC LIMIT 15");
-                $stmtFup->execute([$_GET['id']]);
+                // Fetch followup history for this lead (newest first, all past calling updates preserved)
+                $cleanId = preg_replace('/^LD-/i', '', $_GET['id']);
+                $formattedId = 'LD-' . $cleanId;
+                $stmtFup = $pdo->prepare("SELECT * FROM followups WHERE lead_id IN (?, ?) ORDER BY id DESC LIMIT 50");
+                $stmtFup->execute([$cleanId, $formattedId]);
                 $fupHistory = $stmtFup->fetchAll(PDO::FETCH_ASSOC);
 
                 echo json_encode([
@@ -601,36 +603,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $send_sms = isset($_POST['send_sms']) ? 1 : 0;
 
             if (!empty($action_type) || !empty($scheduled_at) || !empty($fup_notes)) {
-                // Check if a pending follow-up already exists for this lead
-                $chkFup = $pdo->prepare("SELECT id, action_type, scheduled_at, remarks FROM followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1");
-                $chkFup->execute([$lead_id]);
-                $existFup = $chkFup->fetch(PDO::FETCH_ASSOC);
+                // Archive any existing pending follow-ups as 'completed' so all historical calls and notes remain permanently stored
+                $cleanFupLeadId = preg_replace('/^LD-/i', '', $lead_id);
+                $fmtFupLeadId = 'LD-' . $cleanFupLeadId;
+                $chkFup = $pdo->prepare("SELECT id FROM followups WHERE lead_id IN (?, ?) AND status = 'pending'");
+                $chkFup->execute([$cleanFupLeadId, $fmtFupLeadId]);
+                $priorPending = $chkFup->fetchAll(PDO::FETCH_ASSOC);
                 
-                if ($existFup) {
-                    $old_time = date('Y-m-d H:i', strtotime($existFup['scheduled_at']));
-                    $new_time = date('Y-m-d H:i', strtotime($scheduled_at));
-                    $old_action = $existFup['action_type'] ?? '';
-
-                    if ($old_time !== $new_time || $action_type !== $old_action) {
-                        // Mark previous follow-up as 'rescheduled' keeping its original action_type intact
-                        $clean_remarks = preg_replace('/\s*\[Rescheduled to.*?\]/i', '', $existFup['remarks'] ?? '');
-                        $archived_notes = trim($clean_remarks) . ($old_time !== $new_time ? " [Rescheduled to $new_time]" : "");
-
-                        $updOld = $pdo->prepare("UPDATE followups SET status = 'rescheduled', remarks = ? WHERE id = ?");
-                        $updOld->execute([$archived_notes, $existFup['id']]);
-
-                        // Insert new follow-up record with the new action_type and new scheduled_at
-                        $insFup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, status, assigned_to, send_email, send_sms) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)");
-                        $insFup->execute([$lead_id, $action_type, $scheduled_at, $fup_notes ?: 'Follow-up reminder set', $fup_assigned_to, $send_email, $send_sms]);
-                    } else {
-                        // Update current follow-up details if date and action_type are unchanged
-                        $updFup = $pdo->prepare("UPDATE followups SET action_type = ?, remarks = ?, assigned_to = ?, send_email = ?, send_sms = ? WHERE id = ?");
-                        $updFup->execute([$action_type, $fup_notes ?: 'Follow-up reminder updated', $fup_assigned_to, $send_email, $send_sms, $existFup['id']]);
-                    }
-                } else {
-                    $insFup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, status, assigned_to, send_email, send_sms) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)");
-                    $insFup->execute([$lead_id, $action_type, $scheduled_at, $fup_notes ?: 'Follow-up reminder set', $fup_assigned_to, $send_email, $send_sms]);
+                if (!empty($priorPending)) {
+                    $updPrior = $pdo->prepare("UPDATE followups SET status = 'completed' WHERE lead_id IN (?, ?) AND status = 'pending'");
+                    $updPrior->execute([$cleanFupLeadId, $fmtFupLeadId]);
                 }
+
+                // Always insert a new follow-up record so every update, note, and call attempt is saved as a separate history entry
+                $insFup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, status, assigned_to, send_email, send_sms, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, NOW())");
+                $insFup->execute([$lead_id, $action_type, $scheduled_at, $fup_notes ?: 'Follow-up reminder set', $fup_assigned_to, $send_email, $send_sms]);
             }
             
             // 3. Log timeline event
@@ -754,20 +741,16 @@ if (isset($_GET['action']) && $_GET['action'] === 'schedule_followup' && $_SERVE
                 }
                 $sms_targets_json = json_encode($targets_list);
 
-                // Check if a pending follow-up already exists for this lead
-                $chkFup = $pdo->prepare("SELECT id FROM followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1");
-                $chkFup->execute([$lead_id]);
-                $existFup = $chkFup->fetchColumn();
+                // Archive any existing pending follow-ups for this lead so all calling history is permanently preserved
+                $cleanSchLeadId = preg_replace('/^LD-/i', '', $lead_id);
+                $fmtSchLeadId = 'LD-' . $cleanSchLeadId;
+                $updPrior = $pdo->prepare("UPDATE followups SET status = 'completed' WHERE lead_id IN (?, ?) AND status = 'pending'");
+                $updPrior->execute([$cleanSchLeadId, $fmtSchLeadId]);
 
-                if ($existFup) {
-                    $stmt = $pdo->prepare("UPDATE followups SET action_type = ?, scheduled_at = ?, remarks = ?, assigned_to = ?, send_email = ?, send_sms = ?, sms_targets = ? WHERE id = ?");
-                    $stmt->execute([$action_type, $scheduled_at, $remarks, $assigned_to, $send_email, $send_sms, $sms_targets_json, $existFup]);
-                    $fup_id = $existFup;
-                } else {
-                    $stmt = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, assigned_to, send_email, send_sms, email_sent, sms_sent, sms_targets, status) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'pending')");
-                    $stmt->execute([$lead_id, $action_type, $scheduled_at, $remarks, $assigned_to, $send_email, $send_sms, $sms_targets_json]);
-                    $fup_id = $pdo->lastInsertId();
-                }
+                // Always insert a new follow-up history record
+                $stmt = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, assigned_to, send_email, send_sms, email_sent, sms_sent, sms_targets, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'pending', NOW())");
+                $stmt->execute([$lead_id, $action_type, $scheduled_at, $remarks, $assigned_to, $send_email, $send_sms, $sms_targets_json]);
+                $fup_id = $pdo->lastInsertId();
                 
                 // Always stamp lead updated_at
                 $pdo->prepare("UPDATE leads SET updated_at = NOW() WHERE id = ?")->execute([$lead_id]);
@@ -895,6 +878,14 @@ switch ($page) {
     case 'leads':
         $module_path = __DIR__ . '/modules/leads/list.php';
         break;
+    case 'zoho_leads':
+        header("Location: index.php?page=leads&view=modern");
+        exit;
+    case 'modern_leads':
+    case 'modern_crm':
+    case 'crm_home':
+        $module_path = __DIR__ . '/modules/leads/modern_home.php';
+        break;
     case 'lead_details':
         $module_path = __DIR__ . '/modules/leads/details.php';
         break;
@@ -909,6 +900,11 @@ switch ($page) {
         break;
     case 'followups':
         $module_path = __DIR__ . '/modules/followups.php';
+        break;
+    case 'tasks':
+    case 'my_tasks':
+    case 'task_manager':
+        $module_path = __DIR__ . '/modules/tasks.php';
         break;
     case 'demo':
         $module_path = __DIR__ . '/modules/demo.php';
@@ -1015,6 +1011,10 @@ switch ($page) {
     case 'customer_kyc':
     case 'customer_kyc_admin':
         $module_path = __DIR__ . '/modules/customer_kyc_admin.php';
+        break;
+    case 'attendance':
+    case 'attendance_admin':
+        $module_path = __DIR__ . '/modules/attendance.php';
         break;
     default:
         $module_path = __DIR__ . '/modules/dashboard.php';

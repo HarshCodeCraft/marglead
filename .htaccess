@@ -6,30 +6,69 @@ ErrorDocument 403 /404.php
 # Prevent Directory Browsing
 Options -Indexes
 
+# =========================================================
+# Mitigate CVE-2024-4577 (PHP CGI Argument Injection on Windows)
+# & Pass Authorization Header for Mobile Native API
+# =========================================================
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} ^(.*)
+    RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+    RewriteCond %{QUERY_STRING} ^(%ad|%2d|-) [NC]
+    RewriteRule .* - [F,L]
+</IfModule>
+
 # Security Headers
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
     Header set X-XSS-Protection "1; mode=block"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Permissions-Policy "geolocation=(self), camera=(self), microphone=()"
 </IfModule>
 
 # =========================================================
-# Block Direct Access to Sensitive Files
+# Block Direct Access to Sensitive Files & Keys
 # =========================================================
-<FilesMatch "\.(sql|md|log|sh|bat|ps1|py|lock|env|bak|ini|git)$">
-    Order Allow,Deny
-    Deny from all
+<FilesMatch "\.(sql|md|log|sh|bat|ps1|py|lock|env|bak|ini|git|pem|key|crt|cert|json)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
+
+# Allow manifest.json explicitly for PWA / WebApp
+<Files "manifest.json">
+    <IfModule mod_authz_core.c>
+        Require all granted
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Allow from all
+    </IfModule>
+</Files>
 
 # Block access to hidden dot files (except .htaccess itself)
 <FilesMatch "^\.(?!htaccess)">
-    Order Allow,Deny
-    Deny from all
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
 # Block direct access to sensitive PHP setup & config files
 <FilesMatch "^(schema|setup_db|update_live_db|cron_scheduler|marg_bridge|composer)\.(php|sql|json|lock|ps1|py|bat)$">
-    Order Allow,Deny
-    Deny from all
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
 </FilesMatch>

@@ -355,6 +355,15 @@ class WhatsAppAPI {
      * Core cURL Executor with detailed Logging & DB persistence.
      */
     private function executeCurl(array $payload, string $msgType, string $msgSummary): array {
+        if (empty($this->phoneNumberId) || empty($this->accessToken)) {
+            write_log('warning', "WhatsApp API skipped: phone_number_id or access_token is empty.");
+            return [
+                'success'   => false,
+                'http_code' => 0,
+                'response'  => ['error' => 'WhatsApp Cloud API credentials not configured']
+            ];
+        }
+
         $url = "https://graph.facebook.com/{$this->graphVersion}/{$this->phoneNumberId}/messages";
         $jsonPayload = json_encode($payload, JSON_UNESCAPED_SLASHES);
 
@@ -368,8 +377,8 @@ class WhatsAppAPI {
             "Content-Type: application/json"
         ]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 4);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); // Avoid IPv6 DNS delay
         curl_setopt($ch, CURLOPT_TCP_NODELAY, 1);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // For local XAMPP SSL bypass if needed
@@ -420,10 +429,12 @@ class WhatsAppAPI {
         }
 
         return [
-            'success'   => ($httpCode >= 200 && $httpCode < 300),
-            'http_code' => $httpCode,
-            'response'  => $resData,
-            'error'     => $curlError
+            'success'    => ($httpCode >= 200 && $httpCode < 300),
+            'http_code'  => $httpCode,
+            'response'   => $resData,
+            'error'      => $curlError,
+            'message_id' => $wamid,
+            'wamid'      => $wamid
         ];
     }
 

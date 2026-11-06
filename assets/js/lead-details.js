@@ -27,6 +27,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Check if initial tab is specified in URL query parameter (?tab=whatsapp) or hash
+    const initialUrlParams = new URLSearchParams(window.location.search);
+    const initialTab = initialUrlParams.get('tab') || initialUrlParams.get('active_tab') || (window.location.hash ? window.location.hash.replace('#', '') : '');
+    if (initialTab) {
+        const matchingTabLink = document.querySelector(`.tab-link[data-tab="tab-${initialTab}"]`) || document.querySelector(`.tab-link[data-tab="${initialTab}"]`);
+        if (matchingTabLink) {
+            matchingTabLink.click();
+        }
+    }
+
     // Installation checklist dynamics (update percentage progress bar)
     const checkBoxes = document.querySelectorAll('.install-checklist-item input[type="checkbox"]');
     const progressBar = document.getElementById('install-progress-bar');

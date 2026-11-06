@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/ai_service.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -28,9 +29,16 @@ if (empty($text)) {
 }
 
 // -------------------------------------------------------------
-// 1. Check Gemini API (Google AI)
+// 1. Check Gemini API (Google AI) with Fallback Model Cascade
 // -------------------------------------------------------------
-$geminiKey = defined('GEMINI_API_KEY') ? GEMINI_API_KEY : (getenv('GEMINI_API_KEY') ?: '');
+$aiSettings = function_exists('getAISettings') ? getAISettings($pdo) : [];
+$geminiKey = !empty($aiSettings['api_key']) ? trim($aiSettings['api_key']) : '';
+if (!$geminiKey && defined('GEMINI_API_KEY')) {
+    $geminiKey = GEMINI_API_KEY;
+}
+if (!$geminiKey) {
+    $geminiKey = getenv('GEMINI_API_KEY') ?: '';
+}
 if (!$geminiKey && function_exists('getSystemSetting')) {
     $geminiKey = getSystemSetting('gemini_api_key', '');
 }
@@ -56,7 +64,6 @@ CRITICAL CONSTRAINT: Return ONLY a valid JSON object without markdown code block
   \"changes_count\": number_of_corrections_made
 }";
 
-        $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=" . urlencode($geminiKey);
         $postFields = [
             'contents' => [
                 ['parts' => [['text' => $sysPrompt . "\n\nTechnician Raw Input: " . $text]]]
@@ -67,31 +74,38 @@ CRITICAL CONSTRAINT: Return ONLY a valid JSON object without markdown code block
             ]
         ];
 
-        $ch = curl_init($apiUrl);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postFields));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 7);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        $raw = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        // Cascade through working Gemini models
+        $candidateModels = ['gemini-3.5-flash-lite', 'gemini-flash-latest', 'gemini-3.5-flash'];
+        foreach ($candidateModels as $activeModel) {
+            $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$activeModel}:generateContent?key=" . urlencode($geminiKey);
 
-        if ($httpCode === 200 && $raw) {
-            $res = json_decode($raw, true);
-            $outText = $res['candidates'][0]['content']['parts'][0]['text'] ?? '';
-            $parsed = json_decode($outText, true);
-            if ($parsed && !empty($parsed['corrected'])) {
-                echo json_encode([
-                    'success' => true,
-                    'engine' => 'gemini_ai',
-                    'original' => $text,
-                    'corrected' => trim($parsed['corrected']),
-                    'explanation' => $parsed['explanation'] ?? 'Grammar, vocabulary, and sentence structure enhanced.',
-                    'changes_count' => (int)($parsed['changes_count'] ?? 1)
-                ]);
-                exit;
+            $ch = curl_init($apiUrl);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postFields));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            $raw = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode === 200 && $raw) {
+                $res = json_decode($raw, true);
+                $outText = $res['candidates'][0]['content']['parts'][0]['text'] ?? '';
+                $parsed = json_decode($outText, true);
+                if ($parsed && !empty($parsed['corrected'])) {
+                    echo json_encode([
+                        'success' => true,
+                        'engine' => 'gemini_ai',
+                        'model' => $activeModel,
+                        'original' => $text,
+                        'corrected' => trim($parsed['corrected']),
+                        'explanation' => $parsed['explanation'] ?? 'Grammar, vocabulary, and sentence structure enhanced.',
+                        'changes_count' => (int)($parsed['changes_count'] ?? 1)
+                    ]);
+                    exit;
+                }
             }
         }
     } catch (\Throwable $e) {}

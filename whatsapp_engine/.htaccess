@@ -1,0 +1,10 @@
+# Marg ERP CRM - WhatsApp Engine Directory Access Control
+# Completely deny web access to Node.js engine, credentials, and source maps
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order Deny,Allow
+    Deny from all
+</IfModule>

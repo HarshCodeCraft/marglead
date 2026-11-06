@@ -77,7 +77,8 @@ if ($method === 'GET') {
         $origStatus = $origRow['status'] ?? 'open';
         $custPhone = !empty($origRow['phone']) ? $origRow['phone'] : ($origRow['callback_number'] ?? '');
         
-        $stmt = $pdo->prepare("UPDATE support_tickets SET status = ? WHERE id = ?");
+        $isClosed = in_array(strtolower($status), ['resolved', 'closed']);
+        $stmt = $pdo->prepare("UPDATE support_tickets SET status = ?, resolved_date = " . ($isClosed ? "IFNULL(resolved_date, NOW())" : "NULL") . ", updated_at = NOW() WHERE id = ?");
         $stmt->execute([$status, $ticket_id]);
 
         // Auto-close chat in Team Inbox silently (NO chat message logged)

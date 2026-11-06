@@ -348,27 +348,59 @@ require_once __DIR__ . '/../includes/db.php';
     min-height: 0;
     padding: 1.25rem 1.5rem;
     overflow-y: auto;
-    background-color: #f0f2f5;
+    background-color: #efeae2;
     background-image: 
         radial-gradient(circle at 20px 20px, rgba(15, 23, 42, 0.035) 2%, transparent 0%);
-    background-size: 40px 40px;
+    background-size: 36px 36px;
     display: flex;
     flex-direction: column;
-    gap: 0.85rem;
+    gap: 0.45rem;
     scrollbar-width: thin;
 }
 
 [data-theme="dark"] .chat-body {
     background-color: #0b141a;
     background-image: 
-        radial-gradient(circle at 20px 20px, rgba(255, 255, 255, 0.03) 2%, transparent 0%);
+        radial-gradient(circle at 20px 20px, rgba(255, 255, 255, 0.025) 2%, transparent 0%);
 }
 
-/* WhatsApp Message Bubbles - Royal & Crisp Proportions */
+/* WhatsApp Date Separator Badges - WhatsApp Web Centered Date Pill */
+.chat-date-separator {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 14px 0 10px 0;
+    width: 100%;
+    position: relative;
+    clear: both;
+}
+
+.chat-date-separator span {
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    color: #54656f;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 3px 14px;
+    border-radius: 9999px;
+    box-shadow: 0 1px 2px rgba(11, 20, 26, 0.08);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+[data-theme="dark"] .chat-date-separator span {
+    background: #182229;
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #8696a0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+/* WhatsApp Message Bubbles - Authentic WhatsApp Web Proportions */
 .msg-bubble-wrap {
     display: flex;
     width: 100%;
-    animation: msgFadeIn 0.2s ease-out forwards;
+    margin-bottom: 2px;
+    animation: msgFadeIn 0.15s ease-out forwards;
 }
 
 @keyframes msgFadeIn {
@@ -391,97 +423,79 @@ require_once __DIR__ . '/../includes/db.php';
 
 .msg-bubble {
     max-width: min(72%, 560px);
-    padding: 0.65rem 0.95rem;
-    font-size: 0.84rem;
-    line-height: 1.5;
+    padding: 0.45rem 0.75rem 0.35rem 0.75rem;
+    font-size: 0.85rem;
+    line-height: 1.45;
     position: relative;
     word-break: break-word;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
 }
 
 .msg-bubble.inbound {
     background: #ffffff;
-    color: #0f172a;
-    border: 1px solid #e2e8f0;
-    border-radius: 14px 14px 14px 4px;
+    color: #111b21;
+    border: none;
+    border-radius: 0 8px 8px 8px;
 }
 
 [data-theme="dark"] .msg-bubble.inbound {
-    background: #1e293b;
-    color: #f1f5f9;
-    border-color: #334155;
+    background: #202c33;
+    color: #e9edef;
 }
 
-/* WhatsApp Royal Soft Emerald Outbound Bubble Color */
+/* WhatsApp Official Outbound Bubble Color */
 .msg-bubble.outbound {
-    background: #e7f8e8;
-    color: #0f172a;
-    border: 1px solid #bbf7d0;
-    border-radius: 14px 14px 4px 14px;
-    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.08);
+    background: #d9fdd3;
+    color: #111b21;
+    border: none;
+    border-radius: 8px 0 8px 8px;
 }
 
 [data-theme="dark"] .msg-bubble.outbound {
-    background: #064e3b;
-    color: #ecfdf5;
-    border-color: #047857;
+    background: #005c4b;
+    color: #e9edef;
 }
 
 .msg-bubble.system {
-    background: rgba(245, 158, 11, 0.08);
-    color: #b45309;
-    border: 1px solid rgba(245, 158, 11, 0.25);
-    font-size: 0.74rem;
-    font-weight: 600;
+    background: rgba(255, 255, 255, 0.9);
+    color: #54656f;
+    border: none;
+    font-size: 0.72rem;
+    font-weight: 500;
     text-align: center;
-    border-radius: 20px;
-    padding: 4px 14px;
-    box-shadow: none;
+    border-radius: 8px;
+    padding: 4px 12px;
+    box-shadow: 0 1px 2px rgba(11, 20, 26, 0.1);
 }
 
-.msg-sender-tag {
-    font-size: 0.7rem;
-    font-weight: 700;
-    margin-bottom: 4px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.msg-bubble.inbound .msg-sender-tag {
-    color: #2563eb;
-}
-
-.msg-bubble.outbound .msg-sender-tag {
-    color: #047857;
-}
-
-[data-theme="dark"] .msg-bubble.outbound .msg-sender-tag {
-    color: #34d399;
+[data-theme="dark"] .msg-bubble.system {
+    background: #182229;
+    color: #8696a0;
 }
 
 .msg-footer {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 4px;
-    margin-top: 4px;
+    gap: 3px;
+    margin-top: 2px;
+    margin-left: 1.25rem;
+    float: right;
 }
 
 .msg-time {
-    font-size: 0.66rem;
-    color: #64748b;
-    font-weight: 500;
+    font-size: 0.65rem;
+    color: #667781;
+    font-weight: 400;
 }
 
 [data-theme="dark"] .msg-time {
-    color: #94a3b8;
+    color: #8696a0;
 }
 
 .read-ticks {
-    font-size: 0.74rem;
-    color: #0ea5e9;
-    font-weight: bold;
+    display: inline-flex;
+    align-items: center;
 }
 
 .msg-text-content {
@@ -861,45 +875,128 @@ require_once __DIR__ . '/../includes/db.php';
     text-align: center;
 }
 
-/* Right Pane: Customer CRM Context (Hidden by default, shown when toggled) */
+/* Right Pane: Customer CRM Context Drawer (Hidden by default, shown when toggled) */
 .inbox-right-pane {
     border-left: none;
     padding: 0;
-    background: var(--bg-app, #f8fafc);
+    background: var(--bg-card, #ffffff);
     overflow: hidden;
     display: none;
     opacity: 0;
     transition: opacity 0.2s ease;
+    flex-direction: column;
+    height: 100%;
 }
 
 .inbox-workspace.show-right-pane .inbox-right-pane {
-    display: block;
-    padding: 1rem;
+    display: flex;
     opacity: 1;
     overflow-y: auto;
     border-left: 1px solid var(--border-color, #e2e8f0);
 }
 
+.right-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-card, #ffffff);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.right-pane-title {
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: var(--text-main, #0f172a);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.right-pane-close {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted, #64748b);
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.right-pane-close:hover {
+    background: var(--bg-app, #f1f5f9);
+    color: var(--text-main, #0f172a);
+}
+
+.right-pane-content {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    overflow-y: auto;
+}
+
 .profile-card {
     text-align: center;
-    padding-bottom: 0.85rem;
-    border-bottom: 1px solid var(--border-color, #e2e8f0);
-    margin-bottom: 0.75rem;
+    padding: 1rem 0.85rem;
+    background: var(--bg-app, #f8fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 12px;
 }
 
 .profile-card-avatar {
     width: 52px;
     height: 52px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
     color: white;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 1.3rem;
     font-weight: 700;
-    margin: 0 auto 0.6rem auto;
-    font-family: var(--font-heading, sans-serif);
+    margin: 0 auto 0.5rem auto;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+}
+
+.crm-info-card {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 10px;
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.crm-info-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.crm-info-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.crm-info-val {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-main, #0f172a);
+    text-align: right;
+    word-break: break-all;
 }
 
 .refresh-spin {
@@ -1072,14 +1169,14 @@ require_once __DIR__ . '/../includes/db.php';
         </div>
         <!-- Channel Segment Tabs (All, Support Tickets, AI Sales) -->
         <div class="inbox-channel-tabs" style="display: flex; gap: 4px; padding: 6px 8px; background: var(--bg-card, #ffffff); border-bottom: 1px solid var(--border-color, #e2e8f0);">
-            <button type="button" class="channel-btn active" id="chan-all" onclick="switchChannelTab('all')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1px solid transparent; background: rgba(37, 99, 235, 0.12); color: var(--primary, #2563eb); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
-                All <span class="tab-count" id="cnt-chan-all" style="background: rgba(37,99,235,0.15); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
+            <button type="button" class="channel-btn active" id="chan-all" onclick="switchChannelTab('all')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1px solid transparent; background: rgba(37, 99, 235, 0.12); color: var(--primary, #2563eb); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                <i data-lucide="layout-grid" style="width: 11px; height: 11px;"></i> All <span class="tab-count" id="cnt-chan-all" style="background: rgba(37,99,235,0.15); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
             </button>
-            <button type="button" class="channel-btn" id="chan-support" onclick="switchChannelTab('support')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color, #e2e8f0); background: transparent; color: #ef4444; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
-                🎫 Support <span class="tab-count" id="cnt-chan-support" style="background: rgba(239,68,68,0.1); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
+            <button type="button" class="channel-btn" id="chan-support" onclick="switchChannelTab('support')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color, #e2e8f0); background: transparent; color: #475569; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                <i data-lucide="tag" style="width: 11px; height: 11px; color: #ef4444;"></i> Support <span class="tab-count" id="cnt-chan-support" style="background: rgba(239,68,68,0.1); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
             </button>
-            <button type="button" class="channel-btn" id="chan-sales" onclick="switchChannelTab('sales')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color, #e2e8f0); background: transparent; color: #10b981; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
-                🤖 AI Sales <span class="tab-count" id="cnt-chan-sales" style="background: rgba(16,185,129,0.1); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
+            <button type="button" class="channel-btn" id="chan-sales" onclick="switchChannelTab('sales')" style="flex: 1; padding: 4px 5px; font-size: 0.72rem; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color, #e2e8f0); background: transparent; color: #475569; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                <i data-lucide="sparkles" style="width: 11px; height: 11px; color: #10b981;"></i> AI Sales <span class="tab-count" id="cnt-chan-sales" style="background: rgba(16,185,129,0.1); padding: 1px 4px; border-radius: 6px; font-size: 0.65rem;">0</span>
             </button>
         </div>
 
@@ -1110,10 +1207,13 @@ require_once __DIR__ . '/../includes/db.php';
     <div class="inbox-center-pane">
         <!-- Chat Header -->
         <div class="chat-header">
-            <div class="chat-user-info">
+            <div class="chat-user-info" onclick="toggleRightPane()" style="cursor: pointer;" title="Click to view Customer Details">
                 <div class="chat-header-avatar" id="activeAvatar">C</div>
                 <div>
-                    <div class="chat-user-title" id="activeName">Select a Conversation</div>
+                    <div class="chat-user-title" id="activeName" style="display: flex; align-items: center; gap: 5px;">
+                        <span>Select a Conversation</span>
+                        <i data-lucide="chevron-right" style="width: 13px; height: 13px; color: var(--text-muted); opacity: 0.6;"></i>
+                    </div>
                     <div class="chat-user-subtitle" id="activePhone">
                         <i data-lucide="circle" style="width: 7px; height: 7px; fill: #10b981; color: #10b981;"></i>
                         <span>WhatsApp Live Desk</span>
@@ -1131,8 +1231,9 @@ require_once __DIR__ . '/../includes/db.php';
                 <button type="button" class="btn-pill btn-pill-outline text-xs" onclick="manualRefreshChat(this)" title="Refresh Chat History">
                     <i data-lucide="rotate-cw" id="refreshIcon" style="width: 12px; height: 12px;"></i>
                 </button>
-                <button type="button" class="btn-pill btn-pill-outline text-xs" onclick="toggleRightPane()" title="Toggle Customer Profile Panel">
-                    <i data-lucide="panel-right" style="width: 13px; height: 13px;"></i>
+                <button type="button" class="btn-pill btn-pill-outline text-xs" id="btnToggleRightPane" onclick="toggleRightPane()" title="Toggle Customer Profile Drawer">
+                    <i data-lucide="user" style="width: 12px; height: 12px;"></i>
+                    <span>Contact Info</span>
                 </button>
             </div>
         </div>
@@ -1180,7 +1281,7 @@ require_once __DIR__ . '/../includes/db.php';
                 <button type="button" class="btn-pill btn-pill-outline text-xs" style="height: 42px; width: 42px; border-radius: 10px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;" onclick="triggerFilePicker()" title="Attach & Send Image or PDF Document">
                     <i data-lucide="paperclip" style="width: 16px; height: 16px; color: #2563eb;"></i>
                 </button>
-                <textarea id="replyMessageInput" class="chat-textarea" placeholder="Type a message to reply on WhatsApp... (Ctrl+Enter to send)" onkeydown="handleKeyDown(event)"></textarea>
+                <textarea id="replyMessageInput" class="chat-textarea" placeholder="Type a message to reply on WhatsApp... (Enter to send, Shift+Enter for new line)" onkeydown="handleKeyDown(event)"></textarea>
                 <button type="button" id="btnSendMsg" class="btn-send-msg" onclick="submitReplyMessage()">
                     <i data-lucide="send" style="width: 14px; height: 14px;"></i>
                     <span>Send</span>
@@ -1189,60 +1290,96 @@ require_once __DIR__ . '/../includes/db.php';
         </div>
     </div>
 
-    <!-- 3. RIGHT PANE: CUSTOMER CRM CONTEXT -->
+    <!-- 3. RIGHT PANE: CUSTOMER CRM CONTEXT (DRAWER) -->
     <div class="inbox-right-pane" id="profilePane">
-        <div class="profile-card">
-            <div class="profile-card-avatar" id="rightAvatar">C</div>
-            <h3 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: var(--text-main);" id="rightName">Client Details</h3>
-            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;" id="rightCompany">Marg ERP Customer</div>
-            <span class="badge" style="margin-top: 6px; background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.68rem; display: inline-flex; align-items: center; gap: 3px;" id="rightStatus">
-                <i data-lucide="check-circle-2" style="width: 11px; height: 11px;"></i> Active
-            </span>
+        <div class="right-pane-header">
+            <div class="right-pane-title">
+                <i data-lucide="user-check" style="width: 15px; height: 15px; color: var(--primary);"></i>
+                <span>Customer Details</span>
+            </div>
+            <button type="button" class="right-pane-close" onclick="toggleRightPane()" title="Close Details Pane">
+                <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+            </button>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 0.65rem; font-size: 0.8rem;">
-            <div>
-                <label class="text-xs text-muted font-semibold" style="letter-spacing: 0.02em; font-size: 0.68rem;">24H META SERVICE WINDOW</label>
-                <div id="rightWindowTimer" style="font-weight: 700; font-size: 0.8rem; margin-top: 2px;">--</div>
+        <div class="right-pane-content">
+            <!-- Profile Identity Card -->
+            <div class="profile-card">
+                <div class="profile-card-avatar" id="rightAvatar">C</div>
+                <h3 class="profile-card-name" id="rightName">Client Details</h3>
+                <div class="profile-card-company" id="rightCompany">Marg ERP Customer</div>
+                <div style="margin-top: 8px;">
+                    <span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; font-weight: 700; font-size: 0.68rem; display: inline-flex; align-items: center; gap: 3px;" id="rightStatus">
+                        <i data-lucide="check-circle-2" style="width: 11px; height: 11px;"></i> Open
+                    </span>
+                </div>
             </div>
-            <div>
-                <label class="text-xs text-muted font-semibold" style="letter-spacing: 0.02em; font-size: 0.68rem;">PHONE NUMBER</label>
-                <div style="font-weight: 600; color: var(--text-main); margin-top: 1px;" id="rightPhone">+91 --</div>
+
+            <!-- Contact Information Card -->
+            <div class="crm-info-card">
+                <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 2px;">
+                    Contact Information
+                </div>
+                <div class="crm-info-row">
+                    <span class="crm-info-label">Phone:</span>
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span class="crm-info-val" id="rightPhone">+91 --</span>
+                        <button type="button" class="btn-copy-phone" onclick="copyContactPhone()" title="Copy Phone Number" style="background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 1px 3px;">
+                            <i data-lucide="copy" style="width: 12px; height: 12px;"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="crm-info-row">
+                    <span class="crm-info-label">Email:</span>
+                    <span class="crm-info-val" id="rightEmail">N/A</span>
+                </div>
+                <div class="crm-info-row">
+                    <span class="crm-info-label">CRM Lead:</span>
+                    <span class="crm-info-val" id="rightLeadLink">N/A</span>
+                </div>
             </div>
-            <div>
-                <label class="text-xs text-muted font-semibold" style="letter-spacing: 0.02em; font-size: 0.68rem;">EMAIL ADDRESS</label>
-                <div style="font-weight: 600; color: var(--text-main); margin-top: 1px;" id="rightEmail">N/A</div>
+
+            <!-- WhatsApp 24h Window & SLA Card -->
+            <div class="crm-info-card">
+                <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 2px;">
+                    Meta Session Window
+                </div>
+                <div id="rightWindowTimer" style="font-weight: 600; font-size: 0.78rem;">--</div>
+                <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; line-height: 1.35;">
+                    Free-form WhatsApp messaging is allowed within 24 hours of customer's inbound message.
+                </div>
             </div>
-            <div>
-                <label class="text-xs text-muted font-semibold" style="letter-spacing: 0.02em; font-size: 0.68rem;">ASSOCIATED LEAD ID</label>
-                <div id="rightLeadLink" style="font-weight: 600; color: #3b82f6; margin-top: 1px;">N/A</div>
-            </div>
-            <div style="margin-top: 0.4rem; border-top: 1px solid var(--border-color); padding-top: 0.65rem;">
-                <label class="text-xs text-muted font-semibold mb-1 block" style="letter-spacing: 0.02em; font-size: 0.68rem;">SUPPORT TICKET CONTEXT</label>
+
+            <!-- Support Ticket Context Card -->
+            <div class="crm-info-card">
+                <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 2px;">
+                    Support Ticket
+                </div>
                 <div id="rightTicketCard"></div>
             </div>
-            <div style="margin-top: 0.4rem; border-top: 1px solid var(--border-color); padding-top: 0.65rem;">
-                <label class="text-xs text-muted font-semibold mb-1 block" style="letter-spacing: 0.02em; font-size: 0.68rem;">AUDIT & STATUS HISTORY</label>
+
+            <!-- Audit History -->
+            <div class="crm-info-card">
+                <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 2px;">
+                    Audit History
+                </div>
                 <div id="rightAuditHistory" style="max-height: 110px; overflow-y: auto; font-size: 0.72rem;"></div>
             </div>
-            <div style="margin-top: 0.4rem; border-top: 1px solid var(--border-color); padding-top: 0.65rem;">
-                <label class="text-xs text-muted font-semibold mb-1 block" style="letter-spacing: 0.02em; font-size: 0.68rem;">QUICK CRM ACTIONS</label>
-                <button type="button" class="btn-pill btn-pill-outline w-full text-xs mb-1" onclick="openBankDetailsModal()" style="padding: 3px 8px; color: #059669; border-color: rgba(5,150,105,0.3);">
-                    <i data-lucide="landmark" style="width: 12px; height: 12px;"></i>
-                    Share Bank & QR
+
+            <!-- Quick CRM Action Buttons -->
+            <div class="crm-info-card">
+                <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 2px;">
+                    Quick Actions
+                </div>
+                <button type="button" class="btn-pill btn-pill-outline w-full text-xs" onclick="openBankDetailsModal()" style="padding: 5px 8px; color: #059669; border-color: rgba(5,150,105,0.3); justify-content: center; margin-bottom: 4px;">
+                    <i data-lucide="landmark" style="width: 12px; height: 12px;"></i> Share Bank & QR
                 </button>
-                <button type="button" class="btn-pill btn-pill-outline w-full text-xs mb-1" onclick="window.location.href='index.php?page=leads'" style="padding: 3px 8px;">
-                    <i data-lucide="user-plus" style="width: 12px; height: 12px;"></i>
-                    View CRM Leads
+                <button type="button" class="btn-pill btn-pill-outline w-full text-xs" onclick="window.location.href='index.php?page=leads'" style="padding: 5px 8px; justify-content: center; margin-bottom: 4px;">
+                    <i data-lucide="user-plus" style="width: 12px; height: 12px;"></i> View CRM Leads
                 </button>
-                <a href="index.php?page=support" class="btn-pill btn-pill-outline w-full text-xs block text-center" style="text-decoration: none; padding: 3px 8px;">
-                    <i data-lucide="life-buoy" style="width: 12px; height: 12px;"></i>
-                    Support Desk
+                <a href="index.php?page=support" class="btn-pill btn-pill-outline w-full text-xs" style="text-decoration: none; padding: 5px 8px; justify-content: center; display: flex; align-items: center; gap: 4px;">
+                    <i data-lucide="life-buoy" style="width: 12px; height: 12px;"></i> Support Desk
                 </a>
-                <button type="button" class="btn-pill btn-pill-outline w-full text-xs mt-1 block text-center" onclick="runMediaCleanup()" style="padding: 3px 8px; color: #ef4444; border-color: rgba(239,68,68,0.3);" title="Auto-delete MP4 video & MP3 audio files older than 48 hours">
-                    <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
-                    Clean 48h Audio/Video
-                </button>
             </div>
         </div>
     </div>
@@ -1360,6 +1497,38 @@ function toggleRightPane() {
     const ws = document.getElementById('mainInboxWorkspace');
     if (ws) {
         ws.classList.toggle('show-right-pane');
+        const btn = document.getElementById('btnToggleRightPane');
+        if (btn) {
+            if (ws.classList.contains('show-right-pane')) {
+                btn.style.background = 'rgba(37, 99, 235, 0.12)';
+                btn.style.borderColor = 'var(--primary, #2563eb)';
+                btn.style.color = 'var(--primary, #2563eb)';
+            } else {
+                btn.style.background = 'transparent';
+                btn.style.borderColor = 'var(--border-color, #cbd5e1)';
+                btn.style.color = 'inherit';
+            }
+        }
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+function copyContactPhone() {
+    const phoneElem = document.getElementById('rightPhone');
+    const phone = phoneElem ? phoneElem.innerText.replace(/[^0-9+]/g, '') : '';
+    if (!phone) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(phone).then(() => {
+            const btn = document.querySelector('.btn-copy-phone');
+            if (btn) {
+                btn.innerHTML = `<i data-lucide="check" style="width: 12px; height: 12px; color: #10b981;"></i>`;
+                if (window.lucide) lucide.createIcons();
+                setTimeout(() => {
+                    btn.innerHTML = `<i data-lucide="copy" style="width: 12px; height: 12px;"></i>`;
+                    if (window.lucide) lucide.createIcons();
+                }, 1800);
+            }
+        });
     }
 }
 
@@ -1501,6 +1670,32 @@ function formatWhatsAppText(raw) {
     return text;
 }
 
+function formatChatDateBadge(dateStr) {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    const d = new Date(year, month, day);
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const target = new Date(year, month, day);
+    target.setHours(0,0,0,0);
+
+    if (target.getTime() === today.getTime()) {
+        return 'TODAY';
+    } else if (target.getTime() === yesterday.getTime()) {
+        return 'YESTERDAY';
+    } else {
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+    }
+}
+
 function renderConversations(list) {
     const container = document.getElementById('conversationsContainer');
     if (!container) return;
@@ -1540,22 +1735,32 @@ function renderConversations(list) {
             statusPill = `<span class="status-pill-mini" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="lock" style="width: 10px; height: 10px;"></i> Closed</span>`;
         } else if (c.chat_status === 'pending') {
             statusPill = `<span class="status-pill-mini" style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="clock" style="width: 10px; height: 10px;"></i> Pending</span>`;
-        } else {
-            statusPill = `<span class="status-pill-mini" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.2); display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="check-circle-2" style="width: 10px; height: 10px;"></i> Open</span>`;
-        }
+        } // Normal open chats do not show a repetitive 'Open' pill, matching modern WhatsApp/Slack minimal UI
 
         const previewText = cleanPreviewText(c.message_body);
 
+        let outTick = '';
+        if (c.direction === 'OUTBOUND') {
+            const st = (c.message_status || '').toLowerCase();
+            if (st === 'read') {
+                outTick = `<span style="color: #53bdeb; display: inline-flex; align-items: center; margin-right: 4px; flex-shrink: 0;"><i data-lucide="check-check" style="width: 13px; height: 13px;"></i></span>`;
+            } else if (st === 'delivered') {
+                outTick = `<span style="color: #8696a0; display: inline-flex; align-items: center; margin-right: 4px; flex-shrink: 0;"><i data-lucide="check-check" style="width: 13px; height: 13px;"></i></span>`;
+            } else {
+                outTick = `<span style="color: #8696a0; display: inline-flex; align-items: center; margin-right: 4px; flex-shrink: 0;"><i data-lucide="check" style="width: 13px; height: 13px;"></i></span>`;
+            }
+        }
+
         let channelBadge = '';
         if (c.channel === 'support') {
-            channelBadge = `<span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; white-space: nowrap;">🎫 ${c.ticket_id ? '#' + c.ticket_id : 'Ticket'}</span>`;
+            channelBadge = `<span style="background: rgba(37, 99, 235, 0.08); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="tag" style="width: 9px; height: 9px;"></i> ${c.ticket_id ? '#' + c.ticket_id : 'Ticket'}</span>`;
         } else if (c.channel === 'sales') {
-            channelBadge = `<span style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; white-space: nowrap;">🤖 AI Sales</span>`;
+            channelBadge = `<span style="background: rgba(16, 185, 129, 0.08); color: #059669; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px;"><i data-lucide="sparkles" style="width: 9px; height: 9px;"></i> AI Sales</span>`;
         }
 
         let muteBadge = '';
         if (c.is_ai_muted) {
-            muteBadge = `<span style="background: rgba(100, 116, 139, 0.12); color: #64748b; font-size: 0.6rem; padding: 1px 4px; border-radius: 4px; white-space: nowrap;" title="Human Agent Active">👤 Agent</span>`;
+            muteBadge = `<span style="background: rgba(100, 116, 139, 0.12); color: #64748b; font-size: 0.6rem; padding: 1px 4px; border-radius: 4px; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px;" title="Human Agent Active"><i data-lucide="user-check" style="width: 10px; height: 10px;"></i> Agent</span>`;
         }
 
         // Primary Title & Phone display
@@ -1591,7 +1796,7 @@ function renderConversations(list) {
                     ${muteBadge}
                 </div>
                 <div class="conv-preview-row" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
-                    <div class="conv-preview" title="${escapeHtml(previewText)}" style="flex: 1; min-width: 0; font-size: 0.74rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(previewText)}</div>
+                    <div class="conv-preview" title="${escapeHtml(previewText)}" style="flex: 1; min-width: 0; font-size: 0.74rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center;">${outTick}<span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(previewText)}</span></div>
                     ${statusPill}
                 </div>
             </div>
@@ -1652,9 +1857,25 @@ function renderMessages(messages, scrollBottom = false) {
     lastMessagesHash = newHash;
 
     let html = '';
+    let lastDateKey = '';
     messages.forEach(m => {
         const isSystem = (m.message_type === 'system' || m.status === 'closed');
         const isOutbound = (m.direction === 'OUTBOUND');
+
+        // Date separator
+        let dateKey = m.msg_date;
+        if (!dateKey && m.created_at) {
+            dateKey = m.created_at.split(' ')[0];
+        }
+        if (dateKey && dateKey !== lastDateKey) {
+            lastDateKey = dateKey;
+            const badgeLabel = formatChatDateBadge(dateKey);
+            html += `
+            <div class="chat-date-separator">
+                <span>${badgeLabel}</span>
+            </div>
+            `;
+        }
 
         if (isSystem) {
             html += `
@@ -1668,9 +1889,6 @@ function renderMessages(messages, scrollBottom = false) {
         } else {
             const bubbleClass = isOutbound ? 'outbound' : 'inbound';
             const wrapClass = isOutbound ? 'outbound' : 'inbound';
-            const senderTag = isOutbound 
-                ? `<div class="msg-sender-tag"><i data-lucide="bot" style="width: 12px; height: 12px;"></i> Support Team / Bot</div>`
-                : `<div class="msg-sender-tag"><i data-lucide="user" style="width: 12px; height: 12px;"></i> Customer</div>`;
 
             let bodyText = '';
             const msgType = m.media_type || m.message_type || 'text';
@@ -1747,23 +1965,22 @@ function renderMessages(messages, scrollBottom = false) {
             if (isOutbound) {
                 const st = (m.status || 'sent').toLowerCase();
                 if (st === 'read') {
-                    readReceipt = `<span class="read-ticks" title="Read" style="color: #0284c7; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check-check" style="width: 13px; height: 13px;"></i></span>`;
+                    readReceipt = `<span class="read-ticks" title="Read" style="color: #53bdeb; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check-check" style="width: 14px; height: 14px;"></i></span>`;
                 } else if (st === 'delivered') {
-                    readReceipt = `<span class="read-ticks" title="Delivered" style="color: #94a3b8; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check-check" style="width: 13px; height: 13px;"></i></span>`;
+                    readReceipt = `<span class="read-ticks" title="Delivered" style="color: #8696a0; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check-check" style="width: 14px; height: 14px;"></i></span>`;
                 } else if (st === 'failed') {
-                    readReceipt = `<span class="read-ticks" title="Delivery Failed" style="color: #ef4444; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="alert-circle" style="width: 13px; height: 13px;"></i></span>`;
+                    readReceipt = `<span class="read-ticks" title="Delivery Failed" style="color: #ef4444; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="alert-circle" style="width: 14px; height: 14px;"></i></span>`;
                 } else {
-                    readReceipt = `<span class="read-ticks" title="Sent to Meta" style="color: #94a3b8; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check" style="width: 13px; height: 13px;"></i></span>`;
+                    readReceipt = `<span class="read-ticks" title="Sent" style="color: #8696a0; display: inline-flex; align-items: center; margin-left: 3px;"><i data-lucide="check" style="width: 14px; height: 14px;"></i></span>`;
                 }
             }
 
             html += `
             <div class="msg-bubble-wrap ${wrapClass}">
                 <div class="msg-bubble ${bubbleClass}">
-                    ${senderTag}
                     <div>${bodyText}</div>
                     <div class="msg-footer">
-                        <span class="msg-time">${m.formatted_time}</span>
+                        <span class="msg-time">${m.formatted_time || ''}</span>
                         ${readReceipt}
                     </div>
                 </div>
@@ -1826,7 +2043,7 @@ function renderProfile(p) {
         } else {
             aiBtnElem.innerHTML = `
                 <button type="button" class="btn-pill text-xs" style="background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 8px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="toggleAiMute('${p.phone}', 1)" title="AI Assistant is Auto-Replying. Click to Takeover manually.">
-                    <i data-lucide="bot" style="width: 11px; height: 11px; color: #10b981;"></i> 🤖 AI Active • Takeover
+                    <i data-lucide="bot" style="width: 12px; height: 12px; color: #10b981;"></i> AI Active • Takeover
                 </button>
             `;
         }
@@ -2249,6 +2466,8 @@ function submitSendBankDetails() {
             if (noteInput) noteInput.value = '';
             lastMessagesHash = '';
             fetchMessages(currentActivePhone, true);
+            lastConversationsHash = '';
+            fetchConversations(false);
         } else {
             alert('Failed sending bank details: ' + (data.message || 'Error occurred'));
         }
@@ -2263,7 +2482,8 @@ function submitSendBankDetails() {
 }
 
 function handleKeyDown(e) {
-    if (e.key === 'Enter' && e.ctrlKey) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
         submitReplyMessage();
     }
 }
@@ -2302,6 +2522,8 @@ function submitReplyMessage() {
         if (data.success) {
             lastMessagesHash = '';
             fetchMessages(currentActivePhone, true);
+            lastConversationsHash = '';
+            fetchConversations(false);
         } else {
             alert('Failed sending message: ' + (data.message || 'Error'));
         }
@@ -2332,6 +2554,8 @@ function sendQuickButtons() {
         if (data.success) {
             lastMessagesHash = '';
             fetchMessages(currentActivePhone, true);
+            lastConversationsHash = '';
+            fetchConversations(false);
         } else {
             alert('Error: ' + data.message);
         }
@@ -2362,6 +2586,8 @@ function sendQuickFlow() {
         if (data.success) {
             lastMessagesHash = '';
             fetchMessages(currentActivePhone, true);
+            lastConversationsHash = '';
+            fetchConversations(false);
         } else {
             alert('Error: ' + data.message);
         }

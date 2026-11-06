@@ -17,20 +17,19 @@ if ($raw_q === 'undefined' || empty($raw_q)) {
 $flowData = [
     'id' => 1,
     'flow_id' => $flow_id,
-    'name' => 'Ticket',
-    'category' => 'SIGN IN',
+    'name' => 'Marg Tickets',
+    'category' => 'OTHER',
     'status' => 'PUBLISHED',
     'screens' => [
         [
-            'id' => 'screen_1',
+            'id' => 'WELCOME_SCREEN',
             'name' => 'Welcome to Marg Soft',
             'title' => 'Welcome to Marg Soft',
-            'body' => 'Please Provide Your Info and Problem Here..',
+            'body' => 'Please provide your information and describe your problem below.',
             'components' => [
-                ['id' => 'c1', 'type' => 'Short Answer', 'label' => 'License Number', 'helper' => 'Client Id', 'required' => true],
-                ['id' => 'c2', 'type' => 'Dropdown', 'label' => 'Bill Format Issue', 'helper' => '', 'options' => ['Bill Format Issue', 'GST Error', 'Printer Setup'], 'required' => false],
-                ['id' => 'c3', 'type' => 'Text Area', 'label' => 'Problem', 'helper' => 'Describe issue', 'required' => true],
-                ['id' => 'c4', 'type' => 'Short Answer', 'label' => 'Call Back Number', 'helper' => 'Call Back Number', 'required' => true]
+                ['id' => 'c1', 'type' => 'Short Answer', 'label' => 'License Number', 'helper' => 'Client ID', 'required' => true],
+                ['id' => 'c2', 'type' => 'Text Area', 'label' => 'Problem', 'helper' => 'Maximum 600 characters', 'required' => true],
+                ['id' => 'c3', 'type' => 'Phone Number', 'label' => 'Call Back Number', 'helper' => 'Call Back Number', 'required' => true]
             ],
             'footer_label' => 'Submit',
             'footer_action' => 'Complete'

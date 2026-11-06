@@ -2,6 +2,18 @@
  * Marg ERP CRM - Global Frontend Interactions
  */
 
+// Global XSS Sanitization & HTML Escaper (Universal availability)
+window.escapeHtml = function (str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+};
+var escapeHtml = window.escapeHtml;
+
 // Overwrite native browser localhost alert() with a custom non-blocking CRM toast banner
 window.alert = function (msg) {
     if (!msg) return;
@@ -176,25 +188,76 @@ function initMainApp() {
 
             if (isAutoHideEnabled) {
                 resetSidebarTimer();
-                if (typeof window.alert === 'function') {
-                    window.alert(' Sidebar Auto-Hide Enabled (Auto-closes after 5s of inactivity)');
-                }
             } else {
                 clearTimeout(sidebarTimer);
-                if (typeof window.alert === 'function') {
-                    window.alert('📌 Sidebar Pinned (Will stay open)');
+            }
+        });
+    }
+
+    // ----------------------------------------------------
+    // Persistent Sidebar Scroll & Active Item Visibility
+    // ----------------------------------------------------
+    const sidebarMenu = document.querySelector('.sidebar-menu');
+    if (sidebarMenu) {
+        // 1. Open parent dropdown if active item is nested
+        const activeItem = sidebarMenu.querySelector('.sidebar-item.active, .sidebar-subitem.active');
+        if (activeItem) {
+            const parentDropdown = activeItem.closest('.sidebar-dropdown');
+            if (parentDropdown && !parentDropdown.classList.contains('open')) {
+                parentDropdown.classList.add('open');
+            }
+        }
+
+        // 2. Immediately restore saved scroll position
+        const savedScroll = sessionStorage.getItem('sidebar_menu_scroll');
+        if (savedScroll !== null && parseInt(savedScroll, 10) > 0) {
+            const pos = parseInt(savedScroll, 10);
+            sidebarMenu.scrollTop = pos;
+            requestAnimationFrame(() => { sidebarMenu.scrollTop = pos; });
+            setTimeout(() => { sidebarMenu.scrollTop = pos; }, 60);
+        } else if (activeItem) {
+            // Smoothly align active item without window jumping
+            const menuRect = sidebarMenu.getBoundingClientRect();
+            const itemRect = activeItem.getBoundingClientRect();
+            if (itemRect.top < menuRect.top || itemRect.bottom > menuRect.bottom) {
+                const targetScroll = Math.max(0, activeItem.offsetTop - (sidebarMenu.clientHeight / 2));
+                sidebarMenu.scrollTop = targetScroll;
+            }
+        }
+
+        // 3. Save scroll position robustly on scroll, click and beforeunload
+        let scrollDebounce = null;
+        sidebarMenu.addEventListener('scroll', () => {
+            clearTimeout(scrollDebounce);
+            scrollDebounce = setTimeout(() => {
+                if (sidebarMenu.scrollTop > 0) {
+                    sessionStorage.setItem('sidebar_menu_scroll', sidebarMenu.scrollTop);
                 }
+            }, 80);
+        }, { passive: true });
+
+        sidebarMenu.addEventListener('click', (e) => {
+            const link = e.target.closest('a');
+            if (link) {
+                sessionStorage.setItem('sidebar_menu_scroll', sidebarMenu.scrollTop);
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            if (sidebarMenu && sidebarMenu.scrollTop > 0) {
+                sessionStorage.setItem('sidebar_menu_scroll', sidebarMenu.scrollTop);
             }
         });
     }
 
     window.toggleSidebarDropdown = function (e, element) {
-        if (e.target.closest('.menu-chevron')) {
-            e.preventDefault();
-            e.stopPropagation();
-            const parentLi = element.closest('.sidebar-dropdown');
-            if (parentLi) {
-                parentLi.classList.toggle('open');
+        e.preventDefault();
+        e.stopPropagation();
+        const parentLi = element.closest('.sidebar-dropdown');
+        if (parentLi) {
+            parentLi.classList.toggle('open');
+            if (sidebarMenu) {
+                sessionStorage.setItem('sidebar_menu_scroll', sidebarMenu.scrollTop);
             }
         }
     };
@@ -435,6 +498,14 @@ function autoSyncPageData() {
  * Fetches latest database updates and updates DOM components dynamically without page reloads.
  */
 function refreshDataWithoutReload(force = false) {
+    // If on support page, bot flows, canvas builder, or dashboard/home, bypass generic DOM polling to prevent flicker
+    const urlParams = new URLSearchParams(window.location.search);
+    const pageParam = urlParams.get('page') || 'dashboard';
+    const viewParam = (urlParams.get('view') || '').toLowerCase();
+    if (!force && (pageParam === 'dashboard' || pageParam === 'support' || pageParam === 'bot_flows' || pageParam === 'bot_flow_builder' || pageParam === 'admin_users' || pageParam === 'admin_permissions' || (pageParam === 'leads' && (viewParam === 'modern' || viewParam === 'crm')))) {
+        return Promise.resolve(false);
+    }
+
     if (!force && isUserFillingForm()) {
         return Promise.resolve(false);
     }
@@ -559,6 +630,27 @@ function refreshDataWithoutReload(force = false) {
                 if (typeof loadColumnPreferences === 'function') {
                     loadColumnPreferences();
                 }
+                if (typeof renderActivitiesPagination === 'function') {
+                    renderActivitiesPagination();
+                }
+                if (typeof renderTasksPagination === 'function') {
+                    renderTasksPagination();
+                }
+                if (typeof renderMeetingsPagination === 'function') {
+                    renderMeetingsPagination();
+                }
+                if (typeof applyColumnStyles === 'function') {
+                    applyColumnStyles();
+                }
+                if (typeof applyTasksColumnStyles === 'function') {
+                    applyTasksColumnStyles();
+                }
+                if (typeof applyMeetingsColumnStyles === 'function') {
+                    applyMeetingsColumnStyles();
+                }
+                if (typeof window.loadSupColumnPreferences === 'function') {
+                    window.loadSupColumnPreferences();
+                }
                 if (typeof window.initCRMCharts === 'function') {
                     window.initCRMCharts();
                 }
@@ -574,8 +666,12 @@ function refreshDataWithoutReload(force = false) {
 
 window.refreshDataWithoutReload = refreshDataWithoutReload;
 
-// Ultra-Fast Auto-sync latest database records every 1 second (1000ms)
-setInterval(autoSyncPageData, 1000);
+// Safe background sync (every 60 seconds, only when tab is active)
+setInterval(() => {
+    if (document.visibilityState === 'visible') {
+        autoSyncPageData();
+    }
+}, 60000);
 
 /**
  * Easy Date-Time Picker Shortcut Enhancements
@@ -639,6 +735,7 @@ window.initEasyDateTimePickers = function () {
     const dtInputs = document.querySelectorAll('input[type="datetime-local"], input[type="date"]');
     dtInputs.forEach(input => {
         if (input.dataset.quickDtInit === 'true' || input.dataset.noQuick === 'true' || input.classList.contains('no-quick')) return;
+        if (input.closest('.attendance-workspace') || input.closest('.modal-overlay')) return;
         input.dataset.quickDtInit = 'true';
 
         const isDateOnly = (input.type === 'date');
@@ -676,7 +773,6 @@ window.initEasyDateTimePickers = function () {
 
 // Automatically initialize date-time helper chips
 document.addEventListener('DOMContentLoaded', initEasyDateTimePickers);
-setInterval(initEasyDateTimePickers, 500);
 
 // =========================================================================
 // Global Real-Time Single-Device Session Monitor & Concurrent Login Watcher

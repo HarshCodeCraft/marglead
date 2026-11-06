@@ -19,19 +19,26 @@ if (!headers_sent()) {
 }
 
 // Start session to persist user role & theme preferences (5 Hours = 18000s)
+// Start session to persist user role & theme preferences (5 Hours = 18000s)
 if (session_status() == PHP_SESSION_NONE) {
     $session_lifetime = 18000; // 5 Hours
     @ini_set('session.gc_maxlifetime', $session_lifetime);
     @ini_set('session.cookie_lifetime', $session_lifetime);
+    @ini_set('session.use_only_cookies', 1);
+    @ini_set('session.use_strict_mode', 1);
+
+    $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443) || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+
     if (PHP_VERSION_ID >= 70300) {
         @session_set_cookie_params([
             'lifetime' => $session_lifetime,
-            'path' => '/',
+            'path'     => '/',
             'httponly' => true,
+            'secure'   => $isSecure,
             'samesite' => 'Lax'
         ]);
     } else {
-        @session_set_cookie_params($session_lifetime, '/');
+        @session_set_cookie_params($session_lifetime, '/', '', $isSecure, true);
     }
     session_start();
 }
@@ -620,7 +627,12 @@ function hasAccess($module, $role) {
     }
 
     // 3. System Administrator ALWAYS gets 100% full access to all pages on Master CRM (when not impersonating)
-    if (isSystemAdminRole($role) && empty($_SESSION['impersonate_tenant_db'])) {
+        // Tasks module is accessible to all authenticated team members
+    if (in_array($normalized_module, ['tasks', 'my_tasks', 'task_manager', 'attendance', 'attendance_admin'])) {
+        return true;
+    }
+
+if (isSystemAdminRole($role) && empty($_SESSION['impersonate_tenant_db'])) {
         return true;
     }
 
@@ -1039,7 +1051,7 @@ if (!function_exists('getLiveMetricCounts')) {
 
         // 2. Demo Scheduled
         $demo_base = "group_stage LIKE '%Demo Scheduled%'";
-        $demo_date_expr = "COALESCE((SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status = 'pending' ORDER BY scheduled_at ASC LIMIT 1), DATE(leads.created_at))";
+        $demo_date_expr = "COALESCE((SELECT DATE(scheduled_at) FROM followups WHERE lead_id = leads.id AND status IN ('pending', 'missed') ORDER BY CASE WHEN status = 'pending' THEN 1 ELSE 2 END, scheduled_at ASC LIMIT 1), (SELECT DATE(scheduled_at) FROM demos WHERE lead_id = leads.id AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 1))";
 
         try {
             $res = $pdo->query("SELECT COUNT(*) FROM leads WHERE {$demo_base} {$exec_where_lead_demo}");
@@ -1171,7 +1183,7 @@ if (!function_exists('logActivity')) {
  */
 if (!function_exists('getIndianStatesAndCities')) {
     function getIndianStatesAndCities() {
-        return [
+        $states = [
             'Uttar Pradesh' => ['Kanpur', 'Lucknow', 'Varanasi', 'Agra', 'Prayagraj', 'Noida', 'Greater Noida', 'Ghaziabad', 'Meerut', 'Bareilly', 'Aligarh', 'Moradabad', 'Saharanpur', 'Gorakhpur', 'Jhansi', 'Muzaffarnagar', 'Mathura', 'Ayodhya', 'Firozabad', 'Etawah', 'Unnao', 'Kannauj', 'Farrukhabad', 'Sitapur', 'Hardoi', 'Banda', 'Fatehpur', 'Raebareli', 'Sultanpur', 'Jaunpur', 'Mirzapur', 'Basti', 'Deoria', 'Gonda', 'Bahraich', 'Azamgarh', 'Rampur', 'Shahjahanpur', 'Badaun', 'Sambhal', 'Amroha', 'Hapur', 'Bulandshahr', 'Hathras', 'Kasganj', 'Mainpuri', 'Etah', 'Pilibhit', 'Bijnor', 'Shamli', 'Baghpat', 'Lalitpur', 'Jalaun', 'Hamirpur', 'Mahoba', 'Chitrakoot', 'Kaushambi', 'Pratapgarh', 'Amethi', 'Barabanki', 'Ambedkar Nagar', 'Shravasti', 'Balrampur', 'Siddharthnagar', 'Sant Kabir Nagar', 'Maharajganj', 'Kushinagar', 'Mau', 'Ballia', 'Ghazipur', 'Chandauli', 'Sonbhadra', 'Bhadohi'],
             'Delhi' => ['New Delhi', 'Central Delhi', 'North Delhi', 'South Delhi', 'East Delhi', 'West Delhi', 'Dwarka', 'Rohini', 'Saket', 'Connaught Place', 'Karol Bagh', 'Laxmi Nagar', 'Janakpuri', 'Pitampura', 'Vasant Kunj'],
             'Maharashtra' => ['Mumbai', 'Pune', 'Nagpur', 'Thane', 'Nashik', 'Chhatrapati Sambhaji Nagar (Aurangabad)', 'Solapur', 'Kolhapur', 'Navi Mumbai', 'Amravati', 'Nanded', 'Sangli', 'Jalgaon', 'Akola', 'Latur', 'Dhule', 'Ahmednagar', 'Chandrapur', 'Parbhani', 'Jalna', 'Yavatmal', 'Shirpur', 'Satara', 'Ratnagiri', 'Wardha'],
@@ -1209,6 +1221,12 @@ if (!function_exists('getIndianStatesAndCities')) {
             'Dadra and Nagar Haveli and Daman and Diu' => ['Daman', 'Diu', 'Silvassa'],
             'Lakshadweep' => ['Kavaratti']
         ];
+        ksort($states, SORT_NATURAL | SORT_FLAG_CASE);
+        foreach ($states as &$cList) {
+            sort($cList, SORT_NATURAL | SORT_FLAG_CASE);
+        }
+        unset($cList);
+        return $states;
     }
 }
 

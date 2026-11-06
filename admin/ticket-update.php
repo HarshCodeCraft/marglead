@@ -33,7 +33,8 @@ if ($id > 0 && $pdo) {
 
             // Sync with support_tickets table if exists
             try {
-                $syncStmt = $pdo->prepare("UPDATE support_tickets SET status = ?, assigned_to = ? WHERE id = ?");
+                $isClosed = in_array(strtolower($status), ['resolved', 'closed']);
+                $syncStmt = $pdo->prepare("UPDATE support_tickets SET status = ?, assigned_to = ?, resolved_date = " . ($isClosed ? "IFNULL(resolved_date, NOW())" : "NULL") . ", updated_at = NOW() WHERE id = ?");
                 $syncStmt->execute([strtolower($status), $assignedTo, $ticket['ticket_number']]);
             } catch (Throwable $eSync) {}
 

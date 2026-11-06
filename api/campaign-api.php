@@ -914,9 +914,10 @@ function internalProcessCampaignBatch($pdo, $id, $batchSize = 5, $isCli = false)
         $batchSize = min($batchSize, $remainingAllowed);
     }
 
-    // Ensure schema support for updated_at and variables_json
+    // Ensure schema support for updated_at, variables_json, and wamid
     try { $pdo->exec("ALTER TABLE campaign_audience ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch (\Throwable $e) {}
     try { $pdo->exec("ALTER TABLE campaign_audience ADD COLUMN variables_json TEXT NULL AFTER company_name"); } catch (\Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE campaign_audience ADD COLUMN wamid VARCHAR(100) NULL AFTER mobile, ADD INDEX (wamid)"); } catch (\Throwable $e) {}
 
     // Stale lock recovery: auto-reset rows stuck in 'processing' for > 5 minutes back to 'pending'
     $pdo->prepare("UPDATE campaign_audience SET status = 'pending' WHERE campaign_id = ? AND status = 'processing' AND sent_at IS NULL AND (updated_at < NOW() - INTERVAL 5 MINUTE OR updated_at IS NULL)")->execute([$id]);
@@ -983,6 +984,17 @@ function internalProcessCampaignBatch($pdo, $id, $batchSize = 5, $isCli = false)
 
     foreach ($pendingBatch as $item) {
         $phone = $item['mobile'];
+
+        // Strict duplicate check: Prevent sending duplicate template to the same phone within the same campaign
+        $stmtDupCheck = $pdo->prepare("SELECT COUNT(*) FROM campaign_audience WHERE campaign_id = ? AND mobile = ? AND status = 'sent' AND id != ?");
+        $stmtDupCheck->execute([$id, $phone, $item['id']]);
+        if ($stmtDupCheck->fetchColumn() > 0) {
+            $pdo->prepare("UPDATE campaign_audience SET status = 'failed', error_message = 'Duplicate phone number in audience - skipped to protect against spam ban', sent_at = NOW() WHERE id = ?")->execute([$item['id']]);
+            $failInc++;
+            $processedCount++;
+            continue;
+        }
+
         $custName = $item['customer_name'] ?? 'Valued Customer';
         $compName = $item['company_name'] ?? 'Marg Client';
         $template = $campaign['template_name'];
@@ -1031,8 +1043,9 @@ function internalProcessCampaignBatch($pdo, $id, $batchSize = 5, $isCli = false)
 
         if (!empty($res['success']) && $res['success']) {
             $sentInc++;
-            $updAud = $pdo->prepare("UPDATE campaign_audience SET status = 'sent', sent_at = NOW() WHERE id = ?");
-            $updAud->execute([$item['id']]);
+            $wamid = $res['wamid'] ?? ($res['message_id'] ?? ($res['response']['messages'][0]['id'] ?? null));
+            $updAud = $pdo->prepare("UPDATE campaign_audience SET status = 'sent', wamid = ?, sent_at = NOW() WHERE id = ?");
+            $updAud->execute([$wamid, $item['id']]);
         } else {
             $failInc++;
             $errText = $res['response']['error']['error_data']['details']
@@ -1590,8 +1603,38 @@ try {
         // 7. Get Saved Templates & Sync Meta Approved Templates
         // ---------------------------------------------------------
         case 'get_templates':
+            // 1. Database-level deduplication: purge duplicate rows keeping the newest / approved record
+            try {
+                $pdo->exec("DELETE t1 FROM whatsapp_templates t1
+                    INNER JOIN whatsapp_templates t2 
+                    ON (t1.slug = t2.slug OR (LOWER(TRIM(t1.title)) = LOWER(TRIM(t2.title)) AND t1.title != ''))
+                    AND t1.id < t2.id");
+            } catch (\Throwable $eClean) {}
+
             $stmtT = $pdo->query("SELECT * FROM whatsapp_templates ORDER BY id DESC");
-            $templates = $stmtT ? $stmtT->fetchAll(PDO::FETCH_ASSOC) : [];
+            $rawTemplates = $stmtT ? $stmtT->fetchAll(PDO::FETCH_ASSOC) : [];
+
+            // 2. Strict in-memory deduplication: ensure exactly one record per canonical slug & title
+            $seenSlugs = [];
+            $seenTitles = [];
+            $templates = [];
+            foreach ($rawTemplates as $t) {
+                $rawSlug = strtolower(trim($t['slug'] ?? ''));
+                $canonicalSlug = preg_replace('/_\d{4,6}$/', '', $rawSlug);
+                $cleanTitle = strtolower(trim($t['title'] ?? ''));
+
+                if (isset($seenSlugs[$canonicalSlug]) || (!empty($cleanTitle) && isset($seenTitles[$cleanTitle]))) {
+                    // Purge duplicate row from DB
+                    try {
+                        $pdo->prepare("DELETE FROM whatsapp_templates WHERE id = ?")->execute([$t['id']]);
+                    } catch (\Throwable $eDel) {}
+                    continue;
+                }
+
+                $seenSlugs[$canonicalSlug] = true;
+                if (!empty($cleanTitle)) $seenTitles[$cleanTitle] = true;
+                $templates[] = $t;
+            }
 
             $hasMargBill = false;
             foreach ($templates as $t) {
@@ -1643,8 +1686,15 @@ try {
                 $syncedCount = 0;
                 $activeMetaSlugs = [];
 
+                $processedSlugsInRun = [];
+
                 foreach ($metaData['data'] as $mT) {
-                    $name = $mT['name'];
+                    $name = trim($mT['name']);
+                    // Prevent Meta multiple language duplicates in the same API payload
+                    if (isset($processedSlugsInRun[$name])) {
+                        continue;
+                    }
+                    $processedSlugsInRun[$name] = true;
                     $activeMetaSlugs[] = $name;
                     $category = $mT['category'] ?? 'MARKETING';
                     $status = strtoupper($mT['status'] ?? 'APPROVED');
@@ -1685,18 +1735,19 @@ try {
                     $title = ucwords(str_replace(['_', '-'], ' ', $name));
                     $buttonsJson = json_encode($buttonsArr);
 
-                    $stmtChk = $pdo->prepare("SELECT id FROM whatsapp_templates WHERE slug = ? LIMIT 1");
-                    $stmtChk->execute([$name]);
+                    // Match by exact slug OR prefix slug (with random timestamp) OR exact title
+                    $stmtChk = $pdo->prepare("SELECT id FROM whatsapp_templates WHERE slug = ? OR slug LIKE ? OR LOWER(title) = ? ORDER BY id DESC LIMIT 1");
+                    $stmtChk->execute([$name, $name . '_%', strtolower($title)]);
                     $existing = $stmtChk->fetch(PDO::FETCH_ASSOC);
 
                     if ($existing) {
-                        if (!empty($headerContent)) {
-                            $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET meta_status = ?, category = ?, header_type = ?, header_text = ?, header_content = ?, body_text = ?, footer_text = ?, buttons_json = ? WHERE id = ?");
-                            $stmtUpd->execute([$status, $category, $headerType, $headerText, $headerContent, $bodyText, $footerText, $buttonsJson, $existing['id']]);
-                        } else {
-                            $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET meta_status = ?, category = ?, header_type = ?, header_text = ?, body_text = ?, footer_text = ?, buttons_json = ? WHERE id = ?");
-                            $stmtUpd->execute([$status, $category, $headerType, $headerText, $bodyText, $footerText, $buttonsJson, $existing['id']]);
-                        }
+                        $stmtUpd = $pdo->prepare("UPDATE whatsapp_templates SET slug = ?, title = ?, meta_status = ?, category = ?, header_type = ?, header_text = ?, header_content = COALESCE(NULLIF(?, ''), header_content), body_text = ?, footer_text = ?, buttons_json = ?, gateway_origin = 'meta', updated_at = NOW() WHERE id = ?");
+                        $stmtUpd->execute([$name, $title, $status, $category, $headerType, $headerText, $headerContent, $bodyText, $footerText, $buttonsJson, $existing['id']]);
+
+                        // Purge any older redundant duplicate rows for this template
+                        try {
+                            $pdo->prepare("DELETE FROM whatsapp_templates WHERE (slug = ? OR slug LIKE ? OR LOWER(title) = ?) AND id != ?")->execute([$name, $name . '_%', strtolower($title), $existing['id']]);
+                        } catch (\Throwable $eDelDup) {}
                     } else {
                         $stmtIns = $pdo->prepare("INSERT INTO whatsapp_templates (title, slug, category, header_type, header_text, header_content, body_text, footer_text, buttons_json, created_by, meta_status, gateway_origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Meta Sync', ?, 'meta')");
                         $stmtIns->execute([$title, $name, $category, $headerType, $headerText, $headerContent, $bodyText, $footerText, $buttonsJson, $status]);
@@ -1800,7 +1851,14 @@ try {
             if ($existing && !empty($existing['slug'])) {
                 $slug = $existing['slug'];
             } else {
-                $slug = preg_replace('/[^a-z0-9_]/', '_', strtolower($title)) . '_' . substr(time(), -5);
+                $cleanBase = trim(preg_replace('/_+/', '_', preg_replace('/[^a-z0-9_]/', '_', strtolower($title))), '_');
+                $chkSlug = $pdo->prepare("SELECT id FROM whatsapp_templates WHERE slug = ? LIMIT 1");
+                $chkSlug->execute([$cleanBase]);
+                if ($chkSlug->fetch()) {
+                    $slug = $cleanBase . '_' . substr(time(), -4);
+                } else {
+                    $slug = $cleanBase;
+                }
             }
 
             // Check requested gateway target from user form
@@ -2197,8 +2255,9 @@ try {
             }
             $mediaPosition = trim($_POST['media_position'] ?? 'top');
 
-            // Parse and filter valid recipients
+            // Parse, normalize, and strictly deduplicate recipients by phone number
             $validAudience = [];
+            $seenMobiles = [];
             foreach ($contacts as $row) {
                 $phone = '';
                 foreach ($row as $k => $v) {
@@ -2210,9 +2269,16 @@ try {
                 }
                 if (empty($phone)) continue;
 
-                $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
-                if (strlen($cleanPhone) < 10) continue;
-                if (strlen($cleanPhone) === 10) $cleanPhone = '91' . $cleanPhone;
+                $digits = preg_replace('/[^0-9]/', '', $phone);
+                if (strlen($digits) < 10) continue;
+                $last10 = substr($digits, -10);
+                $cleanPhone = '91' . $last10;
+
+                // STRICT PHONE DEDUPLICATION: Prevent duplicate broadcast to the same number
+                if (isset($seenMobiles[$cleanPhone])) {
+                    continue; // Skip duplicate row from Excel
+                }
+                $seenMobiles[$cleanPhone] = true;
 
                 $name = '';
                 foreach ($row as $k => $v) {
@@ -2280,6 +2346,9 @@ try {
                     $pdo->exec("ALTER TABLE broadcast_campaigns ADD COLUMN last_dispatched_date DATE NULL AFTER today_sent_count");
                 }
                 $caCols = $pdo->query("SHOW COLUMNS FROM campaign_audience")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('wamid', $caCols)) {
+                    $pdo->exec("ALTER TABLE campaign_audience ADD COLUMN wamid VARCHAR(100) NULL AFTER mobile, ADD INDEX (wamid)");
+                }
                 if (!in_array('variables_json', $caCols)) {
                     $pdo->exec("ALTER TABLE campaign_audience ADD COLUMN variables_json LONGTEXT NULL AFTER company_name");
                 }

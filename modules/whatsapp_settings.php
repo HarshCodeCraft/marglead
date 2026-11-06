@@ -319,39 +319,83 @@ $meta_hosted_onboard_url = "https://business.facebook.com/messaging/whatsapp/onb
 </div>
 
 <script>
-// 1. Meta Embedded Signup Facebook SDK Callback Listener
-let metaSignupWabaId = '<?php echo htmlspecialchars($waba_id); ?>';
-let metaSignupPhoneId = '<?php echo htmlspecialchars($phone_number_id); ?>';
-let isSyncingCredentials = false;
+// 1. Meta Embedded Signup Facebook SDK Callback Listener & Sync
+let metaSignupState = {
+    code: '',
+    waba_id: '<?php echo htmlspecialchars($waba_id); ?>',
+    phone_number_id: '<?php echo htmlspecialchars($phone_number_id); ?>',
+    isSubmitted: false,
+    timeoutId: null
+};
 
 window.addEventListener('message', (event) => {
-    if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") {
+    if (!event.origin || !event.origin.includes('facebook.com')) {
         return;
     }
-    try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'WA_EMBEDDED_SIGNUP') {
-            if (data.event === 'FINISH') {
-                if (data.data) {
-                    metaSignupWabaId = data.data.waba_id || metaSignupWabaId;
-                    metaSignupPhoneId = data.data.phone_number_id || metaSignupPhoneId;
-                }
-                showToast("Meta Embedded Signup completed! Connecting account...", "info");
-                if (metaSignupWabaId && metaSignupPhoneId && !isSyncingCredentials) {
-                    syncEmbeddedCredentials('', metaSignupWabaId, metaSignupPhoneId);
-                }
-            }
+
+    let data = event.data;
+    if (typeof data === 'string') {
+        try {
+            data = JSON.parse(data);
+        } catch (e) {
+            return;
         }
-    } catch (e) {
-        // Not a JSON event
+    }
+
+    if (!data) return;
+
+    if (data.type === 'WA_EMBEDDED_SIGNUP' || (data.event && (data.event === 'FINISH' || data.event === 'finish'))) {
+        const payload = data.data || data;
+        const wabaId = payload.waba_id || payload.wabaId || payload.waba_account_id || '';
+        const phoneId = payload.phone_number_id || payload.phoneNumberId || payload.phone_id || '';
+
+        console.log("Meta Embedded Signup postMessage received:", payload);
+
+        if (wabaId) metaSignupState.waba_id = wabaId;
+        if (phoneId) metaSignupState.phone_number_id = phoneId;
+
+        if (typeof showToast === 'function') {
+            showToast("Meta signup verified! Connecting account...", "info");
+        }
+
+        trySubmitSignup();
+    } else if (data.event === 'CANCEL' || data.event === 'cancel') {
+        console.log("User closed/cancelled Meta Embedded Signup.");
     }
 });
 
-function syncEmbeddedCredentials(code, waba_id, phone_number_id) {
-    if (isSyncingCredentials) return;
-    isSyncingCredentials = true;
+function trySubmitSignup() {
+    if (metaSignupState.isSubmitted) return;
 
-    showToast("Finalizing Meta WhatsApp credentials...", "info");
+    // Condition 1: Both Auth Code and at least one ID received
+    if (metaSignupState.code && (metaSignupState.waba_id || metaSignupState.phone_number_id)) {
+        if (metaSignupState.timeoutId) {
+            clearTimeout(metaSignupState.timeoutId);
+            metaSignupState.timeoutId = null;
+        }
+        metaSignupState.isSubmitted = true;
+        sendSignupToBackend(metaSignupState.code, metaSignupState.waba_id, metaSignupState.phone_number_id);
+        return;
+    }
+
+    // Condition 2: Auth Code received, wait up to 3.5s for postMessage before backend auto-discovery
+    if (metaSignupState.code && !metaSignupState.timeoutId) {
+        if (typeof showToast === 'function') {
+            showToast("Authorizing with Meta WhatsApp Cloud API...", "info");
+        }
+        metaSignupState.timeoutId = setTimeout(() => {
+            if (!metaSignupState.isSubmitted) {
+                metaSignupState.isSubmitted = true;
+                sendSignupToBackend(metaSignupState.code, metaSignupState.waba_id, metaSignupState.phone_number_id);
+            }
+        }, 3500);
+    }
+}
+
+function sendSignupToBackend(code, waba_id, phone_number_id) {
+    if (typeof showToast === 'function') {
+        showToast("Finalizing Meta WhatsApp credentials...", "info");
+    }
 
     fetch('api/meta_embedded_signup.php', {
         method: 'POST',
@@ -361,30 +405,43 @@ function syncEmbeddedCredentials(code, waba_id, phone_number_id) {
             user_id: <?php echo (int)$user_id; ?>,
             state: <?php echo (int)$user_id; ?>,
             code: code || '',
-            waba_id: waba_id || metaSignupWabaId || '',
-            phone_number_id: phone_number_id || metaSignupPhoneId || '',
+            waba_id: waba_id || '',
+            phone_number_id: phone_number_id || '',
             firm_name: "<?php echo htmlspecialchars($firm_name); ?>",
             marg_license_no: "<?php echo htmlspecialchars($marg_license_no); ?>"
         })
     })
     .then(res => res.json())
     .then(result => {
-        isSyncingCredentials = false;
         if (result.success) {
-            alert("🎉 WhatsApp Business Cloud API successfully connected via Meta Embedded Signup!");
-            window.location.href = 'index.php?page=whatsapp_settings&status=connected';
+            const ph = (result.data && result.data.display_phone_number) ? result.data.display_phone_number : '';
+            alert("WhatsApp Business Cloud API successfully connected via Meta Embedded Signup!" + (ph ? "\n\nPhone: " + ph : ""));
+            window.location.href = 'index.php?page=merchant_waba_settings&status=connected';
         } else {
-            alert("Embedded Signup Error: " + (result.message || 'Verification failed.'));
+            metaSignupState.isSubmitted = false;
+            if (result.code === 'MISSING_APP_SECRET') {
+                alert("Meta App Secret Required:\n\n" + result.message);
+            } else {
+                alert("Embedded Signup Notice: " + (result.message || 'Verification failed.'));
+            }
         }
     })
     .catch(err => {
-        isSyncingCredentials = false;
+        metaSignupState.isSubmitted = false;
         alert("Network error processing Meta Embedded Signup: " + err.message);
     });
 }
 
 // Launch FB Login Popup for Embedded Signup
 function launchMetaEmbeddedSignup() {
+    metaSignupState = {
+        code: '',
+        waba_id: '',
+        phone_number_id: '',
+        isSubmitted: false,
+        timeoutId: null
+    };
+
     let fbLoginOptions = {
         scope: 'whatsapp_business_management,whatsapp_business_messaging',
         response_type: 'code',
@@ -392,15 +449,24 @@ function launchMetaEmbeddedSignup() {
     };
     <?php if (!empty($config_id) && is_numeric($config_id)): ?>
     fbLoginOptions.config_id = '<?php echo htmlspecialchars($config_id); ?>';
-    fbLoginOptions.extras = { setup: {} };
+    fbLoginOptions.extras = {
+        setup: {},
+        sessionInfoVersion: '3'
+    };
     <?php endif; ?>
 
+    if (typeof FB === 'undefined') {
+        alert("Facebook SDK is still loading. Please wait a few seconds and try again.");
+        return;
+    }
+
     FB.login(function(response) {
-        if (response.authResponse) {
-            const code = response.authResponse.code;
-            syncEmbeddedCredentials(code, metaSignupWabaId, metaSignupPhoneId);
+        console.log("FB.login response received:", response);
+        if (response.authResponse && response.authResponse.code) {
+            metaSignupState.code = response.authResponse.code;
+            trySubmitSignup();
         } else {
-            console.log("FB Login cancelled or no auth response.", response);
+            console.log("FB Login cancelled or no auth code.", response);
         }
     }, fbLoginOptions);
 }

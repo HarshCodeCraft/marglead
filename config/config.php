@@ -104,7 +104,7 @@ if (!defined('VERIFY_TOKEN')) {
     define('VERIFY_TOKEN', getenv('VERIFY_TOKEN') ?: 'marglead_whatsapp_token_2026');
 }
 if (!defined('APP_SECRET')) {
-    define('APP_SECRET', getenv('APP_SECRET') ?: '');
+    define('APP_SECRET', getenv('APP_SECRET') ?: 'fddf38af5a54863a15cca0f1af29e2eb');
 }
 
 // Updated Flow ID from your Meta Manager screen

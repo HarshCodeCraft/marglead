@@ -527,7 +527,7 @@ window.dashboardChartData = {
 };
 </script>
 
-<div class="dashboard-container">
+<div class="dashboard-container" style="width: 100%; max-width: 100%;">
     <?php if ($is_tenant_session && hasAccess('whatsapp_dashboard', $user_role)): ?>
         <div class="flex align-center gap-2 mb-4 p-1 border-radius-md" style="background: var(--bg-card); border: 1px solid var(--border-color); width: fit-content; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
             <a href="index.php?page=dashboard&tab=whatsapp" class="btn btn-sm btn-secondary text-xs flex align-center gap-2" style="font-weight: 600; border-radius: 8px; padding: 0.5rem 1.1rem;">
@@ -541,28 +541,114 @@ window.dashboardChartData = {
         </div>
     <?php endif; ?>
 
-    <!-- Top Greeting Row -->
-    <div class="flex justify-between align-center mb-6">
+
+
+    <!-- Custom Scoped Executive Dashboard Styles -->
+    <style>
+    .dash-exec-banner {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem 1.75rem;
+        margin-bottom: 1.75rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    .dash-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 1.5rem 0 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .dash-section-title {
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .kpi-grid-exec {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 1.15rem;
+        margin-bottom: 1rem;
+    }
+    .kpi-card-exec {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 1.25rem 1.15rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        text-decoration: none;
+        color: inherit;
+        position: relative;
+        overflow: hidden;
+        transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease;
+    }
+    .kpi-card-exec::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background-color: var(--kpi-border, var(--primary));
+    }
+    .kpi-card-exec:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 24px -6px rgba(0,0,0,0.08);
+        border-color: var(--kpi-border, var(--primary));
+    }
+    </style>
+
+    <!-- Top Executive Greeting Banner -->
+    <div class="dash-exec-banner">
         <div>
-            <h2 class="mb-1" style="font-family: var(--font-heading); font-size: 1.75rem; font-weight: 700;">Workspace Overview</h2>
-            <p class="text-muted text-sm">Hello, <?php echo isset($_SESSION['user_name']) ? htmlspecialchars($_SESSION['user_name']) : 'Harsh Vardhan'; ?> (<?php echo htmlspecialchars($user_role); ?>). <?php echo $is_admin ? "Here is what is happening across all system leads today." : "Here is what is happening across your assigned leads today."; ?></p>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="display: inline-flex; width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);"></span>
+                <span style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #10b981;">Live Enterprise Synchronized</span>
+                <span style="color: var(--text-muted);">&bull;</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;"><?php echo date('l, d F Y'); ?></span>
+            </div>
+            <h2 class="mb-1" style="font-family: var(--font-heading); font-size: 1.65rem; font-weight: 700; color: var(--text-main);">Workspace Overview</h2>
+            <p class="text-muted text-sm" style="margin: 0;">
+                Hello, <strong><?php echo isset($_SESSION['user_name']) ? htmlspecialchars($_SESSION['user_name']) : 'Harsh Vardhan'; ?></strong> (<?php echo htmlspecialchars($user_role); ?>). <?php echo $is_admin ? "Here is what is happening across all system leads today." : "Here is what is happening across your assigned leads today."; ?>
+            </p>
         </div>
-        <div class="flex gap-2">
-            <button class="btn btn-secondary text-sm" onclick="if(typeof refreshDataWithoutReload==='function') refreshDataWithoutReload(true); else window.location.reload();">
-                <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+        <div class="flex gap-2" style="align-items: center;">
+            <button class="btn btn-secondary text-sm" style="height: 38px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600;" onclick="window.location.reload();">
+                <i data-lucide="refresh-cw" style="width: 15px; height: 15px;"></i>
                 <span>Refresh Data</span>
             </button>
-            <a href="index.php?page=lead_form" class="btn btn-primary text-sm">
+            <a href="index.php?page=lead_form" class="btn btn-primary text-sm" style="height: 38px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; padding: 0 16px;">
                 <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
                 <span>Create Lead</span>
             </a>
         </div>
     </div>
 
-    <!-- 12 KPI Grid Layout -->
-    <div class="kpi-grid">
-        <?php foreach ($kpi_cards as $card): ?>
-            <a href="<?php echo htmlspecialchars($card['link']); ?>" class="kpi-card text-decoration-none" style="--kpi-border: <?php echo $card['border']; ?>; --kpi-bg: <?php echo $card['bg']; ?>; --kpi-color: <?php echo $card['color']; ?>; display: flex; text-decoration: none; color: inherit; cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease;">
+    <!-- Section 1: Sales & Pipeline Velocity -->
+    <div class="dash-section-header">
+        <div class="dash-section-title">
+            <i data-lucide="trending-up" style="width: 14px; height: 14px; color: var(--primary);"></i>
+            <span>Lead Acquisition & Pipeline Velocity</span>
+        </div>
+        <span class="text-xs text-muted font-medium"><?php echo number_format($totalLeads); ?> Total Records</span>
+    </div>
+    <div class="kpi-grid-exec">
+        <?php foreach (array_slice($kpi_cards, 0, 6) as $card): ?>
+            <a href="<?php echo htmlspecialchars($card['link']); ?>" class="kpi-card-exec" style="--kpi-border: <?php echo $card['border']; ?>; --kpi-bg: <?php echo $card['bg']; ?>; --kpi-color: <?php echo $card['color']; ?>;">
                 <div class="kpi-icon-box">
                     <i data-lucide="<?php echo $card['icon']; ?>"></i>
                 </div>
@@ -571,8 +657,66 @@ window.dashboardChartData = {
                     <span class="kpi-value"><?php echo $card['value']; ?></span>
                     <span class="kpi-trend <?php echo $card['trend_class']; ?>">
                         <?php 
-                        if ($card['trend_class'] === 'positive') echo '↑';
-                        elseif ($card['trend_class'] === 'negative') echo '↓';
+                        if ($card['trend_class'] === 'positive') echo '↑ ';
+                        elseif ($card['trend_class'] === 'negative') echo '↓ ';
+                        ?>
+                        <?php echo $card['trend']; ?>
+                    </span>
+                </div>
+            </a>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- Section 2: Daily Operations, Follow-ups & Billing -->
+    <div class="dash-section-header">
+        <div class="dash-section-title">
+            <i data-lucide="calendar-clock" style="width: 14px; height: 14px; color: var(--warning);"></i>
+            <span>Daily Operations, Follow-ups & Deployments</span>
+        </div>
+        <span class="text-xs text-muted font-medium">Daily Queue</span>
+    </div>
+    <div class="kpi-grid-exec">
+        <?php foreach (array_slice($kpi_cards, 6, 6) as $card): ?>
+            <a href="<?php echo htmlspecialchars($card['link']); ?>" class="kpi-card-exec" style="--kpi-border: <?php echo $card['border']; ?>; --kpi-bg: <?php echo $card['bg']; ?>; --kpi-color: <?php echo $card['color']; ?>;">
+                <div class="kpi-icon-box">
+                    <i data-lucide="<?php echo $card['icon']; ?>"></i>
+                </div>
+                <div class="kpi-info">
+                    <span class="kpi-title"><?php echo $card['title']; ?></span>
+                    <span class="kpi-value"><?php echo $card['value']; ?></span>
+                    <span class="kpi-trend <?php echo $card['trend_class']; ?>">
+                        <?php 
+                        if ($card['trend_class'] === 'positive') echo '↑ ';
+                        elseif ($card['trend_class'] === 'negative') echo '↓ ';
+                        ?>
+                        <?php echo $card['trend']; ?>
+                    </span>
+                </div>
+            </a>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- Section 3: Technical Support & Helpdesk Tickets -->
+    <div class="dash-section-header">
+        <div class="dash-section-title">
+            <i data-lucide="life-buoy" style="width: 14px; height: 14px; color: #10b981;"></i>
+            <span>Technical Support & Helpdesk Tickets</span>
+        </div>
+        <span class="text-xs text-muted font-medium"><?php echo number_format($totalTickets); ?> Total Tickets</span>
+    </div>
+    <div class="kpi-grid-exec">
+        <?php foreach (array_slice($kpi_cards, 12, 4) as $card): ?>
+            <a href="<?php echo htmlspecialchars($card['link']); ?>" class="kpi-card-exec" style="--kpi-border: <?php echo $card['border']; ?>; --kpi-bg: <?php echo $card['bg']; ?>; --kpi-color: <?php echo $card['color']; ?>;">
+                <div class="kpi-icon-box">
+                    <i data-lucide="<?php echo $card['icon']; ?>"></i>
+                </div>
+                <div class="kpi-info">
+                    <span class="kpi-title"><?php echo $card['title']; ?></span>
+                    <span class="kpi-value"><?php echo $card['value']; ?></span>
+                    <span class="kpi-trend <?php echo $card['trend_class']; ?>">
+                        <?php 
+                        if ($card['trend_class'] === 'positive') echo '↑ ';
+                        elseif ($card['trend_class'] === 'negative') echo '↓ ';
                         ?>
                         <?php echo $card['trend']; ?>
                     </span>

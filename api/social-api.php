@@ -42,7 +42,18 @@ function sendGraphRequest(string $url, string $method = 'GET', array $params = [
     if ($method === 'POST') {
         curl_setopt($ch, CURLOPT_POST, true);
         if (!empty($params)) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+            $hasFile = false;
+            foreach ($params as $v) {
+                if ($v instanceof CURLFile) {
+                    $hasFile = true;
+                    break;
+                }
+            }
+            if ($hasFile) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+            } else {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+            }
         }
     } elseif ($method === 'GET' && !empty($params)) {
         $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($params);
@@ -103,31 +114,121 @@ try {
             }
 
             $graphVersion = defined('GRAPH_API_VERSION') ? GRAPH_API_VERSION : 'v20.0';
+            
+            // 1. Primary Query: Fetch Pages via me/accounts
             $url = "https://graph.facebook.com/{$graphVersion}/me/accounts?" . http_build_query([
-                'fields' => 'id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}',
+                'fields' => 'id,name,access_token,picture{url}',
                 'access_token' => $userToken
             ]);
 
             $res = sendGraphRequest($url, 'GET');
-            if (!$res['success']) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => $res['error'] ?? 'Could not retrieve Facebook pages from Meta.']);
+            $pagesData = ($res['success'] && !empty($res['data']['data'])) ? $res['data']['data'] : [];
+
+            // 2. Secondary Fallback: If me/accounts returned empty (common on New Pages Experience / NPE),
+            // inspect debug_token to see if target_ids were granted for pages_show_list
+            $targetPageIds = [];
+            $fbUserName = '';
+            
+            // Retrieve Facebook User details for precise client feedback
+            $meUrl = "https://graph.facebook.com/{$graphVersion}/me?fields=id,name&access_token=" . urlencode($userToken);
+            $meRes = sendGraphRequest($meUrl, 'GET');
+            if ($meRes['success'] && !empty($meRes['data']['name'])) {
+                $fbUserName = $meRes['data']['name'];
+            }
+
+            $debugUrl = "https://graph.facebook.com/{$graphVersion}/debug_token?" . http_build_query([
+                'input_token' => $userToken,
+                'access_token' => $userToken
+            ]);
+            $debugRes = sendGraphRequest($debugUrl, 'GET');
+            if ($debugRes['success'] && !empty($debugRes['data']['data']['granular_scopes'])) {
+                foreach ($debugRes['data']['data']['granular_scopes'] as $sc) {
+                    if (($sc['scope'] ?? '') === 'pages_show_list' && !empty($sc['target_ids'])) {
+                        $targetPageIds = $sc['target_ids'];
+                        break;
+                    }
+                }
+            }
+
+            // If me/accounts was empty but debug_token contains granted target_ids, fetch pages individually
+            if (empty($pagesData) && !empty($targetPageIds)) {
+                foreach ($targetPageIds as $pId) {
+                    $pUrl = "https://graph.facebook.com/{$graphVersion}/{$pId}?" . http_build_query([
+                        'fields' => 'id,name,access_token,picture{url}',
+                        'access_token' => $userToken
+                    ]);
+                    $pRes = sendGraphRequest($pUrl, 'GET');
+                    if ($pRes['success'] && !empty($pRes['data']['id'])) {
+                        $pagesData[] = $pRes['data'];
+                    }
+                }
+            }
+
+            // 3. If still empty, deliver actionable diagnostic guidance
+            if (empty($pagesData)) {
+                // Check if pages_show_list was accepted at all
+                $permUrl = "https://graph.facebook.com/{$graphVersion}/me/permissions?access_token=" . urlencode($userToken);
+                $permRes = sendGraphRequest($permUrl, 'GET');
+                $hasPagePerm = false;
+                if ($permRes['success'] && !empty($permRes['data']['data'])) {
+                    foreach ($permRes['data']['data'] as $pItem) {
+                        if (($pItem['permission'] ?? '') === 'pages_show_list' && ($pItem['status'] ?? '') === 'granted') {
+                            $hasPagePerm = true;
+                            break;
+                        }
+                    }
+                }
+
+                $userLabel = $fbUserName ? "account ('{$fbUserName}')" : "Facebook account";
+                if (!$hasPagePerm) {
+                    $diagnosticMsg = "The Page permission ('pages_show_list') was declined for {$userLabel}. Please click Continue with Facebook again and allow page access.";
+                } elseif (empty($targetPageIds)) {
+                    $diagnosticMsg = "Logged in as {$userLabel}, but no specific Pages were checked in the Meta authorization screen. In Meta's login dialog, you must check the box next to your Pages (e.g. 'Friendly Ai Solution' or 'Future Mind Solution Pvt Ltd'). If Meta didn't show the checkboxes, remove this app under facebook.com/settings?tab=applications and try again.";
+                } else {
+                    $diagnosticMsg = "Granted access to Page IDs (" . implode(', ', $targetPageIds) . "), but Meta Graph API did not return Page details. If this Meta App is in Development mode, ensure your Facebook account is added to the App Roles.";
+                }
+
+                echo json_encode([
+                    'success' => false,
+                    'message' => $diagnosticMsg,
+                    'pages' => [],
+                    'count' => 0
+                ]);
                 exit;
             }
 
-            $pagesData = $res['data']['data'] ?? [];
+            // 4. Check for linked Instagram accounts on discovered pages
             $formattedPages = [];
             foreach ($pagesData as $p) {
+                $igAccount = null;
+                $pageTok = !empty($p['access_token']) ? $p['access_token'] : $userToken;
+                
+                // Query linked Instagram account using page token with multi-endpoint fallback
+                $igUrl = "https://graph.facebook.com/{$graphVersion}/{$p['id']}?" . http_build_query([
+                    'fields' => 'instagram_business_account{id,username,profile_picture_url},connected_instagram_account{id,username,profile_pic},page_backed_instagram_accounts{id,username}',
+                    'access_token' => $pageTok
+                ]);
+                $igRes = sendGraphRequest($igUrl, 'GET');
+                if ($igRes['success'] && !empty($igRes['data'])) {
+                    $igData = $igRes['data']['instagram_business_account'] 
+                           ?? $igRes['data']['connected_instagram_account'] 
+                           ?? (!empty($igRes['data']['page_backed_instagram_accounts']['data'][0]) ? $igRes['data']['page_backed_instagram_accounts']['data'][0] : null);
+
+                    if (!empty($igData['id'])) {
+                        $igAccount = [
+                            'id' => $igData['id'],
+                            'username' => $igData['username'] ?? '',
+                            'picture_url' => $igData['profile_picture_url'] ?? $igData['profile_pic'] ?? ''
+                        ];
+                    }
+                }
+
                 $formattedPages[] = [
                     'page_id' => $p['id'],
                     'page_name' => $p['name'],
                     'page_access_token' => $p['access_token'] ?? '',
                     'picture_url' => $p['picture']['data']['url'] ?? '',
-                    'instagram_account' => isset($p['instagram_business_account']) ? [
-                        'id' => $p['instagram_business_account']['id'],
-                        'username' => $p['instagram_business_account']['username'] ?? '',
-                        'picture_url' => $p['instagram_business_account']['profile_picture_url'] ?? ''
-                    ] : null
+                    'instagram_account' => $igAccount
                 ];
             }
 
@@ -159,6 +260,20 @@ try {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'message' => 'Unsupported platform specified.']);
                 exit;
+            }
+
+            $graphVersion = defined('GRAPH_API_VERSION') ? GRAPH_API_VERSION : 'v20.0';
+
+            // Auto-exchange: If a User Access Token was provided for a Facebook Page, automatically exchange it for the Page Access Token
+            if ($platform === 'facebook_page') {
+                $checkPageUrl = "https://graph.facebook.com/{$graphVersion}/{$accountId}?" . http_build_query([
+                    'fields' => 'access_token',
+                    'access_token' => $accessToken
+                ]);
+                $pageRes = sendGraphRequest($checkPageUrl, 'GET');
+                if ($pageRes['success'] && !empty($pageRes['data']['access_token'])) {
+                    $accessToken = $pageRes['data']['access_token'];
+                }
             }
 
             $stmt = $pdo->prepare("
@@ -200,32 +315,43 @@ try {
         // 4. Publish or Schedule Post / Reel
         // -------------------------------------------------------------
         case 'publish_post':
-            $accId      = (int)($_POST['account_id'] ?? 0);
+            $rawAccId   = trim($_POST['account_id'] ?? '');
             $postType   = trim($_POST['post_type'] ?? 'post');
             $caption    = trim($_POST['caption'] ?? '');
             $publishMode= trim($_POST['publish_mode'] ?? 'now'); // 'now' or 'schedule'
             $scheduledAt= trim($_POST['scheduled_at'] ?? '');
 
-            if ($accId <= 0) {
+            if (empty($rawAccId)) {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'message' => 'Please select a social channel.']);
                 exit;
             }
 
-            // Fetch account with tenant isolation
-            $stmtAcc = $pdo->prepare("SELECT * FROM social_accounts WHERE id = ? AND tenant_id = ? AND is_active = 1 LIMIT 1");
-            $stmtAcc->execute([$accId, $tenant_id]);
-            $acc = $stmtAcc->fetch(PDO::FETCH_ASSOC);
+            // Fetch target accounts (single or all connected channels)
+            $targetAccounts = [];
+            if ($rawAccId === 'all') {
+                $stmtAccs = $pdo->prepare("SELECT * FROM social_accounts WHERE tenant_id = ? AND is_active = 1");
+                $stmtAccs->execute([$tenant_id]);
+                $targetAccounts = $stmtAccs->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                $stmtAcc = $pdo->prepare("SELECT * FROM social_accounts WHERE id = ? AND tenant_id = ? AND is_active = 1 LIMIT 1");
+                $stmtAcc->execute([(int)$rawAccId, $tenant_id]);
+                $acc = $stmtAcc->fetch(PDO::FETCH_ASSOC);
+                if ($acc) {
+                    $targetAccounts = [$acc];
+                }
+            }
 
-            if (!$acc) {
+            if (empty($targetAccounts)) {
                 http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'Target social account not found or inactive.']);
+                echo json_encode(['success' => false, 'message' => 'Target social account(s) not found or inactive.']);
                 exit;
             }
 
             // Handle temporary media upload if provided
             $tempPath = null;
             $mediaUrl = null;
+            $mimeType = null;
             if (isset($_FILES['media_file']) && $_FILES['media_file']['error'] === UPLOAD_ERR_OK) {
                 $file = $_FILES['media_file'];
                 $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -254,64 +380,170 @@ try {
                 }
             }
 
-            $externalPostId = null;
-            $permalink = null;
             $graphVersion = defined('GRAPH_API_VERSION') ? GRAPH_API_VERSION : 'v20.0';
+            $publishedResults = [];
+            $publishErrors = [];
 
             // Instant Publish Flow
             if ($publishMode === 'now') {
-                if ($acc['platform'] === 'facebook_page') {
-                    $pageId = $acc['account_id'];
-                    $token  = $acc['access_token'];
+                foreach ($targetAccounts as $acc) {
+                    $externalPostId = null;
+                    $permalink = null;
+                    $accId = (int)$acc['id'];
 
-                    // Text-only Post or with Media
-                    $endpoint = "https://graph.facebook.com/{$graphVersion}/{$pageId}/feed";
-                    $params = ['message' => $caption];
+                    if ($acc['platform'] === 'facebook_page') {
+                        $pageId = $acc['account_id'];
+                        $token  = $acc['access_token'];
 
-                    $res = sendGraphRequest($endpoint, 'POST', $params, $token);
-
-                    if (!$res['success']) {
-                        // Purge temp buffer immediately
                         if ($tempPath && file_exists($tempPath)) {
-                            @unlink($tempPath);
+                            if (strpos($mimeType, 'video') !== false) {
+                                $endpoint = "https://graph.facebook.com/{$graphVersion}/{$pageId}/videos";
+                                $params = [
+                                    'description' => $caption,
+                                    'source' => new CURLFile($tempPath, $mimeType, basename($tempPath))
+                                ];
+                            } else {
+                                $endpoint = "https://graph.facebook.com/{$graphVersion}/{$pageId}/photos";
+                                $params = [
+                                    'caption' => $caption,
+                                    'source' => new CURLFile($tempPath, $mimeType, basename($tempPath))
+                                ];
+                            }
+                        } else {
+                            $endpoint = "https://graph.facebook.com/{$graphVersion}/{$pageId}/feed";
+                            $params = ['message' => $caption];
                         }
-                        http_response_code(400);
-                        echo json_encode(['success' => false, 'message' => $res['error'] ?? 'Failed to publish post to Facebook.']);
-                        exit;
+
+                        $res = sendGraphRequest($endpoint, 'POST', $params, $token);
+
+                        // Auto-recovery: If #200 error occurred, attempt token exchange
+                        if (!$res['success'] && !empty($res['error']) && strpos($res['error'], 'requires both pages_read_engagement and pages_manage_posts') !== false) {
+                            $recoveryUrl = "https://graph.facebook.com/{$graphVersion}/{$pageId}?" . http_build_query([
+                                'fields' => 'access_token',
+                                'access_token' => $token
+                            ]);
+                            $recRes = sendGraphRequest($recoveryUrl, 'GET');
+                            if ($recRes['success'] && !empty($recRes['data']['access_token'])) {
+                                $newPageToken = $recRes['data']['access_token'];
+                                $stmtUp = $pdo->prepare("UPDATE social_accounts SET access_token = ? WHERE id = ? AND tenant_id = ?");
+                                $stmtUp->execute([$newPageToken, $accId, $tenant_id]);
+                                $token = $newPageToken;
+                                $res = sendGraphRequest($endpoint, 'POST', $params, $token);
+                            }
+                        }
+
+                        if (!$res['success']) {
+                            $publishErrors[] = $acc['account_name'] . ': ' . ($res['error'] ?? 'Unknown error');
+                            continue;
+                        }
+
+                        $externalPostId = $res['data']['id'] ?? null;
+                        $permalink = "https://facebook.com/" . $externalPostId;
+
+                    } elseif ($acc['platform'] === 'instagram') {
+                        $igUserId = $acc['account_id'];
+                        $token = $acc['access_token'];
+
+                        if (!$tempPath || !file_exists($tempPath)) {
+                            $publishErrors[] = $acc['account_name'] . ': Instagram requires an image or video attachment.';
+                            continue;
+                        }
+
+                        if (defined('BASE_URL') && !empty(BASE_URL) && strpos(BASE_URL, 'localhost') === false && strpos(BASE_URL, '127.0.0.1') === false) {
+                            $publicMediaUrl = rtrim(BASE_URL, '/') . '/uploads/tmp/' . basename($tempPath);
+                        } elseif (defined('NGROK_URL') && !empty(NGROK_URL)) {
+                            $publicMediaUrl = rtrim(NGROK_URL, '/') . '/uploads/tmp/' . basename($tempPath);
+                        } else {
+                            $host = $_SERVER['HTTP_HOST'] ?? 'friendlyaisolution.com';
+                            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                            $publicMediaUrl = "{$scheme}://{$host}/uploads/tmp/" . basename($tempPath);
+                        }
+
+                        $isVideo = (strpos($mimeType, 'video') !== false);
+                        $mediaParams = [
+                            'caption' => $caption,
+                            'access_token' => $token
+                        ];
+
+                        if ($isVideo) {
+                            $mediaParams['media_type'] = 'REELS';
+                            $mediaParams['video_url'] = $publicMediaUrl;
+                        } else {
+                            $mediaParams['image_url'] = $publicMediaUrl;
+                        }
+
+                        // Step 1: Create Container
+                        $containerUrl = "https://graph.facebook.com/{$graphVersion}/{$igUserId}/media";
+                        $cRes = sendGraphRequest($containerUrl, 'POST', $mediaParams, $token);
+
+                        if (!$cRes['success'] || empty($cRes['data']['id'])) {
+                            $publishErrors[] = $acc['account_name'] . ': ' . ($cRes['error'] ?? 'Could not create IG media container');
+                            continue;
+                        }
+
+                        $creationId = $cRes['data']['id'];
+
+                        // Step 2: Publish Container
+                        $publishUrl = "https://graph.facebook.com/{$graphVersion}/{$igUserId}/media_publish";
+                        $pRes = sendGraphRequest($publishUrl, 'POST', [
+                            'creation_id' => $creationId,
+                            'access_token' => $token
+                        ], $token);
+
+                        if (!$pRes['success'] || empty($pRes['data']['id'])) {
+                            $publishErrors[] = $acc['account_name'] . ': ' . ($pRes['error'] ?? 'Could not publish to IG');
+                            continue;
+                        }
+
+                        $externalPostId = $pRes['data']['id'];
+                        $permalink = "https://instagram.com/p/" . $externalPostId;
                     }
 
-                    $externalPostId = $res['data']['id'] ?? null;
-                    $permalink = "https://facebook.com/" . $externalPostId;
+                    if ($externalPostId) {
+                        $stmtPost = $pdo->prepare("
+                            INSERT INTO social_posts 
+                                (tenant_id, user_id, account_id, post_type, caption, external_post_id, permalink, status, published_at)
+                            VALUES 
+                                (?, ?, ?, ?, ?, ?, ?, 'published', NOW())
+                        ");
+                        $stmtPost->execute([$tenant_id, $user_id, $accId, $postType, $caption, $externalPostId, $permalink]);
+                        $newPostId = (int)$pdo->lastInsertId();
+
+                        $stmtAna = $pdo->prepare("
+                            INSERT INTO social_analytics (tenant_id, post_id, external_post_id, impressions, reach, likes_count, comments_count, shares_count)
+                            VALUES (?, ?, ?, 1, 1, 0, 0, 0)
+                        ");
+                        $stmtAna->execute([$tenant_id, $newPostId, $externalPostId]);
+
+                        $publishedResults[] = [
+                            'account' => $acc['account_name'],
+                            'post_id' => $newPostId,
+                            'permalink' => $permalink
+                        ];
+                    }
                 }
 
-                // Auto-purge any temporary local media file immediately to ensure ZERO server bloat
+                // Purge temp buffer after all dispatches
                 if ($tempPath && file_exists($tempPath)) {
                     @unlink($tempPath);
                 }
 
-                // Insert into social_posts
-                $stmtPost = $pdo->prepare("
-                    INSERT INTO social_posts 
-                        (tenant_id, user_id, account_id, post_type, caption, external_post_id, permalink, status, published_at)
-                    VALUES 
-                        (?, ?, ?, ?, ?, ?, ?, 'published', NOW())
-                ");
-                $stmtPost->execute([$tenant_id, $user_id, $accId, $postType, $caption, $externalPostId, $permalink]);
-                $newPostId = (int)$pdo->lastInsertId();
-
-                // Initialize analytics cache
-                $stmtAna = $pdo->prepare("
-                    INSERT INTO social_analytics (tenant_id, post_id, external_post_id, impressions, reach, likes_count, comments_count, shares_count)
-                    VALUES (?, ?, ?, 1, 1, 0, 0, 0)
-                ");
-                $stmtAna->execute([$tenant_id, $newPostId, $externalPostId ?: 'local_' . $newPostId]);
+                if (empty($publishedResults)) {
+                    http_response_code(400);
+                    echo json_encode([
+                        'success' => false,
+                        'message' => 'Publishing failed: ' . implode(' | ', $publishErrors)
+                    ]);
+                    exit;
+                }
 
                 echo json_encode([
                     'success' => true,
-                    'message' => 'Post published successfully to ' . htmlspecialchars($acc['account_name']) . '.',
-                    'post_id' => $newPostId,
-                    'permalink' => $permalink
+                    'message' => 'Successfully published to ' . count($publishedResults) . ' channel(s)!',
+                    'results' => $publishedResults,
+                    'permalink' => $publishedResults[0]['permalink'] ?? ''
                 ]);
+                exit;
             } else {
                 // Scheduled Flow
                 if (empty($scheduledAt) || strtotime($scheduledAt) <= time()) {

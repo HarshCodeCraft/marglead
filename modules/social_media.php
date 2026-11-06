@@ -140,6 +140,9 @@ if ($pdo) {
                         <label style="display: block; font-size: 0.825rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.5rem;">Select Target Channel *</label>
                         <select name="account_id" id="postAccountId" required style="width: 100%; padding: 0.65rem 0.875rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); background: var(--bg-card); color: var(--text-main); font-size: 0.875rem;">
                             <option value="">-- Choose Channel --</option>
+                            <?php if (count($connectedAccounts) > 1): ?>
+                                <option value="all" style="font-weight: 600; color: var(--primary-color);">All Connected Channels (Facebook &amp; Instagram)</option>
+                            <?php endif; ?>
                             <?php foreach ($connectedAccounts as $acc): ?>
                                 <option value="<?php echo (int)$acc['id']; ?>">
                                     <?php echo htmlspecialchars($acc['account_name'] . ' (' . str_replace('_', ' ', $acc['platform']) . ')'); ?>
@@ -358,6 +361,20 @@ if ($pdo) {
             </button>
         </div>
 
+        <!-- WhatsApp Routing Notice for Clients -->
+        <div style="background: rgba(37, 211, 102, 0.08); border: 1px solid rgba(37, 211, 102, 0.25); border-radius: var(--border-radius-sm); padding: 0.75rem 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <i data-lucide="message-square" style="width: 16px; height: 16px; color: #25D366; flex-shrink: 0;"></i>
+                <span style="font-size: 0.78rem; color: var(--text-main);">Looking to connect your <strong>WhatsApp Business</strong> number?</span>
+            </div>
+            <a href="index.php?page=whatsapp_settings" class="btn btn-sm" style="background: #25D366; color: #ffffff; font-size: 0.75rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 4px; text-decoration: none; white-space: nowrap;">
+                WhatsApp API Settings &rarr;
+            </a>
+        </div>
+
+        <!-- In-Modal Alert Box -->
+        <div id="modalSocialAlert" style="display: none; margin-bottom: 1rem; padding: 0.85rem 1rem; border-radius: var(--border-radius-sm); font-size: 0.8rem; line-height: 1.45;"></div>
+
         <!-- Option 1: 1-Click Meta Login (Recommended for regular users) -->
         <div style="background: rgba(24, 119, 242, 0.05); border: 1px solid rgba(24, 119, 242, 0.2); border-radius: var(--border-radius-sm); padding: 1.25rem; text-align: center; margin-bottom: 1.25rem;">
             <div style="font-size: 0.85rem; color: var(--text-main); font-weight: 600; margin-bottom: 0.35rem;">
@@ -445,12 +462,40 @@ window.fbAsyncInit = function() {
     fjs.parentNode.insertBefore(js, fjs);
 }(document, 'script', 'facebook-jssdk'));
 
+// Modal Alert Renderer
+function showModalSocialAlert(msg, type) {
+    var ma = document.getElementById('modalSocialAlert');
+    if (!ma) return;
+    ma.style.display = 'block';
+    if (type === 'success') {
+        ma.style.background = 'rgba(16, 185, 129, 0.1)';
+        ma.style.color = '#10b981';
+        ma.style.border = '1px solid rgba(16, 185, 129, 0.25)';
+    } else {
+        ma.style.background = 'rgba(239, 68, 68, 0.08)';
+        ma.style.color = '#ef4444';
+        ma.style.border = '1px solid rgba(239, 68, 68, 0.25)';
+    }
+    ma.innerHTML = '<div style="font-weight: 600; margin-bottom: 0.35rem;">' + escapeHtml(msg) + '</div>' +
+        '<div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 0.5rem; line-height: 1.4;">' +
+        '<strong>Troubleshooting Tips:</strong><br>' +
+        '1. Ensure you have Admin access to a published Facebook Business Page.<br>' +
+        '2. In the Facebook popup, check the box next to your Page to grant access.<br>' +
+        '3. If you want to connect WhatsApp instead, click the "WhatsApp API Settings" button above.<br>' +
+        '4. Alternatively, use <strong>Method 2: Manual Page ID &amp; Token</strong> below.' +
+        '</div>';
+    if (window.lucide) lucide.createIcons();
+}
+
 // 1-Click Facebook Login Handler
 function loginWithFacebook() {
     var statusEl = document.getElementById('fbOAuthStatus');
     var btn = document.getElementById('btnFbOAuth');
+    var ma = document.getElementById('modalSocialAlert');
+    if (ma) ma.style.display = 'none';
+
     if (typeof FB === 'undefined') {
-        showSocialAlert('Facebook SDK is loading. Please check your network or try again in a moment.', 'error');
+        showModalSocialAlert('Facebook SDK is still loading. Please check your internet connection or ad-blocker.', 'error');
         return;
     }
 
@@ -467,10 +512,10 @@ function loginWithFacebook() {
             fetchUserPagesFromMeta(response.authResponse.accessToken);
         } else {
             if (statusEl) statusEl.style.display = 'none';
-            showSocialAlert('Facebook authorization was cancelled by the user.', 'error');
+            showModalSocialAlert('Facebook authorization was cancelled by the user.', 'error');
         }
     }, {
-        scope: 'public_profile,pages_show_list,pages_read_engagement',
+        scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts',
         auth_type: 'rerequest'
     });
 }
@@ -480,6 +525,8 @@ function fetchUserPagesFromMeta(userToken) {
     var statusEl = document.getElementById('fbOAuthStatus');
     var container = document.getElementById('discoveredPagesContainer');
     var list = document.getElementById('discoveredPagesList');
+    var ma = document.getElementById('modalSocialAlert');
+    if (ma) ma.style.display = 'none';
 
     var fd = new FormData();
     fd.append('action', 'fetch_user_pages');
@@ -493,7 +540,8 @@ function fetchUserPagesFromMeta(userToken) {
     .then(function(data) {
         if (statusEl) statusEl.style.display = 'none';
         if (!data.success || !data.pages || data.pages.length === 0) {
-            showSocialAlert('No active Facebook Pages found for this account. Ensure you have Admin access to at least one Facebook Page.', 'error');
+            var err = data.message || 'No active Facebook Pages found for this account. Ensure you have Admin access to at least one Facebook Page.';
+            showModalSocialAlert(err, 'error');
             return;
         }
 
@@ -620,6 +668,47 @@ function toggleManualSetup() {
         form.style.display = 'none';
         if (icon) icon.style.transform = 'rotate(0deg)';
     }
+}
+
+// Manual Channel Form Submission Handler
+function handleConnectSubmit(e) {
+    e.preventDefault();
+    var form = document.getElementById('connectChannelForm');
+    var btn = document.getElementById('btnSaveChannel');
+    if (!form) return;
+
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Verifying & Saving...';
+    }
+
+    var fd = new FormData(form);
+    fd.append('action', 'connect_account');
+
+    fetch('api/social-api.php', {
+        method: 'POST',
+        body: fd
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Save Channel';
+        }
+        if (data.success) {
+            showSocialAlert(data.message || 'Channel connected successfully!', 'success');
+            setTimeout(function() { window.location.reload(); }, 1000);
+        } else {
+            showModalSocialAlert(data.message || 'Failed to save channel. Please check the token.', 'error');
+        }
+    })
+    .catch(function(err) {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Save Channel';
+        }
+        showModalSocialAlert('Request failed: ' + err.message, 'error');
+    });
 }
 
 // Tab Switching Controller

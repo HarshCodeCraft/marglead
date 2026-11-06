@@ -7,10 +7,10 @@ $message_type = '';
 
 if (isset($_GET['reason'])) {
     if ($_GET['reason'] === 'concurrent_login') {
-        $message = "⚠️ Session Terminated: Your account was logged in from another device or browser. You have been logged out from this session.";
+        $message = "⚠️ Session Terminated";
         $message_type = "warning";
     } elseif ($_GET['reason'] === 'session_expired') {
-        $message = "⏱️ Session Expired: Your session timed out. Please sign in again to continue.";
+        $message = "⏱️ Session Expired";
         $message_type = "info";
     }
 }

@@ -77,7 +77,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'check_customer_id') {
     exit;
 }
 
-// Ensure city_areas table exists and seed from directory
+// Ensure city_areas and custom_cities tables exist
 if ($pdo) {
     try {
         $pdo->exec("
@@ -90,6 +90,17 @@ if ($pdo) {
                 UNIQUE KEY uq_city_area (city, area_name),
                 INDEX idx_city (city),
                 INDEX idx_state_city (state, city)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ");
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS custom_cities (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                state VARCHAR(100) NOT NULL,
+                city VARCHAR(100) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_state_city (state, city),
+                INDEX idx_city (city),
+                INDEX idx_state (state)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ");
     } catch (Exception $e) {}
@@ -220,6 +231,51 @@ if (isset($_POST['action']) && $_POST['action'] === 'add_city_area') {
             $stmt = $pdo->prepare("INSERT IGNORE INTO city_areas (state, city, area_name) VALUES (?, ?, ?)");
             $stmt->execute([$state ?: null, $city, $area_name]);
             echo json_encode(['success' => true, 'message' => "Area '{$area_name}' added successfully to {$city}!", 'area' => $area_name]);
+            exit;
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+            exit;
+        }
+    }
+    
+    echo json_encode(['success' => false, 'message' => 'Database connection failed.']);
+    exit;
+}
+
+// 2A. AJAX Endpoint: Add New City for a State
+if (isset($_POST['action']) && $_POST['action'] === 'add_custom_city') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    
+    $state = isset($_POST['state']) ? trim($_POST['state']) : '';
+    $city  = isset($_POST['city']) ? trim($_POST['city']) : '';
+    
+    if (empty($state)) {
+        echo json_encode(['success' => false, 'message' => 'Please select a State before adding a city.']);
+        exit;
+    }
+    if (empty($city)) {
+        echo json_encode(['success' => false, 'message' => 'City name cannot be empty.']);
+        exit;
+    }
+    
+    if ($pdo) {
+        try {
+            $cityClean = ucwords(strtolower($city));
+            
+            $stmt = $pdo->prepare("INSERT IGNORE INTO custom_cities (state, city) VALUES (?, ?)");
+            $stmt->execute([$state, $cityClean]);
+            
+            // Also seed into city_areas so it has an initial area and works with area autocomplete
+            $stmtArea = $pdo->prepare("INSERT IGNORE INTO city_areas (state, city, area_name) VALUES (?, ?, ?)");
+            $stmtArea->execute([$state, $cityClean, 'Main Market']);
+            
+            echo json_encode([
+                'success' => true,
+                'message' => "City '{$cityClean}' added successfully to {$state}!",
+                'state'   => $state,
+                'city'    => $cityClean
+            ]);
             exit;
         } catch (Exception $e) {
             echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
@@ -1483,9 +1539,39 @@ if ($pdo) {
     }
 }
 
-// Master Indian States and Cities
+// Master Indian States and Cities (Alphabetically Sorted with Custom Cities Support)
 $indian_states_map = function_exists('getIndianStatesAndCities') ? getIndianStatesAndCities() : [];
+
+// Merge custom cities from database into states map
+if ($pdo) {
+    try {
+        $custCitiesStmt = $pdo->query("SELECT DISTINCT state, city FROM custom_cities WHERE city IS NOT NULL AND TRIM(city) != ''");
+        while ($cRow = $custCitiesStmt->fetch(PDO::FETCH_ASSOC)) {
+            $st = trim($cRow['state'] ?? '');
+            $ct = trim($cRow['city'] ?? '');
+            if ($st && $ct) {
+                if (!isset($indian_states_map[$st])) {
+                    $indian_states_map[$st] = [];
+                }
+                if (!in_array($ct, $indian_states_map[$st], true)) {
+                    $indian_states_map[$st][] = $ct;
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// 100% Alphabetical sorting for states and all cities
+ksort($indian_states_map, SORT_NATURAL | SORT_FLAG_CASE);
+foreach ($indian_states_map as $st => &$cList) {
+    $cList = array_values(array_unique($cList));
+    sort($cList, SORT_NATURAL | SORT_FLAG_CASE);
+}
+unset($cList);
+
 $indian_states_list = array_keys($indian_states_map);
+sort($indian_states_list, SORT_NATURAL | SORT_FLAG_CASE);
+
 $all_indian_cities = [];
 foreach ($indian_states_map as $stName => $cList) {
     foreach ($cList as $cItem) {
@@ -1493,7 +1579,7 @@ foreach ($indian_states_map as $stName => $cList) {
     }
 }
 $all_indian_cities = array_values(array_unique($all_indian_cities));
-sort($all_indian_cities);
+sort($all_indian_cities, SORT_NATURAL | SORT_FLAG_CASE);
 
 // Master S/W Types & Software Editions Mapping
 $sw_types_map = [
@@ -3007,7 +3093,12 @@ function highlightProductPill(which) {
                                 </select>
                             </div>
                             <div class="form-group m-0">
-                                <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">City</label>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <label style="font-size: 0.76rem; font-weight: 700; color: var(--text-main); margin: 0; display: block;">City</label>
+                                    <button type="button" onclick="openQuickAddCityPrompt()" class="btn-ghost" title="Add New City for selected State" style="background: none; border: none; padding: 0 2px; font-size: 0.7rem; font-weight: 700; color: var(--primary); cursor: pointer; display: flex; align-items: center; gap: 3px;">
+                                        <i data-lucide="plus-circle" style="width: 12px; height: 12px;"></i> Add City
+                                    </button>
+                                </div>
                                 <select id="edit_city" name="city" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onchange="onClientCityChange(this.value)">
                                     <option value="">-- Select City --</option>
                                     <?php foreach ($all_indian_cities as $cName): ?>
@@ -3160,6 +3251,111 @@ function highlightProductPill(which) {
                 </div>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Modal: In-Panel Quick Add City Dialog -->
+<div id="quick-add-city-modal" class="modal-overlay" style="z-index: 1080;">
+    <div class="modal-container" style="max-width: 440px; width: 92%; border-radius: 14px; border: 1px solid var(--border-color); background: var(--bg-card); box-shadow: 0 20px 45px -10px rgba(0,0,0,0.5); overflow: hidden;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, var(--primary) 0%, #1e40af 100%); padding: 0.85rem 1.15rem; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="background: rgba(255,255,255,0.2); padding: 5px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="map-pin" style="width: 16px; height: 16px; color: #fff;"></i>
+                </div>
+                <div>
+                    <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #fff;">Add New City</h4>
+                    <span style="font-size: 0.68rem; color: rgba(255,255,255,0.85);">Register a custom city for regional directory</span>
+                </div>
+            </div>
+            <button type="button" onclick="closeQuickAddCityModal()" style="background: rgba(255,255,255,0.15); border: none; border-radius: 6px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #fff;">
+                <i data-lucide="x" style="width: 15px; height: 15px;"></i>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 1.1rem 1.15rem; background: var(--bg-app);">
+            <div id="quick_city_error_msg" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 7px 10px; margin-bottom: 12px; font-size: 0.75rem; color: #dc2626; align-items: center; gap: 6px;">
+                <i data-lucide="alert-circle" style="width: 14px; height: 14px; flex-shrink: 0;"></i>
+                <span id="quick_city_error_text"></span>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">State</label>
+                <select id="quick_city_state_select" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;">
+                    <option value="">-- Select State --</option>
+                    <?php foreach ($indian_states_list as $stName): ?>
+                        <option value="<?php echo htmlspecialchars($stName); ?>"><?php echo htmlspecialchars($stName); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 4px;">
+                <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">City Name *</label>
+                <input type="text" id="quick_city_name_input" placeholder="e.g. Mainpuri, Firozabad, Noida" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitQuickNewCity();}">
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="padding: 0.75rem 1.15rem; background: var(--bg-card); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px;">
+            <button type="button" onclick="closeQuickAddCityModal()" class="btn btn-secondary text-xs" style="border-radius: 7px; padding: 0.4rem 0.9rem;">
+                Cancel
+            </button>
+            <button type="button" id="quick_city_save_btn" onclick="submitQuickNewCity()" class="btn btn-primary text-xs font-bold" style="border-radius: 7px; padding: 0.4rem 1.1rem; display: flex; align-items: center; gap: 5px;">
+                <i data-lucide="check" style="width: 14px; height: 14px;"></i>
+                <span>Save &amp; Add City</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: In-Panel Quick Add Area Dialog -->
+<div id="quick-add-area-modal" class="modal-overlay" style="z-index: 1080;">
+    <div class="modal-container" style="max-width: 440px; width: 92%; border-radius: 14px; border: 1px solid var(--border-color); background: var(--bg-card); box-shadow: 0 20px 45px -10px rgba(0,0,0,0.5); overflow: hidden;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, var(--primary) 0%, #1e40af 100%); padding: 0.85rem 1.15rem; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="background: rgba(255,255,255,0.2); padding: 5px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="map-pin" style="width: 16px; height: 16px; color: #fff;"></i>
+                </div>
+                <div>
+                    <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #fff;">Add New Area / Locality</h4>
+                    <span style="font-size: 0.68rem; color: rgba(255,255,255,0.85);">Register locality for selected city</span>
+                </div>
+            </div>
+            <button type="button" onclick="closeQuickAddAreaModal()" style="background: rgba(255,255,255,0.15); border: none; border-radius: 6px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #fff;">
+                <i data-lucide="x" style="width: 15px; height: 15px;"></i>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 1.1rem 1.15rem; background: var(--bg-app);">
+            <div id="quick_area_error_msg" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 7px 10px; margin-bottom: 12px; font-size: 0.75rem; color: #dc2626; align-items: center; gap: 6px;">
+                <i data-lucide="alert-circle" style="width: 14px; height: 14px; flex-shrink: 0;"></i>
+                <span id="quick_area_error_text"></span>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">City</label>
+                <input type="text" id="quick_area_city_display" readonly class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px; background: var(--bg-card); cursor: not-allowed;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 4px;">
+                <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: block;">Area / Locality Name *</label>
+                <input type="text" id="quick_area_name_input" placeholder="e.g. Civil Lines, Sadar Bazar, Sector 18" class="form-control text-xs font-semibold" style="height: 38px; border-radius: 8px;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitQuickNewArea();}">
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="padding: 0.75rem 1.15rem; background: var(--bg-card); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px;">
+            <button type="button" onclick="closeQuickAddAreaModal()" class="btn btn-secondary text-xs" style="border-radius: 7px; padding: 0.4rem 0.9rem;">
+                Cancel
+            </button>
+            <button type="button" id="quick_area_save_btn" onclick="submitQuickNewArea()" class="btn btn-primary text-xs font-bold" style="border-radius: 7px; padding: 0.4rem 1.1rem; display: flex; align-items: center; gap: 5px;">
+                <i data-lucide="check" style="width: 14px; height: 14px;"></i>
+                <span>Save &amp; Add Area</span>
+            </button>
+        </div>
     </div>
 </div>
 
@@ -3682,10 +3878,13 @@ function onClientStateSelect(stateVal, selectedCity = '') {
     
     let cities = [];
     if (stateVal && indianStatesMap[stateVal]) {
-        cities = indianStatesMap[stateVal];
+        cities = [...indianStatesMap[stateVal]];
     } else {
-        cities = allIndianCitiesList;
+        cities = [...allIndianCitiesList];
     }
+
+    // Strict alphabetical sorting of cities
+    cities.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }));
 
     let isSelectedFound = false;
     cities.forEach(function(c) {
@@ -3715,6 +3914,180 @@ function onClientStateSelect(stateVal, selectedCity = '') {
     }
 }
 window.onClientStateSelect = onClientStateSelect;
+
+// --------------------------------------------------------------------------
+// Quick Add New City In-Panel Modal Controller
+// --------------------------------------------------------------------------
+function openQuickAddCityPrompt() {
+    const stateVal = (document.getElementById('edit_state')?.value || '').trim();
+    const stateSelect = document.getElementById('quick_city_state_select');
+    if (stateSelect && stateVal) {
+        stateSelect.value = stateVal;
+    }
+    const input = document.getElementById('quick_city_name_input');
+    if (input) input.value = '';
+    const errorBox = document.getElementById('quick_city_error_msg');
+    if (errorBox) errorBox.style.display = 'none';
+
+    const modal = document.getElementById('quick-add-city-modal');
+    if (modal) {
+        modal.classList.add('open');
+        modal.classList.remove('hidden');
+    }
+    if (window.lucide) lucide.createIcons();
+    setTimeout(() => {
+        if (input) input.focus();
+    }, 150);
+}
+window.openQuickAddCityPrompt = openQuickAddCityPrompt;
+
+function closeQuickAddCityModal() {
+    const modal = document.getElementById('quick-add-city-modal');
+    if (modal) {
+        modal.classList.remove('open');
+        modal.classList.add('hidden');
+    }
+}
+window.closeQuickAddCityModal = closeQuickAddCityModal;
+
+async function submitQuickNewCity() {
+    const stateSelect = document.getElementById('quick_city_state_select');
+    const input = document.getElementById('quick_city_name_input');
+    const errorBox = document.getElementById('quick_city_error_msg');
+    const errorText = document.getElementById('quick_city_error_text');
+    const saveBtn = document.getElementById('quick_city_save_btn');
+
+    const stateVal = (stateSelect ? stateSelect.value : '').trim();
+    const cityName = (input ? input.value : '').trim();
+
+    if (!stateVal) {
+        if (errorBox && errorText) {
+            errorText.textContent = 'Please select a State before adding a city.';
+            errorBox.style.display = 'flex';
+        }
+        if (stateSelect) stateSelect.focus();
+        return;
+    }
+
+    if (!cityName) {
+        if (errorBox && errorText) {
+            errorText.textContent = 'Please enter a valid City name.';
+            errorBox.style.display = 'flex';
+        }
+        if (input) input.focus();
+        return;
+    }
+
+    if (errorBox) errorBox.style.display = 'none';
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span style="font-size:0.75rem;">Saving...</span>';
+    }
+
+    try {
+        const result = await quickAddNewCity(cityName, stateVal);
+        if (result && result.success) {
+            closeQuickAddCityModal();
+        } else if (result && result.message) {
+            if (errorBox && errorText) {
+                errorText.textContent = result.message;
+                errorBox.style.display = 'flex';
+            }
+        }
+    } catch (e) {
+        console.error('Error in submitQuickNewCity:', e);
+        if (errorBox && errorText) {
+            errorText.textContent = 'Server communication error while saving city.';
+            errorBox.style.display = 'flex';
+        }
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i data-lucide="check" style="width: 14px; height: 14px;"></i><span>Save &amp; Add City</span>';
+            if (window.lucide) lucide.createIcons();
+        }
+    }
+}
+window.submitQuickNewCity = submitQuickNewCity;
+
+async function quickAddNewCity(cityName, stateVal) {
+    if (!cityName) return { success: false, message: 'City name is required' };
+    cityName = cityName.trim();
+    if (!stateVal) {
+        stateVal = (document.getElementById('edit_state')?.value || '').trim();
+    }
+    if (!stateVal) {
+        return { success: false, message: 'Please select a State first' };
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('action', 'add_custom_city');
+        formData.append('state', stateVal);
+        formData.append('city', cityName);
+
+        const res = await fetch('index.php?page=clients', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            const addedCity = (data.city || cityName).trim();
+
+            // Sync main form state if different
+            const mainStateEl = document.getElementById('edit_state');
+            if (mainStateEl && mainStateEl.value !== stateVal) {
+                mainStateEl.value = stateVal;
+            }
+
+            // Update in-memory state dictionary
+            if (!indianStatesMap[stateVal]) {
+                indianStatesMap[stateVal] = [];
+            }
+            const existsInState = indianStatesMap[stateVal].some(c => c.toLowerCase() === addedCity.toLowerCase());
+            if (!existsInState) {
+                indianStatesMap[stateVal].push(addedCity);
+                indianStatesMap[stateVal].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }));
+            }
+
+            const existsInAll = allIndianCitiesList.some(c => c.toLowerCase() === addedCity.toLowerCase());
+            if (!existsInAll) {
+                allIndianCitiesList.push(addedCity);
+                allIndianCitiesList.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }));
+            }
+
+            // Re-render cities dropdown and automatically select the new city
+            onClientStateSelect(stateVal, addedCity);
+
+            if (typeof onClientCityChange === 'function') {
+                onClientCityChange(addedCity);
+            }
+
+            // Focus on Area input next
+            const areaEl = document.getElementById('edit_area');
+            if (areaEl) {
+                areaEl.focus();
+            }
+            return { success: true, city: addedCity };
+        } else {
+            return { success: false, message: data.message || 'Could not add city.' };
+        }
+    } catch (e) {
+        console.error('Error adding new city:', e);
+        // Fallback: add option directly to select
+        const citySelect = document.getElementById('edit_city');
+        if (citySelect) {
+            const opt = document.createElement('option');
+            opt.value = cityName;
+            opt.textContent = cityName;
+            opt.selected = true;
+            citySelect.appendChild(opt);
+        }
+        return { success: true, city: cityName };
+    }
+}
+window.quickAddNewCity = quickAddNewCity;
 
 // --------------------------------------------------------------------------
 // Master City Areas Autocomplete & Real-time + Add New Area Controller
@@ -3892,16 +4265,14 @@ async function quickAddNewArea(areaName) {
     const stateVal = (document.getElementById('edit_state')?.value || '').trim();
     
     if (!cityVal) {
-        alert('Please select a City first.');
-        return;
+        return { success: false, message: 'Please select a City first' };
     }
     
     if (!areaName) {
         areaName = (document.getElementById('edit_area')?.value || '').trim();
     }
     if (!areaName) {
-        alert('Please enter an area name to add.');
-        return;
+        return { success: false, message: 'Please enter an area name to add.' };
     }
 
     try {
@@ -3925,31 +4296,121 @@ async function quickAddNewArea(areaName) {
                 currentCityAreasCache.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
             }
             selectArea(addedArea);
+            return { success: true, area: addedArea };
         } else {
-            alert(data.message || 'Could not add area.');
+            return { success: false, message: data.message || 'Could not add area.' };
         }
     } catch (e) {
         console.error('Error adding new area:', e);
         // Fallback: set input anyway
         selectArea(areaName);
+        return { success: true, area: areaName };
     }
 }
 window.quickAddNewArea = quickAddNewArea;
 
+// --------------------------------------------------------------------------
+// Quick Add New Area In-Panel Modal Controller
+// --------------------------------------------------------------------------
 function openQuickAddAreaPrompt() {
     const cityVal = (document.getElementById('edit_city')?.value || '').trim();
+    const cityDisplay = document.getElementById('quick_area_city_display');
+    const input = document.getElementById('quick_area_name_input');
+    const errorBox = document.getElementById('quick_area_error_msg');
+    const errorText = document.getElementById('quick_area_error_text');
+
+    if (cityDisplay) {
+        cityDisplay.value = cityVal || 'Not Selected (Please pick city in form first)';
+    }
+    if (input) input.value = '';
+    if (errorBox) errorBox.style.display = 'none';
+
     if (!cityVal) {
-        alert('Please select a City before adding a new area.');
-        const cityEl = document.getElementById('edit_city');
-        if (cityEl) cityEl.focus();
-        return;
+        if (errorBox && errorText) {
+            errorText.textContent = 'Please select a City from the main form first before adding an area.';
+            errorBox.style.display = 'flex';
+        }
     }
-    const newArea = prompt(`Enter new Area / Locality name for "${cityVal}":`);
-    if (newArea && newArea.trim() !== '') {
-        quickAddNewArea(newArea.trim());
+
+    const modal = document.getElementById('quick-add-area-modal');
+    if (modal) {
+        modal.classList.add('open');
+        modal.classList.remove('hidden');
     }
+    if (window.lucide) lucide.createIcons();
+    setTimeout(() => {
+        if (cityVal && input) input.focus();
+    }, 150);
 }
 window.openQuickAddAreaPrompt = openQuickAddAreaPrompt;
+
+function closeQuickAddAreaModal() {
+    const modal = document.getElementById('quick-add-area-modal');
+    if (modal) {
+        modal.classList.remove('open');
+        modal.classList.add('hidden');
+    }
+}
+window.closeQuickAddAreaModal = closeQuickAddAreaModal;
+
+async function submitQuickNewArea() {
+    const cityVal = (document.getElementById('edit_city')?.value || '').trim();
+    const input = document.getElementById('quick_area_name_input');
+    const errorBox = document.getElementById('quick_area_error_msg');
+    const errorText = document.getElementById('quick_area_error_text');
+    const saveBtn = document.getElementById('quick_area_save_btn');
+
+    if (!cityVal) {
+        if (errorBox && errorText) {
+            errorText.textContent = 'Please select a City from the main form first.';
+            errorBox.style.display = 'flex';
+        }
+        return;
+    }
+
+    const areaName = (input ? input.value : '').trim();
+    if (!areaName) {
+        if (errorBox && errorText) {
+            errorText.textContent = 'Please enter a valid Area or Locality name.';
+            errorBox.style.display = 'flex';
+        }
+        if (input) input.focus();
+        return;
+    }
+
+    if (errorBox) errorBox.style.display = 'none';
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span style="font-size:0.75rem;">Saving...</span>';
+    }
+
+    try {
+        const result = await quickAddNewArea(areaName);
+        if (result && result.success) {
+            closeQuickAddAreaModal();
+        } else if (result && result.message) {
+            if (errorBox && errorText) {
+                errorText.textContent = result.message;
+                errorBox.style.display = 'flex';
+            }
+        } else {
+            closeQuickAddAreaModal();
+        }
+    } catch (e) {
+        console.error('Error saving area:', e);
+        if (errorBox && errorText) {
+            errorText.textContent = 'Server communication error while saving area.';
+            errorBox.style.display = 'flex';
+        }
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i data-lucide="check" style="width: 14px; height: 14px;"></i><span>Save &amp; Add Area</span>';
+            if (window.lucide) lucide.createIcons();
+        }
+    }
+}
+window.submitQuickNewArea = submitQuickNewArea;
 
 function onAreaInputKeydown(e) {
     if (e.key === 'Escape') {

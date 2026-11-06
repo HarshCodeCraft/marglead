@@ -45,7 +45,11 @@ if ($db_connected && $pdo) {
         <!-- Main Panel Area -->
         <div class="bot-main-panel">
             
-            <?php if ($tab === 'bots'): ?>
+            <?php if ($tab === 'canvas' || $tab === 'automations'): ?>
+                <!-- VISUAL FLOW BUILDER CANVAS VIEW -->
+                <?php require_once __DIR__ . '/bot_flows_canvas.php'; ?>
+
+            <?php elseif ($tab === 'bots'): ?>
                 <!-- BOTS VIEW -->
                 <div class="flows-header-bar">
                     <div>

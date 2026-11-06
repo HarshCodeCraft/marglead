@@ -146,18 +146,27 @@ switch ($action) {
                 }
             }
             
-            // Query ALL distinct contact numbers for accurate global counts
-            $sqlAll = "SELECT m1.*
-                       FROM message_logs m1
-                       INNER JOIN (
-                           SELECT recipient_or_sender, MAX(id) as max_id
-                           FROM message_logs
-                           GROUP BY recipient_or_sender
-                       ) m2 ON m1.id = m2.max_id
-                       ORDER BY m1.id DESC";
+            // Query latest message logs (up to 3000) and deduplicate by normalized 10-digit phone
+            // This guarantees the newest message is always first and eliminates split contact duplicates
+            $stmtAll = $pdo->query("SELECT * FROM message_logs ORDER BY id DESC LIMIT 3000");
+            $allRawMessages = $stmtAll ? $stmtAll->fetchAll(PDO::FETCH_ASSOC) : [];
 
-            $stmtAll = $pdo->query($sqlAll);
-            $allConversations = $stmtAll ? $stmtAll->fetchAll(PDO::FETCH_ASSOC) : [];
+            $allConversations = [];
+            $seen10Phones = [];
+
+            foreach ($allRawMessages as $mRow) {
+                $rawP = $mRow['recipient_or_sender'] ?? '';
+                $cleanP = preg_replace('/[^0-9]/', '', $rawP);
+                $p10 = substr($cleanP, -10);
+                if (empty($p10)) continue;
+
+                if (!isset($seen10Phones[$p10])) {
+                    $seen10Phones[$p10] = true;
+                    $mRow['canonical_phone'] = !empty($cleanP) ? $cleanP : $rawP;
+                    $mRow['phone_10'] = $p10;
+                    $allConversations[] = $mRow;
+                }
+            }
 
             // 1. Fetch chat status map from chat_conversations with full phone normalization
             $statusMap = [];
@@ -361,7 +370,22 @@ switch ($action) {
                 }
 
                 $rawLast = !empty($c['raw_json']) ? json_decode($c['raw_json'], true) : null;
-                $c['formatted_time']  = !empty($rawLast['timestamp']) ? date('d M, h:i A', (int)$rawLast['timestamp']) : date('d M, h:i A', strtotime($c['created_at']));
+                $msgEpoch = !empty($rawLast['timestamp']) ? (int)$rawLast['timestamp'] : strtotime($c['created_at']);
+                $c['timestamp_epoch'] = $msgEpoch;
+
+                // Authentic WhatsApp Web time formatting for chat list
+                $todayMid = strtotime('today');
+                $yesterdayMid = strtotime('yesterday');
+                if ($msgEpoch >= $todayMid) {
+                    $c['formatted_time'] = date('h:i A', $msgEpoch);
+                } elseif ($msgEpoch >= $yesterdayMid) {
+                    $c['formatted_time'] = 'Yesterday';
+                } elseif ($msgEpoch >= strtotime('-6 days', $todayMid)) {
+                    $c['formatted_time'] = date('l', $msgEpoch);
+                } else {
+                    $c['formatted_time'] = date('d/m/y', $msgEpoch);
+                }
+
                 $c['chat_status']     = $chatStatus;
                 $c['customer_name']   = $name;
                 $c['company_name']    = $company;
@@ -380,6 +404,13 @@ switch ($action) {
 
                 $conversations[] = $c;
             }
+
+            // Strictly sort conversations by latest message timestamp descending (WhatsApp Web order)
+            usort($conversations, function($a, $b) {
+                $tA = (int)($a['timestamp_epoch'] ?? strtotime($a['created_at']));
+                $tB = (int)($b['timestamp_epoch'] ?? strtotime($b['created_at']));
+                return $tB <=> $tA;
+            });
 
             echo json_encode([
                 'success' => true,
@@ -421,7 +452,10 @@ switch ($action) {
             foreach ($messages as &$m) {
                 $type = $m['message_type'] ?? 'text';
                 $raw  = !empty($m['raw_json']) ? json_decode($m['raw_json'], true) : null;
-                $m['formatted_time'] = !empty($raw['timestamp']) ? date('h:i A', (int)$raw['timestamp']) : date('h:i A', strtotime($m['created_at']));
+                $msgEpoch = !empty($raw['timestamp']) ? (int)$raw['timestamp'] : strtotime($m['created_at']);
+                $m['timestamp_epoch'] = $msgEpoch;
+                $m['formatted_time']  = date('h:i A', $msgEpoch);
+                $m['msg_date']        = date('Y-m-d', $msgEpoch);
                 $m['media_url']      = null;
                 $m['media_type']     = null;
                 $m['media_caption']  = null;

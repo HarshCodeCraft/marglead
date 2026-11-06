@@ -18,10 +18,20 @@ $canAssign = hasAccess('support_assign', $user_role);
 $canClose = hasAccess('support_close', $user_role);
 
 // Auto-sync incoming WhatsApp Flow tickets from `tickets` table into `support_tickets`
+if (!function_exists('syncWhatsAppFlowTickets')) {
 function syncWhatsAppFlowTickets($pdo) {
     if (!$pdo) return;
+    
+    // Throttle: Never run more than once every 30 seconds per request process
+    static $lastSyncTime = 0;
+    if (time() - $lastSyncTime < 30) {
+        return;
+    }
+    $lastSyncTime = time();
+
     try {
-        $stmtSync = $pdo->query("SELECT * FROM tickets ORDER BY id DESC LIMIT 50");
+        // Query only raw tickets that are NOT yet in support_tickets table
+        $stmtSync = $pdo->query("SELECT t.* FROM tickets t WHERE t.ticket_number NOT IN (SELECT id FROM support_tickets) ORDER BY t.id DESC LIMIT 20");
         if ($stmtSync) {
             $rawFlowTickets = $stmtSync->fetchAll(PDO::FETCH_ASSOC);
             foreach ($rawFlowTickets as $rt) {
@@ -35,8 +45,8 @@ function syncWhatsAppFlowTickets($pdo) {
                         $cleanMob = preg_replace('/[^\d]/', '', $phone);
                         if (strlen($cleanMob) >= 10) {
                             $cleanMob = substr($cleanMob, -10);
-                            $cdStmt = $pdo->prepare("SELECT party_name FROM client_directory WHERE mobile LIKE ? OR mobile LIKE ? LIMIT 1");
-                            $cdStmt->execute(['%' . $cleanMob, '%' . $cleanMob . '%']);
+                            $cdStmt = $pdo->prepare("SELECT party_name FROM client_directory WHERE mobile LIKE ? LIMIT 1");
+                            $cdStmt->execute(['%' . $cleanMob]);
                             if ($cdName = $cdStmt->fetchColumn()) {
                                 $cName = $cdName;
                             }
@@ -50,39 +60,60 @@ function syncWhatsAppFlowTickets($pdo) {
                 $subj = (!empty($rt['category']) ? $rt['category'] : 'Support') . ($rt['firm_name'] !== 'N/A' && !empty($rt['firm_name']) ? ' - ' . $rt['firm_name'] : '');
                 $prio = !empty($rt['priority']) ? strtolower($rt['priority']) : 'medium';
                 $stat = !empty($rt['status']) ? strtolower($rt['status']) : 'open';
-                $phone = $rt['mobile'] ?? '';
                 $email = ($rt['email'] !== 'N/A') ? ($rt['email'] ?? '') : '';
                 $prob = $rt['description'] ?? '';
                 $dateCreated = $rt['created_at'] ?? date('Y-m-d H:i:s');
 
-                $stmtCheck = $pdo->prepare("SELECT id FROM support_tickets WHERE id = ?");
-                $stmtCheck->execute([$tId]);
-                if (!$stmtCheck->fetch()) {
-                    $stmtInsSync = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, phone, email, problem, callback_number, date_created) VALUES (?, ?, ?, ?, ?, 'Unassigned', ?, ?, ?, ?, ?)");
-                    $stmtInsSync->execute([$tId, $cName, $subj, $prio, $stat, $phone, $email, $prob, $phone, $dateCreated]);
+                $stmtInsSync = $pdo->prepare("INSERT IGNORE INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, phone, email, problem, callback_number, date_created) VALUES (?, ?, ?, ?, ?, 'Unassigned', ?, ?, ?, ?, ?)");
+                $stmtInsSync->execute([$tId, $cName, $subj, $prio, $stat, $phone, $email, $prob, $phone, $dateCreated]);
 
-                    try {
-                        $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'created', ?, 'Customer', ?, ?)");
-                        $stmtH->execute([
-                            $tId,
-                            $cName . (!empty($phone) ? " ({$phone})" : ""),
-                            "Ticket created via WhatsApp Flow by Customer. Category: " . ($rt['category'] ?? 'General Support') . (!empty($prob) ? ". Problem: {$prob}" : ""),
-                            $dateCreated
-                        ]);
-                    } catch (Throwable $eH) {}
-                }
+                try {
+                    $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'created', ?, 'Customer', ?, ?)");
+                    $stmtH->execute([
+                        $tId,
+                        $cName . (!empty($phone) ? " ({$phone})" : ""),
+                        "Ticket created via WhatsApp Flow by Customer. Category: " . ($rt['category'] ?? 'General Support') . (!empty($prob) ? ". Problem: {$prob}" : ""),
+                        $dateCreated
+                    ]);
+                } catch (Throwable $eH) {}
             }
         }
     } catch (Throwable $eSync) {}
 }
+}
 
+if (!function_exists('getFilteredSupportTickets')) {
 function getFilteredSupportTickets($pdo, $is_admin, $user_name, $filters = []) {
     if (!$pdo) return [];
     $operator_filter = trim($filters['operator'] ?? '');
     $search_query    = trim($filters['search'] ?? '');
-    $status_filter    = trim($filters['status'] ?? '');
-    $priority_filter  = trim($filters['priority'] ?? '');
-    $product_filter   = trim($filters['product'] ?? '');
+    $status_filter   = trim($filters['status'] ?? '');
+    $priority_filter = trim($filters['priority'] ?? '');
+    $product_filter  = trim($filters['product'] ?? '');
+    $date_type       = trim($filters['date_type'] ?? 'created'); // 'created', 'resolved', 'updated'
+    $date_preset     = trim($filters['date_preset'] ?? '');      // 'today', 'yesterday', 'last_7_days', 'this_month', 'last_month', 'custom'
+    $date_from       = trim($filters['date_from'] ?? '');
+    $date_to         = trim($filters['date_to'] ?? '');
+
+    // Resolve date preset if provided
+    if (!empty($date_preset) && $date_preset !== 'custom' && $date_preset !== 'all') {
+        if ($date_preset === 'today') {
+            $date_from = date('Y-m-d');
+            $date_to   = date('Y-m-d');
+        } elseif ($date_preset === 'yesterday') {
+            $date_from = date('Y-m-d', strtotime('-1 day'));
+            $date_to   = date('Y-m-d', strtotime('-1 day'));
+        } elseif ($date_preset === 'last_7_days') {
+            $date_from = date('Y-m-d', strtotime('-6 days'));
+            $date_to   = date('Y-m-d');
+        } elseif ($date_preset === 'this_month') {
+            $date_from = date('Y-m-01');
+            $date_to   = date('Y-m-t');
+        } elseif ($date_preset === 'last_month') {
+            $date_from = date('Y-m-01', strtotime('first day of last month'));
+            $date_to   = date('Y-m-t', strtotime('last day of last month'));
+        }
+    }
 
     $where_conditions = [];
     $query_params     = [];
@@ -91,22 +122,47 @@ function getFilteredSupportTickets($pdo, $is_admin, $user_name, $filters = []) {
         $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
         $query_params[] = $user_name;
     } elseif (!empty($operator_filter)) {
-        $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
-        $query_params[] = $operator_filter;
+        if (strtolower($operator_filter) === 'unassigned') {
+            $where_conditions[] = "(assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
+        } else {
+            $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
+            $query_params[] = $operator_filter;
+        }
     }
 
     if (!empty($search_query)) {
-        $where_conditions[] = "(id LIKE ? OR customer_name LIKE ? OR lead_id LIKE ? OR phone LIKE ? OR email LIKE ? OR subject LIKE ? OR problem LIKE ? OR address LIKE ?)";
+        $where_conditions[] = "(id LIKE ? OR customer_name LIKE ? OR lead_id LIKE ? OR phone LIKE ? OR email LIKE ? OR subject LIKE ? OR problem LIKE ? OR address LIKE ? OR callback_number LIKE ?)";
         $st = '%' . $search_query . '%';
-        for ($i = 0; $i < 8; $i++) {
+        for ($i = 0; $i < 9; $i++) {
             $query_params[] = $st;
         }
     }
 
+    // Determine target date column for filtering (Admin only)
+    if ($is_admin && $date_type === 'resolved') {
+        $targetDateCol = "resolved_date";
+        $where_conditions[] = "(resolved_date IS NOT NULL AND resolved_date != '0000-00-00 00:00:00')";
+    } elseif ($is_admin && $date_type === 'updated') {
+        $targetDateCol = "COALESCE(updated_at, date_created)";
+    } else {
+        $targetDateCol = "date_created";
+    }
+
+    // Apply Date Range (Admin only)
+    if ($is_admin && !empty($date_from)) {
+        $where_conditions[] = "{$targetDateCol} >= ?";
+        $query_params[] = $date_from . ' 00:00:00';
+    }
+    if ($is_admin && !empty($date_to)) {
+        $where_conditions[] = "{$targetDateCol} <= ?";
+        $query_params[] = $date_to . ' 23:59:59';
+    }
+
+    // Status Filter
     if (!empty($status_filter)) {
         $stVal = strtolower($status_filter);
         if ($stVal === 'all') {
-            // Show all tickets including resolved/closed
+            // Show all tickets
         } elseif ($stVal === 'resolved' || $stVal === 'closed') {
             $where_conditions[] = "LOWER(status) IN ('resolved', 'closed')";
         } elseif ($stVal === 'pending' || $stVal === 'in_progress') {
@@ -116,7 +172,13 @@ function getFilteredSupportTickets($pdo, $is_admin, $user_name, $filters = []) {
             $query_params[] = $stVal;
         }
     } else {
-        $where_conditions[] = "LOWER(status) NOT IN ('resolved', 'closed')";
+        // If user explicitly chose resolved date type, show resolved tickets!
+        if ($date_type === 'resolved') {
+            $where_conditions[] = "LOWER(status) IN ('resolved', 'closed')";
+        } else {
+            // Default view: Show active tickets
+            $where_conditions[] = "LOWER(status) NOT IN ('resolved', 'closed')";
+        }
     }
 
     if (!empty($product_filter)) {
@@ -125,22 +187,26 @@ function getFilteredSupportTickets($pdo, $is_admin, $user_name, $filters = []) {
         $query_params[] = '%' . strtolower($product_filter) . '%';
     }
 
-    if (!empty($priority_filter)) {
+    if ($is_admin && !empty($priority_filter)) {
         $where_conditions[] = "LOWER(priority) = ?";
         $query_params[] = strtolower($priority_filter);
     }
 
     $where_sql = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
 
+    $orderCol = ($date_type === 'resolved') ? 'resolved_date' : (($date_type === 'updated') ? 'updated_at' : 'date_created');
+
     try {
-        $stmt = $pdo->prepare("SELECT * FROM support_tickets {$where_sql} ORDER BY date_created DESC");
+        $stmt = $pdo->prepare("SELECT * FROM support_tickets {$where_sql} ORDER BY {$orderCol} DESC, id DESC");
         $stmt->execute($query_params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Throwable $e) {
         return [];
     }
 }
+}
 
+if (!function_exists('getSupportTicketCounters')) {
 function getSupportTicketCounters($pdo, $is_admin, $user_name) {
     $counts = [
         'open' => 0,
@@ -176,14 +242,17 @@ function getSupportTicketCounters($pdo, $is_admin, $user_name) {
     } catch (Throwable $e) {}
     return $counts;
 }
+}
 
+if (!function_exists('renderSupportTicketRows')) {
 function renderSupportTicketRows($tickets, $user_name, $is_admin, $canEdit) {
     ob_start();
     if (empty($tickets)): ?>
         <tr>
-            <td colspan="10" class="text-center text-muted py-8">
-                <i data-lucide="inbox" style="width: 40px; height: 40px; margin: 0 auto 0.75rem auto; color: var(--text-muted);"></i>
+            <td colspan="12" class="text-center text-muted py-8">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto 0.75rem auto; color: var(--text-muted); display: block; opacity: 0.6;"><path d="M22 12h-6l-2 3h-4l-2-3H2"></path><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>
                 <p class="text-sm font-semibold mb-1">No support tickets found matching your query.</p>
+                <span class="text-xs text-muted">Try clearing filters or selecting another date range.</span>
             </td>
         </tr>
     <?php else:
@@ -199,10 +268,19 @@ function renderSupportTicketRows($tickets, $user_name, $is_admin, $canEdit) {
             $telPayload = 'tel:' . $cleanPhone;
             $cNameEsc = htmlspecialchars(addslashes(!empty($cNameDisplay) ? $cNameDisplay : 'Client'), ENT_QUOTES, 'UTF-8');
 
-            $dispProb = trim($t['problem'] ?? '');
-            $dispSubj = trim($t['subject'] ?? '');
-            $primaryText = !empty($dispSubj) ? $dispSubj : (!empty($dispProb) ? $dispProb : 'Technical Support');
-            $secondaryText = !empty($t['resolution']) ? ('Solution: ' . $t['resolution']) : ((!empty($dispProb) && $dispProb !== $dispSubj) ? $dispProb : '');
+            // Issue / Problem Only
+            $issueOnly = !empty($t['problem']) ? trim($t['problem']) : trim($t['subject'] ?? '');
+            if (empty($issueOnly) || strcasecmp($issueOnly, 'Technical Support') === 0) {
+                $issueOnly = !empty($t['subject']) ? trim($t['subject']) : 'Technical Support';
+            }
+            if (stripos($issueOnly, 'Technical Support - ') === 0) {
+                $stripped = trim(substr($issueOnly, strlen('Technical Support - ')));
+                if (!empty($stripped)) {
+                    $issueOnly = $stripped;
+                }
+            }
+
+            $shortDate = !empty($t['date_created']) ? date('d M, h:i A', strtotime($t['date_created'])) : '';
 
             $p = strtolower($t['priority'] ?? 'medium');
             $s = strtolower($t['status'] ?? 'open');
@@ -211,75 +289,144 @@ function renderSupportTicketRows($tickets, $user_name, $is_admin, $canEdit) {
             $currUser = strtolower(trim($user_name ?? ''));
             $isAssignedToMe = !empty($tAssigned) && $tAssigned !== 'unassigned' && ($tAssigned === $currUser);
             $isUnassigned = empty($tAssigned) || $tAssigned === 'unassigned';
-            $canUserEditThisTicket = $is_admin || $isAssignedToMe || ($canEdit && $isUnassigned);
+            $canUserEditThisTicket = $is_admin || $isAssignedToMe;
         ?>
-        <tr data-ticket-id="<?php echo htmlspecialchars($t['id']); ?>">
-            <td style="padding: 0.85rem 1rem;">
-                <span class="font-bold text-primary font-mono text-xs block"><?php echo htmlspecialchars($t['id']); ?></span>
-                <span class="text-xs text-muted font-mono block mt-1" style="font-size: 0.7rem;" title="Ticket Creation Date">
-                    <i data-lucide="calendar" style="width: 10px; height: 10px; display: inline-block; vertical-align: middle; margin-right: 2px;"></i>
-                    <?php echo !empty($t['date_created']) ? date('d M Y, h:i A', strtotime($t['date_created'])) : date('d M Y'); ?>
+        <tr data-ticket-id="<?php echo htmlspecialchars($t['id']); ?>" style="vertical-align: middle; border-bottom: 1px solid var(--border-color); transition: background-color 0.15s ease;">
+            <!-- Column 1: Ticket ID & Time -->
+            <td class="col-sup-ticket" style="padding: 0.75rem 0.85rem 0.75rem 1rem; min-width: 155px;">
+                <span style="font-family: var(--font-mono, monospace); font-weight: 700; font-size: 0.78rem; color: var(--primary); white-space: nowrap;">#<?php echo htmlspecialchars($t['id']); ?></span>
+                <?php if (!empty($shortDate)): ?>
+                    <div style="font-family: var(--font-mono, monospace); font-size: 0.71rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap;" title="Created: <?php echo htmlspecialchars($t['date_created'] ?? ''); ?>">
+                        <?php echo htmlspecialchars($shortDate); ?>
+                    </div>
+                <?php endif; ?>
+            </td>
+
+            <!-- Column 2: Client / Company -->
+            <td class="col-sup-client" style="padding: 0.75rem 0.85rem; min-width: 180px; max-width: 250px;">
+                <span style="font-weight: 600; font-size: 0.83rem; color: var(--text-main); line-height: 1.35; display: block; word-break: break-word;" title="Client: <?php echo htmlspecialchars($cNameDisplay); ?>">
+                    <?php echo htmlspecialchars(!empty($cNameDisplay) ? $cNameDisplay : '-'); ?>
                 </span>
             </td>
-            <td>
-                <strong class="text-main block text-sm"><?php echo htmlspecialchars(!empty($cNameDisplay) ? $cNameDisplay : '-'); ?></strong>
-                <span class="text-xs text-muted font-mono">ID: <?php echo htmlspecialchars(!empty($t['lead_id']) ? $t['lead_id'] : 'NA'); ?></span>
-            </td>
-            <td>
-                <div class="flex align-center gap-1.5">
-                    <span class="font-mono text-xs text-main font-semibold"><?php echo htmlspecialchars($displayPhone ?: '-'); ?></span>
+
+            <!-- Column 3: Call Back No. -->
+            <td class="col-sup-callback" style="padding: 0.75rem 0.85rem; min-width: 140px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-family: var(--font-mono, monospace); font-weight: 600; font-size: 0.82rem; color: var(--text-main); white-space: nowrap;" id="table-cb-<?php echo htmlspecialchars($t['id']); ?>">
+                        <?php echo htmlspecialchars($displayPhone ?: '-'); ?>
+                    </span>
                     <?php if (!empty($cleanPhone)): ?>
-                        <button type="button" class="btn text-xs p-1" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; border-radius: 6px; padding: 2px 6px; cursor: pointer;" title="Scan QR to call on smartphone dial pad" onclick="openCallQrModal('<?php echo $cNameEsc; ?>', '<?php echo $cleanPhone; ?>', '<?php echo urlencode($telPayload); ?>')">
-                            <i data-lucide="qr-code" style="width: 12px; height: 12px; vertical-align: middle;"></i>
-                            <span style="font-size: 0.68rem; font-weight: 700;">QR</span>
+                        <button type="button" class="btn-icon" style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 5px; background: rgba(37,99,235,0.08); color: var(--primary); border: 1px solid rgba(37,99,235,0.2); cursor: pointer;" title="Scan QR to call" onclick="openCallQrModal('<?php echo $cNameEsc; ?>', '<?php echo $cleanPhone; ?>', '<?php echo urlencode($telPayload); ?>')">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                        </button>
+                    <?php endif; ?>
+                    <?php if ($is_admin): ?>
+                        <button type="button" class="btn-icon" style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 5px; background: rgba(16,185,129,0.08); color: #059669; border: 1px solid rgba(16,185,129,0.2); cursor: pointer;" title="Edit number" onclick="openEditCallbackModal('<?php echo htmlspecialchars($t['id']); ?>', '<?php echo htmlspecialchars($cleanPhone); ?>', '<?php echo $cNameEsc; ?>')">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                         </button>
                     <?php endif; ?>
                 </div>
             </td>
-            <td style="max-width: 250px;">
-                <strong class="text-xs text-main block"><?php echo htmlspecialchars($primaryText); ?></strong>
-                <?php if (!empty($secondaryText)): ?>
-                    <span class="text-xs text-muted" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                        <?php echo htmlspecialchars($secondaryText); ?>
+
+            <!-- Column 4: Issue Only -->
+            <td class="col-sup-issue" style="padding: 0.75rem 0.85rem; min-width: 200px; max-width: 300px;">
+                <div style="font-weight: 500; font-size: 0.82rem; color: var(--text-main); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;" title="<?php echo htmlspecialchars($issueOnly); ?>">
+                    <?php echo htmlspecialchars($issueOnly); ?>
+                </div>
+            </td>
+
+            <!-- Column 5: Problem (Client Reported) -->
+            <td class="col-sup-problem" style="padding: 0.75rem 0.85rem; min-width: 180px; max-width: 280px;">
+                <div style="font-size: 0.82rem; color: var(--text-main); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;" title="<?php echo htmlspecialchars($t['problem'] ?? '-'); ?>">
+                    <?php echo htmlspecialchars(!empty($t['problem']) ? $t['problem'] : '-'); ?>
+                </div>
+            </td>
+
+            <!-- Column 6: Resolved Remark (Employee Solution) -->
+            <td class="col-sup-resolution" style="padding: 0.75rem 0.85rem; min-width: 180px; max-width: 280px;">
+                <div style="font-size: 0.82rem; color: var(--text-main); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;" title="<?php echo htmlspecialchars($t['resolution'] ?? '-'); ?>">
+                    <?php echo htmlspecialchars(!empty($t['resolution']) ? $t['resolution'] : '-'); ?>
+                </div>
+            </td>
+
+            <!-- Column 7: Product -->
+            <td class="col-sup-product" style="padding: 0.75rem 0.85rem; min-width: 120px;">
+                <span style="display: inline-block; background: rgba(99, 102, 241, 0.08); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.22); font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">
+                    <?php echo htmlspecialchars($t['product'] ?? 'Marg ERP'); ?>
+                </span>
+            </td>
+
+            <!-- Column 6: Priority -->
+            <td class="col-sup-priority" style="padding: 0.75rem 0.85rem; min-width: 90px; text-align: center;">
+                <?php 
+                    if ($p === 'critical') {
+                        echo '<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.28); font-weight: 700; font-size: 0.71rem; padding: 2px 7px; border-radius: 6px; white-space: nowrap;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #dc2626;"></span>Critical</span>';
+                    } elseif ($p === 'high') {
+                        echo '<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.28); font-weight: 600; font-size: 0.71rem; padding: 2px 7px; border-radius: 6px; white-space: nowrap;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #d97706;"></span>High</span>';
+                    } elseif ($p === 'low') {
+                        echo '<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(148, 163, 184, 0.08); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.2); font-weight: 500; font-size: 0.71rem; padding: 2px 7px; border-radius: 6px; white-space: nowrap;">Low</span>';
+                    } else {
+                        echo '<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(100, 116, 139, 0.08); color: #475569; border: 1px solid rgba(100, 116, 139, 0.22); font-weight: 600; font-size: 0.71rem; padding: 2px 7px; border-radius: 6px; white-space: nowrap;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #94a3b8;"></span>Medium</span>';
+                    }
+                ?>
+            </td>
+
+            <!-- Column 7: Assigned Tech -->
+            <td class="col-sup-assigned" style="padding: 0.75rem 0.85rem; min-width: 130px;">
+                <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(37,99,235,0.08); color: var(--primary); border: 1px solid rgba(37,99,235,0.2); padding: 3px 8px; border-radius: 6px; font-size: 0.73rem; font-weight: 600; white-space: nowrap;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    <span><?php echo htmlspecialchars(!empty($t['assigned_to']) ? $t['assigned_to'] : 'Unassigned'); ?></span>
+                </span>
+            </td>
+
+            <!-- Column 8: Status Only -->
+            <td class="col-sup-status" style="padding: 0.75rem 0.85rem; min-width: 110px; text-align: center;">
+                <?php if ($s === 'resolved' || $s === 'closed'): ?>
+                    <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.28); font-weight: 700; font-size: 0.71rem; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <span>Resolved</span>
+                    </span>
+                <?php elseif ($s === 'in_progress' || $s === 'pending'): ?>
+                    <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.28); font-weight: 600; font-size: 0.71rem; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        <span>In Progress</span>
+                    </span>
+                <?php else: ?>
+                    <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.28); font-weight: 700; font-size: 0.71rem; padding: 2px 8px; border-radius: 6px; white-space: nowrap;">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle></svg>
+                        <span>Open</span>
                     </span>
                 <?php endif; ?>
             </td>
-            <td><span class="badge text-xs" style="--badge-bg: var(--accent-light); --badge-color: var(--accent);"><?php echo htmlspecialchars($t['product'] ?? 'Marg ERP'); ?></span></td>
-            <td>
-                <?php 
-                    if ($p === 'critical') echo '<span class="badge badge-danger text-xs font-bold">CRITICAL</span>';
-                    elseif ($p === 'high') echo '<span class="badge text-xs" style="--badge-bg: var(--warning-light); --badge-color: var(--warning);">High</span>';
-                    else echo '<span class="badge text-xs text-muted">' . ucfirst($p) . '</span>';
-                ?>
-            </td>
-            <td>
-                <span class="badge text-xs" style="--badge-bg: rgba(59, 130, 246, 0.15); --badge-color: #3b82f6; font-weight: 700;">
-                    <i data-lucide="user-check" style="width: 11px; height: 11px; display: inline-block; vertical-align: middle; margin-right: 3px;"></i>
-                    <?php echo htmlspecialchars(!empty($t['assigned_to']) ? $t['assigned_to'] : 'Unassigned'); ?>
+
+            <!-- Column 9: Due Date -->
+            <td class="col-sup-due" style="padding: 0.75rem 0.85rem; min-width: 95px; text-align: center;">
+                <span style="font-family: var(--font-mono, monospace); font-size: 0.74rem; color: var(--text-muted); white-space: nowrap;">
+                    <?php echo htmlspecialchars(!empty($t['due_date']) ? $t['due_date'] : '-'); ?>
                 </span>
             </td>
-            <td>
-                <?php 
-                    if ($s === 'resolved') echo '<span class="badge badge-success text-xs">Resolved</span>';
-                    elseif ($s === 'in_progress') echo '<span class="badge text-xs" style="--badge-bg: var(--warning-light); --badge-color: var(--warning);">In Progress</span>';
-                    else echo '<span class="badge text-xs text-primary">Open</span>';
-                ?>
-            </td>
-            <td class="font-mono text-xs text-muted"><?php echo htmlspecialchars($t['due_date'] ?? '-'); ?></td>
-            <td style="text-align: right; padding-right: 1.25rem;">
-                <div class="flex align-center justify-end gap-1.5">
+
+            <!-- Column 10: Actions -->
+            <td class="col-sup-actions" style="padding: 0.75rem 1.25rem 0.75rem 0.85rem; min-width: 85px; text-align: right;">
+                <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px;">
                     <?php if ($isUnassigned): ?>
-                        <button type="button" class="btn btn-xs flex align-center gap-1 font-bold" style="background: #10b981; color: #ffffff; border: none; border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; cursor: pointer; box-shadow: 0 1px 4px rgba(16,185,129,0.3);" title="Take / Claim this ticket" onclick="takeTicket('<?php echo htmlspecialchars($t['id']); ?>')">
-                            <i data-lucide="hand" style="width: 12px; height: 12px;"></i>
+                        <button type="button" class="btn btn-xs" style="background: #10b981; color: #ffffff; border: none; border-radius: 6px; padding: 4px 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(16,185,129,0.3);" title="Take / Claim this ticket" onclick="takeTicket('<?php echo htmlspecialchars($t['id']); ?>')">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path></svg>
                             <span>Take</span>
                         </button>
-                    <?php endif; ?>
-                    <?php if ($canUserEditThisTicket): ?>
-                        <button type="button" class="btn-icon" title="Edit / Update Ticket" onclick='openEditTicketModal(<?php echo $tJson; ?>)'>
-                            <i data-lucide="edit-3" style="width: 15px; height: 15px; color: var(--primary);"></i>
+                        <?php if ($is_admin): ?>
+                            <button type="button" class="btn-icon" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer;" title="Edit / Update Ticket (Admin)" onclick='openEditTicketModal(<?php echo $tJson; ?>)'>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                            </button>
+                        <?php endif; ?>
+                    <?php elseif ($canUserEditThisTicket): ?>
+                        <button type="button" class="btn-icon" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer;" title="Edit / Update Ticket" onclick='openEditTicketModal(<?php echo $tJson; ?>)'>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                         </button>
                     <?php else: ?>
-                        <span class="text-xs text-muted" title="Locked: Assigned to another technician"><i data-lucide="lock" style="width: 14px; height: 14px; opacity: 0.5;"></i></span>
+                        <span class="text-xs text-muted" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; opacity: 0.5;" title="Locked: Assigned to another technician">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                        </span>
                     <?php endif; ?>
                 </div>
             </td>
@@ -289,6 +436,7 @@ function renderSupportTicketRows($tickets, $user_name, $is_admin, $canEdit) {
     endif;
     return ob_get_clean();
 }
+}
 
 // Ajax handler for zero-refresh live tickets auto-sync
 if (isset($_GET['action']) && $_GET['action'] === 'fetch_live_tickets') {
@@ -297,6 +445,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'fetch_live_tickets') {
     }
     header('Content-Type: application/json; charset=utf-8');
 
+    // Release session file lock immediately so form submissions are never blocked!
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+
     if ($db_connected && $pdo) {
         syncWhatsAppFlowTickets($pdo);
         $liveTickets = getFilteredSupportTickets($pdo, $is_admin, $user_name, $_GET);
@@ -304,12 +457,19 @@ if (isset($_GET['action']) && $_GET['action'] === 'fetch_live_tickets') {
         $tbodyHtml = renderSupportTicketRows($liveTickets, $user_name, $is_admin, $canEdit);
         $latestId = !empty($liveTickets[0]['id']) ? $liveTickets[0]['id'] : '';
 
+        // Generate data fingerprint hash to eliminate redundant DOM updates and flickering
+        $ticketFingerprints = array_map(function($t) {
+            return ($t['id'] ?? '') . '|' . ($t['updated_at'] ?? '') . '|' . ($t['status'] ?? '') . '|' . ($t['assigned_to'] ?? '') . '|' . ($t['priority'] ?? '') . '|' . ($t['problem'] ?? '') . '|' . ($t['resolution'] ?? '') . '|' . ($t['customer_name'] ?? '');
+        }, $liveTickets);
+        $dataHash = md5(implode(';', $ticketFingerprints));
+
         echo json_encode([
             'status'           => 'success',
             'total'            => count($liveTickets),
             'counts'           => $liveCounters,
             'tbody_html'       => $tbodyHtml,
             'latest_ticket_id' => $latestId,
+            'data_hash'        => $dataHash,
             'timestamp'        => time()
         ]);
     } else {
@@ -336,9 +496,90 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_ticket_history') {
     exit;
 }
 
+// Handler to export filtered tickets as CSV / Excel
+if (isset($_GET['action']) && $_GET['action'] === 'export_support_csv') {
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    $exportTickets = getFilteredSupportTickets($pdo, $is_admin, $user_name, $_GET);
+    
+    $filename = "Support_Tickets_Export_" . date('Ymd_His') . ".csv";
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    $output = fopen('php://output', 'w');
+    // Write UTF-8 BOM for Microsoft Excel compatibility
+    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+
+    // Headers
+    fputcsv($output, [
+        'Ticket ID',
+        'Customer / Firm Name',
+        'Client ID / Lead ID',
+        'Mobile Number',
+        'Callback Number',
+        'Email ID',
+        'Product',
+        'Priority',
+        'Status',
+        'Assigned Technician',
+        'Subject',
+        'Problem Description',
+        'Resolution / Remark',
+        'Created Date',
+        'Resolved Date',
+        'Resolution TAT',
+        'Last Updated Date'
+    ]);
+
+    foreach ($exportTickets as $t) {
+        $createdStr = !empty($t['date_created']) ? date('d-m-Y h:i A', strtotime($t['date_created'])) : '';
+        $resolvedStr = !empty($t['resolved_date']) && $t['resolved_date'] !== '0000-00-00 00:00:00' ? date('d-m-Y h:i A', strtotime($t['resolved_date'])) : '';
+        $updatedStr = !empty($t['updated_at']) && $t['updated_at'] !== '0000-00-00 00:00:00' ? date('d-m-Y h:i A', strtotime($t['updated_at'])) : '';
+        
+        $tat = '';
+        if (!empty($t['date_created']) && !empty($t['resolved_date']) && $t['resolved_date'] !== '0000-00-00 00:00:00') {
+            $diffSec = strtotime($t['resolved_date']) - strtotime($t['date_created']);
+            if ($diffSec > 0) {
+                $days = floor($diffSec / 86400);
+                $hrs = floor(($diffSec % 86400) / 3600);
+                $mins = floor(($diffSec % 3600) / 60);
+                $tat = ($days > 0 ? "{$days}d " : "") . "{$hrs}h {$mins}m";
+            } else {
+                $tat = "Immediate";
+            }
+        }
+
+        fputcsv($output, [
+            $t['id'] ?? '',
+            $t['customer_name'] ?? '',
+            $t['lead_id'] ?? '',
+            $t['phone'] ?? '',
+            $t['callback_number'] ?? '',
+            $t['email'] ?? '',
+            $t['product'] ?? '',
+            strtoupper($t['priority'] ?? 'MEDIUM'),
+            strtoupper($t['status'] ?? 'OPEN'),
+            $t['assigned_to'] ?? 'Unassigned',
+            $t['subject'] ?? '',
+            $t['problem'] ?? '',
+            $t['resolution'] ?? '',
+            $createdStr,
+            $resolvedStr,
+            $tat,
+            $updatedStr
+        ]);
+    }
+    fclose($output);
+    exit;
+}
+
 // 1. Process support ticket updates/creations
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action'])) {
     $act = $_POST['action'];
+    $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || (isset($_POST['is_ajax']) && $_POST['is_ajax'] == '1');
 
     if ($act === 'take_ticket') {
         $ticketId = trim($_POST['ticket_id'] ?? '');
@@ -373,7 +614,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
 
                 $newStatus = (strtolower($origTicket['status'] ?? '') === 'open') ? 'in_progress' : $origTicket['status'];
-                $updStmt = $pdo->prepare("UPDATE support_tickets SET assigned_to = ?, status = ? WHERE id = ?");
+                $updStmt = $pdo->prepare("UPDATE support_tickets SET assigned_to = ?, status = ?, updated_at = NOW() WHERE id = ?");
                 $updStmt->execute([$currentUserName, $newStatus, $ticketId]);
 
                 try {
@@ -399,6 +640,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 } catch (Throwable $eN) {}
 
                 // WhatsApp Notification to dropped_by employee
+                $_SESSION['flash_success'] = "Ticket #{$ticketId} successfully assigned to you! You can now call the client and update details.";
+                if (session_status() === PHP_SESSION_ACTIVE) {
+                    session_write_close();
+                }
                 $empDropPhone = $origTicket['dropped_by_emp_phone'] ?? '';
                 if (!empty($empDropPhone)) {
                     try {
@@ -443,6 +688,105 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         header("Location: index.php?page=support");
+        exit;
+    }
+
+    if ($act === 'update_callback_number') {
+        $ticketId = trim($_POST['ticket_id'] ?? '');
+        $newCb = trim($_POST['callback_number'] ?? '');
+        $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || (isset($_POST['is_ajax']) && $_POST['is_ajax'] == '1');
+
+        if (!$is_admin) {
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['status' => 'error', 'message' => 'Access Denied: Only Admin and Super Admin can edit callback numbers.']);
+                exit;
+            }
+            $_SESSION['flash_error'] = "Access Denied: Only Admin and Super Admin can edit callback numbers.";
+            header("Location: index.php?page=support");
+            exit;
+        }
+
+        if (empty($ticketId) || empty($newCb)) {
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['status' => 'error', 'message' => 'Ticket ID and new callback number are required.']);
+                exit;
+            }
+            $_SESSION['flash_error'] = "Ticket ID and new callback number are required.";
+            header("Location: index.php?page=support");
+            exit;
+        }
+
+        $cleanDigits = preg_replace('/[^0-9]/', '', $newCb);
+        if (strlen($cleanDigits) === 12 && str_starts_with($cleanDigits, '91')) {
+            $cleanCb = substr($cleanDigits, 2);
+        } else {
+            $cleanCb = $cleanDigits;
+        }
+
+        if (strlen($cleanCb) < 10) {
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['status' => 'error', 'message' => 'Please enter a valid 10-digit mobile number.']);
+                exit;
+            }
+            $_SESSION['flash_error'] = "Please enter a valid 10-digit mobile number.";
+            header("Location: index.php?page=support");
+            exit;
+        }
+
+        try {
+            $origStmt = $pdo->prepare("SELECT callback_number, phone FROM support_tickets WHERE id = ?");
+            $origStmt->execute([$ticketId]);
+            $origRow = $origStmt->fetch(PDO::FETCH_ASSOC);
+            $oldCb = $origRow['callback_number'] ?? ($origRow['phone'] ?? '');
+
+            // Update support_tickets
+            $upd = $pdo->prepare("UPDATE support_tickets SET callback_number = ? WHERE id = ?");
+            $upd->execute([$cleanCb, $ticketId]);
+
+            // Sync tickets raw table mobile column
+            try {
+                $updTkt = $pdo->prepare("UPDATE tickets SET mobile = ? WHERE ticket_number = ?");
+                $updTkt->execute([$cleanCb, $ticketId]);
+            } catch (Throwable $eT) {}
+
+            // Log in history
+            try {
+                $actorName = !empty($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Admin';
+                $actorRole = !empty($_SESSION['user_role']) ? $_SESSION['user_role'] : 'Super Admin';
+                $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'callback_updated', ?, ?, ?, NOW())");
+                $stmtH->execute([
+                    $ticketId,
+                    $actorName,
+                    $actorRole,
+                    "Call Back Number corrected from '" . ($oldCb ?: 'None') . "' to '{$cleanCb}' by {$actorName} ({$actorRole})"
+                ]);
+            } catch (Throwable $eH) {}
+
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => "Call Back Number updated successfully to {$cleanCb}",
+                    'ticket_id' => $ticketId,
+                    'callback_number' => $cleanCb
+                ]);
+                exit;
+            }
+
+            $_SESSION['flash_success'] = "Call Back Number for Ticket #{$ticketId} updated successfully to {$cleanCb}.";
+        } catch (PDOException $e) {
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                exit;
+            }
+            $_SESSION['flash_error'] = "Failed to update callback number: " . $e->getMessage();
+        }
+
+        header("Location: " . ($_SERVER['HTTP_REFERER'] ?? "index.php?page=support"));
         exit;
     }
 
@@ -586,9 +930,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($db_connected && $pdo) {
             try {
                 $ticketId = generate_ticket_number($pdo);
+                $isInitialResolved = in_array(strtolower($status), ['resolved', 'closed']);
+                $initResolvedDate = $isInitialResolved ? date('Y-m-d H:i:s') : null;
 
-                $stmt = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, renewal_date, address, problem, due_date, callback_number, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-                $stmt->execute([$ticketId, $customer_name, $subject, $priority, $status, $assigned_to, $lead_id, $phone, $email, $product, $renewal_date, $address, $problem, $due_date, $callback_number]);
+                $stmt = $pdo->prepare("INSERT INTO support_tickets (id, customer_name, subject, priority, status, assigned_to, lead_id, phone, email, product, renewal_date, address, problem, due_date, callback_number, date_created, resolved_date, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, NOW())");
+                $stmt->execute([$ticketId, $customer_name, $subject, $priority, $status, $assigned_to, $lead_id, $phone, $email, $product, $renewal_date, $address, $problem, $due_date, $callback_number, $initResolvedDate]);
                 
                 // Also sync into tickets table
                 try {
@@ -672,6 +1018,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $renewal_date = empty($_POST['renewal_date']) ? null : $_POST['renewal_date'];
         $address = trim($_POST['address'] ?? '');
         
+        // Customer WhatsApp Notification Toggle (Only Admin / Super Admin can untick to close silently)
+        $notify_customer = true;
+        if ($is_admin) {
+            $notify_customer = isset($_POST['notify_customer']) && in_array(strtolower((string)$_POST['notify_customer']), ['1', 'on', 'true']);
+        }
+        
         if ($db_connected && $pdo) {
             try {
                 // Fetch original ticket details for validation checks
@@ -720,9 +1072,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $currentUser = strtolower(trim($user_name ?? ''));
                     $isAssignedToMe = !empty($origAssigned) && $origAssigned !== 'unassigned' && ($origAssigned === $currentUser);
 
-                    // Super Admin, Admin, assigned employee, or user with edit permission can edit/update
-                    if (!$is_admin && !$isAssignedToMe && !$canEdit) {
-                        $_SESSION['flash_error'] = "Access Denied: You can only edit or update tickets assigned to you.";
+                    // Super Admin, Admin, or assigned employee can edit/update (must take unassigned ticket first)
+                    if (!$is_admin && !$isAssignedToMe) {
+                        if ($isAjax) {
+                            while (ob_get_level() > 0) ob_end_clean();
+                            header('Content-Type: application/json; charset=utf-8');
+                            echo json_encode(['status' => 'error', 'message' => 'Access Denied: You must take this ticket before editing, or it is assigned to another technician.']);
+                            exit;
+                        }
+                        $_SESSION['flash_error'] = "Access Denied: You must take this ticket before editing, or it is assigned to another technician.";
                         header("Location: index.php?page=support");
                         exit;
                     }
@@ -730,6 +1088,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     // Check Assign/Transfer permission - user can transfer if Admin, has canAssign, or ticket is assigned to them
                     $canTransfer = $is_admin || $canAssign || $isAssignedToMe;
                     if (!$canTransfer && $orig['assigned_to'] !== $assigned_to) {
+                        if ($isAjax) {
+                            while (ob_get_level() > 0) ob_end_clean();
+                            header('Content-Type: application/json; charset=utf-8');
+                            echo json_encode(['status' => 'error', 'message' => 'Access Denied: You do not have permissions to assign/transfer tickets.']);
+                            exit;
+                        }
                         $_SESSION['flash_error'] = "Access Denied: You do not have permissions to assign/transfer tickets.";
                         header("Location: index.php?page=support");
                         exit;
@@ -737,6 +1101,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     
                     // Check Closure permission
                     if ($orig['status'] !== $status && ($status === 'resolved' || $status === 'closed') && !$canClose) {
+                        if ($isAjax) {
+                            while (ob_get_level() > 0) ob_end_clean();
+                            header('Content-Type: application/json; charset=utf-8');
+                            echo json_encode(['status' => 'error', 'message' => 'Access Denied: You do not have permissions to close support tickets.']);
+                            exit;
+                        }
                         $_SESSION['flash_error'] = "Access Denied: You do not have permissions to close support tickets.";
                         header("Location: index.php?page=support");
                         exit;
@@ -745,8 +1115,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     // Preserve previous resolution if no new remark was entered
                     $finalResolution = !empty($resolution) ? $resolution : ($orig['resolution'] ?? '');
 
-                    $stmt = $pdo->prepare("UPDATE support_tickets SET priority = ?, status = ?, subject = ?, problem = ?, resolution = ?, assigned_to = ?, due_date = ?, callback_number = ?, lead_id = ?, customer_name = ?, phone = ?, email = ?, product = ?, renewal_date = ?, address = ? WHERE id = ?");
-                    $stmt->execute([$priority, $status, $subject, $problem, $finalResolution, $assigned_to, $due_date, $callback_number, $lead_id, $customer_name, $phone, $email, $product, $renewal_date, $address, $ticketId]);
+                    // Compute accurate resolved_date & updated_at
+                    $isNowClosed = in_array(strtolower($status), ['resolved', 'closed']);
+                    $wasClosed = in_array(strtolower($orig['status'] ?? ''), ['resolved', 'closed']);
+                    
+                    if ($isNowClosed) {
+                        if (!$wasClosed || empty($orig['resolved_date']) || $orig['resolved_date'] === '0000-00-00 00:00:00') {
+                            $finalResolvedDate = date('Y-m-d H:i:s');
+                        } else {
+                            $finalResolvedDate = $orig['resolved_date'];
+                        }
+                    } else {
+                        // Ticket reopened or active
+                        $finalResolvedDate = null;
+                    }
+
+                    $stmt = $pdo->prepare("UPDATE support_tickets SET priority = ?, status = ?, subject = ?, problem = ?, resolution = ?, assigned_to = ?, due_date = ?, callback_number = ?, lead_id = ?, customer_name = ?, phone = ?, email = ?, product = ?, renewal_date = ?, address = ?, resolved_date = ?, updated_at = NOW() WHERE id = ?");
+                    $stmt->execute([$priority, $status, $subject, $problem, $finalResolution, $assigned_to, $due_date, $callback_number, $lead_id, $customer_name, $phone, $email, $product, $renewal_date, $address, $finalResolvedDate, $ticketId]);
 
                     // Auto-close chat in Team Inbox silently (NO chat message shown in conversation) when ticket is resolved/closed
                     if (in_array(strtolower($status), ['resolved', 'closed'])) {
@@ -814,7 +1199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         if ($isReopen) {
                             $statusNote = "Ticket REOPENED from '" . ucfirst($orig['status']) . "' to '" . ucfirst($status) . "'";
                         } elseif ($isClose) {
-                            $statusNote = "Ticket marked as " . ucfirst($status);
+                            $statusNote = "Ticket marked as " . ucfirst($status) . (!$notify_customer ? " (Closed without customer notification by {$actorName})" : "");
                         } else {
                             $statusNote = "Status updated from '" . ucfirst($orig['status']) . "' to '" . ucfirst($status) . "'";
                         }
@@ -863,10 +1248,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         }
                     }
 
-                    // Also sync update to raw `tickets` table if exists
+                    // 6. Log callback number change if modified
+                    if (!empty($callback_number) && $callback_number !== ($orig['callback_number'] ?? '')) {
+                        try {
+                            $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'callback_updated', ?, ?, ?, NOW())");
+                            $stmtH->execute([
+                                $ticketId,
+                                $actorName,
+                                $actorRole,
+                                "Call Back Number updated from '" . ($orig['callback_number'] ?: 'None') . "' to '{$callback_number}' by {$actorName}"
+                            ]);
+                        } catch (Throwable $eH) {
+                            write_log('error', "Failed logging callback update history: " . $eH->getMessage());
+                        }
+                    }
+
+                    // Also sync update to raw `tickets` table if exists (Strictly preserve / sync callback mobile)
                     try {
+                        $syncMobile = !empty($callback_number) ? $callback_number : (!empty($orig['callback_number']) ? $orig['callback_number'] : $phone);
                         $stmtT = $pdo->prepare("UPDATE tickets SET license_number = ?, status = ?, customer_name = ?, mobile = ?, email = ? WHERE ticket_number = ?");
-                        $stmtT->execute([$lead_id, ucfirst($status), $customer_name, $phone, $email, $ticketId]);
+                        $stmtT->execute([$lead_id, ucfirst($status), $customer_name, $syncMobile, $email, $ticketId]);
                     } catch (Throwable $eT) {}
                     
                     // Log status logs on timeline if lead_id exists in leads table
@@ -909,6 +1310,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $clientInfo .= " (" . $clientDisplayName . ")";
                     }
                     $nowStr = date('d M Y, h:i A');
+                    $resNote = !empty($resolution) ? $resolution : (!empty($orig['resolution']) ? $orig['resolution'] : (!empty($problem) ? $problem : "Ticket marked as " . ucfirst($status)));
+                    $_SESSION['flash_success'] = "Support ticket " . $ticketId . " updated successfully.";
+
+                    // Release session lock immediately so browser navigation/parallel requests are NEVER blocked
+                    if (session_status() === PHP_SESSION_ACTIVE) {
+                        session_write_close();
+                    }
+
+                    // For AJAX requests: If FastCGI is available, return success response IMMEDIATELY so modal closes within 0.1-0.2 seconds!
+                    $detachedEarly = false;
+                    if ($isAjax && function_exists('fastcgi_finish_request')) {
+                        while (ob_get_level() > 0) {
+                            ob_end_clean();
+                        }
+                        header('Content-Type: application/json; charset=utf-8');
+                        echo json_encode([
+                            'status'    => 'success',
+                            'message'   => "Support ticket #{$ticketId} updated successfully.",
+                            'ticket_id' => $ticketId
+                        ]);
+                        fastcgi_finish_request();
+                        $detachedEarly = true;
+                    } elseif (!$isAjax && function_exists('fastcgi_finish_request')) {
+                        header("Location: index.php?page=support");
+                        fastcgi_finish_request();
+                        $detachedEarly = true;
+                    }
 
                     if (!empty($empDropPhone)) {
                         try {
@@ -982,65 +1410,102 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if ($orig['status'] !== $status && ($status === 'resolved' || $status === 'closed')) {
                         try {
                             $adminNotifStmt = $pdo->prepare("INSERT INTO notifications (role, title, message, type) VALUES ('Admin', 'Ticket Resolved/Closed', ?, 'success')");
-                            $adminNotifMsg = "Ticket " . $ticketId . " has been marked as Resolved by " . $techAgentName;
+                            $adminNotifMsg = "Ticket " . $ticketId . " has been marked as Resolved by " . $techAgentName . ($notify_customer ? "" : " (Customer notification bypassed)");
                             $adminNotifStmt->execute([$adminNotifMsg]);
                         } catch (Throwable $eAdm) {}
 
-                        // Send WhatsApp notification to customer
-                        try {
-                            if (!isset($whatsappObj)) {
-                                require_once __DIR__ . '/../api/whatsapp-api.php';
-                                $whatsappObj = new WhatsAppAPI($pdo);
-                            }
-                            $custPhone = !empty($callback_number) ? $callback_number : (!empty($orig['callback_number']) ? $orig['callback_number'] : (!empty($orig['phone']) ? $orig['phone'] : ($phone ?? null)));
-                            
-                            if (!empty($custPhone)) {
-                                $clientNameVal = !empty($customer_name) ? $customer_name : (!empty($orig['customer_name']) ? $orig['customer_name'] : 'Valued Client');
-                                if ($clientNameVal === 'Client' || str_starts_with($clientNameVal, 'Client (')) {
-                                    $clientNameVal = 'Valued Client';
+                        // Send WhatsApp notification to customer ONLY if notify_customer is enabled
+                        if ($notify_customer) {
+                            try {
+                                if (!isset($whatsappObj)) {
+                                    require_once __DIR__ . '/../api/whatsapp-api.php';
+                                    $whatsappObj = new WhatsAppAPI($pdo);
                                 }
+                                $custPhone = !empty($callback_number) ? $callback_number : (!empty($orig['callback_number']) ? $orig['callback_number'] : (!empty($orig['phone']) ? $orig['phone'] : ($phone ?? null)));
+                                
+                                if (!empty($custPhone)) {
+                                    $clientNameVal = !empty($customer_name) ? $customer_name : (!empty($orig['customer_name']) ? $orig['customer_name'] : 'Valued Client');
+                                    if ($clientNameVal === 'Client' || str_starts_with($clientNameVal, 'Client (')) {
+                                        $clientNameVal = 'Valued Client';
+                                    }
 
-                                $finalSolution = !empty($resolution) ? $resolution : (!empty($orig['resolution']) ? $orig['resolution'] : "Problem successfully resolved by support engineer.");
+                                    $finalSolution = !empty($resolution) ? $resolution : (!empty($orig['resolution']) ? $orig['resolution'] : "Problem successfully resolved by support engineer.");
 
-                                $tplData = get_system_notification_template($pdo, 'ticket_resolved', [
-                                    'client_name'       => $clientNameVal,
-                                    'ticket_id'         => $ticketId,
-                                    'assigned_engineer' => $techAgentName,
-                                    'solution'          => $finalSolution,
-                                    'closed_at'         => $nowStr
+                                    $tplData = get_system_notification_template($pdo, 'ticket_resolved', [
+                                        'client_name'       => $clientNameVal,
+                                        'ticket_id'         => $ticketId,
+                                        'assigned_engineer' => $techAgentName,
+                                        'solution'          => $finalSolution,
+                                        'closed_at'         => $nowStr
+                                    ]);
+
+                                    if (!$tplData['found'] || $tplData['is_active']) {
+                                        $resMsg = !empty($tplData['whatsapp_body']) ? $tplData['whatsapp_body'] : (
+                                            "*Support Ticket Resolved*\n\n" .
+                                            "Dear *{$clientNameVal}*,\n" .
+                                            "Your technical support ticket *#{$ticketId}* has been successfully resolved.\n\n" .
+                                            " *Ticket Summary:*\n" .
+                                            "• *Ticket ID:* #{$ticketId}\n" .
+                                            "• *Engineer:* {$techAgentName} (Technical Support)\n" .
+                                            "• *Resolution / Solution:* {$finalSolution}\n" .
+                                            "• *Closed At:* {$nowStr}\n\n" .
+                                            "──────────────────────────\n" .
+                                            "*महत्वपूर्ण सुझाव (Priority Support Tip):*\n" .
+                                            "भविष्य में अपनी समस्या के सबसे तेज़ और प्राथमिकता समाधान के लिए, कृपया इसी WhatsApp नंबर पर *\"Hi\"* या *\"Support\"* लिखकर अपनी टिकट दर्ज करें। हमारी टेक्निकल टीम तुरंत आपसे कनेक्ट होकर समस्या हल करेगी।\n\n" .
+                                            "Thank you for choosing *Marg Soft Solution*!"
+                                        );
+
+                                        $whatsappObj->sendText($custPhone, $resMsg);
+                                    }
+                                }
+                            } catch (Throwable $eWa) {
+                                write_log('error', "Failed sending customer resolution WhatsApp message: " . $eWa->getMessage());
+                            }
+                        } else {
+                            // Admin/Super Admin opted to resolve silently without notifying customer
+                            try {
+                                $stmtH = $pdo->prepare("INSERT INTO support_ticket_history (ticket_id, action, actor_name, actor_role, details, created_at) VALUES (?, 'resolved_silent', ?, ?, ?, NOW())");
+                                $stmtH->execute([
+                                    $ticketId,
+                                    $actorName,
+                                    $actorRole,
+                                    "Ticket marked as " . ucfirst($status) . " WITHOUT notifying customer (Customer WhatsApp message disabled by {$actorName})"
                                 ]);
-
-                                if (!$tplData['found'] || $tplData['is_active']) {
-                                    $resMsg = !empty($tplData['whatsapp_body']) ? $tplData['whatsapp_body'] : (
-                                        "*Support Ticket Resolved*\n\n" .
-                                        "Dear *{$clientNameVal}*,\n" .
-                                        "Your technical support ticket *#{$ticketId}* has been successfully resolved.\n\n" .
-                                        " *Ticket Summary:*\n" .
-                                        "• *Ticket ID:* #{$ticketId}\n" .
-                                        "• *Engineer:* {$techAgentName} (Technical Support)\n" .
-                                        "• *Resolution / Solution:* {$finalSolution}\n" .
-                                        "• *Closed At:* {$nowStr}\n\n" .
-                                        "──────────────────────────\n" .
-                                        "*महत्वपूर्ण सुझाव (Priority Support Tip):*\n" .
-                                        "भविष्य में अपनी समस्या के सबसे तेज़ और प्राथमिकता समाधान के लिए, कृपया इसी WhatsApp नंबर पर *\"Hi\"* या *\"Support\"* लिखकर अपनी टिकट दर्ज करें। हमारी टेक्निकल टीम तुरंत आपसे कनेक्ट होकर समस्या हल करेगी।\n\n" .
-                                        "Thank you for choosing *Marg Soft Solution*!"
-                                    );
-
-                                    $whatsappObj->sendText($custPhone, $resMsg);
-                                }
+                            } catch (Throwable $eH) {
+                                write_log('error', "Failed logging silent resolution history: " . $eH->getMessage());
                             }
-                        } catch (Throwable $eWa) {
-                            write_log('error', "Failed sending customer resolution WhatsApp message: " . $eWa->getMessage());
                         }
                     }
                     
                     $_SESSION['flash_success'] = "Support ticket " . $ticketId . " updated successfully.";
                 }
             } catch (PDOException $e) {
+                if ($isAjax) {
+                    while (ob_get_level() > 0) ob_end_clean();
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode(['status' => 'error', 'message' => "Failed to update ticket: " . $e->getMessage()]);
+                    exit;
+                }
                 $_SESSION['flash_error'] = "Failed to update ticket: " . $e->getMessage();
             }
         }
-        header("Location: index.php?page=support");
+        if ($isAjax) {
+            if (!$detachedEarly) {
+                while (ob_get_level() > 0) {
+                    ob_end_clean();
+                }
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'status'    => 'success',
+                    'message'   => "Support ticket #{$ticketId} updated successfully.",
+                    'ticket_id' => $ticketId
+                ]);
+            }
+            exit;
+        }
+        if (!$detachedEarly) {
+            header("Location: index.php?page=support");
+        }
         exit;
     }
 }
@@ -1048,16 +1513,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // 2. Fetch Client Directory and Operators for Support Tickets (Strictly client_directory only, no leads)
 $db_client_directory = [];
 $db_operators = [];
+$db_products = [];
 
 if ($db_connected && $pdo) {
     try {
         // Fetch Client Directory Records (Old Client Database strictly from client_directory table)
-        $stmt = $pdo->query("SELECT * FROM client_directory ORDER BY party_name ASC");
+        $stmt = $pdo->query("SELECT id, customer_id, party_name, contact_person, mobile, email, address, city, state, online_zip_code, software_type, sw_type, user_type, no_of_users, company_using, no_of_companies, due_on, act_on, party_status, software_trade, home_user, total_amount, software_hit_date, subpartner_code, subpartner_name FROM client_directory ORDER BY party_name ASC");
         $db_client_directory = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Fetch Active Technicians / Operators
         $stmt = $pdo->query("SELECT name, role FROM users WHERE status = 'Active' AND LOWER(role) NOT IN ('client', 'customer', 'tenant admin', 'tenant user', 'tenant') ORDER BY name ASC");
         $db_operators = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Fetch Distinct Products from support tickets
+        $stmt = $pdo->query("SELECT DISTINCT product AS name FROM support_tickets WHERE product IS NOT NULL AND TRIM(product) != '' ORDER BY product ASC");
+        $db_products = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         // Ignore fetch errors
     }
@@ -1066,27 +1536,42 @@ if ($db_connected && $pdo) {
 // Build consolidated master clients array strictly from client_directory for frontend live search
 $master_clients_list = [];
 
-// Add records from client_directory table ONLY
+// Add records from client_directory table ONLY (compact projected payload)
 foreach ($db_client_directory as $cd) {
     $cust_id = !empty($cd['customer_id']) ? $cd['customer_id'] : ('CUST-' . $cd['id']);
     $p_name = !empty($cd['party_name']) ? $cd['party_name'] : 'Unknown Client';
     $mob = !empty($cd['mobile']) ? $cd['mobile'] : '';
     
-    $master_clients_list[] = array_merge($cd, [
+    $master_clients_list[] = [
         'source' => 'client_directory',
         'id' => $cust_id,
         'customer_id' => $cust_id,
         'party_name' => $p_name,
+        'contact_person' => $cd['contact_person'] ?? '',
         'mobile' => $mob,
+        'phone' => $mob,
         'email' => $cd['email'] ?? '',
         'address' => $cd['address'] ?? '',
+        'city' => $cd['city'] ?? '',
+        'state' => $cd['state'] ?? '',
+        'online_zip_code' => $cd['online_zip_code'] ?? '',
         'software_type' => !empty($cd['software_type']) ? $cd['software_type'] : 'Marg Silver Edition',
+        'sw_type' => $cd['sw_type'] ?? 'Marg',
+        'user_type' => $cd['user_type'] ?? '',
+        'no_of_users' => $cd['no_of_users'] ?? '',
+        'company_using' => $cd['company_using'] ?? '',
+        'no_of_companies' => $cd['no_of_companies'] ?? '',
         'due_on' => $cd['due_on'] ?? ($cd['act_on'] ?? ''),
+        'act_on' => $cd['act_on'] ?? '',
         'party_status' => $cd['party_status'] ?? 'Running',
         'software_trade' => $cd['software_trade'] ?? '',
+        'home_user' => $cd['home_user'] ?? 'No',
         'total_amount' => $cd['total_amount'] ?? 0,
+        'software_hit_date' => $cd['software_hit_date'] ?? '',
+        'sub_partner_code' => $cd['subpartner_code'] ?? '',
+        'sub_partner_name' => $cd['subpartner_name'] ?? '',
         'display_label' => $p_name . ($mob ? " ( {$mob} )" : "")
-    ]);
+    ];
 }
 
 // 3. Resolve User Role & Search/Filter Parameters for Support Tickets
@@ -1094,71 +1579,49 @@ $user_role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_name = $_SESSION['user_name'] ?? '';
 $is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
 
-$search_query = trim($_GET['search'] ?? '');
-$status_filter = trim($_GET['status'] ?? '');
-$product_filter = trim($_GET['product'] ?? '');
+$search_query    = trim($_GET['search'] ?? '');
+$status_filter   = trim($_GET['status'] ?? '');
+$product_filter  = trim($_GET['product'] ?? '');
 $operator_filter = trim($_GET['operator'] ?? '');
 $priority_filter = trim($_GET['priority'] ?? '');
+$date_type       = trim($_GET['date_type'] ?? 'created');
+$date_preset     = trim($_GET['date_preset'] ?? '');
+$date_from       = trim($_GET['date_from'] ?? '');
+$date_to         = trim($_GET['date_to'] ?? '');
 
-$where_conditions = [];
-$query_params = [];
-
-// Non-admin employees see tickets assigned to them OR unassigned pool tickets
-if (!$is_admin) {
-    $where_conditions[] = "(LOWER(TRIM(assigned_to)) = LOWER(TRIM(?)) OR assigned_to IS NULL OR TRIM(assigned_to) = '' OR LOWER(TRIM(assigned_to)) = 'unassigned')";
-    $query_params[] = $user_name;
-} elseif (!empty($operator_filter)) {
-    $where_conditions[] = "LOWER(TRIM(assigned_to)) = LOWER(TRIM(?))";
-    $query_params[] = $operator_filter;
-}
-
-if (!empty($search_query)) {
-    $where_conditions[] = "(id LIKE ? OR customer_name LIKE ? OR lead_id LIKE ? OR phone LIKE ? OR email LIKE ? OR subject LIKE ? OR problem LIKE ? OR address LIKE ?)";
-    $st = '%' . $search_query . '%';
-    for ($i = 0; $i < 8; $i++) {
-        $query_params[] = $st;
+// Auto-fill dates based on preset if passed
+if (!empty($date_preset) && $date_preset !== 'custom' && $date_preset !== 'all') {
+    if ($date_preset === 'today') {
+        $date_from = date('Y-m-d');
+        $date_to   = date('Y-m-d');
+    } elseif ($date_preset === 'yesterday') {
+        $date_from = date('Y-m-d', strtotime('-1 day'));
+        $date_to   = date('Y-m-d', strtotime('-1 day'));
+    } elseif ($date_preset === 'last_7_days') {
+        $date_from = date('Y-m-d', strtotime('-6 days'));
+        $date_to   = date('Y-m-d');
+    } elseif ($date_preset === 'this_month') {
+        $date_from = date('Y-m-01');
+        $date_to   = date('Y-m-t');
+    } elseif ($date_preset === 'last_month') {
+        $date_from = date('Y-m-01', strtotime('first day of last month'));
+        $date_to   = date('Y-m-t', strtotime('last day of last month'));
     }
 }
-
-if (!empty($status_filter)) {
-    $stVal = strtolower($status_filter);
-    if ($stVal === 'all') {
-        // Show all tickets including resolved/closed
-    } elseif ($stVal === 'resolved' || $stVal === 'closed') {
-        $where_conditions[] = "LOWER(status) IN ('resolved', 'closed')";
-    } elseif ($stVal === 'pending' || $stVal === 'in_progress') {
-        $where_conditions[] = "LOWER(status) IN ('in_progress', 'pending')";
-    } else {
-        $where_conditions[] = "LOWER(status) = ?";
-        $query_params[] = $stVal;
-    }
-} else {
-    // Default view: Hide resolved/closed tickets, show only Open & Pending/In-Progress tickets
-    $where_conditions[] = "LOWER(status) NOT IN ('resolved', 'closed')";
-}
-
-if (!empty($product_filter)) {
-    $where_conditions[] = "(LOWER(product) = ? OR LOWER(product) LIKE ?)";
-    $query_params[] = strtolower($product_filter);
-    $query_params[] = '%' . strtolower($product_filter) . '%';
-}
-
-if (!empty($priority_filter)) {
-    $where_conditions[] = "LOWER(priority) = ?";
-    $query_params[] = strtolower($priority_filter);
-}
-
-$where_sql = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
 
 $tickets = [];
 if ($db_connected && $pdo) {
     syncWhatsAppFlowTickets($pdo);
     $tickets = getFilteredSupportTickets($pdo, $is_admin, $user_name, [
-        'status'   => $status_filter,
-        'priority' => $priority_filter,
-        'product'  => $product_filter,
-        'operator' => $operator_filter,
-        'search'   => $search_query
+        'status'      => $status_filter,
+        'priority'    => $priority_filter,
+        'product'     => $product_filter,
+        'operator'    => $operator_filter,
+        'search'      => $search_query,
+        'date_type'   => $date_type,
+        'date_preset' => $date_preset,
+        'date_from'   => $date_from,
+        'date_to'     => $date_to
     ]);
 }
 
@@ -1200,146 +1663,327 @@ $resolvedCount   = $ticketCounters['resolved'];
                 <span id="support-live-text">LIVE AUTO-SYNC: ON</span>
             </div>
             <button type="button" class="btn btn-secondary text-sm flex align-center gap-1.5" id="btn-manual-refresh-tickets" onclick="triggerManualTicketsRefresh(this)" title="Fetch latest tickets now">
-                <i data-lucide="rotate-cw" id="tickets-refresh-icon" style="width: 14px; height: 14px;"></i>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="tickets-refresh-icon"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 16h5v5"></path></svg>
                 <span>Refresh</span>
             </button>
             <?php if ($canCreate): ?>
                 <button class="btn btn-primary text-sm flex align-center gap-2" onclick="window.openModal('create-ticket-modal');">
-                    <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
                     <span>Generate New Ticket</span>
                 </button>
             <?php endif; ?>
             <button class="btn btn-secondary text-sm" onclick="window.print();">
-                <i data-lucide="printer" style="width: 16px; height: 16px;"></i>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                 <span>Print Tickets Log</span>
             </button>
         </div>
     </div>
 
-    <!-- KPI Summary Row (4 Columns Side-by-Side) -->
-    <div class="mb-6" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
-        <a href="index.php?page=support&status=open" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'open') ? 'var(--primary)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'open') ? 'translateY(-2px)' : 'none'; ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-            <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <i data-lucide="ticket" style="width: 24px; height: 24px;"></i>
+    <!-- KPI Summary Row (Modern Metrics Strip) -->
+    <div class="mb-6 support-kpi-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+        <!-- Open Queue -->
+        <a href="index.php?page=support&status=open" class="card support-kpi-card <?php echo ($status_filter === 'open') ? 'active-kpi' : ''; ?>" style="text-decoration: none; padding: 1.15rem 1.25rem; display: flex; align-items: center; justify-content: space-between; border-radius: 12px; border: 1px solid <?php echo ($status_filter === 'open') ? 'var(--primary)' : 'var(--border-color)'; ?>; background: var(--bg-card); transition: all 0.2s ease; position: relative; overflow: hidden; box-shadow: <?php echo ($status_filter === 'open') ? '0 4px 16px rgba(59, 130, 246, 0.15)' : '0 2px 6px rgba(0,0,0,0.02)'; ?>;">
+            <div class="flex flex-col gap-1">
+                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem;">Open Queue</span>
+                <span id="kpi-open-count" class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--text-main); line-height: 1.1;"><?php echo number_format($openCount); ?></span>
+                <span class="text-xs text-muted font-medium" style="font-size: 0.7rem;">Unclaimed / Ready</span>
             </div>
-            <div class="flex flex-col">
-                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Open Queue</span>
-                <span id="kpi-open-count" class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--text-main);"><?php echo number_format($openCount); ?></span>
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); color: #2563eb; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"></path><path d="M13 5v2"></path><path d="M13 17v2"></path><path d="M13 11v2"></path></svg>
             </div>
+            <?php if ($status_filter === 'open'): ?>
+                <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: var(--primary);"></div>
+            <?php endif; ?>
         </a>
 
-        <a href="index.php?page=support&status=in_progress" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'var(--warning)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'translateY(-2px)' : 'none'; ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-            <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--warning-light); color: var(--warning); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <i data-lucide="clock" style="width: 24px; height: 24px;"></i>
+        <!-- In Progress / Pending -->
+        <a href="index.php?page=support&status=in_progress" class="card support-kpi-card <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'active-kpi' : ''; ?>" style="text-decoration: none; padding: 1.15rem 1.25rem; display: flex; align-items: center; justify-content: space-between; border-radius: 12px; border: 1px solid <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? '#f59e0b' : 'var(--border-color)'; ?>; background: var(--bg-card); transition: all 0.2s ease; position: relative; overflow: hidden; box-shadow: <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? '0 4px 16px rgba(245, 158, 11, 0.15)' : '0 2px 6px rgba(0,0,0,0.02)'; ?>;">
+            <div class="flex flex-col gap-1">
+                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem;">In Progress / Pending</span>
+                <span id="kpi-in-progress-count" class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: #d97706; line-height: 1.1;"><?php echo number_format($inProgressCount); ?></span>
+                <span class="text-xs text-muted font-medium" style="font-size: 0.7rem;">Active Handling</span>
             </div>
-            <div class="flex flex-col">
-                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">In Progress / Pending</span>
-                <span id="kpi-in-progress-count" class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--warning);"><?php echo number_format($inProgressCount); ?></span>
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(245, 158, 11, 0.12); color: #d97706; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
             </div>
+            <?php if ($status_filter === 'in_progress' || $status_filter === 'pending'): ?>
+                <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: #f59e0b;"></div>
+            <?php endif; ?>
         </a>
 
-        <a href="index.php?page=support&priority=critical" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($priority_filter === 'critical') ? 'var(--danger)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($priority_filter === 'critical') ? 'translateY(-2px)' : 'none'; ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-            <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--danger-light); color: var(--danger); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <i data-lucide="alert-triangle" style="width: 24px; height: 24px;"></i>
+        <!-- Critical Priority -->
+        <a href="index.php?page=support&priority=critical" class="card support-kpi-card <?php echo ($priority_filter === 'critical') ? 'active-kpi' : ''; ?>" style="text-decoration: none; padding: 1.15rem 1.25rem; display: flex; align-items: center; justify-content: space-between; border-radius: 12px; border: 1px solid <?php echo ($priority_filter === 'critical') ? '#ef4444' : 'var(--border-color)'; ?>; background: var(--bg-card); transition: all 0.2s ease; position: relative; overflow: hidden; box-shadow: <?php echo ($priority_filter === 'critical') ? '0 4px 16px rgba(239, 68, 68, 0.15)' : '0 2px 6px rgba(0,0,0,0.02)'; ?>;">
+            <div class="flex flex-col gap-1">
+                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem;">Critical Priority</span>
+                <span id="kpi-critical-count" class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: #dc2626; line-height: 1.1;"><?php echo number_format($criticalCount); ?></span>
+                <span class="text-xs text-muted font-medium" style="font-size: 0.7rem;">Immediate SLA</span>
             </div>
-            <div class="flex flex-col">
-                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Critical Priority</span>
-                <span id="kpi-critical-count" class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--danger);"><?php echo number_format($criticalCount); ?></span>
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(239, 68, 68, 0.12); color: #dc2626; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             </div>
+            <?php if ($priority_filter === 'critical'): ?>
+                <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: #ef4444;"></div>
+            <?php endif; ?>
         </a>
 
-        <a href="index.php?page=support&status=resolved" class="card p-4 flex align-center gap-4 transition-all" style="text-decoration: none; border: 1px solid <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'var(--success)' : 'var(--border-color)'; ?>; background-color: var(--bg-card); border-radius: var(--border-radius-md); transform: <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'translateY(-2px)' : 'none'; ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-            <div style="width: 48px; height: 48px; border-radius: 12px; background-color: var(--success-light); color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <i data-lucide="check-circle-2" style="width: 24px; height: 24px;"></i>
+        <!-- Resolved / Closed -->
+        <a href="index.php?page=support&status=resolved" class="card support-kpi-card <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'active-kpi' : ''; ?>" style="text-decoration: none; padding: 1.15rem 1.25rem; display: flex; align-items: center; justify-content: space-between; border-radius: 12px; border: 1px solid <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? '#10b981' : 'var(--border-color)'; ?>; background: var(--bg-card); transition: all 0.2s ease; position: relative; overflow: hidden; box-shadow: <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? '0 4px 16px rgba(16, 185, 129, 0.15)' : '0 2px 6px rgba(0,0,0,0.02)'; ?>;">
+            <div class="flex flex-col gap-1">
+                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem;">Resolved / Closed</span>
+                <span id="kpi-resolved-count" class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: #059669; line-height: 1.1;"><?php echo number_format($resolvedCount); ?></span>
+                <span class="text-xs text-muted font-medium" style="font-size: 0.7rem;">Completed Tickets</span>
             </div>
-            <div class="flex flex-col">
-                <span class="text-xs text-muted font-bold" style="text-transform: uppercase; letter-spacing: 0.05em;">Resolved / Closed</span>
-                <span id="kpi-resolved-count" class="text-2xl font-extrabold" style="font-family: var(--font-heading); color: var(--success);"><?php echo number_format($resolvedCount); ?></span>
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(16, 185, 129, 0.12); color: #059669; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
             </div>
+            <?php if ($status_filter === 'resolved' || $status_filter === 'closed'): ?>
+                <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: #10b981;"></div>
+            <?php endif; ?>
         </a>
     </div>
 
-    <!-- Search & Filters Bar -->
-    <div class="card p-5 mb-6" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-lg);">
-        <form action="index.php" method="GET" class="flex flex-col gap-4">
+    <?php
+    $isFiltered = !empty($search_query) || !empty($status_filter) || !empty($product_filter);
+    if ($is_admin) {
+        $isFiltered = $isFiltered || !empty($operator_filter) || !empty($priority_filter) || !empty($date_from) || !empty($date_to) || (!empty($date_preset) && $date_preset !== 'all') || ($date_type !== 'created');
+    }
+    $exportParams = $_GET;
+    $exportParams['page'] = 'support';
+    $exportParams['action'] = 'export_support_csv';
+    $exportUrl = 'index.php?' . http_build_query($exportParams);
+    ?>
+
+    <!-- Smart Compact SaaS Support Desk Control Hub -->
+    <div class="card p-0 mb-6 support-hub-card" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 12px; box-shadow: 0 2px 10px -2px rgba(0,0,0,0.04); overflow: hidden;">
+        <form action="index.php" method="GET" id="support-filter-form" class="m-0">
             <input type="hidden" name="page" value="support">
 
-            <div class="flex justify-between align-center border-bottom pb-3" style="border-bottom: 1px solid var(--border-color);">
-                <div class="flex align-center gap-2">
-                    <i data-lucide="filter" style="width: 18px; height: 18px; color: var(--primary);"></i>
-                    <h3 class="m-0 text-sm font-bold" style="font-family: var(--font-heading);">Filter Support Tickets</h3>
+            <!-- ROW 1: Omnisearch + Status Segmented Tabs + Action Strip -->
+            <div style="padding: 0.75rem 1.15rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 0.85rem; flex-wrap: wrap;">
+                
+                <!-- Omnisearch Input -->
+                <div style="flex: 1 1 260px; max-width: 420px; position: relative;">
+                    <div style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); display: flex; align-items: center; pointer-events: none;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    </div>
+                    <input type="text" 
+                           name="search" 
+                           id="filter-search-input"
+                           value="<?php echo htmlspecialchars($search_query); ?>" 
+                           placeholder="Search ticket ID, client, callback, problem..." 
+                           class="form-control text-xs font-medium"
+                           style="padding-left: 2.1rem; padding-right: <?php echo !empty($search_query) ? '2rem' : '0.75rem'; ?>; height: 35px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-app); width: 100%;">
+                    <?php if (!empty($search_query)): ?>
+                        <button type="button" onclick="clearSearchInput()" title="Clear search" style="position: absolute; right: 0.65rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; display: flex; align-items: center;">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    <?php endif; ?>
                 </div>
-                <?php if (!empty($search_query) || !empty($status_filter) || !empty($product_filter) || !empty($operator_filter) || !empty($priority_filter)): ?>
-                    <a href="index.php?page=support" class="btn btn-secondary text-xs text-danger" style="padding: 0.3rem 0.75rem;">
-                        <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
-                        <span>Clear All Filters</span>
+
+                <!-- Status Segmented Controls -->
+                <div class="support-status-segmented" style="display: inline-flex; align-items: center; background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 8px; padding: 2px; gap: 2px; flex-wrap: wrap;">
+                    <?php
+                    $statusTabs = [
+                        ''            => 'Active Queue',
+                        'open'        => 'Open',
+                        'in_progress' => 'In Progress',
+                        'resolved'    => 'Resolved / Closed',
+                        'all'         => 'All'
+                    ];
+                    foreach ($statusTabs as $stVal => $stLabel):
+                        $isTabActive = ($status_filter === $stVal) || ($stVal === 'in_progress' && $status_filter === 'pending') || ($stVal === 'resolved' && $status_filter === 'closed');
+                    ?>
+                        <label class="status-tab-item <?php echo $isTabActive ? 'active' : ''; ?>" style="margin: 0; padding: 4px 11px; font-size: 0.73rem; font-weight: <?php echo $isTabActive ? '700' : '600'; ?>; color: <?php echo $isTabActive ? 'var(--primary)' : 'var(--text-muted)'; ?>; background: <?php echo $isTabActive ? 'var(--bg-card)' : 'transparent'; ?>; border-radius: 6px; cursor: pointer; transition: all 0.15s ease; box-shadow: <?php echo $isTabActive ? '0 1px 3px rgba(0,0,0,0.06)' : 'none'; ?>; white-space: nowrap; user-select: none;">
+                            <input type="radio" name="status" value="<?php echo $stVal; ?>" <?php echo $isTabActive ? 'checked' : ''; ?> onchange="this.form.submit()" style="display: none;">
+                            <?php echo $stLabel; ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+
+                <!-- Action Buttons: Export & Reset -->
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-left: auto;">
+                    <a href="<?php echo htmlspecialchars($exportUrl); ?>" class="btn btn-secondary text-xs flex align-center gap-1.5" style="height: 34px; padding: 0 0.8rem; border-radius: 8px; font-weight: 600;" title="Export filtered records to CSV">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        <span>Export CSV</span>
                     </a>
-                <?php endif; ?>
+                    <?php if ($isFiltered): ?>
+                        <a href="index.php?page=support" class="btn btn-secondary text-xs text-danger flex align-center gap-1" style="height: 34px; padding: 0 0.7rem; border-radius: 8px; font-weight: 600;" title="Clear all active filters">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                            <span>Clear</span>
+                        </a>
+                    <?php endif; ?>
+                </div>
             </div>
 
-            <div class="grid" style="grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr; gap: 0.75rem; align-items: end;">
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold">Search Tickets</label>
-                    <div style="position: relative;">
-                        <input type="text" name="search" class="form-control form-control-focus text-sm" placeholder="Ticket ID, Client, Subject, Problem..." value="<?php echo htmlspecialchars($search_query); ?>" style="padding-left: 2.25rem;">
-                        <i data-lucide="search" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-muted);"></i>
+            <!-- ROW 2: Smart Unified Filter Strip (Date Capsule + Dimensions + Apply) -->
+            <div style="padding: 0.65rem 1.15rem; background: var(--bg-app); display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap;">
+                
+                <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                    
+                    <?php if ($is_admin): ?>
+                    <!-- Smart Integrated Date Capsule (Scope + From + To) (Admin Only) -->
+                    <div class="hub-date-capsule" style="display: inline-flex; align-items: center; background: var(--bg-card); border: 1px solid <?php echo (!empty($date_from) || !empty($date_to) || $date_type !== 'created') ? 'var(--primary)' : 'var(--border-color)'; ?>; border-radius: 8px; padding: 0 8px; gap: 6px; height: 34px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary); flex-shrink: 0;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                        
+                        <select name="date_type" class="text-xs font-bold" style="border: none; background: transparent; color: var(--text-main); outline: none; cursor: pointer; padding-right: 2px;">
+                            <option value="created" <?php echo ($date_type === 'created') ? 'selected' : ''; ?>>Created Date</option>
+                            <option value="resolved" <?php echo ($date_type === 'resolved') ? 'selected' : ''; ?>>Resolved Date</option>
+                            <option value="updated" <?php echo ($date_type === 'updated') ? 'selected' : ''; ?>>Last Updated</option>
+                        </select>
+
+                        <span style="height: 14px; width: 1px; background: var(--border-color); display: inline-block;"></span>
+
+                        <input type="date" 
+                               name="date_from" 
+                               id="filter-date-from" 
+                               data-no-quick="true" 
+                               class="no-quick text-xs font-mono font-medium" 
+                               style="border: none; background: transparent; color: var(--text-main); outline: none; cursor: pointer; padding: 0; width: 105px;" 
+                               value="<?php echo htmlspecialchars($date_from); ?>" 
+                               title="From Date">
+
+                        <span style="color: var(--text-muted); font-size: 0.72rem; font-weight: bold;">to</span>
+
+                        <input type="date" 
+                               name="date_to" 
+                               id="filter-date-to" 
+                               data-no-quick="true" 
+                               class="no-quick text-xs font-mono font-medium" 
+                               style="border: none; background: transparent; color: var(--text-main); outline: none; cursor: pointer; padding: 0; width: 105px;" 
+                               value="<?php echo htmlspecialchars($date_to); ?>" 
+                               title="To Date">
+                    </div>
+
+                    <!-- Technician Dropdown Pill (Admin Only) -->
+                    <div class="hub-filter-pill" style="position: relative; display: inline-flex; align-items: center;">
+                        <div style="position: absolute; left: 0.6rem; color: var(--text-muted); pointer-events: none; display: flex; align-items: center;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                        </div>
+                        <select name="operator" onchange="this.form.submit()" class="form-control text-xs font-semibold" style="padding-left: 1.75rem; padding-right: 1.6rem; height: 34px; border-radius: 8px; border: 1px solid <?php echo !empty($operator_filter) ? 'var(--primary)' : 'var(--border-color)'; ?>; background: <?php echo !empty($operator_filter) ? 'var(--primary-light)' : 'var(--bg-card)'; ?>; color: <?php echo !empty($operator_filter) ? 'var(--primary)' : 'var(--text-main)'; ?>; cursor: pointer;">
+                            <option value="">Technician: All</option>
+                            <option value="unassigned" <?php echo (strtolower($operator_filter) === 'unassigned') ? 'selected' : ''; ?>>Unassigned</option>
+                            <?php foreach ($db_operators as $op): ?>
+                                <option value="<?php echo htmlspecialchars($op['name']); ?>" <?php echo ($operator_filter === $op['name']) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($op['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- Priority Dropdown Pill (Admin Only) -->
+                    <div class="hub-filter-pill" style="position: relative; display: inline-flex; align-items: center;">
+                        <div style="position: absolute; left: 0.6rem; color: var(--text-muted); pointer-events: none; display: flex; align-items: center;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                        </div>
+                        <select name="priority" onchange="this.form.submit()" class="form-control text-xs font-semibold" style="padding-left: 1.75rem; padding-right: 1.6rem; height: 34px; border-radius: 8px; border: 1px solid <?php echo !empty($priority_filter) ? 'var(--danger)' : 'var(--border-color)'; ?>; background: <?php echo !empty($priority_filter) ? 'rgba(239, 68, 68, 0.1)' : 'var(--bg-card)'; ?>; color: <?php echo !empty($priority_filter) ? '#dc2626' : 'var(--text-main)'; ?>; cursor: pointer;">
+                            <option value="">Priority: All</option>
+                            <option value="low" <?php echo ($priority_filter === 'low') ? 'selected' : ''; ?>>Low</option>
+                            <option value="medium" <?php echo ($priority_filter === 'medium') ? 'selected' : ''; ?>>Medium</option>
+                            <option value="high" <?php echo ($priority_filter === 'high') ? 'selected' : ''; ?>>High</option>
+                            <option value="critical" <?php echo ($priority_filter === 'critical') ? 'selected' : ''; ?>>Critical</option>
+                        </select>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Product Dropdown Pill -->
+                    <div class="hub-filter-pill" style="position: relative; display: inline-flex; align-items: center;">
+                        <div style="position: absolute; left: 0.6rem; color: var(--text-muted); pointer-events: none; display: flex; align-items: center;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"></path><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path></svg>
+                        </div>
+                        <select name="product" onchange="this.form.submit()" class="form-control text-xs font-semibold" style="padding-left: 1.75rem; padding-right: 1.6rem; height: 34px; border-radius: 8px; border: 1px solid <?php echo !empty($product_filter) ? 'var(--accent)' : 'var(--border-color)'; ?>; background: <?php echo !empty($product_filter) ? 'var(--accent-light)' : 'var(--bg-card)'; ?>; color: <?php echo !empty($product_filter) ? 'var(--accent)' : 'var(--text-main)'; ?>; cursor: pointer;">
+                            <option value="">Product: All</option>
+                            <?php foreach ($db_products as $prd): ?>
+                                <option value="<?php echo htmlspecialchars($prd['name']); ?>" <?php echo ($product_filter === $prd['name']) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($prd['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                 </div>
 
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold">Ticket Status</label>
-                    <select name="status" class="form-control form-control-focus text-sm">
-                        <option value="" <?php echo (empty($status_filter)) ? 'selected' : ''; ?>>Active (Open &amp; Pending)</option>
-                        <option value="open" <?php echo ($status_filter === 'open') ? 'selected' : ''; ?>>Open Only</option>
-                        <option value="in_progress" <?php echo ($status_filter === 'in_progress' || $status_filter === 'pending') ? 'selected' : ''; ?>>In Progress / Pending</option>
-                        <option value="resolved" <?php echo ($status_filter === 'resolved' || $status_filter === 'closed') ? 'selected' : ''; ?>>Resolved / Closed</option>
-                        <option value="all" <?php echo ($status_filter === 'all') ? 'selected' : ''; ?>>All Tickets (Include Closed)</option>
-                    </select>
-                </div>
-
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold">Priority Level</label>
-                    <select name="priority" class="form-control form-control-focus text-sm">
-                        <option value="">All Priorities</option>
-                        <option value="low" <?php echo ($priority_filter === 'low') ? 'selected' : ''; ?>>Low</option>
-                        <option value="medium" <?php echo ($priority_filter === 'medium') ? 'selected' : ''; ?>>Medium</option>
-                        <option value="high" <?php echo ($priority_filter === 'high') ? 'selected' : ''; ?>>High</option>
-                        <option value="critical" <?php echo ($priority_filter === 'critical') ? 'selected' : ''; ?>>Critical</option>
-                    </select>
-                </div>
-
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold">Product</label>
-                    <select name="product" class="form-control form-control-focus text-sm">
-                        <option value="">All Products</option>
-                        <option value="Marg ERP Basic" <?php echo ($product_filter === 'Marg ERP Basic') ? 'selected' : ''; ?>>Marg ERP Basic</option>
-                        <option value="Marg ERP Pro" <?php echo ($product_filter === 'Marg ERP Pro') ? 'selected' : ''; ?>>Marg ERP Pro</option>
-                        <option value="Marg ERP Gold" <?php echo ($product_filter === 'Marg ERP Gold') ? 'selected' : ''; ?>>Marg ERP Gold</option>
-                        <option value="Marg Silver Edition" <?php echo ($product_filter === 'Marg Silver Edition') ? 'selected' : ''; ?>>Marg Silver Edition</option>
-                    </select>
-                </div>
-
-                <div class="form-group m-0">
-                    <label class="form-label text-xs font-semibold">Assigned Technician</label>
-                    <select name="operator" class="form-control form-control-focus text-sm">
-                        <option value="">All Techs</option>
-                        <?php foreach ($db_operators as $op): ?>
-                            <option value="<?php echo htmlspecialchars($op['name']); ?>" <?php echo ($operator_filter === $op['name']) ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($op['name']); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-
-                <div>
-                    <button type="submit" class="btn btn-primary text-sm" style="width: 100%; padding: 0.65rem 0.5rem;">
-                        <i data-lucide="filter" style="width: 16px; height: 16px;"></i>
+                <!-- Right: Active Record Count + Apply Filters Button -->
+                <div style="display: flex; align-items: center; gap: 0.65rem; margin-left: auto;">
+                    <span class="text-xs text-muted font-medium" style="font-size: 0.73rem;">
+                        Showing <strong class="text-main font-bold" style="font-size: 0.8rem;"><?php echo count($tickets); ?></strong> tickets
+                    </span>
+                    <button type="submit" class="btn btn-primary text-xs font-bold flex align-center gap-1.5" style="height: 34px; padding: 0 0.95rem; border-radius: 8px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
                         <span>Apply</span>
                     </button>
                 </div>
             </div>
+
+            <!-- ROW 3 (Conditional): Active Filter Badges Bar -->
+            <?php if ($isFiltered): ?>
+                <div style="padding: 0.45rem 1.15rem; background: rgba(59, 130, 246, 0.04); border-top: 1px dashed rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                    <div class="flex align-center gap-1.5 flex-wrap text-xs">
+                        <span class="font-bold text-muted" style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;">Active Filters:</span>
+                        
+                        <?php if ($is_admin && (!empty($date_from) || !empty($date_to) || $date_type !== 'created')): ?>
+                            <span class="badge" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;">
+                                <?php echo ucfirst($date_type); ?>: <?php echo (!empty($date_from) || !empty($date_to)) ? "{$date_from} to {$date_to}" : "All Time"; ?>
+                            </span>
+                        <?php endif; ?>
+
+                        <?php if (!empty($status_filter)): ?>
+                            <span class="badge" style="--badge-bg: rgba(245, 158, 11, 0.12); --badge-color: #d97706; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;">
+                                Status: <?php echo ucfirst(str_replace('_', ' ', $status_filter)); ?>
+                            </span>
+                        <?php endif; ?>
+
+                        <?php if ($is_admin && !empty($operator_filter)): ?>
+                            <span class="badge" style="--badge-bg: rgba(99, 102, 241, 0.12); --badge-color: #4f46e5; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;">
+                                Tech: <?php echo htmlspecialchars($operator_filter); ?>
+                            </span>
+                        <?php endif; ?>
+
+                        <?php if ($is_admin && !empty($priority_filter)): ?>
+                            <span class="badge" style="--badge-bg: rgba(239, 68, 68, 0.12); --badge-color: #dc2626; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;">
+                                Priority: <?php echo ucfirst($priority_filter); ?>
+                            </span>
+                        <?php endif; ?>
+
+                        <?php if (!empty($product_filter)): ?>
+                            <span class="badge" style="--badge-bg: var(--accent-light); --badge-color: var(--accent); font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;">
+                                Product: <?php echo htmlspecialchars($product_filter); ?>
+                            </span>
+                        <?php endif; ?>
+
+                        <?php if (!empty($search_query)): ?>
+                            <span class="badge" style="--badge-bg: var(--border-card); --badge-color: var(--text-main); font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: 5px;">
+                                Search: "<?php echo htmlspecialchars($search_query); ?>"
+                            </span>
+                        <?php endif; ?>
+                    </div>
+
+                    <a href="index.php?page=support" class="text-xs text-danger font-bold flex align-center gap-1" style="text-decoration: none; font-size: 0.72rem;">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        <span>Reset All</span>
+                    </a>
+                </div>
+            <?php endif; ?>
         </form>
     </div>
+
+    <!-- Dynamic Zero-Flicker Column Visibility Style & Pre-render Init -->
+    <style id="sup-columns-dynamic-style"></style>
+    <script>
+    (function() {
+        try {
+            var s = localStorage.getItem('support_ticket_columns_v2') || localStorage.getItem('support_ticket_columns');
+            if (s) {
+                var c = JSON.parse(s);
+                if (Array.isArray(c)) {
+                    var all = ['col-sup-ticket','col-sup-client','col-sup-callback','col-sup-issue','col-sup-problem','col-sup-resolution','col-sup-product','col-sup-priority','col-sup-assigned','col-sup-status','col-sup-due','col-sup-actions'];
+                    var r = [];
+                    all.forEach(function(col) { if (c.indexOf(col) === -1) r.push('.' + col + ' { display: none !important; }'); });
+                    var el = document.getElementById('sup-columns-dynamic-style');
+                    if (el) el.textContent = r.join('\n');
+                }
+            }
+        } catch(e) {}
+    })();
+    </script>
 
     <!-- Support Tickets Log Table Card -->
     <div class="card p-0" style="border: 1px solid var(--border-color); background-color: var(--bg-card); border-radius: var(--border-radius-lg); overflow: hidden;">
@@ -1350,28 +1994,127 @@ $resolvedCount   = $ticketCounters['resolved'];
                     <?php echo count($tickets); ?> Tickets
                 </span>
             </div>
+
+            <div class="flex align-center gap-2">
+                <!-- Column Header Customizer / Toggle Option Button (⚙️ Settings) -->
+                <button type="button" class="btn btn-secondary text-xs flex align-center gap-1.5" style="padding: 0.35rem 0.75rem; border-color: var(--border-color); border-radius: 7px; background: var(--bg-card); cursor: pointer;" onclick="openManageSupColumnsModal();" title="Select Columns / Toggle Headers">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <span class="font-semibold text-main" style="font-size: 0.76rem;">Select Columns</span>
+                </button>
+            </div>
         </div>
 
-        <div class="table-responsive" id="support-tickets-table-container">
-            <table class="table" style="font-size: 0.85rem;">
+        <div class="table-responsive" id="support-tickets-table-container" style="overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch;">
+            <table class="table" style="font-size: 0.82rem; width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1100px;">
                 <thead>
-                    <tr style="text-align: left; background-color: var(--bg-app);">
-                        <th style="padding: 0.85rem 1rem;">Ticket ID</th>
-                        <th>Client / Company</th>
-                        <th>Call Back No.</th>
-                        <th>Subject & Issue</th>
-                        <th>Product</th>
-                        <th>Priority</th>
-                        <th>Assigned Tech</th>
-                        <th>Status</th>
-                        <th>Due Date</th>
-                        <th style="text-align: right; padding-right: 1.25rem;">Actions</th>
+                    <tr style="text-align: left; background-color: var(--bg-app); border-bottom: 1px solid var(--border-color);">
+                        <th class="col-sup-ticket" style="padding: 0.8rem 0.85rem 0.8rem 1rem; min-width: 155px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Ticket &amp; Time</th>
+                        <th class="col-sup-client" style="padding: 0.8rem 0.85rem; min-width: 180px; max-width: 250px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Client / Company</th>
+                        <th class="col-sup-callback" style="padding: 0.8rem 0.85rem; min-width: 140px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Call Back No.</th>
+                        <th class="col-sup-issue" style="padding: 0.8rem 0.85rem; min-width: 200px; max-width: 300px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Issue</th>
+                        <th class="col-sup-problem" style="padding: 0.8rem 0.85rem; min-width: 180px; max-width: 280px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Problem</th>
+                        <th class="col-sup-resolution" style="padding: 0.8rem 0.85rem; min-width: 180px; max-width: 280px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Resolved Remark</th>
+                        <th class="col-sup-product" style="padding: 0.8rem 0.85rem; min-width: 120px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Product</th>
+                        <th class="col-sup-priority" style="padding: 0.8rem 0.85rem; min-width: 90px; text-align: center; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Priority</th>
+                        <th class="col-sup-assigned" style="padding: 0.8rem 0.85rem; min-width: 130px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Assigned Tech</th>
+                        <th class="col-sup-status" style="padding: 0.8rem 0.85rem; min-width: 110px; text-align: center; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Status</th>
+                        <th class="col-sup-due" style="padding: 0.8rem 0.85rem; min-width: 95px; text-align: center; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Due Date</th>
+                        <th class="col-sup-actions" style="padding: 0.8rem 1.25rem 0.8rem 0.85rem; text-align: right; min-width: 85px; font-weight: 700; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="support-tickets-tbody">
                     <?php echo renderSupportTicketRows($tickets, $user_name, $is_admin, $canEdit); ?>
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Select Columns / Toggle Table Headers for Support Tickets (⚙️) -->
+<div id="manage-sup-columns-modal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 650px; background: var(--bg-card); border-radius: 16px; border: 1px solid var(--border-color);">
+        <div class="modal-header" style="background-color: var(--border-card); border-bottom: 1px solid var(--border-color);">
+            <div class="flex align-center gap-3">
+                <div style="background-color: var(--primary-light); color: var(--primary); padding: 0.5rem; border-radius: 8px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                </div>
+                <div>
+                    <h3 class="m-0" style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 700; color: var(--text-main);">
+                        Select Columns / Toggle Headers
+                    </h3>
+                    <span class="text-xs text-muted">Check or uncheck headers to hide or show columns in your Support Tickets view.</span>
+                </div>
+            </div>
+            <button class="btn-icon" onclick="window.closeModal('manage-sup-columns-modal')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+
+        <div class="modal-body p-6 flex flex-col gap-4">
+            <div class="flex justify-between align-center border-bottom pb-3 mb-2" style="border-bottom: 1px solid var(--border-color);">
+                <span class="text-xs font-bold text-main">Check headers to display:</span>
+                <div class="flex gap-2">
+                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.5rem;" onclick="selectAllSupColumns(true)">Select All</button>
+                    <button type="button" class="btn btn-secondary text-xs" style="padding: 0.25rem 0.5rem;" onclick="selectAllSupColumns(false)">Deselect All</button>
+                    <button type="button" class="btn btn-secondary text-xs text-danger" style="padding: 0.25rem 0.5rem;" onclick="resetDefaultSupColumns()">Reset Defaults</button>
+                </div>
+            </div>
+
+            <div class="sup-columns-checkbox-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; max-height: 380px; overflow-y: auto;">
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-ticket" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">1. Ticket &amp; Time</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-client" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">2. Client / Company</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-callback" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">3. Call Back No.</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-issue" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">4. Issue</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-problem" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">5. Problem</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-resolution" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">6. Resolved Remark</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-product" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">7. Product</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-priority" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">8. Priority</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-assigned" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">9. Assigned Tech</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-status" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">10. Status</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-due" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">11. Due Date</span>
+                </label>
+                <label class="flex align-center gap-2 p-2 pointer card text-xs" style="border: 1px solid var(--border-color); background-color: var(--bg-app); border-radius: 6px;">
+                    <input type="checkbox" class="sup-col-checkbox" value="col-sup-actions" style="accent-color: var(--primary); scale: 1.1;">
+                    <span class="text-main font-semibold">12. Actions</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="modal-footer p-4 flex justify-end gap-2" style="background-color: var(--border-card); border-top: 1px solid var(--border-color);">
+            <button type="button" class="btn btn-secondary text-sm" onclick="window.closeModal('manage-sup-columns-modal')">Cancel</button>
+            <button type="button" class="btn btn-primary text-sm font-bold" onclick="applySupColumnPreferences()">Apply &amp; Save</button>
         </div>
     </div>
 </div>
@@ -1562,12 +2305,43 @@ $resolvedCount   = $ticketCounters['resolved'];
             </button>
         </div>
 
-        <form action="index.php?page=support" method="POST" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">
+        <form id="edit-ticket-modal-form" action="index.php?page=support" method="POST" onsubmit="submitEditTicketModal(event)" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">
             <input type="hidden" name="action" value="update_ticket">
             <input type="hidden" name="ticket_id" id="edit-ticket-id-hidden">
 
             <div class="modal-body p-6 flex flex-col gap-5" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-app);">
                 
+                <!-- SECTION 0: TICKET TIMELINE & LIFECYCLE DATES -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 0.75rem 1rem; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; align-items: center;">
+                    <div style="display: flex; flex-direction: column;">
+                        <span style="font-size: 0.65rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 4px;">
+                            <i data-lucide="calendar-plus" style="width: 11px; height: 11px; color: var(--primary);"></i> Created Date
+                        </span>
+                        <span id="edit-tkt-created-disp" class="font-mono font-bold" style="font-size: 0.78rem; color: var(--text-main); margin-top: 2px;">-</span>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column;">
+                        <span style="font-size: 0.65rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 4px;">
+                            <i data-lucide="calendar-check-2" style="width: 11px; height: 11px; color: #10b981;"></i> Resolved Date
+                        </span>
+                        <span id="edit-tkt-resolved-disp" class="font-mono font-bold" style="font-size: 0.78rem; color: #10b981; margin-top: 2px;">Not Resolved Yet</span>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column;">
+                        <span style="font-size: 0.65rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 4px;">
+                            <i data-lucide="timer" style="width: 11px; height: 11px; color: #f59e0b;"></i> Resolution TAT
+                        </span>
+                        <span id="edit-tkt-tat-disp" class="font-mono font-bold" style="font-size: 0.78rem; color: var(--text-main); margin-top: 2px;">In Progress</span>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column;">
+                        <span style="font-size: 0.65rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 4px;">
+                            <i data-lucide="clock" style="width: 11px; height: 11px; color: #3b82f6;"></i> Last Updated
+                        </span>
+                        <span id="edit-tkt-updated-disp" class="font-mono font-bold" style="font-size: 0.78rem; color: var(--text-main); margin-top: 2px;">-</span>
+                    </div>
+                </div>
+
                 <!-- SECTION 1: CLIENT DETAILS (COMPACT VIEW-ONLY SUMMARY CARD) -->
                 <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1rem 1.15rem;">
                     <div class="flex justify-between align-center mb-3">
@@ -1630,10 +2404,18 @@ $resolvedCount   = $ticketCounters['resolved'];
                         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; flex-direction: column;">
                             <div class="flex justify-between align-center mb-1">
                                 <span style="font-size: 0.63rem; text-transform: uppercase; font-weight: 700; color: #0284c7; letter-spacing: 0.04em;">Call Back No.</span>
-                                <button type="button" id="edit-v-callback-qr-btn" class="btn text-xs" style="background: rgba(16,185,129,0.1); color: #10b981; border: none; padding: 1px 5px; border-radius: 4px; display: none; cursor: pointer;" title="Scan QR to call Callback Number" onclick="event.stopPropagation();">
-                                    <i data-lucide="qr-code" style="width: 10px; height: 10px;"></i>
-                                    <span style="font-size: 0.65rem; font-weight: 700;">QR</span>
-                                </button>
+                                <div class="flex align-center gap-1">
+                                    <?php if ($is_admin): ?>
+                                        <button type="button" class="btn text-xs" style="background: rgba(16,185,129,0.12); color: #059669; border: none; padding: 1px 6px; border-radius: 4px; cursor: pointer; font-size: 0.65rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;" title="Edit Call Back Number" onclick="focusCallbackInput()">
+                                            <i data-lucide="edit-2" style="width: 10px; height: 10px;"></i>
+                                            <span>Edit</span>
+                                        </button>
+                                    <?php endif; ?>
+                                    <button type="button" id="edit-v-callback-qr-btn" class="btn text-xs" style="background: rgba(16,185,129,0.1); color: #10b981; border: none; padding: 1px 5px; border-radius: 4px; display: none; cursor: pointer;" title="Scan QR to call Callback Number" onclick="event.stopPropagation();">
+                                        <i data-lucide="qr-code" style="width: 10px; height: 10px;"></i>
+                                        <span style="font-size: 0.65rem; font-weight: 700;">QR</span>
+                                    </button>
+                                </div>
                             </div>
                             <span id="edit-v-callback" class="font-mono font-bold" style="font-size: 0.82rem; color: #0284c7;">-</span>
                         </div>
@@ -1737,7 +2519,7 @@ $resolvedCount   = $ticketCounters['resolved'];
                     <!-- Hidden input for subject preservation -->
                     <input type="hidden" name="subject" id="edit-ticket-subject">
 
-                    <div class="grid grid-2 gap-3">
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Problem Description (Client Reported)</label>
                             <textarea name="problem" id="edit-ticket-problem" rows="3" class="form-control text-xs" style="border-radius: 8px; resize: vertical;" placeholder="Client's query or issue notes (fill when calling client)..."></textarea>
@@ -1946,10 +2728,12 @@ $resolvedCount   = $ticketCounters['resolved'];
                         <i data-lucide="settings" style="width:14px; height:14px;"></i> Ticket Stage &amp; Technician Assignment
                     </div>
 
-                    <div class="grid grid-3 gap-3 mb-3">
+                    <!-- 2-Column Grid (50% Width Each) To Drastically Reduce Vertical Scrolling -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; align-items: start;">
+                        <!-- Row 1, Col 1 (50%): Priority -->
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Priority *</label>
-                            <select name="priority" id="edit-ticket-priority" class="form-control text-xs" style="border-radius: 8px;" required>
+                            <select name="priority" id="edit-ticket-priority" class="form-control text-xs" style="border-radius: 8px; height: 36px;" required>
                                 <option value="low">Low - Minor issue</option>
                                 <option value="medium">Medium - Normal setup</option>
                                 <option value="high">High - Core mismatch</option>
@@ -1957,9 +2741,10 @@ $resolvedCount   = $ticketCounters['resolved'];
                             </select>
                         </div>
 
+                        <!-- Row 1, Col 2 (50%): Status / Stage -->
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Status / Stage *</label>
-                            <select name="status" id="edit-ticket-status" class="form-control text-xs" style="border-radius: 8px;" required <?php echo !$canClose ? 'disabled' : ''; ?>>
+                            <select name="status" id="edit-ticket-status" class="form-control text-xs" style="border-radius: 8px; height: 36px;" required <?php echo !$canClose ? 'disabled' : ''; ?>>
                                 <option value="open">Open</option>
                                 <option value="in_progress">In Progress</option>
                                 <option value="resolved">Closed/Resolved</option>
@@ -1969,33 +2754,67 @@ $resolvedCount   = $ticketCounters['resolved'];
                             <?php endif; ?>
                         </div>
 
+                        <!-- Row 2, Col 1 (50%): Assign Technician -->
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Assign / Transfer Technician</label>
-                            <select name="assigned_to" id="edit-ticket-assigned" class="form-control text-xs" style="border-radius: 8px;" required>
+                            <select name="assigned_to" id="edit-ticket-assigned" class="form-control text-xs" style="border-radius: 8px; height: 36px;" required>
                                 <option value="Unassigned">Unassigned</option>
                                 <?php foreach ($db_operators as $op): ?>
                                     <option value="<?php echo htmlspecialchars($op['name']); ?>"><?php echo htmlspecialchars($op['name']) . " (" . htmlspecialchars($op['role']) . ")"; ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                    </div>
 
-                    <div class="grid grid-2 gap-3">
+                        <!-- Row 2, Col 2 (50%): Target Due Date -->
                         <div class="form-group m-0">
                             <label class="form-label text-xs font-bold" style="color: var(--text-main);">Target Due Date</label>
-                            <input type="date" name="due_date" id="edit-ticket-due-date" class="form-control text-xs font-mono" style="border-radius: 8px;">
+                            <input type="date" name="due_date" id="edit-ticket-due-date" class="form-control text-xs font-mono" style="border-radius: 8px; height: 36px;">
                         </div>
 
-                        <div class="form-group m-0">
+                        <!-- Row 3, Col 1 (50%): Call Back Number -->
+                        <div class="form-group m-0" style="<?php echo !$is_admin ? 'grid-column: span 2;' : ''; ?>">
                             <div class="flex justify-between align-center mb-1">
-                                <label class="form-label text-xs font-bold" style="color: var(--text-main);">Call Back Number</label>
+                                <label class="form-label text-xs font-bold m-0" style="color: var(--text-main);">
+                                    Call Back Number
+                                    <?php if ($is_admin): ?>
+                                        <span class="badge text-xs" style="--badge-bg: rgba(16,185,129,0.12); --badge-color: #059669; font-size: 0.62rem; padding: 1px 5px; border-radius: 4px; margin-left: 4px;">Admin Power: Editable</span>
+                                    <?php endif; ?>
+                                </label>
                                 <button type="button" class="btn text-xs flex align-center gap-1 font-bold" style="background: rgba(37,99,235,0.1); color: var(--primary); border: none; padding: 2px 6px; border-radius: 5px; cursor: pointer;" title="Scan QR to call on smartphone dial pad" onclick="triggerCallbackQrCall()">
                                     <i data-lucide="qr-code" style="width: 11px; height: 11px;"></i>
                                     <span>Scan QR Call</span>
                                 </button>
                             </div>
-                            <input type="text" name="callback_number" id="edit-ticket-callback" class="form-control text-xs font-mono" style="border-radius: 8px;" placeholder="Contact number for update calls">
+                            <input type="text" name="callback_number" id="edit-ticket-callback" class="form-control text-xs font-mono font-bold" style="border-radius: 8px; border-color: #0284c7; height: 36px;" placeholder="Contact number for update calls (10 digits)">
                         </div>
+
+                        <!-- Row 3, Col 2 (50%): Send WhatsApp Message Toggle Box (Admin Power) -->
+                        <?php if ($is_admin): ?>
+                            <div id="customer-notify-toggle-box" style="padding: 0.55rem 0.85rem; background: rgba(37,99,235,0.05); border: 1px solid rgba(37,99,235,0.2); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 58px; box-sizing: border-box;">
+                                <div style="display: flex; align-items: center; gap: 0.55rem; min-width: 0;">
+                                    <div style="background: rgba(37,99,235,0.12); padding: 0.4rem; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                        <i data-lucide="message-square" style="width: 15px; height: 15px; color: var(--primary);"></i>
+                                    </div>
+                                    <div style="min-width: 0;">
+                                        <label for="edit-ticket-notify-customer" class="m-0 text-xs font-bold flex align-center gap-1 cursor-pointer" style="color: var(--text-main); font-size: 0.74rem;">
+                                            <span>WhatsApp Notify Customer</span>
+                                            <span class="badge text-xs" style="--badge-bg: var(--primary-light); --badge-color: var(--primary); font-size: 0.58rem; padding: 1px 4px;">Admin</span>
+                                        </label>
+                                        <div class="text-xs text-muted" style="font-size: 0.65rem; line-height: 1.2; margin-top: 2px;">
+                                            Auto-send resolution message
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="flex-shrink: 0;">
+                                    <label style="display: inline-flex; align-items: center; cursor: pointer; gap: 6px;">
+                                        <input type="checkbox" name="notify_customer" id="edit-ticket-notify-customer" value="1" checked style="width: 17px; height: 17px; accent-color: var(--primary); cursor: pointer;">
+                                        <span class="text-xs font-bold text-primary" id="notify-customer-label" style="font-size: 0.74rem; white-space: nowrap;">Send</span>
+                                    </label>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <input type="hidden" name="notify_customer" value="1">
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -2041,7 +2860,7 @@ $resolvedCount   = $ticketCounters['resolved'];
                 <button type="button" onclick="window.closeModal('edit-ticket-modal')" class="btn btn-secondary flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.25rem; font-size: 0.8rem;">
                     <i data-lucide="x" style="width:14px; height:14px;"></i> Cancel
                 </button>
-                <button type="submit" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
+                <button type="submit" id="edit-ticket-submit-btn" class="btn btn-primary font-bold flex align-center gap-2" style="border-radius: 9px; padding: 0.5rem 1.5rem; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
                     <i data-lucide="check-circle-2" style="width:15px; height:15px;"></i>
                     <span>Save Ticket Changes</span>
                 </button>
@@ -2119,7 +2938,183 @@ $resolvedCount   = $ticketCounters['resolved'];
     </div>
 </div>
 
+<!-- Modal 5: Quick Edit Call Back Number (Admin / Super Admin Power) -->
+<div id="quick-edit-callback-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(8px); z-index: 99999; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.2s ease;">
+    <div class="modal-container" style="max-width: 440px; width: 92%; background: var(--bg-card); color: var(--text-main); border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4); overflow: hidden; transform: scale(0.96); transition: transform 0.2s ease;">
+        <div style="background: var(--border-card); border-bottom: 1px solid var(--border-color); padding: 1rem 1.25rem;" class="flex align-center justify-between">
+            <div class="flex align-center gap-2">
+                <div style="background: rgba(16,185,129,0.15); color: #059669; padding: 0.45rem; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="phone-call" style="width: 18px; height: 18px;"></i>
+                </div>
+                <div>
+                    <h3 class="m-0 text-sm font-bold" style="font-family: var(--font-heading);">Correct Call Back Number</h3>
+                    <span class="text-xs text-muted" style="font-size: 0.7rem;">Admin / Super Admin Master Override</span>
+                </div>
+            </div>
+            <button type="button" class="btn-icon" onclick="closeEditCallbackModal()" style="border: none; background: transparent; cursor: pointer;">
+                <i data-lucide="x" style="width: 16px; height: 16px; color: var(--text-muted);"></i>
+            </button>
+        </div>
+        <form id="quick-callback-form" onsubmit="submitQuickCallback(event)" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <input type="hidden" name="action" value="update_callback_number">
+            <input type="hidden" name="ticket_id" id="quick-cb-ticket-id">
+            <input type="hidden" name="is_ajax" value="1">
+
+            <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.65rem 0.85rem; display: flex; justify-content: space-between; align-items: center;">
+                <span class="text-xs text-muted font-bold">Ticket: <span id="quick-cb-display-id" class="font-mono text-primary font-bold"></span></span>
+                <span id="quick-cb-display-client" class="text-xs font-semibold text-main" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+            </div>
+
+            <div class="form-group m-0">
+                <label class="form-label text-xs font-bold" style="color: var(--text-main);">New Call Back Number *</label>
+                <div style="position: relative;">
+                    <input type="text" name="callback_number" id="quick-cb-input" class="form-control text-sm font-mono font-bold" placeholder="e.g. 9876543210" required pattern="[0-9+]{10,14}" style="padding-left: 2.25rem; border-radius: 8px; border-color: #10b981;">
+                    <i data-lucide="phone" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: #10b981;"></i>
+                </div>
+                <span class="text-xs text-muted mt-1 block" style="font-size: 0.68rem;">Enter the correct 10-digit customer mobile number. This updates the ticket callback number and syncs raw tickets table.</span>
+            </div>
+
+            <div id="quick-cb-error" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.75rem;"></div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+                <button type="button" class="btn btn-secondary text-xs" onclick="closeEditCallbackModal()" style="border-radius: 7px; padding: 0.5rem 1rem;">Cancel</button>
+                <button type="submit" id="quick-cb-submit-btn" class="btn btn-success text-xs font-bold flex align-center gap-1.5" style="border-radius: 7px; padding: 0.5rem 1.25rem; background: #10b981; color: #fff;">
+                    <i data-lucide="check" style="width: 13px; height: 13px;"></i>
+                    <span>Save Call Back No.</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+function openEditCallbackModal(ticketId, currentPhone, clientName) {
+    if (typeof event !== 'undefined' && event && event.stopPropagation) {
+        event.stopPropagation();
+    }
+    const modal = document.getElementById('quick-edit-callback-modal');
+    if (!modal) return;
+
+    document.getElementById('quick-cb-ticket-id').value = ticketId;
+    document.getElementById('quick-cb-display-id').textContent = '#' + ticketId;
+    document.getElementById('quick-cb-display-client').textContent = clientName || 'Client';
+
+    const clean = (currentPhone || '').replace(/[^0-9]/g, '');
+    const clean10 = clean.length === 12 && clean.startsWith('91') ? clean.substring(2) : clean;
+    document.getElementById('quick-cb-input').value = clean10;
+
+    const err = document.getElementById('quick-cb-error');
+    if (err) err.style.display = 'none';
+
+    modal.style.display = 'flex';
+    setTimeout(() => {
+        modal.style.opacity = '1';
+        modal.style.pointerEvents = 'auto';
+        const c = modal.querySelector('.modal-container');
+        if (c) c.style.transform = 'scale(1)';
+        document.getElementById('quick-cb-input')?.focus();
+    }, 10);
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+window.openEditCallbackModal = openEditCallbackModal;
+
+function closeEditCallbackModal() {
+    const modal = document.getElementById('quick-edit-callback-modal');
+    if (!modal) return;
+    modal.style.opacity = '0';
+    modal.style.pointerEvents = 'none';
+    const c = modal.querySelector('.modal-container');
+    if (c) c.style.transform = 'scale(0.96)';
+    setTimeout(() => {
+        modal.style.display = 'none';
+    }, 200);
+}
+window.closeEditCallbackModal = closeEditCallbackModal;
+
+function submitQuickCallback(e) {
+    e.preventDefault();
+    const btn = document.getElementById('quick-cb-submit-btn');
+    const err = document.getElementById('quick-cb-error');
+    const form = document.getElementById('quick-callback-form');
+    const ticketId = document.getElementById('quick-cb-ticket-id').value;
+    const newCb = document.getElementById('quick-cb-input').value.trim();
+
+    if (!newCb) {
+        if (err) {
+            err.textContent = 'Please enter a valid call back number.';
+            err.style.display = 'block';
+        }
+        return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i data-lucide="loader-2" class="spin" style="width:13px;height:13px;"></i> Saving...';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    const formData = new FormData(form);
+
+    fetch('index.php?page=support', {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="check" style="width:13px;height:13px;"></i> Save Call Back No.';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        if (data.status === 'success') {
+            closeEditCallbackModal();
+            // Update table cell
+            const displayCell = document.getElementById('table-cb-' + ticketId);
+            if (displayCell) {
+                const cleanD = data.callback_number.replace(/^\+?91/, '');
+                displayCell.textContent = (cleanD.length === 10 ? cleanD : data.callback_number);
+            }
+            if (window.showToast) {
+                window.showToast('Success', data.message || 'Call back number updated successfully', 'success');
+            } else {
+                alert(data.message || 'Call back number updated successfully');
+            }
+        } else {
+            if (err) {
+                err.textContent = data.message || 'Failed to update call back number.';
+                err.style.display = 'block';
+            }
+        }
+    })
+    .catch(errObj => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="check" style="width:13px;height:13px;"></i> Save Call Back No.';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+        if (err) {
+            err.textContent = 'Network or server error while updating.';
+            err.style.display = 'block';
+        }
+    });
+}
+
+function focusCallbackInput() {
+    const cb = document.getElementById('edit-ticket-callback');
+    if (cb) {
+        cb.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        cb.focus();
+        cb.style.borderColor = '#10b981';
+        cb.style.boxShadow = '0 0 0 3px rgba(16,185,129,0.25)';
+        setTimeout(() => {
+            cb.style.boxShadow = '';
+        }, 1500);
+    }
+}
+window.focusCallbackInput = focusCallbackInput;
 function normalizePhoneForDialing(phone) {
     if (!phone) return '';
     let digits = String(phone).replace(/[^0-9+]/g, '');
@@ -2621,6 +3616,66 @@ function openEditTicketModal(ticket) {
     document.getElementById('edit-ticket-id-display').innerText = ticket.id;
     document.getElementById('edit-ticket-client-id').value = ticket.lead_id || "";
 
+    // Populate Section 0: Ticket Timeline & Lifecycle Dates
+    const elCreated = document.getElementById('edit-tkt-created-disp');
+    const elResolved = document.getElementById('edit-tkt-resolved-disp');
+    const elTat = document.getElementById('edit-tkt-tat-disp');
+    const elUpdated = document.getElementById('edit-tkt-updated-disp');
+
+    function formatTktDateTime(dtStr) {
+        if (!dtStr || dtStr === '0000-00-00 00:00:00') return '-';
+        const d = new Date(dtStr.replace(' ', 'T'));
+        if (isNaN(d.getTime())) return dtStr;
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ', ' + 
+               d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    if (elCreated) elCreated.innerText = formatTktDateTime(ticket.date_created);
+    
+    const isResolvedState = (ticket.status === 'resolved' || ticket.status === 'closed');
+    if (elResolved) {
+        if (isResolvedState && ticket.resolved_date && ticket.resolved_date !== '0000-00-00 00:00:00') {
+            elResolved.innerText = formatTktDateTime(ticket.resolved_date);
+            elResolved.style.color = '#10b981';
+        } else {
+            elResolved.innerText = 'Not Resolved Yet';
+            elResolved.style.color = 'var(--text-muted)';
+        }
+    }
+
+    if (elTat) {
+        if (isResolvedState && ticket.resolved_date && ticket.date_created) {
+            const t1 = new Date(ticket.date_created.replace(' ', 'T')).getTime();
+            const t2 = new Date(ticket.resolved_date.replace(' ', 'T')).getTime();
+            const diffSec = Math.floor((t2 - t1) / 1000);
+            if (diffSec > 0) {
+                const days = Math.floor(diffSec / 86400);
+                const hours = Math.floor((diffSec % 86400) / 3600);
+                const mins = Math.floor((diffSec % 3600) / 60);
+                elTat.innerText = (days > 0 ? `${days}d ` : '') + (hours > 0 ? `${hours}h ` : '') + `${mins}m`;
+                elTat.style.color = '#059669';
+            } else {
+                elTat.innerText = 'Same hour';
+                elTat.style.color = '#059669';
+            }
+        } else if (ticket.date_created) {
+            const t1 = new Date(ticket.date_created.replace(' ', 'T')).getTime();
+            const now = Date.now();
+            const diffSec = Math.floor((now - t1) / 1000);
+            const days = Math.floor(diffSec / 86400);
+            const hours = Math.floor((diffSec % 86400) / 3600);
+            elTat.innerText = (days > 0 ? `${days}d ${hours}h elapsed` : `${hours}h elapsed`);
+            elTat.style.color = '#f59e0b';
+        } else {
+            elTat.innerText = '-';
+            elTat.style.color = 'var(--text-muted)';
+        }
+    }
+
+    if (elUpdated) {
+        elUpdated.innerText = formatTktDateTime(ticket.updated_at || ticket.date_created);
+    }
+
     // Set hidden inputs directly from ticket FIRST so existing values are preserved
     if (document.getElementById('edit-ticket-client-name')) document.getElementById('edit-ticket-client-name').value = ticket.customer_name || "";
     if (document.getElementById('edit-ticket-phone')) document.getElementById('edit-ticket-phone').value = ticket.phone || "";
@@ -2713,6 +3768,17 @@ function openEditTicketModal(ticket) {
     if (cbInput && !cbInput.value) {
         cbInput.value = ticket.callback_number || ticket.phone || "";
     }
+
+    // Default Send WhatsApp Resolution Message checkbox to checked
+    const notifCheck = document.getElementById('edit-ticket-notify-customer');
+    if (notifCheck) {
+        notifCheck.checked = true;
+        const lbl = document.getElementById('notify-customer-label');
+        if (lbl) {
+            lbl.textContent = 'Send Message';
+            lbl.style.color = 'var(--primary)';
+        }
+    }
     
     // Load ticket activity & lifetime client tickets
     const leadIdVal = ticket.lead_id || (document.getElementById('edit-ticket-client-id') ? document.getElementById('edit-ticket-client-id').value : '');
@@ -2720,6 +3786,176 @@ function openEditTicketModal(ticket) {
     loadTicketHistory(ticket.id, leadIdVal, phoneVal);
 
     window.openModal('edit-ticket-modal');
+}
+
+function submitEditTicketModal(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const form = document.getElementById('edit-ticket-modal-form');
+    if (!form) return;
+    const btn = document.getElementById('edit-ticket-submit-btn');
+    const origHtml = btn ? btn.innerHTML : '';
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i data-lucide="loader" class="spin" style="width:15px; height:15px;"></i> <span>Saving Ticket Changes...</span>';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    const formData = new FormData(form);
+    formData.set('is_ajax', '1');
+
+    fetch('index.php?page=support', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(async res => {
+        const text = await res.text();
+        let data = null;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.warn('Response was not strictly JSON, attempting regex extraction:', text);
+            const match = text.match(/\{[\s\S]*"status"\s*:\s*"(?:success|error)"[\s\S]*\}/);
+            if (match) {
+                try { data = JSON.parse(match[0]); } catch (e2) {}
+            }
+        }
+        return { ok: res.ok, data, rawText: text };
+    })
+    .then(({ ok, data, rawText }) => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        if (data && data.status === 'success') {
+            window.closeModal('edit-ticket-modal');
+            if (window.showToast) {
+                window.showToast('Success', data.message || 'Ticket updated successfully', 'success');
+            } else if (typeof showNewTicketToast === 'function') {
+                showNewTicketToast(formData.get('ticket_id') || 'Saved', 0);
+            }
+            if (typeof fetchLiveSupportTickets === 'function') {
+                fetchLiveSupportTickets(true);
+            } else {
+                window.location.reload();
+            }
+        } else {
+            const errMsg = (data && data.message) ? data.message : 'Failed to update ticket. Please check your inputs and try again.';
+            if (window.showToast) {
+                window.showToast('Error', errMsg, 'error');
+            } else {
+                alert(errMsg);
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Error updating ticket:', err);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+        if (window.showToast) {
+            window.showToast('Error', 'Connection or network issue while saving ticket. Please try again.', 'error');
+        } else {
+            alert('Connection or network issue while saving ticket. Please try again.');
+        }
+    });
+}
+
+// ==========================================
+// Advanced Support Date Filter & Preset JS
+// ==========================================
+// Modern Support Filter Hub JS Helpers
+// ==========================================
+function applyQuickDatePreset(preset) {
+    const today = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    const dateFromInput = document.getElementById('filter-date-from');
+    const dateToInput   = document.getElementById('filter-date-to');
+    const presetHidden  = document.getElementById('filter-date-preset');
+    if (presetHidden) presetHidden.value = preset;
+
+    // Toggle active chip styling
+    document.querySelectorAll('.hub-preset-chip').forEach(btn => {
+        const isCurrent = (btn.dataset.preset === preset);
+        btn.classList.toggle('active-preset', isCurrent);
+        btn.style.background = isCurrent ? 'var(--primary-light)' : 'transparent';
+        btn.style.color = isCurrent ? 'var(--primary)' : 'var(--text-muted)';
+        btn.style.fontWeight = isCurrent ? '700' : '600';
+    });
+
+    if (preset === 'today') {
+        const tStr = fmt(today);
+        if (dateFromInput) dateFromInput.value = tStr;
+        if (dateToInput) dateToInput.value = tStr;
+    } else if (preset === 'yesterday') {
+        const yest = new Date();
+        yest.setDate(yest.getDate() - 1);
+        const yStr = fmt(yest);
+        if (dateFromInput) dateFromInput.value = yStr;
+        if (dateToInput) dateToInput.value = yStr;
+    } else if (preset === 'last_7_days') {
+        const past7 = new Date();
+        past7.setDate(past7.getDate() - 6);
+        if (dateFromInput) dateFromInput.value = fmt(past7);
+        if (dateToInput) dateToInput.value = fmt(today);
+    } else if (preset === 'this_month') {
+        const startM = new Date(today.getFullYear(), today.getMonth(), 1);
+        const endM   = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        if (dateFromInput) dateFromInput.value = fmt(startM);
+        if (dateToInput) dateToInput.value = fmt(endM);
+    } else if (preset === 'last_month') {
+        const startLM = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const endLM   = new Date(today.getFullYear(), today.getMonth(), 0);
+        if (dateFromInput) dateFromInput.value = fmt(startLM);
+        if (dateToInput) dateToInput.value = fmt(endLM);
+    } else if (preset === 'all') {
+        if (dateFromInput) dateFromInput.value = '';
+        if (dateToInput) dateToInput.value = '';
+    }
+
+    // Auto-submit the filter form for seamless 1-click preset switching
+    const form = document.getElementById('support-filter-form');
+    if (form) form.submit();
+}
+
+function onDateScopeChange(type) {
+    const radio = document.querySelector(`input[name="date_type"][value="${type}"]`);
+    if (radio) {
+        radio.checked = true;
+    }
+    const form = document.getElementById('support-filter-form');
+    if (form) form.submit();
+}
+
+function clearSearchInput() {
+    const inp = document.getElementById('filter-search-input');
+    if (inp) {
+        inp.value = '';
+        const form = document.getElementById('support-filter-form');
+        if (form) form.submit();
+    }
+}
+
+function onManualDateChange() {
+    const presetHidden = document.getElementById('filter-date-preset');
+    if (presetHidden) presetHidden.value = 'custom';
+    document.querySelectorAll('.hub-preset-chip').forEach(btn => {
+        btn.classList.remove('active-preset');
+        btn.style.background = 'transparent';
+        btn.style.color = 'var(--text-muted)';
+    });
 }
 
 function takeTicket(ticketId) {
@@ -3006,13 +4242,30 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const notifCheck = document.getElementById('edit-ticket-notify-customer');
+    if (notifCheck) {
+        notifCheck.addEventListener('change', function() {
+            const lbl = document.getElementById('notify-customer-label');
+            if (lbl) {
+                lbl.textContent = this.checked ? 'Send Message' : 'Do Not Send';
+                lbl.style.color = this.checked ? 'var(--primary)' : 'var(--danger, #ef4444)';
+            }
+        });
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
     const targetTicketId = urlParams.get('open_ticket') || urlParams.get('ticket_id');
     if (targetTicketId) {
         const allTickets = <?php echo json_encode($tickets); ?>;
         const matchingTicket = allTickets.find(t => String(t.id).toLowerCase() === String(targetTicketId).toLowerCase());
         if (matchingTicket) {
-            openEditTicketModal(matchingTicket);
+            const isAdmin = <?php echo $is_admin ? 'true' : 'false'; ?>;
+            const currentUserName = <?php echo json_encode(strtolower($user_name)); ?>;
+            const assigned = String(matchingTicket.assigned_to || '').toLowerCase().trim();
+            const isAssignedToMe = assigned && assigned !== 'unassigned' && assigned === currentUserName;
+            if (isAdmin || isAssignedToMe) {
+                openEditTicketModal(matchingTicket);
+            }
         }
     }
 });
@@ -3536,6 +4789,17 @@ document.addEventListener('DOMContentLoaded', () => {
     50% { background-color: rgba(16, 185, 129, 0.12); }
     100% { background-color: transparent; }
 }
+.support-hub-card .quick-dt-presets-container,
+.no-quick + .quick-dt-presets-container,
+.quick-dt-presets-container {
+    display: none !important;
+}
+#support-tickets-table-container table tbody tr:hover {
+    background-color: rgba(37, 99, 235, 0.035) !important;
+}
+#support-tickets-table-container table th {
+    user-select: none;
+}
 </style>
 
 <script>
@@ -3618,6 +4882,9 @@ function showNewTicketToast(ticketId, count) {
 
 function fetchLiveSupportTickets(isManual = false) {
     if (!isSupportPolling && !isManual) return;
+    // Skip background polling if user is actively filling or submitting a modal
+    const activeModal = document.querySelector('.modal-overlay.open, .modal.open, .modal-overlay[style*="display: flex"]');
+    if (activeModal && !isManual) return;
 
     // Build URL query with current page filters
     const currentParams = new URLSearchParams(window.location.search);
@@ -3675,20 +4942,24 @@ function fetchLiveSupportTickets(isManual = false) {
             lastKnownTotal = data.total;
         }
 
-        // 4. Update Table Rows (Skip if modal is actively open to avoid losing user state)
+        // 4. Update Table Rows Only If Data Actually Changed (Skip if modal is actively open to avoid losing user state)
         const activeModal = document.querySelector('.modal-overlay.open, .modal.open');
         if (!activeModal && data.tbody_html) {
-            const tbody = document.getElementById('support-tickets-tbody');
-            if (tbody && tbody.innerHTML !== data.tbody_html) {
-                tbody.innerHTML = data.tbody_html;
-                if (window.lucide) {
-                    lucide.createIcons();
-                }
-                // Highlight new row if fresh ticket arrived
-                if (hasNewTicket && data.latest_ticket_id) {
-                    const newRow = tbody.querySelector(`tr[data-ticket-id="${data.latest_ticket_id}"]`);
-                    if (newRow) {
-                        newRow.classList.add('row-new-arrival');
+            const isDataChanged = !window._lastSupportDataHash || (data.data_hash && data.data_hash !== window._lastSupportDataHash) || isManual;
+            if (isDataChanged) {
+                window._lastSupportDataHash = data.data_hash || '';
+                const tbody = document.getElementById('support-tickets-tbody');
+                if (tbody) {
+                    tbody.innerHTML = data.tbody_html;
+                    if (window.lucide) {
+                        lucide.createIcons();
+                    }
+                    // Highlight new row if fresh ticket arrived
+                    if (hasNewTicket && data.latest_ticket_id) {
+                        const newRow = tbody.querySelector(`tr[data-ticket-id="${data.latest_ticket_id}"]`);
+                        if (newRow) {
+                            newRow.classList.add('row-new-arrival');
+                        }
                     }
                 }
             }
@@ -3711,12 +4982,119 @@ function triggerManualTicketsRefresh(btn) {
     fetchLiveSupportTickets(true);
 }
 
-// Start auto-sync polling every 3.5 seconds
+// =========================================================================
+// Support Ticket Table - Column Visibility Customizer & Persistence
+// =========================================================================
+const defaultSupVisibleCols = [
+    'col-sup-ticket', 'col-sup-client', 'col-sup-callback', 'col-sup-issue', 
+    'col-sup-problem', 'col-sup-resolution',
+    'col-sup-product', 'col-sup-priority', 'col-sup-assigned', 'col-sup-status', 
+    'col-sup-due', 'col-sup-actions'
+];
+const allSupCols = defaultSupVisibleCols;
+
+function applySupColumnStyles(visibleCols) {
+    if (!Array.isArray(visibleCols) || visibleCols.length === 0) {
+        visibleCols = defaultSupVisibleCols;
+    }
+    let hideRules = [];
+    allSupCols.forEach(colClass => {
+        if (!visibleCols.includes(colClass)) {
+            hideRules.push('.' + colClass + ' { display: none !important; }');
+        }
+    });
+
+    let styleEl = document.getElementById('sup-columns-dynamic-style');
+    if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'sup-columns-dynamic-style';
+        document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = hideRules.join('\n');
+}
+
+function getSavedSupColumns() {
+    let saved = localStorage.getItem('support_ticket_columns_v2') || localStorage.getItem('support_ticket_columns');
+    let visibleCols = defaultSupVisibleCols;
+    if (saved) {
+        try {
+            visibleCols = JSON.parse(saved);
+            if (!Array.isArray(visibleCols) || visibleCols.length === 0) {
+                visibleCols = defaultSupVisibleCols;
+            } else if (!localStorage.getItem('support_ticket_columns_v2')) {
+                // Ensure new columns are included by default for returning users
+                if (!visibleCols.includes('col-sup-problem')) visibleCols.push('col-sup-problem');
+                if (!visibleCols.includes('col-sup-resolution')) visibleCols.push('col-sup-resolution');
+                localStorage.setItem('support_ticket_columns_v2', JSON.stringify(visibleCols));
+            }
+        } catch (e) {
+            visibleCols = defaultSupVisibleCols;
+        }
+    }
+    return visibleCols;
+}
+
+function loadSupColumnPreferences() {
+    const visibleCols = getSavedSupColumns();
+    applySupColumnStyles(visibleCols);
+}
+window.loadSupColumnPreferences = loadSupColumnPreferences;
+
+function openManageSupColumnsModal() {
+    const visibleCols = getSavedSupColumns();
+    document.querySelectorAll('.sup-col-checkbox').forEach(cb => {
+        cb.checked = visibleCols.includes(cb.value);
+    });
+    if (window.openModal) {
+        window.openModal('manage-sup-columns-modal');
+    }
+}
+window.openManageSupColumnsModal = openManageSupColumnsModal;
+
+function applySupColumnPreferences() {
+    let selected = [];
+    document.querySelectorAll('.sup-col-checkbox:checked').forEach(cb => {
+        selected.push(cb.value);
+    });
+    if (selected.length === 0) {
+        selected = ['col-sup-ticket', 'col-sup-client', 'col-sup-issue', 'col-sup-problem', 'col-sup-resolution', 'col-sup-status'];
+    }
+    localStorage.setItem('support_ticket_columns_v2', JSON.stringify(selected));
+    localStorage.setItem('support_ticket_columns', JSON.stringify(selected));
+    applySupColumnStyles(selected);
+    if (window.closeModal) {
+        window.closeModal('manage-sup-columns-modal');
+    }
+}
+window.applySupColumnPreferences = applySupColumnPreferences;
+
+function selectAllSupColumns(checked) {
+    document.querySelectorAll('.sup-col-checkbox').forEach(cb => {
+        cb.checked = checked;
+    });
+}
+window.selectAllSupColumns = selectAllSupColumns;
+
+function resetDefaultSupColumns() {
+    localStorage.removeItem('support_ticket_columns');
+    localStorage.removeItem('support_ticket_columns_v2');
+    document.querySelectorAll('.sup-col-checkbox').forEach(cb => {
+        cb.checked = defaultSupVisibleCols.includes(cb.value);
+    });
+    applySupColumnStyles(defaultSupVisibleCols);
+    if (window.closeModal) {
+        window.closeModal('manage-sup-columns-modal');
+    }
+}
+window.resetDefaultSupColumns = resetDefaultSupColumns;
+
+// Start auto-sync polling every 10 seconds & init column prefs
 document.addEventListener('DOMContentLoaded', () => {
+    loadSupColumnPreferences();
     if (!supportLivePollTimer) {
         supportLivePollTimer = setInterval(() => {
             fetchLiveSupportTickets(false);
-        }, 3500);
+        }, 10000);
     }
 });
 

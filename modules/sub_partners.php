@@ -34,8 +34,8 @@ if ($is_tenant_session) {
         }
     }
 } else {
-    $is_admin = ($role === 'Administrator' || $role === 'System Admin' || $role === 'Super Admin' || $role === 'Regional Manager' || $user_id == 1);
-    $is_super_admin = ($role === 'Super Admin' || $role === 'Admin' || $user_id == 1);
+    $is_admin = ($role === 'Administrator' || $role === 'System Admin' || $role === 'Super Admin' || $role === 'Regional Manager');
+    $is_super_admin = ($role === 'Super Admin' || $role === 'Admin');
     $is_tenant_admin = false;
     $can_manage_custom_fields = $is_super_admin;
 

@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/mailer.php';
 
 $role = $_SESSION['user_role'] ?? 'Sales Executive';
 $user_id = $_SESSION['user_id'] ?? 1;
-$is_admin = ($role === 'Administrator' || $role === 'System Admin' || $role === 'Super Admin' || $role === 'Tenant Admin' || $role === 'Regional Manager' || $user_id == 1 || !empty($_SESSION['tenant_db']));
+$is_admin = ($role === 'Administrator' || $role === 'System Admin' || $role === 'Super Admin' || $role === 'Tenant Admin' || $role === 'Regional Manager' || !empty($_SESSION['tenant_db']));
 
 $message = '';
 $message_type = 'success';

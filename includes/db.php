@@ -34,11 +34,12 @@ if (!class_exists('TenantAwarePDO')) {
                         'quotations', 'payments', 'bank_accounts', 'installations', 
                         'trainings', 'training_sessions', 'training_daily_sessions', 'tickets', 'support_tickets', 'support_ticket_history', 'ticket_replies',
                         'client_directory', 'customers', 'customer_kyc_details', 'customer_reviews',
-                        'message_logs', 'chat_conversations', 'merchant_waba_settings', 'bot_flows',
+                        'message_logs', 'chat_conversations', 'merchant_waba_settings', 'bot_flows', 'bot_flow_automations',
                         'renewals', 'invoices', 'lead_documents', 'broadcast_campaigns', 'campaign_audience',
                         'whatsapp_keyword_triggers', 'whatsapp_templates', 'notifications', 'activity_logs',
                         'city_areas', 'system_notification_templates',
-                        'sub_partners', 'sub_partner_custom_fields'
+                        'sub_partners', 'sub_partner_custom_fields',
+                        'employee_attendance', 'attendance_settings', 'employee_leaves'
                     ];
 
                     foreach ($tables as $tbl) {
@@ -477,6 +478,9 @@ try {
             if (!in_array('action_permissions', $userColumns)) {
                 $pdo->exec("ALTER TABLE users ADD COLUMN action_permissions TEXT NULL");
             }
+            if (!in_array('inbox_visibility', $userColumns)) {
+                $pdo->exec("ALTER TABLE users ADD COLUMN inbox_visibility VARCHAR(50) DEFAULT 'default'");
+            }
             if (!in_array('otp_code', $userColumns)) {
                 $pdo->exec("ALTER TABLE users ADD COLUMN otp_code VARCHAR(10) NULL");
             }
@@ -565,6 +569,11 @@ try {
             try {
                 $pdo->exec("ALTER TABLE whatsapp_templates MODIFY COLUMN header_content TEXT NULL");
             } catch (\Exception $e) {}
+
+            // Auto-purge any duplicate templates in database keeping latest record
+            try {
+                $pdo->exec("DELETE t1 FROM whatsapp_templates t1 INNER JOIN whatsapp_templates t2 ON (t1.slug = t2.slug OR (LOWER(TRIM(t1.title)) = LOWER(TRIM(t2.title)) AND t1.title != '')) AND t1.id < t2.id");
+            } catch (\Exception $eClean) {}
         }
     } catch (\Exception $e) {}
 
@@ -685,7 +694,9 @@ try {
                 'problem' => 'TEXT NULL',
                 'due_date' => 'DATE NULL',
                 'callback_number' => 'VARCHAR(50) NULL',
-                'custom_fields' => 'TEXT NULL'
+                'custom_fields' => 'TEXT NULL',
+                'resolved_date' => 'DATETIME NULL',
+                'updated_at' => 'DATETIME NULL'
             ];
             
             foreach ($requiredTicketCols as $colName => $colType) {

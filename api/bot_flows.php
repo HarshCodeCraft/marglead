@@ -24,6 +24,17 @@ function ensureBotFlowsTable($pdo) {
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
         $pdo->exec($sql);
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS bot_flow_automations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(150) NOT NULL DEFAULT 'Master WhatsApp Support & Sales Flow',
+            trigger_keyword VARCHAR(100) DEFAULT 'ALL',
+            status VARCHAR(20) DEFAULT 'ACTIVE',
+            nodes_json LONGTEXT NULL,
+            connections_json LONGTEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     } catch (PDOException $e) {}
 }
 
@@ -253,6 +264,104 @@ function syncFlowScreensToMeta($flowId, array $screens, $token): array {
     ];
 }
 
+/**
+ * Convert raw Meta Flow JSON layout into builder screens array
+ */
+function parseMetaFlowJsonToBuilderScreens(array $metaFlowJson): array {
+    $screens = [];
+    $rawScreens = $metaFlowJson['screens'] ?? [];
+    
+    foreach ($rawScreens as $idx => $s) {
+        $screenId = $s['id'] ?? ('screen_' . ($idx + 1));
+        $screenTitle = $s['title'] ?? 'Form';
+        $screenBody = '';
+        $components = [];
+        $footerLabel = 'Submit';
+        $footerAction = 'Complete';
+        
+        $children = $s['layout']['children'] ?? [];
+        foreach ($children as $c) {
+            $type = $c['type'] ?? '';
+            if ($type === 'TextHeading') {
+                if (empty($screenTitle) || $screenTitle === 'Form') {
+                    $screenTitle = $c['text'] ?? $screenTitle;
+                }
+            } elseif ($type === 'TextBody') {
+                $screenBody = $c['text'] ?? '';
+            } elseif ($type === 'Form') {
+                $formChildren = $c['children'] ?? [];
+                foreach ($formChildren as $fcIdx => $fc) {
+                    $fType = $fc['type'] ?? '';
+                    if ($fType === 'TextHeading' && empty($screenTitle)) {
+                        $screenTitle = $fc['text'] ?? '';
+                    } elseif ($fType === 'TextBody' && empty($screenBody)) {
+                        $screenBody = $fc['text'] ?? '';
+                    } elseif ($fType === 'TextInput') {
+                        $inputType = $fc['input-type'] ?? 'text';
+                        $components[] = [
+                            'id' => 'c' . ($fcIdx + 1),
+                            'name' => $fc['name'] ?? '',
+                            'type' => ($inputType === 'phone' ? 'Phone Number' : 'Short Answer'),
+                            'label' => $fc['label'] ?? ($fc['name'] ?? 'Field'),
+                            'helper' => $fc['helper-text'] ?? ($fc['helper'] ?? ''),
+                            'required' => !empty($fc['required'])
+                        ];
+                    } elseif ($fType === 'TextArea') {
+                        $components[] = [
+                            'id' => 'c' . ($fcIdx + 1),
+                            'name' => $fc['name'] ?? '',
+                            'type' => 'Text Area',
+                            'label' => $fc['label'] ?? ($fc['name'] ?? 'Field'),
+                            'helper' => $fc['helper-text'] ?? ($fc['helper'] ?? ''),
+                            'required' => !empty($fc['required'])
+                        ];
+                    } elseif ($fType === 'DatePicker') {
+                        $components[] = [
+                            'id' => 'c' . ($fcIdx + 1),
+                            'name' => $fc['name'] ?? '',
+                            'type' => 'Date Picker',
+                            'label' => $fc['label'] ?? 'Date',
+                            'helper' => $fc['helper-text'] ?? '',
+                            'required' => !empty($fc['required'])
+                        ];
+                    } elseif ($fType === 'Dropdown') {
+                        $optList = [];
+                        if (!empty($fc['data-source'])) {
+                            foreach ($fc['data-source'] as $ds) {
+                                $optList[] = $ds['title'] ?? ($ds['id'] ?? '');
+                            }
+                        }
+                        $components[] = [
+                            'id' => 'c' . ($fcIdx + 1),
+                            'name' => $fc['name'] ?? '',
+                            'type' => (stripos($fc['label'] ?? '', 'time') !== false ? 'Time Slot' : 'Dropdown'),
+                            'label' => $fc['label'] ?? 'Dropdown',
+                            'options' => $optList,
+                            'helper' => $fc['helper-text'] ?? '',
+                            'required' => !empty($fc['required'])
+                        ];
+                    } elseif ($fType === 'Footer') {
+                        $footerLabel = $fc['label'] ?? 'Submit';
+                    }
+                }
+            } elseif ($type === 'Footer') {
+                $footerLabel = $c['label'] ?? 'Submit';
+            }
+        }
+        
+        $screens[] = [
+            'id' => $screenId,
+            'name' => $screenTitle,
+            'title' => $screenTitle,
+            'body' => $screenBody,
+            'components' => $components,
+            'footer_label' => $footerLabel,
+            'footer_action' => $footerAction
+        ];
+    }
+    return $screens;
+}
+
 $rawInput = file_get_contents('php://input');
 $jsonInput = !empty($rawInput) ? json_decode($rawInput, true) : null;
 $inputData = is_array($jsonInput) ? array_merge($_POST, $jsonInput) : $_POST;
@@ -363,12 +472,47 @@ switch ($action) {
                     $stmtChk->execute([$flowId]);
                     $existingId = $stmtChk->fetchColumn();
 
+                    // Fetch live flow.json asset from Meta
+                    $screensJson = null;
+                    $rawContent = null;
+                    try {
+                        $urlAssets = "https://graph.facebook.com/v20.0/{$flowId}/assets";
+                        $chA = curl_init($urlAssets);
+                        curl_setopt($chA, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $waba['access_token']]);
+                        curl_setopt($chA, CURLOPT_RETURNTRANSFER, true);
+                        $resA = curl_exec($chA);
+                        curl_close($chA);
+                        $assetsA = json_decode($resA, true);
+                        if (!empty($assetsA['data'])) {
+                            foreach ($assetsA['data'] as $ass) {
+                                if (($ass['name'] ?? '') === 'flow.json' && !empty($ass['download_url'])) {
+                                    $chD = curl_init($ass['download_url']);
+                                    curl_setopt($chD, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $waba['access_token']]);
+                                    curl_setopt($chD, CURLOPT_RETURNTRANSFER, true);
+                                    $rawContent = curl_exec($chD);
+                                    curl_close($chD);
+                                    $metaJ = json_decode($rawContent, true);
+                                    if (!empty($metaJ['screens'])) {
+                                        $parsedScreens = parseMetaFlowJsonToBuilderScreens($metaJ);
+                                        $screensJson = json_encode($parsedScreens, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (Throwable $eAsset) {}
+
                     if ($existingId) {
-                        $stmtUp = $pdo->prepare("UPDATE bot_flows SET name = ?, category = ?, status = ? WHERE id = ?");
-                        $stmtUp->execute([$name, $category, $status, $existingId]);
+                        if ($screensJson !== null) {
+                            $stmtUp = $pdo->prepare("UPDATE bot_flows SET name = ?, category = ?, status = ?, screens_json = ?, raw_nodes_json = ? WHERE id = ?");
+                            $stmtUp->execute([$name, $category, $status, $screensJson, $rawContent, $existingId]);
+                        } else {
+                            $stmtUp = $pdo->prepare("UPDATE bot_flows SET name = ?, category = ?, status = ? WHERE id = ?");
+                            $stmtUp->execute([$name, $category, $status, $existingId]);
+                        }
                     } else {
-                        $stmtIns = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status) VALUES (?, ?, ?, ?)");
-                        $stmtIns->execute([$flowId, $name, $category, $status]);
+                        $stmtIns = $pdo->prepare("INSERT INTO bot_flows (flow_id, name, category, status, screens_json, raw_nodes_json) VALUES (?, ?, ?, ?, ?, ?)");
+                        $stmtIns->execute([$flowId, $name, $category, $status, $screensJson, $rawContent]);
                     }
                     $synced++;
                 }
@@ -702,6 +846,443 @@ switch ($action) {
             $stmt = $pdo->prepare("DELETE FROM whatsapp_keyword_triggers WHERE id = ?");
             $stmt->execute([$id]);
             echo json_encode(['success' => true, 'message' => 'Keyword trigger rule deleted']);
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'get_canvas_resources':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        try {
+            $effective_pdo = $pdo_master ?? $pdo;
+            $userId = $_SESSION['user_id'] ?? 0;
+            $tenantPrefix = (!empty($_SESSION['tenant_db']) && strpos($_SESSION['tenant_db'], 't_') === 0) ? $_SESSION['tenant_db'] : '';
+
+            // 1. Fetch Meta Approved Flows ONLY (status = 'PUBLISHED')
+            $flowsMap = [];
+            if (!empty($tenantPrefix)) {
+                try {
+                    $tenantFlowsTbl = "`" . $tenantPrefix . "bot_flows`";
+                    $stmtTF = $effective_pdo->query("SELECT id, flow_id, name, category, status, screens_json FROM {$tenantFlowsTbl} WHERE UPPER(status) = 'PUBLISHED' ORDER BY id DESC");
+                    while ($f = $stmtTF->fetch(PDO::FETCH_ASSOC)) {
+                        $flowsMap[$f['flow_id']] = $f;
+                    }
+                } catch (\Throwable $e) {}
+            }
+            try {
+                $stmtF = $effective_pdo->query("SELECT id, flow_id, name, category, status, screens_json FROM bot_flows WHERE UPPER(status) = 'PUBLISHED' ORDER BY id DESC");
+                while ($f = $stmtF->fetch(PDO::FETCH_ASSOC)) {
+                    if (!isset($flowsMap[$f['flow_id']])) {
+                        $flowsMap[$f['flow_id']] = $f;
+                    }
+                }
+            } catch (\Throwable $e) {}
+            $flowsList = array_values($flowsMap);
+
+            // 2. Fetch Meta Approved Templates ONLY (meta_status = 'APPROVED')
+            $tplMap = [];
+            if (!empty($tenantPrefix)) {
+                try {
+                    $tenantTplTbl = "`" . $tenantPrefix . "whatsapp_templates`";
+                    $stmtTT = $effective_pdo->query("SELECT id, title, slug, category, header_type, header_text, header_content, body_text, footer_text, buttons_json, meta_status FROM {$tenantTplTbl} WHERE UPPER(meta_status) = 'APPROVED' ORDER BY id DESC");
+                    while ($t = $stmtTT->fetch(PDO::FETCH_ASSOC)) {
+                        $tplMap[$t['slug']] = $t;
+                    }
+                } catch (\Throwable $e) {}
+            }
+            try {
+                $stmtT = $effective_pdo->query("SELECT id, title, slug, category, header_type, header_text, header_content, body_text, footer_text, buttons_json, meta_status FROM whatsapp_templates WHERE UPPER(meta_status) = 'APPROVED' ORDER BY id DESC");
+                while ($t = $stmtT->fetch(PDO::FETCH_ASSOC)) {
+                    if (!isset($tplMap[$t['slug']])) {
+                        $tplMap[$t['slug']] = $t;
+                    }
+                }
+            } catch (\Throwable $e) {}
+            $templatesList = array_values($tplMap);
+
+            // Format buttons and screens for interactive canvas wiring
+            foreach ($templatesList as &$tpl) {
+                $rawBtns = $tpl['buttons_json'] ?? '[]';
+                $decoded = is_string($rawBtns) ? json_decode($rawBtns, true) : $rawBtns;
+                $formattedBtns = [];
+                if (is_array($decoded)) {
+                    foreach ($decoded as $idx => $b) {
+                        $bTitle = $b['title'] ?? $b['text'] ?? $b['label'] ?? ("Option " . ($idx + 1));
+                        $bId = $b['id'] ?? ('btn_' . ($idx + 1));
+                        if ($bId === 'QUICK_REPLY' || $bId === 'FLOW' || $bId === 'URL' || $bId === 'PHONE_NUMBER') {
+                            $cleanSuffix = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '_', $bTitle));
+                            $bId = 'btn_' . ($cleanSuffix ?: ($idx + 1));
+                        }
+                        $formattedBtns[] = [
+                            'id' => $bId,
+                            'title' => $bTitle,
+                            'label' => $bTitle,
+                            'type' => $b['type'] ?? $b['id'] ?? 'QUICK_REPLY'
+                        ];
+                    }
+                }
+                $tpl['buttons'] = $formattedBtns;
+            }
+            unset($tpl);
+
+            foreach ($flowsList as &$flw) {
+                $rawScreens = $flw['screens_json'] ?? '[]';
+                $decodedScreens = is_string($rawScreens) ? json_decode($rawScreens, true) : $rawScreens;
+                $flw['screens'] = is_array($decodedScreens) ? $decodedScreens : [];
+            }
+            unset($flw);
+
+            echo json_encode([
+                'success' => true,
+                'flows' => $flowsList,
+                'templates' => $templatesList
+            ]);
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'sync_meta_canvas_resources':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        try {
+            $effective_pdo = $pdo_master ?? $pdo;
+            $userId = $_SESSION['user_id'] ?? 0;
+
+            // Get active WABA credentials
+            $stmtW = $effective_pdo->prepare("SELECT waba_id, access_token FROM merchant_waba_settings WHERE access_token != '' AND waba_id != '' ORDER BY (CASE WHEN user_id = ? THEN 1 WHEN waba_id != '1363197648586760' THEN 2 ELSE 3 END) LIMIT 1");
+            $stmtW->execute([$userId]);
+            $waba = $stmtW->fetch(PDO::FETCH_ASSOC);
+
+            if (!$waba || empty($waba['waba_id']) || empty($waba['access_token'])) {
+                $stmtTc = $effective_pdo->prepare("SELECT waba_id, access_token FROM tenant_whatsapp_configs WHERE access_token != '' AND waba_id != '' ORDER BY (user_id = ?) DESC LIMIT 1");
+                $stmtTc->execute([$userId]);
+                $waba = $stmtTc->fetch(PDO::FETCH_ASSOC);
+            }
+
+            $syncedTemplatesCount = 0;
+            $syncedFlowsCount = 0;
+
+            if ($waba && !empty($waba['waba_id']) && !empty($waba['access_token'])) {
+                $wabaId = $waba['waba_id'];
+                $token = $waba['access_token'];
+
+                // 1. Sync Flows from Meta Graph API
+                $urlFlows = "https://graph.facebook.com/v20.0/{$wabaId}/flows?fields=id,name,status,categories,validation_errors";
+                $chF = curl_init($urlFlows);
+                curl_setopt($chF, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+                curl_setopt($chF, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($chF, CURLOPT_SSL_VERIFYPEER, false);
+                $resF = curl_exec($chF);
+                $httpF = curl_getinfo($chF, CURLINFO_HTTP_CODE);
+                curl_close($chF);
+
+                if ($httpF >= 200 && $httpF < 300) {
+                    $flowData = json_decode($resF, true);
+                    if (!empty($flowData['data'])) {
+                        foreach ($flowData['data'] as $mf) {
+                            $fId = $mf['id'];
+                            $fName = ucwords($mf['name']);
+                            $fStatus = strtoupper($mf['status'] ?? 'PUBLISHED');
+                            $catArr = $mf['categories'] ?? ['OTHER'];
+                            $fCat = !empty($catArr[0]) ? strtoupper(str_replace('_', ' ', $catArr[0])) : 'OTHER';
+
+                            $stmtUpF = $effective_pdo->prepare("
+                                INSERT INTO bot_flows (flow_id, name, category, status)
+                                VALUES (?, ?, ?, ?)
+                                ON DUPLICATE KEY UPDATE name = VALUES(name), category = VALUES(category), status = VALUES(status)
+                            ");
+                            $stmtUpF->execute([$fId, $fName, $fCat, $fStatus]);
+                            $syncedFlowsCount++;
+                        }
+                    }
+                }
+
+                // 2. Sync Templates from Meta Graph API
+                $urlTpls = "https://graph.facebook.com/v20.0/{$wabaId}/message_templates?limit=100";
+                $chT = curl_init($urlTpls);
+                curl_setopt($chT, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+                curl_setopt($chT, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($chT, CURLOPT_SSL_VERIFYPEER, false);
+                $resT = curl_exec($chT);
+                $httpT = curl_getinfo($chT, CURLINFO_HTTP_CODE);
+                curl_close($chT);
+
+                if ($httpT >= 200 && $httpT < 300) {
+                    $tplData = json_decode($resT, true);
+                    if (!empty($tplData['data'])) {
+                        foreach ($tplData['data'] as $mT) {
+                            $tSlug = $mT['name'];
+                            $tTitle = ucwords(str_replace('_', ' ', $tSlug));
+                            $tCat = $mT['category'] ?? 'MARKETING';
+                            $tStatus = strtoupper($mT['status'] ?? 'APPROVED');
+
+                            $hText = '';
+                            $hType = 'none';
+                            $bText = '';
+                            $fText = '';
+                            $btnsArr = [];
+
+                            if (!empty($mT['components']) && is_array($mT['components'])) {
+                                foreach ($mT['components'] as $comp) {
+                                    if ($comp['type'] === 'HEADER') {
+                                        $hType = strtolower($comp['format'] ?? 'text');
+                                        $hText = $comp['text'] ?? '';
+                                    }
+                                    if ($comp['type'] === 'BODY') {
+                                        $bText = $comp['text'] ?? '';
+                                    }
+                                    if ($comp['type'] === 'FOOTER') {
+                                        $fText = $comp['text'] ?? '';
+                                    }
+                                    if ($comp['type'] === 'BUTTONS' && !empty($comp['buttons'])) {
+                                        foreach ($comp['buttons'] as $b) {
+                                            $btnsArr[] = [
+                                                'id' => $b['type'] ?? 'btn',
+                                                'title' => $b['text'] ?? 'Action'
+                                            ];
+                                        }
+                                    }
+                                }
+                            }
+                            $btnsJson = !empty($btnsArr) ? json_encode($btnsArr, JSON_UNESCAPED_UNICODE) : '[]';
+
+                            $stmtUpT = $effective_pdo->prepare("
+                                INSERT INTO whatsapp_templates (title, slug, category, header_type, header_text, body_text, footer_text, buttons_json, meta_status, waba_id)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ON DUPLICATE KEY UPDATE title = VALUES(title), category = VALUES(category), header_type = VALUES(header_type), header_text = VALUES(header_text), body_text = VALUES(body_text), footer_text = VALUES(footer_text), buttons_json = VALUES(buttons_json), meta_status = VALUES(meta_status)
+                            ");
+                            $stmtUpT->execute([$tTitle, $tSlug, $tCat, $hType, $hText, $bText, $fText, $btnsJson, $tStatus, $wabaId]);
+                            $syncedTemplatesCount++;
+                        }
+                    }
+                }
+            }
+
+            echo json_encode([
+                'success' => true,
+                'message' => "Synced successfully from Meta: {$syncedTemplatesCount} templates and {$syncedFlowsCount} flows verified."
+            ]);
+        } catch (\Throwable $e) {
+            echo json_encode(['success' => false, 'message' => 'Sync failed: ' . $e->getMessage()]);
+        }
+        exit;
+
+    case 'list_workflows':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        try {
+            // Seed initial default workflows if table is empty
+            $countWf = $pdo->query("SELECT COUNT(*) FROM bot_flow_automations")->fetchColumn();
+            if (intval($countWf) === 0) {
+                $defaultNodes1 = [
+                    ['id' => 'node_trigger_1', 'type' => 'trigger', 'title' => 'Keyword Trigger', 'x' => 60, 'y' => 180, 'data' => ['keywords' => 'HI, SUPPORT, TICKET, HELPDESK, HELP', 'match_type' => 'contains']],
+                    ['id' => 'node_template_1', 'type' => 'template', 'title' => 'WhatsApp Welcome Menu', 'x' => 430, 'y' => 150, 'data' => ['template_name' => 'marg_welcome_menu', 'header_text' => 'Marg Soft Solution Helpdesk', 'body_text' => 'Namaste! Welcome to Marg ERP Support. Please choose an option below to proceed:', 'buttons' => [['id' => 'btn_ticket', 'label' => 'Create Support Ticket'], ['id' => 'btn_demo', 'label' => 'Book ERP Demo'], ['id' => 'btn_agent', 'label' => 'Talk to Support Agent']]]],
+                    ['id' => 'node_flow_1', 'type' => 'flow', 'title' => 'Marg Tickets Flow', 'x' => 840, 'y' => 80, 'data' => ['flow_id' => '869669339414580', 'flow_name' => 'Marg Tickets', 'screen' => 'WELCOME_SCREEN', 'fields' => ['license_number', 'problem', 'callback_number']]],
+                    ['id' => 'node_action_1', 'type' => 'action', 'title' => 'Generate Support Ticket', 'x' => 1250, 'y' => 80, 'data' => ['action_type' => 'create_support_ticket', 'notify_client' => true, 'use_meta_template' => true, 'reverse_loop_agent' => true]]
+                ];
+                $conn1 = [
+                    ['from' => 'node_trigger_1', 'fromPort' => 'out', 'to' => 'node_template_1', 'toPort' => 'in'],
+                    ['from' => 'node_template_1', 'fromPort' => 'btn_ticket', 'to' => 'node_flow_1', 'toPort' => 'in'],
+                    ['from' => 'node_flow_1', 'fromPort' => 'out', 'to' => 'node_action_1', 'toPort' => 'in']
+                ];
+
+                $defaultNodes2 = [
+                    ['id' => 'node_trigger_2', 'type' => 'trigger', 'title' => 'Demo Keyword Trigger', 'x' => 60, 'y' => 180, 'data' => ['keywords' => 'DEMO, BOOK DEMO, SALES', 'match_type' => 'contains']],
+                    ['id' => 'node_flow_2', 'type' => 'flow', 'title' => 'Marg Demo Booking Flow', 'x' => 480, 'y' => 180, 'data' => ['flow_id' => '1611148110659211', 'flow_name' => 'Marg ERP Demo Appointment', 'screen' => 'DEMO_SCREEN', 'fields' => ['name', 'mobile', 'demo_date', 'slot']]],
+                    ['id' => 'node_action_2', 'type' => 'action', 'title' => 'Generate Sales Lead', 'x' => 900, 'y' => 180, 'data' => ['action_type' => 'create_sales_lead', 'assign_to' => 'SAHIL SAVITA', 'notify_client' => false]]
+                ];
+                $conn2 = [
+                    ['from' => 'node_trigger_2', 'fromPort' => 'out', 'to' => 'node_flow_2', 'toPort' => 'in'],
+                    ['from' => 'node_flow_2', 'fromPort' => 'out', 'to' => 'node_action_2', 'toPort' => 'in']
+                ];
+
+                $insWf = $pdo->prepare("INSERT INTO bot_flow_automations (name, trigger_keyword, status, nodes_json, connections_json) VALUES (?, ?, 'ACTIVE', ?, ?)");
+                $insWf->execute(['Marg Technical Support Ticket Journey', 'HI, SUPPORT, TICKET', json_encode($defaultNodes1), json_encode($conn1)]);
+                $insWf->execute(['Marg ERP Demo Booking Walkthrough', 'DEMO, BOOK DEMO', json_encode($defaultNodes2), json_encode($conn2)]);
+            }
+
+            $stmtList = $pdo->query("SELECT id, name, trigger_keyword, status, nodes_json, connections_json, created_at, updated_at FROM bot_flow_automations ORDER BY id DESC");
+            $workflows = $stmtList ? $stmtList->fetchAll(PDO::FETCH_ASSOC) : [];
+
+            $formatted = [];
+            foreach ($workflows as $w) {
+                $nodes = !empty($w['nodes_json']) ? json_decode($w['nodes_json'], true) : [];
+                $connections = !empty($w['connections_json']) ? json_decode($w['connections_json'], true) : [];
+                $formatted[] = [
+                    'id' => (int)$w['id'],
+                    'name' => $w['name'],
+                    'trigger_keyword' => $w['trigger_keyword'] ?: 'ALL',
+                    'status' => $w['status'] ?: 'ACTIVE',
+                    'node_count' => count($nodes),
+                    'connection_count' => count($connections),
+                    'created_at' => $w['created_at'],
+                    'updated_at' => $w['updated_at']
+                ];
+            }
+
+            echo json_encode(['success' => true, 'workflows' => $formatted]);
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'get_workflow':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        $id = intval($_GET['id'] ?? $inputData['id'] ?? 0);
+        try {
+            if ($id > 0) {
+                $stmtW = $pdo->prepare("SELECT * FROM bot_flow_automations WHERE id = ? LIMIT 1");
+                $stmtW->execute([$id]);
+            } else {
+                $stmtW = $pdo->query("SELECT * FROM bot_flow_automations ORDER BY id ASC LIMIT 1");
+            }
+            $row = $stmtW ? $stmtW->fetch(PDO::FETCH_ASSOC) : null;
+
+            if ($row) {
+                echo json_encode([
+                    'success' => true,
+                    'workflow' => [
+                        'id' => (int)$row['id'],
+                        'name' => $row['name'],
+                        'trigger_keyword' => $row['trigger_keyword'] ?? 'ALL',
+                        'status' => $row['status'],
+                        'nodes' => json_decode($row['nodes_json'], true) ?: [],
+                        'connections' => json_decode($row['connections_json'], true) ?: []
+                    ]
+                ]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Workflow automation not found']);
+            }
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'save_workflow':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+
+        $id = intval($inputData['id'] ?? 0);
+        $workflowName = trim($inputData['name'] ?? 'New WhatsApp Automation');
+        $triggerKeyword = trim($inputData['trigger_keyword'] ?? 'ALL');
+        $status = trim($inputData['status'] ?? 'ACTIVE');
+        $nodes = $inputData['nodes'] ?? [];
+        $connections = $inputData['connections'] ?? [];
+
+        $nodesJson = is_array($nodes) ? json_encode($nodes, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : $nodes;
+        $connectionsJson = is_array($connections) ? json_encode($connections, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : $connections;
+
+        $tenantId = intval($_SESSION['tenant_id'] ?? $_SESSION['user_id'] ?? 0);
+        $wabaId = trim($_SESSION['waba_id'] ?? $inputData['waba_id'] ?? '');
+        $phoneId = trim($_SESSION['phone_number_id'] ?? $inputData['phone_number_id'] ?? '');
+
+        // Auto-resolve tenant phone_number_id and waba_id if not explicitly provided
+        if (empty($phoneId)) {
+            try {
+                $stmtPh = $pdo->prepare("SELECT phone_number_id, waba_id FROM merchant_waba_settings WHERE user_id = ? OR access_token != '' ORDER BY (CASE WHEN user_id = ? THEN 1 ELSE 2 END), id DESC LIMIT 1");
+                $stmtPh->execute([$tenantId, $tenantId]);
+                $wRow = $stmtPh->fetch(PDO::FETCH_ASSOC);
+                if ($wRow) {
+                    $phoneId = $wRow['phone_number_id'] ?? '';
+                    if (empty($wabaId)) $wabaId = $wRow['waba_id'] ?? '';
+                }
+            } catch (\Throwable $ePh) {}
+        }
+
+        try {
+            if ($id > 0) {
+                $stmtUpd = $pdo->prepare("UPDATE bot_flow_automations SET name = ?, trigger_keyword = ?, status = ?, nodes_json = ?, connections_json = ?, tenant_id = ?, waba_id = ?, phone_number_id = ?, updated_at = NOW() WHERE id = ?");
+                $stmtUpd->execute([$workflowName, $triggerKeyword, $status, $nodesJson, $connectionsJson, $tenantId, $wabaId, $phoneId, $id]);
+            } else {
+                $stmtIns = $pdo->prepare("INSERT INTO bot_flow_automations (name, trigger_keyword, status, nodes_json, connections_json, tenant_id, waba_id, phone_number_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmtIns->execute([$workflowName, $triggerKeyword, $status, $nodesJson, $connectionsJson, $tenantId, $wabaId, $phoneId]);
+                $id = (int)$pdo->lastInsertId();
+            }
+
+            echo json_encode([
+                'success' => true,
+                'id' => $id,
+                'message' => 'Flow Automation saved successfully!'
+            ]);
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'delete_workflow':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        $id = intval($_POST['id'] ?? $inputData['id'] ?? 0);
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Invalid workflow ID']);
+            exit;
+        }
+        try {
+            $stmtDel = $pdo->prepare("DELETE FROM bot_flow_automations WHERE id = ?");
+            $stmtDel->execute([$id]);
+            echo json_encode(['success' => true, 'message' => 'Flow automation deleted successfully']);
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'clone_workflow':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        $id = intval($_POST['id'] ?? $inputData['id'] ?? 0);
+        try {
+            $stmtO = $pdo->prepare("SELECT * FROM bot_flow_automations WHERE id = ? LIMIT 1");
+            $stmtO->execute([$id]);
+            $orig = $stmtO->fetch(PDO::FETCH_ASSOC);
+
+            if ($orig) {
+                $newName = $orig['name'] . ' (Copy)';
+                $stmtClone = $pdo->prepare("INSERT INTO bot_flow_automations (name, trigger_keyword, status, nodes_json, connections_json) VALUES (?, ?, 'ACTIVE', ?, ?)");
+                $stmtClone->execute([$newName, $orig['trigger_keyword'], $orig['nodes_json'], $orig['connections_json']]);
+                $newId = (int)$pdo->lastInsertId();
+
+                echo json_encode(['success' => true, 'id' => $newId, 'message' => 'Flow automation duplicated successfully']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Workflow not found']);
+            }
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+
+    case 'toggle_workflow_status':
+        if (!$db_connected || !$pdo) {
+            echo json_encode(['success' => false, 'message' => 'Database offline']);
+            exit;
+        }
+        $id = intval($_POST['id'] ?? $inputData['id'] ?? 0);
+        try {
+            $stmtS = $pdo->prepare("SELECT status FROM bot_flow_automations WHERE id = ? LIMIT 1");
+            $stmtS->execute([$id]);
+            $curr = $stmtS->fetchColumn();
+            $newStatus = ($curr === 'ACTIVE') ? 'PAUSED' : 'ACTIVE';
+
+            $stmtUp = $pdo->prepare("UPDATE bot_flow_automations SET status = ? WHERE id = ?");
+            $stmtUp->execute([$newStatus, $id]);
+
+            echo json_encode(['success' => true, 'status' => $newStatus, 'message' => "Workflow status updated to {$newStatus}"]);
         } catch (PDOException $e) {
             echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         }

@@ -89,18 +89,15 @@ if (isset($_GET['action']) && $_GET['action'] === 'save_followup' && $_SERVER['R
             if (!$not_required && !empty($reminder_date)) {
                 $scheduled_at = $reminder_date . ' ' . (!empty($reminder_time) ? $reminder_time : '12:00:00');
                 
-                // Check if a pending follow-up already exists for this lead
-                $chkFup = $pdo->prepare("SELECT id FROM followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1");
-                $chkFup->execute([$lead_id]);
-                $existFup = $chkFup->fetchColumn();
+                // Archive prior pending follow-ups for this lead so all touchpoint notes remain in history
+                $cleanFmLeadId = preg_replace('/^LD-/i', '', $lead_id);
+                $fmtFmLeadId = 'LD-' . $cleanFmLeadId;
+                $updPrior = $pdo->prepare("UPDATE followups SET status = 'completed' WHERE lead_id IN (?, ?) AND status = 'pending'");
+                $updPrior->execute([$cleanFmLeadId, $fmtFmLeadId]);
 
-                if ($existFup) {
-                    $stmt = $pdo->prepare("UPDATE followups SET action_type = ?, scheduled_at = ?, remarks = ?, assigned_to = ? WHERE id = ?");
-                    $stmt->execute([$follow_up_type, $scheduled_at, $comment, $assigned_to, $existFup]);
-                } else {
-                    $stmt = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, assigned_to, status) VALUES (?, ?, ?, ?, ?, 'pending')");
-                    $stmt->execute([$lead_id, $follow_up_type, $scheduled_at, $comment, $assigned_to]);
-                }
+                // Always insert a new record to permanently track every update
+                $stmt = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, assigned_to, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', NOW())");
+                $stmt->execute([$lead_id, $follow_up_type, $scheduled_at, $comment, $assigned_to]);
             }
             
             // Update Lead profile with modal inputs & assigned_by
@@ -184,12 +181,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                 if (!empty($reminder_date)) {
                     $scheduled_at = $reminder_date . ' ' . (!empty($reminder_time) ? $reminder_time : '12:00:00');
                     
-                    // Delete previous pending follow-ups to schedule a fresh one
-                    $delFup = $pdo->prepare("DELETE FROM followups WHERE lead_id = ? AND status = 'pending'");
-                    $delFup->execute([$leadId]);
+                    // Archive previous pending follow-ups to keep full lifecycle history intact
+                    $cleanFm2LeadId = preg_replace('/^LD-/i', '', $leadId);
+                    $fmtFm2LeadId = 'LD-' . $cleanFm2LeadId;
+                    $updPrior = $pdo->prepare("UPDATE followups SET status = 'completed' WHERE lead_id IN (?, ?) AND status = 'pending'");
+                    $updPrior->execute([$cleanFm2LeadId, $fmtFm2LeadId]);
                     
-                    $fup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, assigned_to, status) VALUES (?, 'Call', ?, ?, ?, 'pending')");
+                    $fup = $pdo->prepare("INSERT INTO followups (lead_id, action_type, scheduled_at, remarks, assigned_to, status, created_at) VALUES (?, 'Call', ?, ?, ?, 'pending', NOW())");
                     $fup->execute([$leadId, $scheduled_at, $remark, $assigned_to]);
+                    // Sync scheduled demo record if one exists for this lead
+                    try {
+                        $updDemo = $pdo->prepare("UPDATE demos SET scheduled_at = ? WHERE lead_id = ? AND status = 'scheduled'");
+                        $updDemo->execute([$scheduled_at, $leadId]);
+                    } catch (Throwable $eDemo) {}
                 }
                 
                 // Redirect directly to directory lists
@@ -264,10 +268,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
     .glass-form-card {
         background-color: var(--bg-card);
         border: 1px solid var(--border-color);
-        box-shadow: var(--shadow-lg);
+        box-shadow: var(--shadow-sm);
         border-radius: var(--border-radius-lg);
         padding: 2.25rem;
         transition: background-color var(--transition-base), border-color var(--transition-base);
+        width: 100%;
+        box-sizing: border-box;
     }
     .form-section-title {
         font-family: var(--font-heading);
@@ -346,7 +352,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
     }
 </style>
 
-<div class="lead-form-container" style="max-width: 850px; margin: 0 auto;">
+<div class="lead-form-container" style="width: 100%; max-width: 100%;">
     <!-- Page Header -->
     <div class="mb-6 flex align-center justify-between">
         <div class="flex align-center gap-3">
@@ -404,22 +410,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_GET['action']) || $_GET['
                         $existing_phone_num = $pm[2];
                     }
                     $cc_options = [
-                        '+91' => '🇮🇳 +91 India',
-                        '+1'  => '🇺🇸 +1 USA/Canada',
-                        '+44' => '🇬🇧 +44 UK',
-                        '+61' => '🇦🇺 +61 Australia',
-                        '+971' => '🇦🇪 +971 UAE',
-                        '+966' => '🇸🇦 +966 Saudi Arabia',
-                        '+65' => '🇸🇬 +65 Singapore',
-                        '+60' => '🇲🇾 +60 Malaysia',
-                        '+880' => '🇧🇩 +880 Bangladesh',
-                        '+977' => '🇳🇵 +977 Nepal',
-                        '+94'  => '🇱🇰 +94 Sri Lanka',
-                        '+92'  => '🇵🇰 +92 Pakistan',
-                        '+49'  => '🇩🇪 +49 Germany',
-                        '+33'  => '🇫🇷 +33 France',
-                        '+81'  => '🇯🇵 +81 Japan',
-                        '+86'  => '🇨🇳 +86 China',
+                        '+91' => '+91 (India)',
+                        '+1'  => '+1 (USA/Canada)',
+                        '+44' => '+44 (UK)',
+                        '+61' => '+61 (Australia)',
+                        '+971' => '+971 (UAE)',
+                        '+966' => '+966 (Saudi Arabia)',
+                        '+65' => '+65 (Singapore)',
+                        '+60' => '+60 (Malaysia)',
+                        '+880' => '+880 (Bangladesh)',
+                        '+977' => '+977 (Nepal)',
+                        '+94'  => '+94 (Sri Lanka)',
+                        '+92'  => '+92 (Pakistan)',
+                        '+49'  => '+49 (Germany)',
+                        '+33'  => '+33 (France)',
+                        '+81'  => '+81 (Japan)',
+                        '+86'  => '+86 (China)',
                     ];
                     ?>
                     <div style="display:flex; gap:0.5rem; align-items:stretch;">

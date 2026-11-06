@@ -52,6 +52,14 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                         </a>
                     </li>
                 <?php endif; ?>
+                <?php if (hasAccess('tasks', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('tasks'); ?>">
+                        <a href="index.php?page=tasks">
+                            <i data-lucide="check-square" style="width: 18px; height: 18px; color: #0284c7;"></i>
+                            <span>Tasks Manager</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
             </ul>
             <?php endif; ?>
 
@@ -60,10 +68,16 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                 <div class="menu-group-title">Leads & Clients</div>
                 <ul>
                     <?php if (hasAccess('leads', $role)): ?>
-                        <li class="sidebar-item <?php echo (isActivePage('leads') || isActivePage('lead_details') || isActivePage('lead_form') || isActivePage('lead_import')) ? 'active' : ''; ?>">
+                        <li class="sidebar-item <?php echo (isActivePage('leads') && in_array(($_GET['view'] ?? ''), ['modern', 'crm'])) ? 'active' : ''; ?>">
+                            <a href="index.php?page=leads&view=modern">
+                                <i data-lucide="layout-grid" style="width: 18px; height: 18px; color: #2563eb;"></i>
+                                <span>Leads (Modern View)</span>
+                            </a>
+                        </li>
+                        <li class="sidebar-item <?php echo (isActivePage('leads') && !in_array(($_GET['view'] ?? ''), ['modern', 'crm'])) ? 'active' : ''; ?>">
                             <a href="index.php?page=leads">
                                 <i data-lucide="users" style="width: 18px; height: 18px;"></i>
-                                <span>Lead Directory</span>
+                                <span>Leads (Classic View)</span>
                             </a>
                         </li>
                     <?php endif; ?>
@@ -105,6 +119,14 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             <a href="index.php?page=followups">
                                 <i data-lucide="calendar" style="width: 18px; height: 18px;"></i>
                                 <span>Follow-up Planner</span>
+                            </a>
+                        </li>
+                    <?php endif; ?>
+                    <?php if (hasAccess('tasks', $role)): ?>
+                        <li class="sidebar-item <?php echo isActivePage('tasks'); ?>">
+                            <a href="index.php?page=tasks">
+                                <i data-lucide="check-square" style="width: 18px; height: 18px; color: #0284c7;"></i>
+                                <span>Task Manager</span>
                             </a>
                         </li>
                     <?php endif; ?>
@@ -332,6 +354,14 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                         </a>
                     </li>
                 <?php endif; ?>
+                <?php if (hasAccess('tasks', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('tasks'); ?>">
+                        <a href="index.php?page=tasks">
+                            <i data-lucide="check-square" style="width: 18px; height: 18px; color: #0284c7;"></i>
+                            <span>Tasks Manager</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
             </ul>
 
         <!-- Lead Operations Group -->
@@ -339,10 +369,16 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
             <div class="menu-group-title">Leads & Clients</div>
             <ul>
                 <?php if (hasAccess('leads', $role)): ?>
-                    <li class="sidebar-item <?php echo isActivePage('leads') || isActivePage('lead_details') || isActivePage('lead_form') || isActivePage('lead_import') ? 'active' : ''; ?>">
+                    <li class="sidebar-item <?php echo (isActivePage('leads') && in_array(($_GET['view'] ?? ''), ['modern', 'crm'])) ? 'active' : ''; ?>">
+                        <a href="index.php?page=leads&view=modern">
+                            <i data-lucide="layout-grid" style="width: 18px; height: 18px; color: #2563eb;"></i>
+                            <span>Leads (Modern View)</span>
+                        </a>
+                    </li>
+                    <li class="sidebar-item <?php echo (isActivePage('leads') && !in_array(($_GET['view'] ?? ''), ['modern', 'crm'])) ? 'active' : ''; ?>">
                         <a href="index.php?page=leads">
                             <i data-lucide="users" style="width: 18px; height: 18px;"></i>
-                            <span>Lead Directory</span>
+                            <span>Leads (Classic View)</span>
                         </a>
                     </li>
                 <?php endif; ?>
@@ -383,6 +419,14 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                         <a href="index.php?page=followups">
                             <i data-lucide="calendar" style="width: 18px; height: 18px;"></i>
                             <span>Follow-up Planner</span>
+                        </a>
+                    </li>
+                <?php endif; ?>
+                <?php if (hasAccess('tasks', $role)): ?>
+                    <li class="sidebar-item <?php echo isActivePage('tasks'); ?>">
+                        <a href="index.php?page=tasks">
+                            <i data-lucide="check-square" style="width: 18px; height: 18px; color: #0284c7;"></i>
+                            <span>Tasks Manager</span>
                         </a>
                     </li>
                 <?php endif; ?>

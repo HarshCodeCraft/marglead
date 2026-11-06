@@ -16,6 +16,7 @@ Desktop.ini
 
 # Logs & Temp files
 *.log
+logs/
 tmp/
 temp/
 uploads/tmp/*
