@@ -799,10 +799,11 @@ document.addEventListener('DOMContentLoaded', initEasyDateTimePickers);
         });
     };
 
-    // 2. Periodic background heartbeat every 12 seconds to detect login on another device
+    // 2. Periodic background heartbeat to detect login on another device
     let sessionCheckTimer = null;
     function runSessionHeartbeat() {
         if (!isAuthPage()) return;
+        if (document.visibilityState !== 'visible') return; // Skip when tab is in background
 
         originalFetch('api/check_session.php?_t=' + Date.now(), {
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' }
@@ -827,7 +828,7 @@ document.addEventListener('DOMContentLoaded', initEasyDateTimePickers);
 
     document.addEventListener('DOMContentLoaded', () => {
         if (isAuthPage()) {
-            sessionCheckTimer = setInterval(runSessionHeartbeat, 12000);
+            sessionCheckTimer = setInterval(runSessionHeartbeat, 30000);
         }
     });
 })();

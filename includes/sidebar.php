@@ -597,6 +597,12 @@ $tenant_company_display = $_SESSION['tenant_name'] ?? $_SESSION['company_name'] 
                             <i data-lucide="chevron-down" class="menu-chevron" style="width: 14px; height: 14px;"></i>
                         </a>
                         <ul class="sidebar-submenu">
+                            <li class="sidebar-subitem <?php echo ($is_bot_active && in_array($current_tab, ['canvas', 'automations'])) ? 'active' : ''; ?>">
+                                <a href="index.php?page=bot_flows&tab=canvas" style="color: #3b82f6; font-weight: 700;">
+                                    <i data-lucide="workflow" style="width: 14px; height: 14px; color: #3b82f6;"></i>
+                                    <span>Flow Canvas (Visual)</span>
+                                </a>
+                            </li>
                             <li class="sidebar-subitem <?php echo ($is_bot_active && $current_tab === 'bots') ? 'active' : ''; ?>">
                                 <a href="index.php?page=bot_flows&tab=bots">
                                     <i data-lucide="bot" style="width: 14px; height: 14px;"></i>

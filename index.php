@@ -963,6 +963,10 @@ switch ($page) {
     case 'bot_flow_builder':
         $module_path = __DIR__ . '/modules/bot_flow_builder.php';
         break;
+    case 'bot_flows_canvas':
+    case 'flow_canvas':
+        $module_path = __DIR__ . '/modules/bot_flows_canvas.php';
+        break;
     case 'team_inbox':
         $module_path = __DIR__ . '/modules/team_inbox.php';
         break;
@@ -1023,7 +1027,7 @@ switch ($page) {
 
 // Tenant Power Permissions & Module Access Guard
 if ($is_tenant_session) {
-    if (in_array($page, ['bot_flows', 'whatsapp_flows', 'bot_flow_builder'])) {
+    if (in_array($page, ['bot_flows', 'whatsapp_flows', 'bot_flow_builder', 'bot_flows_canvas', 'flow_canvas'])) {
         $gwType = $_SESSION['tenant_gateway_type'] ?? null;
         if ($gwType === null && isset($pdo)) {
             try {

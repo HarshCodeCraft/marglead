@@ -437,8 +437,11 @@ try {
         } catch (\Exception $e) {}
     }
 
-    // Schema auto-upgrade to support new Lead fields safely
-    if (!empty($pdo)) {
+    // Schema auto-upgrade to support new fields safely (Cached to prevent 25+ remote queries on every request)
+    $schema_cache_file = sys_get_temp_dir() . '/marg_schema_v2_' . md5(($db_host ?? '') . ($db_name ?? '')) . '.lock';
+    $run_schema_upgrade = !file_exists($schema_cache_file) || (time() - @filemtime($schema_cache_file)) > 86400 || isset($_GET['force_schema_upgrade']);
+
+    if (!empty($pdo) && $run_schema_upgrade) {
         try {
             $columnsQuery = $pdo->query("SHOW COLUMNS FROM leads");
             $columns = $columnsQuery->fetchAll(PDO::FETCH_COLUMN);
@@ -981,6 +984,7 @@ try {
                 $pdo->exec("ALTER TABLE campaign_audience ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
             }
         } catch (\Throwable $bcEx) {}
+        @touch($schema_cache_file);
     } catch (\Exception $e) {
         // Suppress individual table auto-upgrade exceptions
     }

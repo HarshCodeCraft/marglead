@@ -447,6 +447,11 @@ if ($db_connected && $pdo) {
                     <h1 class="flows-title">Flows</h1>
                     
                     <div class="flows-actions-right">
+                        <a href="index.php?page=bot_flows&tab=canvas" class="btn-pill btn-pill-outline flex align-center gap-1" style="border-color: #3b82f6; color: #3b82f6; font-weight: 700; text-decoration: none;" title="Open Visual Drag & Drop Automation Flow Canvas">
+                            <i data-lucide="workflow" style="width: 14px; height: 14px;"></i>
+                            <span>Open Flow Canvas</span>
+                        </a>
+                        
                         <div class="search-flows-box">
                             <i data-lucide="search"></i>
                             <input type="text" id="searchFlowsInput" placeholder="Search Flows" onkeyup="filterFlowsTable()">

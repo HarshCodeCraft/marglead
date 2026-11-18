@@ -387,11 +387,17 @@ input:checked + .slider:before {
     <!-- Top Action Bar -->
     <div class="flow-builder-top-bar">
         <div class="flow-top-left">
-            <a href="index.php?page=bot_flows" class="flow-breadcrumb">
-                <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i>
-                Back to WhatsApp Flows
-            </a>
-            <h1 class="flow-builder-title">
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <a href="index.php?page=bot_flows" class="flow-breadcrumb">
+                    <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i>
+                    Back to WhatsApp Flows
+                </a>
+                <a href="index.php?page=bot_flows&tab=canvas" class="btn-pill btn-pill-outline text-xs flex align-center gap-1" style="border-color: #3b82f6; color: #3b82f6; font-weight: 700; text-decoration: none;">
+                    <i data-lucide="workflow" style="width: 13px; height: 13px;"></i>
+                    <span>Open Visual Flow Canvas</span>
+                </a>
+            </div>
+            <h1 class="flow-builder-title" style="margin-top: 0.35rem;">
                 Meta Flow Builder: <span class="text-primary"><?php echo htmlspecialchars($flowData['name']); ?></span>
             </h1>
         </div>
